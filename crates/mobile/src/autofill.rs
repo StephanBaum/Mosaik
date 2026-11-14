@@ -10,15 +10,16 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use mosaic_core::model::{Item, ItemType, LoginUrl};
+use mosaic_core::model::{Item, ItemType, LoginUrl, Role};
 use mosaic_core::{ItemId, VaultId};
-use mosaic_origin::app::{AndroidAppUrl, is_valid_package_name};
+use mosaic_origin::android_browsers::is_browser_package;
+use mosaic_origin::app::{AndroidAppUrl, is_valid_package_name, package_web_domain};
 use mosaic_origin::assetlinks::{Relation, app_is_delegated, parse_asset_links};
 use mosaic_origin::fields::{self, FieldRole, InputKind};
 use mosaic_origin::target::{self, IosIdentifier, TargetError};
 use mosaic_origin::{
     HttpPolicy, MatchKind, PageOrigin, Refusal, app, fill_allowed_with, idn_unicode, lookalike_of,
-    saved_origin,
+    registrable_domain, saved_origin,
 };
 use mosaic_sync::transport::TransportError;
 use mosaic_vault::session::{ItemFilter as SessionFilter, UnlockedSession, VaultProtection};
@@ -235,6 +236,52 @@ pub enum AssetLinksStatus {
     Unavailable,
 }
 
+/// The most one-tap link candidates a fill request offers (ADR-0092
+/// amendment, one-tap linking).
+pub const MAX_LINK_CANDIDATES: usize = 3;
+
+/// The most logins whose site is asked for a link offer.
+const MAX_ASSET_LINK_CHECKS: usize = 2;
+
+/// The most uncached asset-links fetches one link offer makes.
+const MAX_UNCACHED_FETCHES: usize = 1;
+
+/// Why a login is a strong one-tap candidate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LinkReason {
+    /// The login has `androidapp://<package>` without `cert` (an import).
+    ImportedForApp,
+    /// `host`'s assetlinks.json lists the package and signer (`get_login_creds`).
+    VerifiedBy {
+        /// The host whose file lists the app.
+        host: String,
+    },
+}
+
+/// A login the user may link to the app with one tap. No secret value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkCandidate {
+    /// The login.
+    pub key: ItemKey,
+    /// Its title.
+    pub title: String,
+    /// Its user name, when it has one.
+    pub username: Option<String>,
+    /// Why it is offered.
+    pub reason: LinkReason,
+}
+
+/// What the fill session's app may be linked to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkOffer {
+    /// The session's package (what is linked).
+    pub package_name: String,
+    /// First 8 bytes of the session's signer SHA-256, `AA:BB:CC:DD:EE:FF:00:11`.
+    pub signer_prefix: String,
+    /// At most [`MAX_LINK_CANDIDATES`], imports first, then by title.
+    pub candidates: Vec<LinkCandidate>,
+}
+
 /// The fetch of an asset-links file (the real one is `mosaic_sync`'s; the test
 /// hooks replace it).
 pub(crate) type AssetLinksFetch =
@@ -243,6 +290,8 @@ pub(crate) type AssetLinksFetch =
 /// The asset-links fetch and its answers of the last 24 hours, in memory.
 pub(crate) struct AssetLinks {
     pub(crate) fetch: Mutex<AssetLinksFetch>,
+    /// The fetch of the Autofill request path (2 s timeout).
+    quick: Mutex<AssetLinksFetch>,
     cache: Mutex<HashMap<AssetLinksKey, (u64, bool)>>,
 }
 
@@ -250,13 +299,21 @@ pub(crate) struct AssetLinks {
 /// any relying party it likes).
 const MAX_ASSET_LINKS_CACHE: usize = 256;
 
-/// The relying party, the package and the signer an answer is for.
-type AssetLinksKey = (String, String, [u8; 32]);
+/// What a cached answer is about: a passkey delegation or a login delegation.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum AssetLinksPurpose {
+    Passkeys,
+    Login,
+}
+
+/// The host, the package, the signer and the purpose an answer is for.
+type AssetLinksKey = (String, String, [u8; 32], AssetLinksPurpose);
 
 impl AssetLinks {
     pub(crate) fn new() -> Self {
         Self {
             fetch: Mutex::new(Arc::new(mosaic_sync::http::assetlinks::fetch)),
+            quick: Mutex::new(Arc::new(mosaic_sync::http::assetlinks::fetch_quick)),
             cache: Mutex::new(HashMap::new()),
         }
     }
@@ -280,9 +337,22 @@ impl AssetLinks {
         cache.insert(key, (until, delegated));
     }
 
-    /// Replaces the fetch and forgets what was cached (test hooks).
+    /// The cached answer for `key`, if it has not expired.
+    fn cached(&self, key: &AssetLinksKey, now: u64) -> Option<bool> {
+        self.cache
+            .lock()
+            .ok()
+            .and_then(|c| c.get(key).copied())
+            .filter(|(until, _)| now < *until)
+            .map(|(_, delegated)| delegated)
+    }
+
+    /// Replaces both fetches and forgets what was cached (test hooks).
     #[cfg(feature = "test-hooks")]
     pub(crate) fn replace_fetch(&self, fetch: AssetLinksFetch) {
+        if let Ok(mut current) = self.quick.lock() {
+            *current = Arc::clone(&fetch);
+        }
         if let Ok(mut current) = self.fetch.lock() {
             *current = fetch;
         }
@@ -294,6 +364,15 @@ impl AssetLinks {
     fn fetch(&self, host: &str) -> std::result::Result<Vec<u8>, TransportError> {
         let fetch = self
             .fetch
+            .lock()
+            .map(|f| Arc::clone(&f))
+            .map_err(|_| TransportError::Io)?;
+        fetch(host)
+    }
+
+    fn fetch_quick(&self, host: &str) -> std::result::Result<Vec<u8>, TransportError> {
+        let fetch = self
+            .quick
             .lock()
             .map(|f| Arc::clone(&f))
             .map_err(|_| TransportError::Io)?;
@@ -852,44 +931,192 @@ impl Core {
         // The one current signer binds the app (the one `android_app_origin`
         // uses); several are refused (G1-9).
         let cert = single_signer(&caller.current_signers)?;
-        let linked = AndroidAppUrl::new(&caller.package, Some(cert))
-            .map_err(|_| MobileError::InvalidInput)?;
-        let new_url = LoginUrl::new(&linked.canonical());
+        self.with_session(|s| write_app_link(s, vault, id, &caller.package, cert))
+    }
+
+    /// The package and the one current signer of an Android fill session.
+    /// The certificate of a link always comes from here, never from the
+    /// caller of a link function.
+    fn link_session(&self, session_id: &str) -> Result<(String, [u8; 32])> {
+        self.require_app()?;
+        self.require_platform(Platform::Android)?;
+        match self.fill_session_target(session_id)? {
+            Resolved::App { package, certs } => {
+                if is_browser_package(&package) {
+                    return Err(MobileError::InvalidInput);
+                }
+                match certs.as_slice() {
+                    [only] => Ok((package, *only)),
+                    _ => Err(MobileError::InvalidInput),
+                }
+            }
+            Resolved::Web(_) => Err(MobileError::InvalidInput),
+        }
+    }
+
+    /// Reads the logins a link offer for `package` may use.
+    fn scan_link_logins(&self, package: &str, cert: [u8; 32]) -> Result<LinkScan> {
+        let target = Resolved::App {
+            package: package.to_owned(),
+            certs: vec![cert],
+        };
+        let web_domain = package_web_domain(package);
+        self.with_session(|s| {
+            let writable: HashSet<VaultId> = usable_vaults(s)
+                .into_iter()
+                .filter(|v| {
+                    matches!(
+                        s.vault_own_role(*v),
+                        Ok(Role::Owner | Role::Manage | Role::Write)
+                    )
+                })
+                .collect();
+            let mut scan = LinkScan {
+                already_linked: false,
+                logins: Vec::new(),
+            };
+            for entry in s.items(&SessionFilter::default()) {
+                let item = entry.item;
+                if !writable.contains(&entry.vault_id)
+                    || item.item_type() != Some(ItemType::Login)
+                    || item.is_deleted()
+                    || item.trashed_at().is_some()
+                {
+                    continue;
+                }
+                if match_item(item, &target).is_ok() {
+                    scan.already_linked = true;
+                }
+                let (imported, hosts) = link_urls_of(item, package, web_domain.as_deref());
+                let key = ItemKey {
+                    vault_id: entry.vault_id.to_string(),
+                    item_id: entry.item_id.to_string(),
+                };
+                let c = candidate_of(key.clone(), item, MatchKind::ExactOrigin);
+                scan.logins.push(LinkLogin {
+                    key,
+                    title: c.title,
+                    username: c.username,
+                    imported,
+                    probe_host: hosts.into_iter().min(),
+                });
+            }
+            Ok(scan)
+        })
+    }
+
+    fn link_verdicts<'a>(&'a self, package: &'a str, cert: &'a [u8; 32]) -> LinkVerdicts<'a> {
+        LinkVerdicts {
+            links: &self.assetlinks,
+            package,
+            cert,
+            now: self.now_ms(),
+            fetches_left: MAX_UNCACHED_FETCHES,
+        }
+    }
+
+    /// The logins the app of a fill session may be linked to with one tap:
+    /// at most [`MAX_LINK_CANDIDATES`] strong candidates (an import of the
+    /// exact package, or a login whose site lists the package and the
+    /// session's signer). Network: at most 2 logins are checked and at most 1
+    /// uncached fetch is made per call. No secret value.
+    ///
+    /// The package and the signer come from the fill session, never from the
+    /// caller of this function.
+    ///
+    /// # Errors
+    /// `locked`, `notFound` (unknown or expired session), `invalidInput` (not
+    /// an Android app session, a browser, or not exactly one signer).
+    pub fn fill_link_offer(&self, session_id: String) -> Result<LinkOffer> {
+        let (package, cert) = self.link_session(&session_id)?;
+        let scan = self.scan_link_logins(&package, cert)?;
+        let mut offer = LinkOffer {
+            package_name: package.clone(),
+            signer_prefix: signer_prefix(&cert),
+            candidates: Vec::new(),
+        };
+        if scan.already_linked {
+            return Ok(offer);
+        }
+        let candidate = |l: &LinkLogin, reason| LinkCandidate {
+            key: l.key.clone(),
+            title: l.title.clone(),
+            username: l.username.clone(),
+            reason,
+        };
+        let mut imports: Vec<&LinkLogin> = scan.logins.iter().filter(|l| l.imported).collect();
+        imports.sort_by_key(|l| link_order(l));
+        let mut probes: Vec<&LinkLogin> = scan
+            .logins
+            .iter()
+            .filter(|l| !l.imported && l.probe_host.is_some())
+            .collect();
+        probes.sort_by_key(|l| link_order(l));
+        probes.truncate(MAX_ASSET_LINK_CHECKS);
+        offer.candidates.extend(
+            imports
+                .into_iter()
+                .map(|l| candidate(l, LinkReason::ImportedForApp)),
+        );
+        let mut verdicts = self.link_verdicts(&package, &cert);
+        for login in probes {
+            let Some(host) = &login.probe_host else {
+                continue;
+            };
+            if verdicts.of(host) == Some(true) {
+                offer.candidates.push(candidate(
+                    login,
+                    LinkReason::VerifiedBy { host: host.clone() },
+                ));
+            }
+        }
+        offer.candidates.truncate(MAX_LINK_CANDIDATES);
+        Ok(offer)
+    }
+
+    /// Links the app of a fill session to `candidate`: writes
+    /// `androidapp://<package>?cert=...` into the login. Only a strong
+    /// candidate (see [`Core::fill_link_offer`]) is linked. The caller confirms
+    /// with the user first; this never reads a secret.
+    ///
+    /// The package and the certificate come from the fill session, never from
+    /// the caller of this function.
+    ///
+    /// # Errors
+    /// `locked`, `notFound` (unknown session, trashed or deleted login),
+    /// `invalidInput` (as [`Core::fill_link_offer`]), `noMatch` (not a strong
+    /// candidate), `vaultUnavailable`.
+    pub fn link_app_in_fill_session(&self, session_id: String, candidate: ItemKey) -> Result<()> {
+        let (package, cert) = self.link_session(&session_id)?;
+        let (vault, id) = parse_item_key(&candidate.vault_id, &candidate.item_id)?;
         self.with_session(|s| {
             if !usable_vaults(s).contains(&vault) {
                 return Err(MobileError::VaultUnavailable);
             }
             let item = s.item(vault, id)?;
-            if item.is_deleted() || item.item_type() != Some(ItemType::Login) {
-                return Err(MobileError::InvalidInput);
+            if item.is_deleted() || item.trashed_at().is_some() {
+                return Err(MobileError::NotFound);
             }
-            // Keep one equal binding, drop every other URL of the package.
-            let mut present = false;
-            let mut remove = Vec::new();
-            for (element, saved) in item.urls() {
-                let Ok(app) = AndroidAppUrl::parse(saved.url.as_str()) else {
-                    continue;
-                };
-                if app.package() != caller.package {
-                    continue;
-                }
-                if saved.url.as_str() == new_url.url.as_str() && !present {
-                    present = true;
-                } else {
-                    remove.push(element);
-                }
-            }
-            s.update_item(vault, id, |e| {
-                for element in &remove {
-                    e.remove_url(element)?;
-                }
-                if !present {
-                    e.add_url(&new_url)?;
-                }
-                Ok(())
-            })?;
             Ok(())
-        })
+        })?;
+        let scan = self.scan_link_logins(&package, cert)?;
+        if scan.already_linked {
+            return Err(MobileError::NoMatch);
+        }
+        let login = scan
+            .logins
+            .iter()
+            .find(|l| l.key == candidate)
+            .ok_or(MobileError::NoMatch)?;
+        let strong = login.imported
+            || match &login.probe_host {
+                Some(host) => self.link_verdicts(&package, &cert).of(host) == Some(true),
+                None => false,
+            };
+        if !strong {
+            return Err(MobileError::NoMatch);
+        }
+        self.with_session(|s| write_app_link(s, vault, id, &package, cert))
     }
 
     /// What the asset-links files of the login's web domains say about the
@@ -973,16 +1200,15 @@ impl Core {
         // (CRYPTO_SPEC §6.9.3, G1-8), and only Android runs this check.
         self.require_app()?;
         self.require_platform(Platform::Android)?;
-        let key = (rp_id.to_owned(), package.to_owned(), *cert);
+        let key = (
+            rp_id.to_owned(),
+            package.to_owned(),
+            *cert,
+            AssetLinksPurpose::Passkeys,
+        );
         let now = self.now_ms();
-        let cached = self
-            .assetlinks
-            .cache
-            .lock()
-            .ok()
-            .and_then(|c| c.get(&key).copied())
-            .filter(|(until, _)| now < *until);
-        let delegated = if let Some((_, delegated)) = cached {
+        let cached = self.assetlinks.cached(&key, now);
+        let delegated = if let Some(delegated) = cached {
             delegated
         } else {
             let delegated = match self.assetlinks.fetch(rp_id) {
@@ -1004,6 +1230,148 @@ impl Core {
     }
 }
 
+/// Writes the cert-bound app URL of `package` and `cert` into the login: keeps
+/// one equal binding and drops every other URL of the package.
+fn write_app_link(
+    s: &mut UnlockedSession,
+    vault: VaultId,
+    id: ItemId,
+    package: &str,
+    cert: [u8; 32],
+) -> Result<()> {
+    let linked = AndroidAppUrl::new(package, Some(cert)).map_err(|_| MobileError::InvalidInput)?;
+    let new_url = LoginUrl::new(&linked.canonical());
+    if !usable_vaults(s).contains(&vault) {
+        return Err(MobileError::VaultUnavailable);
+    }
+    let item = s.item(vault, id)?;
+    if item.is_deleted() || item.item_type() != Some(ItemType::Login) {
+        return Err(MobileError::InvalidInput);
+    }
+    let mut present = false;
+    let mut remove = Vec::new();
+    for (element, saved) in item.urls() {
+        let Ok(app) = AndroidAppUrl::parse(saved.url.as_str()) else {
+            continue;
+        };
+        if app.package() != package {
+            continue;
+        }
+        if saved.url.as_str() == new_url.url.as_str() && !present {
+            present = true;
+        } else {
+            remove.push(element);
+        }
+    }
+    s.update_item(vault, id, |e| {
+        for element in &remove {
+            e.remove_url(element)?;
+        }
+        if !present {
+            e.add_url(&new_url)?;
+        }
+        Ok(())
+    })?;
+    Ok(())
+}
+
+/// Whether the login holds an import of `package` (an app URL without `cert`),
+/// and the `host[:port]` of its https URLs whose registrable domain is
+/// `web_domain`.
+fn link_urls_of(item: &Item, package: &str, web_domain: Option<&str>) -> (bool, Vec<String>) {
+    let mut imported = false;
+    let mut hosts = Vec::new();
+    for (_, saved) in item.urls() {
+        if let Ok(app) = AndroidAppUrl::parse(saved.url.as_str()) {
+            imported |= app.package() == package && app.cert_sha256().is_none();
+            continue;
+        }
+        let Some(origin) = saved_origin(saved.url.as_str()) else {
+            continue;
+        };
+        let on_domain = web_domain
+            .is_some_and(|d| registrable_domain(&origin.host_str()).as_deref() == Some(d));
+        if origin.is_http() || !on_domain {
+            continue;
+        }
+        if let Some(host) = origin.serialize().strip_prefix("https://") {
+            hosts.push(host.to_owned());
+        }
+    }
+    (imported, hosts)
+}
+
+/// A login that a link offer looked at.
+struct LinkLogin {
+    key: ItemKey,
+    title: String,
+    username: Option<String>,
+    /// `androidapp://<package>` without `cert`, package equal byte for byte.
+    imported: bool,
+    /// The one site asked about the login (smallest `host[:port]` whose
+    /// registrable domain is the package's web domain).
+    probe_host: Option<String>,
+}
+
+/// The logins a link offer may use, and whether one already matches the app.
+struct LinkScan {
+    already_linked: bool,
+    logins: Vec<LinkLogin>,
+}
+
+/// Sort key of a link candidate: lowercase title, then item id.
+fn link_order(l: &LinkLogin) -> (String, String) {
+    (l.title.to_lowercase(), l.key.item_id.clone())
+}
+
+fn signer_prefix(cert: &[u8; 32]) -> String {
+    cert.iter()
+        .take(8)
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+/// What a link offer fetches and caches, per request.
+struct LinkVerdicts<'a> {
+    links: &'a AssetLinks,
+    package: &'a str,
+    cert: &'a [u8; 32],
+    now: u64,
+    fetches_left: usize,
+}
+
+impl LinkVerdicts<'_> {
+    /// Whether `host` lists the app for `get_login_creds`: a cached answer, or
+    /// one quick fetch while the request's budget lasts. A transport failure
+    /// (and an exhausted budget) gives `None` and is not remembered.
+    fn of(&mut self, host: &str) -> Option<bool> {
+        let key = (
+            host.to_owned(),
+            self.package.to_owned(),
+            *self.cert,
+            AssetLinksPurpose::Login,
+        );
+        if let Some(delegated) = self.links.cached(&key, self.now) {
+            return Some(delegated);
+        }
+        if self.fetches_left == 0 {
+            return None;
+        }
+        self.fetches_left -= 1;
+        let delegated = match self.links.fetch_quick(host) {
+            Ok(body) => parse_asset_links(&body).is_ok_and(|st| {
+                app_is_delegated(&st, self.package, self.cert, Relation::GetLoginCreds)
+            }),
+            Err(TransportError::NotFound) => false,
+            Err(_) => return None,
+        };
+        self.links
+            .remember(key, self.now.saturating_add(ASSET_LINKS_TTL_MS), delegated);
+        Some(delegated)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1011,7 +1379,14 @@ mod tests {
     #[test]
     fn the_asset_links_cache_is_bounded_and_evicts_the_oldest() {
         let links = AssetLinks::new();
-        let key = |n: usize| (format!("rp{n}.example"), "pkg".to_owned(), [0u8; 32]);
+        let key = |n: usize| {
+            (
+                format!("rp{n}.example"),
+                "pkg".to_owned(),
+                [0u8; 32],
+                AssetLinksPurpose::Passkeys,
+            )
+        };
         for n in 0..MAX_ASSET_LINKS_CACHE + 10 {
             links.remember(key(n), 1000 + n as u64, true);
         }

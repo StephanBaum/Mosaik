@@ -495,6 +495,30 @@ pub enum AssetLinksStatus {
     Unavailable,
 }
 
+/// Why a login is a strong one-tap link candidate.
+#[derive(Clone, uniffi::Enum)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum LinkReason {
+    /// The login has `androidapp://<package>` without a certificate.
+    ImportedForApp,
+    /// The site's asset-links file lists the app.
+    VerifiedBy {
+        /// The host whose file lists the app.
+        host: String,
+    },
+}
+record!(LinkCandidate <=> m::LinkCandidate {
+    key: ItemKey,
+    title: String,
+    username: Option<String>,
+    reason: LinkReason,
+});
+record!(LinkOffer <=> m::LinkOffer {
+    package_name: String,
+    signer_prefix: String,
+    candidates: Vec<LinkCandidate>,
+});
+
 // ---- passkeys ------------------------------------------------------------------------------------------------
 
 record!(AndroidPasskeyRequest <=> m::AndroidPasskeyRequest {
