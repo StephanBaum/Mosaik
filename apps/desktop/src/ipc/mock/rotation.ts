@@ -368,7 +368,7 @@ export const rotationHandlers: MockHandlers = {
 /** The `proof` of `vault_rotate_key`: the typed password, or the two-minute proof of `reauthenticate` (used up). */
 function checkProof(state: MockState, proof: string | null): void {
   if (proof === null || proof === "") {
-    requireFreshReauth(state, true);
+    requireFreshReauth(state, true, "vaultKeyRotation");
     return;
   }
   checkPassword(state, proof);

@@ -273,7 +273,7 @@ pub fn setup(app: &mut App, p: &Parsed) -> Result<()> {
         .map(PathBuf::from)
         .ok_or_else(|| CliError::usage(Msg::ErrMissingArgument).with("name", "--folder"))?;
     let account = match folder::inspect(&folder_path) {
-        FolderContents::Mosaic { accounts } => match accounts.as_slice() {
+        FolderContents::Mosaic { accounts, .. } => match accounts.as_slice() {
             [one] => *one,
             _ => return Err(CliError::not_found(&folder_path.display().to_string())),
         },

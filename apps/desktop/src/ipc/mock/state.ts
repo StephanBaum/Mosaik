@@ -18,6 +18,7 @@ import type {
   ShortcutState,
   VaultMetaField,
   VaultSummary,
+  ReauthPurpose,
 } from "../contract/index.ts";
 import type { MockBrowser } from "./browser.ts";
 import type { MockCredRotation } from "./credentialRotation.ts";
@@ -66,6 +67,8 @@ export interface MockQuick {
   pendingTouch: PendingTouch | null;
   /** The master-password proof of `reauthenticate` is valid until this time (0: none). */
   reauthUntil: number;
+  /** What the proof of `reauthenticate` was typed for; it pays for that action only. */
+  reauthPurpose: ReauthPurpose | null;
 }
 
 /** The mock's hardware-protected vault: closed until opened with a key and the PIN. */

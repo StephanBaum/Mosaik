@@ -19,6 +19,24 @@ wire_enum!(
 );
 
 wire_enum!(
+    /// What a typed master password is a proof for (RT-desktop-1, ADR-0151):
+    /// the two-minute re-authentication grant opened by `reauthenticate` pays
+    /// for the one purpose it was earned for and for no other.
+    pub enum ReauthPurpose {
+        /// Enrolling a quick-unlock method (`enroll_*`).
+        QuickUnlockEnroll,
+        /// Adding a security key to a hardware-protected vault.
+        HardwareVaultKey,
+        /// Moving an item out of a hardware-protected vault.
+        LeaveHardwareVault,
+        /// Exporting the passkeys of a vault unencrypted.
+        PasskeyExport,
+        /// Rotating a vault key.
+        VaultKeyRotation,
+    }
+);
+
+wire_enum!(
     /// Whether the global shortcut is ours.
     pub enum ShortcutState {
         /// Registered; pressing it reaches Mosaic.
@@ -146,14 +164,18 @@ pub struct UnlockRequest {
 }
 
 /// `reauthenticate`: the master password again, to unlock the two-minute
-/// window in which `enroll_*`, `add_hardware_vault_key` and moving an item
-/// out of a hardware vault may be sent with `password: null`.
+/// window in which the command of `purpose` (`enroll_*`,
+/// `add_hardware_vault_key`, moving an item out of a hardware vault, a
+/// passkey export, a vault-key rotation) may be sent with `password: null`.
+/// The window pays for that purpose only.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReauthenticateRequest {
     /// The master password.
     pub password: SecretIn,
+    /// What the proof is for.
+    pub purpose: ReauthPurpose,
 }
 
 /// `unlock_quick`.

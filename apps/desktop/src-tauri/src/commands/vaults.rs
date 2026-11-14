@@ -25,6 +25,7 @@ use crate::contract::quick_unlock::{
     CreateHardwareVaultRequest, HardwareVaultKeyRequest, HardwareVaultKeys, HardwareVaultRequest,
 };
 use crate::contract::secret::SecretIn;
+use crate::contract::session::ReauthPurpose;
 use crate::contract::vaults::{
     CreateVaultRequest, RenameVaultRequest, VaultProtection, VaultRequest, VaultSummary,
 };
@@ -389,7 +390,7 @@ impl Backend {
         // right master password within the last two minutes. The grant is
         // taken (of two parallel calls one gets it), spent by a success and
         // handed back by a failure.
-        let grant = self.take_reauth_grant()?;
+        let grant = self.take_reauth_grant(ReauthPurpose::HardwareVaultKey)?;
         let added = self.add_hardware_vault_key_now(vault_id, request);
         if added.is_err() {
             self.quick_unlock.restore_reauth(grant);

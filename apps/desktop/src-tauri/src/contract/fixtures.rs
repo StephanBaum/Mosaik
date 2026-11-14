@@ -203,9 +203,13 @@ fn session_commands(f: &mut Fixtures) {
     f.command("lock", vec![()], session::samples::states());
     f.command(
         "reauthenticate",
-        vec![session::ReauthenticateRequest {
-            password: SecretIn::test("correct horse battery staple"),
-        }],
+        session::ReauthPurpose::ALL
+            .iter()
+            .map(|&purpose| session::ReauthenticateRequest {
+                password: SecretIn::test("correct horse battery staple"),
+                purpose,
+            })
+            .collect(),
         vec![()],
     );
     f.command("app_status", vec![()], vec![session::samples::app_status()]);
@@ -1348,6 +1352,7 @@ fn enums() -> Map<String, Value> {
     for (name, all) in [
         ("errorCode", values(ErrorCode::ALL)),
         ("quickUnlockKind", values(QuickUnlockKind::ALL)),
+        ("reauthPurpose", values(session::ReauthPurpose::ALL)),
         ("vaultProtection", values(vaults::VaultProtection::ALL)),
         ("biometricPlatformKind", values(BiometricPlatformKind::ALL)),
         ("itemKind", values(ItemKind::ALL)),
