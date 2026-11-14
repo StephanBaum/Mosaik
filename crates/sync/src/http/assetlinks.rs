@@ -7,7 +7,7 @@
 //! (an HTTPS client that is not the sync server) and uses the same TLS trust
 //! ([`super::TlsTrust`]).
 //!
-//! No redirects, no cookies, no credentials, a 10 s timeout, a body of at most
+//! No redirects, no cookies, no credentials, a 10 s timeout (2 s for [`fetch_quick`], used on the Autofill request path), a body of at most
 //! [`MAX_BODY_LEN`] bytes that is **rejected**, never cut. Only a `200` is a
 //! file; a `404` is [`TransportError::NotFound`] (the site has no file, so
 //! nothing is delegated), anything else is [`TransportError::Protocol`] and a
@@ -30,6 +30,9 @@ pub const MAX_BODY_LEN: usize = 64 * 1024;
 /// The whole request (connect, answer and body).
 const TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The timeout of [`fetch_quick`].
+const QUICK_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// The path of the file.
 const PATH: &str = "/.well-known/assetlinks.json";
 
@@ -42,6 +45,14 @@ const PATH: &str = "/.well-known/assetlinks.json";
 /// [`TransportError::Unreachable`] as above.
 pub fn fetch(host: &str) -> Result<Vec<u8>, TransportError> {
     fetch_from(&format!("https://{host}"), false)
+}
+
+/// [`fetch`] with a 2 s timeout, for the Autofill request path.
+///
+/// # Errors
+/// As [`fetch`].
+pub fn fetch_quick(host: &str) -> Result<Vec<u8>, TransportError> {
+    fetch_with(&format!("https://{host}"), false, QUICK_TIMEOUT)
 }
 
 fn fetch_from(origin: &str, no_proxy: bool) -> Result<Vec<u8>, TransportError> {
