@@ -124,16 +124,22 @@ describe("isFillable", () => {
     expect(isFillable(field(), makeEnv({ elementAt: () => null }))).toBe(false);
   });
 
-  it("needs the centre and a majority of the five points", () => {
+  it("needs the centre and at most two misses among the twelve cell points", () => {
     const el = field();
     const cover = document.createElement("div");
-    const hitsAt = (pattern: boolean[]): VisibilityEnv => {
+    const hitsAt = (misses: number, centre = true): VisibilityEnv => {
       let calls = 0;
-      return makeEnv({ elementAt: () => (pattern[calls++] === true ? el : cover) });
+      return makeEnv({
+        elementAt: () => {
+          const n = calls++;
+          return (n === 0 ? centre : n > misses) ? el : cover;
+        },
+      });
     };
-    expect(isFillable(el, hitsAt([true, true, true, false, false]), () => 0.5)).toBe(true);
-    expect(isFillable(el, hitsAt([true, true, false, false, false]), () => 0.5)).toBe(false);
-    expect(isFillable(el, hitsAt([false, true, true, true, true]), () => 0.5)).toBe(false);
+    expect(isFillable(el, hitsAt(0), () => 0.5)).toBe(true);
+    expect(isFillable(el, hitsAt(2), () => 0.5)).toBe(true);
+    expect(isFillable(el, hitsAt(3), () => 0.5)).toBe(false);
+    expect(isFillable(el, hitsAt(0, false), () => 0.5)).toBe(false);
   });
 
   it("refuses a label over the field, accepts a child of the field", () => {
@@ -146,7 +152,7 @@ describe("isFillable", () => {
     expect(isFillable(el, makeEnv({ elementAt: () => document.querySelector("#c") }), () => 0.5)).toBe(true);
   });
 
-  it("draws four points inside the box, with a margin, from the injected source", () => {
+  it("draws one point per grid cell inside the box, with a margin, from the injected source", () => {
     const points: [number, number][] = [];
     const env = makeEnv({
       box: () => box(100, 100, 200, 30),
@@ -158,14 +164,17 @@ describe("isFillable", () => {
     for (const r of [0, 0.999999]) {
       points.length = 0;
       expect(isFillable(field(), env, () => r)).toBe(true);
-      expect(points).toHaveLength(5);
+      expect(points).toHaveLength(13);
       expect(points[0]).toEqual([200, 115]);
-      for (const [x, y] of points.slice(1)) {
-        expect(x).toBeGreaterThanOrEqual(102);
-        expect(x).toBeLessThanOrEqual(298);
-        expect(y).toBeGreaterThanOrEqual(102);
-        expect(y).toBeLessThanOrEqual(128);
-      }
+      // Cell (col, row) of the 196 x 26 area at (102, 102) is 49 x 8.67 px.
+      points.slice(1).forEach(([x, y], i) => {
+        const col = i % 4;
+        const row = Math.floor(i / 4);
+        expect(x).toBeGreaterThanOrEqual(102 + col * 49 - 1e-9);
+        expect(x).toBeLessThanOrEqual(102 + (col + 1) * 49 + 1e-9);
+        expect(y).toBeGreaterThanOrEqual(102 + (row * 26) / 3 - 1e-9);
+        expect(y).toBeLessThanOrEqual(102 + ((row + 1) * 26) / 3 + 1e-9);
+      });
     }
   });
 
@@ -190,17 +199,43 @@ describe("isFillable", () => {
     expect(isFillable(field(), makeEnv(), boom)).toBe(false);
   });
 
-  it("keeps the points inside a tiny box", () => {
+  it("keeps the points inside a tiny box and needs every one of them to hit", () => {
     const points: [number, number][] = [];
-    const env = makeEnv({
-      box: () => box(100, 100, 4, 4),
-      elementAt: (el, x, y) => {
-        points.push([x, y]);
-        return el;
-      },
-    });
-    expect(isFillable(field(), env, () => 1)).toBe(true);
+    const el = field();
+    const cover = document.createElement("div");
+    const make = (missAt: number): VisibilityEnv =>
+      makeEnv({
+        box: () => box(100, 100, 4, 4),
+        elementAt: (target, x, y) => {
+          points.push([x, y]);
+          return points.length - 1 === missAt ? cover : target;
+        },
+      });
+    expect(isFillable(el, make(-1), () => 1)).toBe(true);
+    // 4 x 4 px: one column and two rows fit, so the centre and two cell points.
+    expect(points).toHaveLength(3);
     expect(points.every(([x, y]) => x >= 100 && x <= 104 && y >= 100 && y <= 104)).toBe(true);
+    points.length = 0;
+    expect(isFillable(el, make(2), () => 0.5)).toBe(false);
+    expect(points).toHaveLength(3);
+  });
+
+  it("uses the full grid from 12 x 6 px and the tiny rule below it", () => {
+    const count = (w: number, h: number): number => {
+      let n = 0;
+      const env = makeEnv({
+        box: () => box(100, 100, w, h),
+        elementAt: (el) => {
+          n++;
+          return el;
+        },
+      });
+      isFillable(field(), env, () => 0.5);
+      return n;
+    };
+    expect(count(12, 6)).toBe(13);
+    expect(count(11, 6)).toBe(1 + 3 * 3);
+    expect(count(12, 5)).toBe(1 + 2 * 4);
   });
 
   it("samples the visible part when the field is half off screen", () => {
@@ -214,7 +249,7 @@ describe("isFillable", () => {
       },
     });
     expect(isFillable(el, env)).toBe(false);
-    expect(points).toHaveLength(5);
+    expect(points).toHaveLength(13);
     expect(points.every(([x]) => x >= 0 && x <= 100)).toBe(true);
   });
 
@@ -300,24 +335,43 @@ describe("isElementVisible", () => {
   });
 });
 
-describe("RT-verify-ext: the hit-test majority", () => {
-  // The centre is fixed, so a page can leave it open, and only two of the four random points
-  // have to land on the field. An opaque overlay over the left half of a field (a pinhole at the
-  // centre) therefore passes whenever two random points fall right of the middle: with p = 0.5
-  // per point that is 1 - 0.5^4 - 4 * 0.5^4 = 69 % of the checks (82 % for an overlay over 40 %
-  // of the field, 52 % for one over 60 %, 18 % for one over 80 %); the probe and the fill check
-  // twice, so a 40 % overlay is accepted on two thirds of the fills. Wanted: a field whose
-  // half is under an opaque overlay is not fillable. Fix: require every random point (or raise
-  // the sample to eight and demand at least six), and keep the margin so the points stay inside.
-  it.skip("RT-verify-ext-1: a field half covered by an opaque overlay is not fillable", () => {
+describe("RT-verify-ext-1: stratified hit test", () => {
+  // The old test (the centre plus a majority of four random points) let a field with an opaque
+  // overlay over its left half through on 69 % of the checks. Now one point per cell of a 4 x 3
+  // grid, the centre must hit and at most 2 of the 12 cell points may miss. False accept for an
+  // overlay with a centre pinhole, per check (exact binomial over the cells, worst placement of
+  // a rectangle of 40 % of the field's area, searched on a 5 % grid): about 5 %, reached by a
+  // full-width band over 40 % of the height. A cover over the left half is 6 misses: never accepted.
+  const half = (): VisibilityEnv => {
+    const cover = document.createElement("div");
+    // The box is 100..300 wide: everything left of x = 200 is the overlay, but the centre line.
+    return makeEnv({ elementAt: (target, x) => (x < 199 ? cover : target) });
+  };
+
+  it("RT-verify-ext-1: a field half covered by an opaque overlay is not fillable", () => {
+    const el = field();
+    for (const r of [0, 0.25, 0.5, 0.75, 0.999]) {
+      expect(isFillable(el, half(), () => r)).toBe(false);
+    }
+  });
+
+  it("refuses an overlay with a centre pinhole over 40 % of the field", () => {
     const el = field();
     const cover = document.createElement("div");
-    // The box is 100..300 wide: everything left of the centre line is the overlay.
-    const env = makeEnv({ elementAt: (target, x) => (x < 200 ? cover : target) });
-    // Two of the four random points right of the middle, two left of it.
-    const draws = [0.6, 0.5, 0.7, 0.5, 0.2, 0.5, 0.3, 0.5];
-    let i = 0;
-    const random = (): number => draws[i++] ?? 0.5;
-    expect(isFillable(el, env, random)).toBe(false);
+    // Covers x < 180 (40 % of 100..300) except a pinhole at the centre: the first column and
+    // most of the second are covered, three cells of column one alone are three misses.
+    const env = makeEnv({ elementAt: (target, x) => (x < 180 ? cover : target) });
+    expect(isFillable(el, env, () => 0.5)).toBe(false);
+  });
+
+  it("accepts a field whose right 10 % is a show-password icon", () => {
+    const el = field();
+    const icon = document.createElement("div");
+    const env = makeEnv({ elementAt: (target, x) => (x > 280 ? icon : target) });
+    // The icon covers the right 40 % of the last column, so all three of that column's points
+    // miss (a false refusal) with probability 0.4^3 = 6.4 %; with draws up to 0.6 it passes.
+    for (const r of [0, 0.3, 0.6]) {
+      expect(isFillable(el, env, () => r)).toBe(true);
+    }
   });
 });

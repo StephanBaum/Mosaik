@@ -166,22 +166,45 @@ export function secureRandom(): number {
   return (word[0] ?? 0) / 2 ** 32;
 }
 
-/** Points drawn per check, besides the centre. */
-const RANDOM_POINTS = 4;
+/** The sample grid of a normal field: 4 columns by 3 rows, one drawn point per cell. */
+const GRID_COLS = 4;
+const GRID_ROWS = 3;
+/** A visible rect smaller than this (12 x 6 px) cannot hold the full grid: see `SamplePlan`. */
+const MIN_CELL_W = 3;
+const MIN_CELL_H = 2;
+/** Cell points that may miss the field in a full grid (a show-password eye, a small icon). */
+const MAX_CELL_MISSES = 2;
+/** The inset of the sampled area from the visible rect. */
+const INSET = 2;
+
+/** `strict` (tiny field: every point must hit) or `tolerant` (full grid: a few cell points may miss). */
+type SamplePlan = { readonly points: [number, number][]; readonly mode: "strict" | "tolerant" };
 
 /**
- * The centre, then four points drawn with `random` inside the box with a small margin, so a
- * page cannot know where the test looks. The box is never empty (`intersectViewport`), so every
- * point lies inside it.
+ * The exact centre first, then one point drawn with `random` uniformly inside each cell of a 4 x 3
+ * grid over the visible rect after a 2 px inset, so a page cannot know where the test looks and
+ * cannot cover a part of the field without a cell noticing. The rect is never empty
+ * (`intersectViewport`). Under 12 x 6 px the grid shrinks to the cells of at least 3 x 2 px that
+ * fit (possibly none: the centre alone) and `strict` applies. All draws happen here, up front.
  */
-function samplePoints(box: Box, random: () => number): [number, number][] {
-  const mx = Math.min(2, box.width / 4);
-  const my = Math.min(2, box.height / 4);
+function samplePoints(box: Box, random: () => number): SamplePlan {
+  const mx = Math.min(INSET, box.width / 4);
+  const my = Math.min(INSET, box.height / 4);
+  const tiny = box.width < GRID_COLS * MIN_CELL_W || box.height < GRID_ROWS * MIN_CELL_H;
+  const cols = tiny ? Math.min(GRID_COLS, Math.floor(box.width / MIN_CELL_W)) : GRID_COLS;
+  const rows = tiny ? Math.min(GRID_ROWS, Math.floor(box.height / MIN_CELL_H)) : GRID_ROWS;
+  const areaW = box.width - 2 * mx;
+  const areaH = box.height - 2 * my;
   const points: [number, number][] = [[box.left + box.width / 2, box.top + box.height / 2]];
-  for (let i = 0; i < RANDOM_POINTS; i++) {
-    points.push([box.left + mx + random() * (box.width - 2 * mx), box.top + my + random() * (box.height - 2 * my)]);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      points.push([
+        box.left + mx + ((col + random()) / cols) * areaW,
+        box.top + my + ((row + random()) / rows) * areaH,
+      ]);
+    }
   }
-  return points;
+  return { points, mode: tiny ? "strict" : "tolerant" };
 }
 
 /** Only the field itself or something inside it counts as on top: a label or any other element does not. */
@@ -232,10 +255,26 @@ export function isClippedAway(el: Element, box: Box, env: VisibilityEnv): boolea
   return false;
 }
 
+/** The stratified hit test on the on-screen part of the field; fails closed without a random source. */
+function passesHitTest(el: Element, onScreen: Box, env: VisibilityEnv, random: () => number): boolean {
+  let plan: SamplePlan;
+  try {
+    plan = samplePoints(onScreen, random);
+  } catch {
+    // No randomness, no trust: the fixed centre alone would be what the page can aim at.
+    return false;
+  }
+  // Every point is evaluated (no early exit), so the time taken does not reveal the count.
+  const hits = plan.points.map(([x, y]) => isTarget(env.elementAt(el, x, y), el));
+  const misses = hits.filter((hit) => !hit).length;
+  return hits[0] === true && misses <= (plan.mode === "strict" ? 0 : MAX_CELL_MISSES);
+}
+
 /**
  * Whether the user could see and click `el`: displayed, at least 4 x 4 px, combined opacity at
- * least 0.2, inside the document, and on top at the centre and at a majority of five sample
- * points (the centre and four drawn per check with `random`). Off screen there is
+ * least 0.2, inside the document, and on top at the centre and at all but at most two of twelve
+ * stratified random points (one per cell of a 4 x 3 grid, drawn per check with `random`; a field
+ * under 12 x 6 px must hit at every point). Off screen there is
  * no hit test, so there it must be in the top document (in a frame the viewport is all the user
  * sees) and not clipped away by an ancestor.
  */
@@ -255,13 +294,5 @@ export function isFillable(el: Element, env: VisibilityEnv = domEnv, random: () 
   if (onScreen === null) {
     return view.framed !== true && !isClippedAway(el, box, env);
   }
-  let points: [number, number][];
-  try {
-    points = samplePoints(onScreen, random);
-  } catch {
-    // No randomness, no trust: the fixed centre alone would be what the page can aim at.
-    return false;
-  }
-  const hits = points.map(([x, y]) => isTarget(env.elementAt(el, x, y), el));
-  return hits[0] === true && hits.filter(Boolean).length > points.length / 2;
+  return passesHitTest(el, onScreen, env, random);
 }

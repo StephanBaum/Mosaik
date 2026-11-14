@@ -39,7 +39,7 @@ test("RT-EXT-1: an opaque label laid over a decoy password field does not make i
   ]);
 });
 
-// RT-EXT-2: the centre and a majority of four random points must hit, so fixed holes fail.
+// RT-EXT-2: the centre and all but two of twelve stratified points must hit, so fixed holes fail.
 test("RT-EXT-2: an opaque overlay with holes at the five sample points does not make the decoy fillable", async ({ page, fake }) => {
   await fake.reset({ items: [bankItem()] });
   await open(page, `${BANK}/redteam-pinhole-overlay.html`);
