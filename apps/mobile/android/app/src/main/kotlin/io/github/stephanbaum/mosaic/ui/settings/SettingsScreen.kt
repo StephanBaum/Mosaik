@@ -11,7 +11,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +42,7 @@ import io.github.stephanbaum.mosaic.ui.components.PrimaryButton
 import io.github.stephanbaum.mosaic.ui.components.QuietButton
 import io.github.stephanbaum.mosaic.ui.components.SecondaryButton
 import io.github.stephanbaum.mosaic.ui.components.SectionTitle
+import io.github.stephanbaum.mosaic.ui.components.SecureAlertDialog
 import io.github.stephanbaum.mosaic.ui.components.TopBar
 import io.github.stephanbaum.mosaic.ui.components.Working
 import io.github.stephanbaum.mosaic.ui.errorText
@@ -336,7 +336,7 @@ fun SettingsContent(
         }
     }
     if (confirmAcknowledge) {
-        AlertDialog(
+        SecureAlertDialog(
             onDismissRequest = { confirmAcknowledge = false },
             title = { Text(L10n.syncAcknowledgeTitle(resources)) },
             text = { Text(L10n.syncAcknowledgeBody(resources)) },

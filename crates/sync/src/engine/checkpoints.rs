@@ -189,19 +189,6 @@ fn compare_view(s: &mut UnlockedSession, entry: &PeerEntry) -> Result<bool, Erro
 /// runs must not raise the finding alone.
 const NO_COMMON_VIEW_MIN_RUNS: u64 = 3;
 
-/// The stored `counter` of a view comparison packs the peer's checkpoint
-/// counter (low 32 bits) and this device's own checkpoint counter (high 32
-/// bits, one per run) at the first failure. Both saturate: a counter at the
-/// limit never counts as risen, so a saturated value cannot raise a finding.
-/// Rows written before the packing have a zero high half.
-fn pack_counters(peer: u64, own: u64) -> u64 {
-    (own.min(u64::from(u32::MAX)) << 32) | peer.min(u64::from(u32::MAX))
-}
-
-fn unpack_counters(stored: u64) -> (u64, u64) {
-    (stored & u64::from(u32::MAX), stored >> 32)
-}
-
 /// The bookkeeping of one peer entry: a comparison ends the count; the
 /// first run that cannot compare starts it (with the peer counter and this
 /// device's run counter then); a peer whose counter has risen since, with
@@ -219,12 +206,11 @@ fn track_comparison(
 ) -> Result<(), Error> {
     let (device, vault) = (cp.device_id, entry.vault_id);
     if compared {
-        return s.put_view_compare(device, vault, None, cp.counter);
+        return s.put_view_compare(device, vault, None, cp.counter, 0);
     }
     let own = s.checkpoint_counter()?;
     match s.view_compare(device, vault)? {
-        Some((Some(since), stored)) if since <= now => {
-            let (peer_then, own_then) = unpack_counters(stored);
+        Some((Some(since), peer_then, own_then)) if since <= now => {
             if cp.counter > peer_then
                 && now - since > NO_COMMON_VIEW_GRACE_MS
                 && own.saturating_sub(own_then) >= NO_COMMON_VIEW_MIN_RUNS
@@ -235,7 +221,7 @@ fn track_comparison(
         }
         // First failure, or a count started in the future (the clock was set
         // back): it starts now.
-        _ => s.put_view_compare(device, vault, Some(now), pack_counters(cp.counter, own)),
+        _ => s.put_view_compare(device, vault, Some(now), cp.counter, own),
     }
 }
 
@@ -550,27 +536,5 @@ impl<T: Transport> SyncEngine<T> {
         all.extend(warnings);
         report.warnings = all;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::pack_counters;
-
-    /// RT-final-2: the packed view-comparison counter goes through
-    /// `seq_to_sql` (`i64::try_from`), so the own half may use 31 bits, not
-    /// 32: the saturation at `u32::MAX` the doc comment calls safe makes
-    /// `put_view_compare` fail with `SeqOutOfRange` instead, and from then on
-    /// every run that cannot compare a view ends in an error. Unreachable
-    /// today (2^31 runs), but the bound is wrong. Fix: saturate the own half
-    /// at `i32::MAX`, or store the own counter in its own column.
-    #[test]
-    #[ignore = "RT-final-2: pack_counters saturates own at u32::MAX, which seq_to_sql refuses"]
-    fn a_saturated_own_counter_still_fits_the_store() {
-        let packed = pack_counters(7, u64::from(u32::MAX) + 5);
-        assert!(
-            i64::try_from(packed).is_ok(),
-            "{packed:#x} does not fit an SQLite INTEGER"
-        );
     }
 }

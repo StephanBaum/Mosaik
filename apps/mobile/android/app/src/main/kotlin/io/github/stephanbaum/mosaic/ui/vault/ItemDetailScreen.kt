@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,6 +54,7 @@ import io.github.stephanbaum.mosaic.ui.components.PageColumn
 import io.github.stephanbaum.mosaic.ui.components.QuietButton
 import io.github.stephanbaum.mosaic.ui.components.SecondaryButton
 import io.github.stephanbaum.mosaic.ui.components.SectionTitle
+import io.github.stephanbaum.mosaic.ui.components.SecureAlertDialog
 import io.github.stephanbaum.mosaic.ui.components.TopBar
 import io.github.stephanbaum.mosaic.ui.components.Working
 import io.github.stephanbaum.mosaic.ui.errorText
@@ -360,7 +360,7 @@ fun ItemDetailContent(
         }
     }
     if (confirmDelete && detail != null) {
-        AlertDialog(
+        SecureAlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = {
                 Text(L10n.detailDeleteTitle(resources, detail.summary.title.ifBlank { L10n.vaultUntitled(resources) }))

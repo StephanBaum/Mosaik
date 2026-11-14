@@ -1,4 +1,4 @@
-//! A store written by schema v10 (before M10) upgrades to v11 and keeps working.
+//! A store written by schema v10 (before M10) upgrades to the latest version (v12) and keeps working.
 
 #![expect(clippy::unwrap_used, reason = "integration tests")]
 
@@ -39,7 +39,7 @@ fn has_table(path: &Path, name: &str) -> bool {
 }
 
 #[test]
-fn schema_v10_fixture_upgrades_to_v11() {
+fn schema_v10_fixture_upgrades_to_the_latest_version() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("vault.db");
     std::fs::copy(FIXTURE, &path).unwrap();
@@ -47,8 +47,8 @@ fn schema_v10_fixture_upgrades_to_v11() {
     assert!(!has_table(&path, "boot_marker"));
 
     let store = Store::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 11);
-    assert_eq!(LATEST_VERSION, 11);
+    assert_eq!(store.schema_version().unwrap(), 12);
+    assert_eq!(LATEST_VERSION, 12);
     assert_eq!(store.boot_marker().unwrap(), None);
     let mut locked = LockedSession::open(store);
     // The old data is there: the account and the quick-unlock wrapping.
@@ -79,7 +79,7 @@ fn schema_v10_fixture_upgrades_to_v11() {
         vec![7; 8]
     );
     drop(s.lock().into_store());
-    assert_eq!(user_version(&path), 11);
+    assert_eq!(user_version(&path), 12);
     assert!(has_table(&path, "boot_marker"));
     // The re-authentication count (N2) exists after the upgrade and starts at 0.
     assert!(has_table(&path, "reauth_failures"));

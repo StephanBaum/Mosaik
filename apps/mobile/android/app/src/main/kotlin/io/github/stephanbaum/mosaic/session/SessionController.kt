@@ -29,6 +29,8 @@ import java.security.GeneralSecurityException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /** The result of a session operation: a value, a core error code (`error.<code>`), or a cancel by the user. */
 sealed interface Outcome<out T> {
@@ -366,6 +368,9 @@ class SessionController(
         } catch (e: Exception) {
             setup.w.wipe()
             keys.delete(alias)
+            // The core still holds the pending enrolment (and `W`) for 120 s: drop it now. Not cancellable, so a
+            // cancelled join or prompt does not leave it there; a failure here changes nothing for the caller.
+            withContext(NonCancellable) { runCatching { holder.call { it.quickUnlockEnrollCancel() } } }
             throw e
         }
     }

@@ -237,6 +237,16 @@ impl Core {
         })
     }
 
+    /// Drops a pending enrolment (and the `W` it holds) at once: the platform
+    /// half failed or was cancelled, so the slot must not sit there for the
+    /// rest of its 120 s. Does nothing when there is none; it never fails and
+    /// never touches a stored enrolment.
+    pub fn quick_unlock_enroll_cancel(&self) {
+        if let Ok(mut guard) = self.guard() {
+            guard.slots.quick = None;
+        }
+    }
+
     /// Deletes the enrolment (locked or unlocked) and returns the key alias
     /// for the platform to delete: the enrolment's, or the one of an enrolment
     /// that ran out earlier and has not been reported as deleted yet.

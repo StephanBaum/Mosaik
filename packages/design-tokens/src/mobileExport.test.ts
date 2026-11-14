@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { borderWidth, colors, radius, size, space } from "./index.ts";
-import { argb, kotlinTokens, parseColor, shadowHint, swiftColor, swiftTokens } from "./mobileExport.ts";
+import { androidDimensXml, argb, kotlinTokens, parseColor, shadowHint, swiftColor, swiftTokens } from "./mobileExport.ts";
 
 describe("mobile token export", () => {
   it("hex and rgba become ARGB", () => {
@@ -56,6 +57,21 @@ describe("mobile token export", () => {
     expect(kotlin).toContain("const val microMs: Int = 120");
     expect(kotlin).toContain("CubicBezierEasing(0.2f, 0f, 0f, 1f)");
     expect(swift).toContain("public static let panelMs = 200");
+  });
+
+  it("dimens.xml is generated from the tokens and the committed file is in sync", () => {
+    const xml = androidDimensXml();
+    expect(xml).toContain('<dimen name="mosaic_size_input_xl">56dp</dimen>');
+    expect(xml).toContain('<dimen name="mosaic_space_s5">16dp</dimen>');
+    expect(xml).toContain('<dimen name="mosaic_space_s3">8dp</dimen>');
+    expect(xml).toContain('<dimen name="mosaic_font_size_md">16sp</dimen>');
+    expect(xml).toContain('<dimen name="mosaic_font_size_sm">14sp</dimen>');
+    expect(xml).not.toContain("\r");
+    const committed = readFileSync(
+      new URL("../../../apps/mobile/android/app/src/main/res/values/dimens.xml", import.meta.url),
+      "utf8",
+    ).replaceAll("\r\n", "\n");
+    expect(committed).toBe(xml);
   });
 
   it("output is deterministic", () => {

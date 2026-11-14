@@ -93,6 +93,9 @@ jobs:
       - name: No logging in app code
         if: ${{ !cancelled() }}
         run: bash scripts/mobile/check-no-logging.sh
+      - name: Dialogs and menus drop obscured touches
+        if: ${{ !cancelled() }}
+        run: bash scripts/mobile/check-secure-windows.sh
       # Manual, reviewed step to (re)generate the dependency pins: a dispatch with write_metadata, or a push
       # whose head commit message contains [mobile-metadata]. It resolves everything the jobs use, release
       # (R8) included, and uploads the files for review and commit.

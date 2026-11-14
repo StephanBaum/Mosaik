@@ -551,7 +551,8 @@ vault_flags, no_common_view }` lists both kinds (`is_clear`, `vaults`), so the d
 offer one acknowledge action and call both clears depending on what is set.
 `mark_vault_key_accepted` records an accepted upload and its confirmation in one transaction
 (the creation and `commit_vault_rotation` confirm in theirs); `view_compare` and
-`put_view_compare` hold the comparison times. `mosaic_core::sync_auth` gains
+`put_view_compare` hold the comparison times, with the peer's and this device's own checkpoint counter in
+`counter` and `own_counter` (store v12; the migration unpacks the two counters an earlier build packed into `counter`). `mosaic_core::sync_auth` gains
 `view_key_commit`, `view_digest` and `ServedEntry`; the view digest has the key commitment
 (CRYPTO_SPEC §10). `HttpTransport::connect` takes `&SessionToken`.
 `PeerEntry` and `CheckpointEntry` gain `view_digest: [u8; 32]` (`checkpoint::NO_VIEW`,

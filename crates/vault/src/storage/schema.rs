@@ -841,6 +841,20 @@ CREATE TABLE reauth_failures (
 ) STRICT;
 ";
 
+/// Version 12: the view-comparison bookkeeping gets a column of its own for
+/// this device's checkpoint counter (`own_counter`). Until now the table packed
+/// both counters into `counter` (peer in the low 32 bits, own in the high 32).
+/// The migration unpacks every existing row: `counter` keeps the peer half
+/// and `own_counter` takes the high half (0 for a row written before the
+/// packing), so no row is lost or misread.
+const V12: &str = r"
+ALTER TABLE sync_view_compare ADD COLUMN own_counter INTEGER NOT NULL DEFAULT 0
+    CHECK (own_counter >= 0);
+UPDATE sync_view_compare
+   SET own_counter = counter >> 32,
+       counter = counter & 4294967295;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -887,10 +901,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 11,
         sql: V11,
     },
+    Migration {
+        version: 12,
+        sql: V12,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 11;
+pub const LATEST_VERSION: u32 = 12;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -1048,10 +1066,14 @@ mod tests {
             },
             Migration {
                 version: 12,
+                sql: V12,
+            },
+            Migration {
+                version: 13,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 12);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 13);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -1065,11 +1087,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 12,
-                supported: 11
+                found: 13,
+                supported: 12
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 12);
+        assert_eq!(user_version(&c).unwrap(), 13);
     }
 
     #[test]
@@ -1123,11 +1145,15 @@ mod tests {
             },
             Migration {
                 version: 12,
+                sql: V12,
+            },
+            Migration {
+                version: 13,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 11);
+        assert_eq!(user_version(&c).unwrap(), 12);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1136,6 +1162,49 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    /// v11 to v12: a row written with the two counters packed into `counter`
+    /// (and one written before the packing) is unpacked, not lost or misread.
+    #[test]
+    fn migration_v11_to_v12_unpacks_the_view_compare_counters() {
+        let mut c = conn();
+        migrate(&mut c, &MIGRATIONS[..11]).unwrap();
+        let packed: i64 = (9_i64 << 32) | 7;
+        for (device, since, counter) in [
+            (1_u8, Some(50_i64), packed),
+            (2, None, 4),
+            (3, Some(60), 4_294_967_295),
+        ] {
+            c.execute(
+                "INSERT INTO sync_view_compare (device_id, vault_id, since_ms, counter)
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![[device; 16], [8u8; 16], since, counter],
+            )
+            .unwrap();
+        }
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
+        let rows: Vec<(u8, Option<i64>, i64, i64)> = c
+            .prepare(
+                "SELECT device_id, since_ms, counter, own_counter
+                 FROM sync_view_compare ORDER BY device_id",
+            )
+            .unwrap()
+            .query_map([], |r| {
+                let d: Vec<u8> = r.get(0)?;
+                Ok((d[0], r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (1, Some(50), 7, 9),
+                (2, None, 4, 0),
+                (3, Some(60), 4_294_967_295, 0)
+            ]
+        );
     }
 
     #[test]
@@ -1760,8 +1829,8 @@ mod tests {
     fn migration_v10_to_v11() {
         let mut c = conn();
         assert_eq!(migrate(&mut c, &MIGRATIONS[..10]).unwrap(), 10);
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 11);
-        assert_eq!(user_version(&c).unwrap(), LATEST_VERSION);
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..11]).unwrap(), 11);
+        assert_eq!(user_version(&c).unwrap(), 11);
         let n: i64 = c
             .query_row("SELECT count(*) FROM boot_marker", [], |r| r.get(0))
             .unwrap();

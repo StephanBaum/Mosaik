@@ -171,6 +171,29 @@ fn quick_unlock_pending_slot_expires_and_is_dropped_on_lock() {
     );
 }
 
+/// A failed platform half cancels the pending enrolment at once: the slot (and
+/// the `W` it holds) is gone, so a finish is refused, and a cancel with nothing
+/// pending is harmless.
+#[test]
+fn quick_unlock_enroll_cancel_drops_the_pending_slot() {
+    let (phone, _) = Phone::with_account();
+    let ios = QuickUnlockPlatform::IosSecureEnclave;
+    phone
+        .core
+        .quick_unlock_enroll_begin(PASSWORD.as_bytes().to_vec())
+        .unwrap();
+    phone.core.quick_unlock_enroll_cancel();
+    assert_eq!(
+        phone
+            .core
+            .quick_unlock_enroll_finish(ios, vec![1; 113])
+            .err(),
+        Some(MobileError::ReauthRequired)
+    );
+    // Nothing pending: a no-op.
+    phone.core.quick_unlock_enroll_cancel();
+}
+
 #[test]
 fn quick_unlock_platform_failed_deletes_wrapping_and_returns_alias() {
     let (phone, _) = Phone::with_account();

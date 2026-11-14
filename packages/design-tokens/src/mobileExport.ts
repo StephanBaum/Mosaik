@@ -191,6 +191,31 @@ ${pad(vaultColors.map((c) => `Color(${argb(c)}),`), "            ")}
 `;
 }
 
+// Android XML -----------------------------------------------------------------------------------
+
+const snake = (name: string): string => name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+
+/**
+ * `res/values/dimens.xml`: the values XML layouts need (the Autofill popup is drawn by the system from
+ * RemoteViews, so Compose cannot reach `MosaicTokens` there). Names: `mosaic_space_s<i>`,
+ * `mosaic_size_<name>` and `mosaic_font_size_<name>` (the type sizes, in `sp`), snake case.
+ */
+export function androidDimensXml(): string {
+  const dimen = (name: string, value: number, unitName: "dp" | "sp"): string =>
+    `    <dimen name="${name}">${String(value)}${unitName}</dimen>`;
+  const rows = [
+    ...space.map((v, i) => dimen(`mosaic_space_s${String(i)}`, v, "dp")),
+    ...Object.entries(size).map(([k, v]) => dimen(`mosaic_size_${snake(k)}`, v, "dp")),
+    ...Object.entries(fontSize).map(([k, { size: s }]) => dimen(`mosaic_font_size_${snake(k)}`, s, "sp")),
+  ];
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- ${generated} -->
+<resources>
+${rows.join("\n")}
+</resources>
+`;
+}
+
 // Swift -----------------------------------------------------------------------------------------
 
 function swiftEnum(name: string, values: Record<string, number>): string {

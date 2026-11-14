@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
@@ -51,6 +50,7 @@ import io.github.stephanbaum.mosaic.ui.components.HintText
 import io.github.stephanbaum.mosaic.ui.components.Line
 import io.github.stephanbaum.mosaic.ui.components.SecondaryButton
 import io.github.stephanbaum.mosaic.ui.components.SectionTitle
+import io.github.stephanbaum.mosaic.ui.components.SecureDropdownMenu
 import io.github.stephanbaum.mosaic.ui.components.TopBar
 import io.github.stephanbaum.mosaic.ui.components.Working
 import io.github.stephanbaum.mosaic.ui.errorText
@@ -237,7 +237,7 @@ private fun AddMenu(onAdd: (login: Boolean) -> Unit) {
         TextButton(onClick = { open = true }, modifier = Modifier.heightIn(min = MosaicSpace.s8)) {
             Text(L10n.vaultAdd(resources))
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        SecureDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
                 text = { Text(L10n.vaultAddLogin(resources)) },
                 onClick = {

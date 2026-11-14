@@ -206,6 +206,9 @@ impl MosaicCore {
     ) -> Result<QuickUnlockEnrolled, MobileError> {
         lift(self.inner.quick_unlock_enroll_finish(platform.conv(), body))
     }
+    pub fn quick_unlock_enroll_cancel(&self) {
+        self.inner.quick_unlock_enroll_cancel();
+    }
     pub fn quick_unlock_remove(&self) -> Result<Option<String>, MobileError> {
         lift(self.inner.quick_unlock_remove())
     }

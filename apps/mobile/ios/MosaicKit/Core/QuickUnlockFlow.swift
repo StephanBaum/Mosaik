@@ -21,11 +21,19 @@ public enum QuickUnlockFlow {
             w.wipe()
             setup.w.wipe()
         }
-        let body = try keys.enroll(alias: setup.keyAlias, secret: w)
+        let body: Data
+        do {
+            body = try keys.enroll(alias: setup.keyAlias, secret: w)
+        } catch {
+            // The core still holds the pending enrolment (and `W`) for 120 s: drop it now.
+            core.quickUnlockEnrollCancel()
+            throw error
+        }
         let enrolled: QuickUnlockEnrolled
         do {
             enrolled = try core.quickUnlockEnrollFinish(platform: .iosSecureEnclave, body: body)
         } catch {
+            core.quickUnlockEnrollCancel()
             try? keys.deleteKey(alias: setup.keyAlias)
             throw error
         }

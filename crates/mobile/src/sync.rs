@@ -113,11 +113,14 @@ impl SyncWarning {
     }
 }
 
-/// Adds `new` to `into` without repeating one.
+/// Adds `new` to `into`, one entry per kind: a kind that is already there is
+/// replaced by the new entry (the latest count and `since` win), so the list
+/// cannot grow with every run.
 fn merge_warnings(into: &mut Vec<SyncWarning>, new: impl IntoIterator<Item = SyncWarning>) {
     for warning in new {
-        if !into.contains(&warning) {
-            into.push(warning);
+        match into.iter_mut().find(|w| w.kind == warning.kind) {
+            Some(slot) => *slot = warning,
+            None => into.push(warning),
         }
     }
 }
@@ -557,5 +560,56 @@ impl Core {
             state: self.state(),
             key_aliases: aliases,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn warning(kind: SyncWarningKind, since_ms: Option<u64>, count: Option<u32>) -> SyncWarning {
+        SyncWarning {
+            kind,
+            since_ms,
+            count,
+        }
+    }
+
+    /// One entry per kind, the latest count and `since` kept; other kinds and
+    /// their order stay.
+    #[test]
+    fn merge_warnings_keeps_one_entry_per_kind_with_the_latest_values() {
+        let mut list = vec![
+            warning(SyncWarningKind::NoCommonView, Some(10), None),
+            warning(SyncWarningKind::FreezeSuspected, Some(5), None),
+        ];
+        merge_warnings(
+            &mut list,
+            [
+                warning(SyncWarningKind::NoCommonView, Some(20), Some(3)),
+                warning(SyncWarningKind::NoCommonView, Some(30), Some(4)),
+                warning(SyncWarningKind::RollbackDetected, None, None),
+            ],
+        );
+        assert_eq!(
+            list,
+            vec![
+                warning(SyncWarningKind::NoCommonView, Some(30), Some(4)),
+                warning(SyncWarningKind::FreezeSuspected, Some(5), None),
+                warning(SyncWarningKind::RollbackDetected, None, None),
+            ]
+        );
+        // Many runs do not grow the list.
+        for run in 0..50 {
+            merge_warnings(
+                &mut list,
+                [warning(
+                    SyncWarningKind::NoCommonView,
+                    Some(100 + run),
+                    None,
+                )],
+            );
+        }
+        assert_eq!(list.len(), 3);
     }
 }

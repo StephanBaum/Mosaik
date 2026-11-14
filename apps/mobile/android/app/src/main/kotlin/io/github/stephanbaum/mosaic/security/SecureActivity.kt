@@ -21,7 +21,8 @@ abstract class SecureActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) window.setHideOverlayWindows(true)
         // Touches that reach this window while another app's window covers it are dropped. This is the defense on
         // API 28-30, which have no setHideOverlayWindows, and it holds on newer versions too (RT-android-4). It
-        // covers this activity's window only: a Compose dialog or menu is a window of its own.
+        // covers this activity's window only: a Compose dialog or menu is a window of its own, so every one of them
+        // uses SecureAlertDialog or SecureDropdownMenu (ui/components/SecureWindows.kt), which set it there too.
         window.decorView.filterTouchesWhenObscured = true
     }
 
