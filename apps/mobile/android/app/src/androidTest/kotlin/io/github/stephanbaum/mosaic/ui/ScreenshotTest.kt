@@ -149,6 +149,7 @@ class ScreenshotTest {
                                     passwordState = passwordState,
                                     version = "0.1.0",
                                     busy = false,
+                                    syncBusy = false,
                                     error = null,
                                     onAutoLock = {},
                                     onIdle = {},
