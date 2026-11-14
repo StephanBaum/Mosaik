@@ -268,6 +268,7 @@
   <string name="mobile_link_done">Verknüpft. Mosaic füllt %1$s in dieser App aus.</string>
   <string name="mobile_link_filter">App suchen</string>
   <string name="mobile_link_imported">Für diese App importiert</string>
+  <string name="mobile_link_importedNotVerified">Importierter Login. Die Website hat diese App nicht bestätigt.</string>
   <string name="mobile_link_installer">Installiert über</string>
   <string name="mobile_link_installerUnknown">Unbekannte Quelle</string>
   <string name="mobile_link_noApps">Keine weiteren Apps gefunden.</string>

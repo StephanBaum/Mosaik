@@ -323,6 +323,7 @@ export const mobile = {
   "mobile.link.confirmTitle": "{login} mit {app} verknüpfen?",
   "mobile.link.confirmSubtitle": "App-ID {appId} · Signatur {fingerprint}",
   "mobile.link.confirmFallbackHint": "Tippe nach dem Verknüpfen noch einmal auf das Feld, um es auszufüllen.",
+  "mobile.link.importedNotVerified": "Importierter Login. Die Website hat diese App nicht bestätigt.",
   "mobile.credential.unlockEntry": "Mosaic entsperren",
   "mobile.credential.passwordEntry": "Passwort",
   "mobile.credential.passkeyEntry": "Passkey",

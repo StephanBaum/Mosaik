@@ -1079,6 +1079,10 @@ public enum L10n {
         NSLocalizedString("mobile.link.imported", bundle: .main, comment: "")
     }
 
+    public static func linkImportedNotVerified() -> String {
+        NSLocalizedString("mobile.link.importedNotVerified", bundle: .main, comment: "")
+    }
+
     public static func linkInstaller() -> String {
         NSLocalizedString("mobile.link.installer", bundle: .main, comment: "")
     }

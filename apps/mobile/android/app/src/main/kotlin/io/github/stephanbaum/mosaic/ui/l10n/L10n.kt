@@ -828,6 +828,9 @@ object L10n {
     fun linkImported(r: Resources): String =
         r.getString(R.string.mobile_link_imported)
 
+    fun linkImportedNotVerified(r: Resources): String =
+        r.getString(R.string.mobile_link_importedNotVerified)
+
     fun linkInstaller(r: Resources): String =
         r.getString(R.string.mobile_link_installer)
 

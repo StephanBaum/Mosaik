@@ -4425,6 +4425,23 @@
         }
       }
     },
+    "mobile.link.importedNotVerified" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importierter Login. Die Website hat diese App nicht bestätigt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imported login. The website has not confirmed this app."
+          }
+        }
+      }
+    },
     "mobile.link.installer" : {
       "extractionState" : "manual",
       "localizations" : {
