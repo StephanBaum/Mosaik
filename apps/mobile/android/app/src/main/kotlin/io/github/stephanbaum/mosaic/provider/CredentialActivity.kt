@@ -88,7 +88,7 @@ class CredentialActivity : SecureActivity(), ProviderActivity {
         }
         setContent {
             MosaicTheme {
-                ProviderGate(app, ProviderFlows.CREDENTIAL) {
+                ProviderGate(app, ProviderFlows.CREDENTIAL, onClose = { closeWith(app, null) }) {
                     if (mode == CredentialIntents.MODE_CREATE) CreateRunner(app) else GetRunner(app, mode)
                 }
             }

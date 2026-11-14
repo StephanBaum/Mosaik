@@ -23,6 +23,8 @@ struct OnboardingFlow: View {
             SecondFactorStep(model: model)
         case .securityKey:
             SecurityKeyStep(model: model)
+        case .quickPassword:
+            QuickPasswordStep(model: model)
         case .autofill:
             AutofillStep(model: model)
         case .done:
@@ -193,6 +195,32 @@ private struct SecurityKeyStep: View {
             if let message = model.errorMessage { ErrorLine(text: message) }
             Button(L10n.commonCancel()) { model.back() }
                 .buttonStyle(SecondaryButtonStyle())
+        }
+    }
+}
+
+private struct QuickPasswordStep: View {
+    @Bindable var model: OnboardingModel
+
+    var body: some View {
+        MosaicScreen {
+            ScreenTitle(text: L10n.onboardingQuickTitle())
+            BodyText(text: L10n.settingsQuickPassword())
+            SecretField(
+                label: L10n.unlockPasswordLabel(), buffer: model.password, identifier: "onboarding-quick-password",
+                clearToken: model.passwordClearToken,
+                onChange: { empty in model.passwordFilled = !empty },
+                onSubmit: { Task { await model.enrollQuickFromPrompt() } })
+            if let message = model.errorMessage { ErrorLine(text: message) }
+            if model.isWorking { BodyText(text: L10n.onboardingWorking(), muted: true) }
+            Button(L10n.settingsQuickEnable()) { Task { await model.enrollQuickFromPrompt() } }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(!model.passwordFilled || model.isWorking)
+                .accessibilityIdentifier("onboarding-quick-enable")
+            Button(L10n.onboardingNotNow()) { model.skipQuickPrompt() }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(model.isWorking)
+                .accessibilityIdentifier("onboarding-quick-skip")
         }
     }
 }

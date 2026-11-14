@@ -11,10 +11,10 @@
   <string name="error_foreignFrame">Dieses Feld gehört zu einer anderen, in die Seite eingebetteten Website. Mosaic füllt es deshalb nicht aus.</string>
   <string name="error_insecureOrigin">Diese Seite nutzt keine sichere Verbindung, deshalb füllt Mosaic sie nicht aus. Öffne die https-Version der Seite.</string>
   <string name="error_internal">Etwas Unerwartetes hat diese Aktion gestoppt. Versuche es noch einmal und starte Mosaic neu, wenn es wieder passiert.</string>
-  <string name="error_invalidInput">Etwas in diesem Formular ist ungültig. Prüfe die markierten Felder und versuche es noch einmal.</string>
+  <string name="error_invalidInput">Etwas in deinen Eingaben ist ungültig. Prüfe sie und versuche es noch einmal.</string>
   <string name="error_itemTypeNotAllowed">Dieser Tresor enthält nur Einmalcodes.</string>
   <string name="error_locked">Mosaic ist gesperrt. Entsperre es, um weiterzumachen.</string>
-  <string name="error_noAccount">Auf diesem Gerät gibt es noch kein Konto. Erstelle eins oder melde dich mit deinem Emergency Kit an.</string>
+  <string name="error_noAccount">Mosaic ist auf diesem Handy noch nicht eingerichtet. Öffne Mosaic, um es einzurichten.</string>
   <string name="error_noMatch">Mosaic hat keinen Login für diese App oder Website. Öffne Mosaic, um einen hinzuzufügen.</string>
   <string name="error_notEnoughMemory">Auf diesem Gerät ist nicht genug freier Speicher, um deinen Tresor zu entsperren. Schließe andere Apps und versuche es noch einmal.</string>
   <string name="error_notFound">Diesen Eintrag gibt es nicht mehr. Vielleicht wurde er auf einem anderen Gerät gelöscht.</string>
@@ -40,7 +40,7 @@
   <string name="error_secretKeyRequired">Dieses Gerät kennt deinen Secret Key nicht. Gib ihn aus deinem Emergency Kit ein.</string>
   <string name="error_setupCodeInvalid">Dieser Setup-Code ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal.</string>
   <string name="error_storageUnavailable">Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Telefon neu und versuche es noch einmal.</string>
-  <string name="error_storeInUse">Mosaic ist auf diesem Computer schon geöffnet. Schließe das andere Fenster und versuche es dann noch einmal.</string>
+  <string name="error_storeInUse">Mosaic wird auf diesem Handy gerade an anderer Stelle benutzt. Warte einen Moment und versuche es dann noch einmal.</string>
   <string name="error_storeUnavailable">Mosaic konnte deine Tresordatei auf diesem Gerät nicht öffnen. Prüfe, ob das Laufwerk verfügbar ist und freien Speicher hat, und starte Mosaic dann neu.</string>
   <string name="error_syncAccountRekeyed">Die Schlüssel deines Kontos wurden auf einem anderen Gerät erneuert. Nutze den Secret Key aus dem neuen Emergency Kit, um weiterzumachen.</string>
   <string name="error_syncFailed">Mosaic konnte nicht synchronisieren. Prüfe deine Verbindung und versuche es noch einmal.</string>
@@ -56,8 +56,8 @@
   <string name="error_syncSignedOut">Der Server hat dieses Gerät abgemeldet. Melde dich erneut an, um weiter zu synchronisieren. Deine Änderungen sind auf diesem Gerät sicher.</string>
   <string name="error_syncTwoFactorInvalid">Dieser Code stimmt nicht oder ist abgelaufen. Gib den aktuellen 6-stelligen Code aus deiner Authenticator-App ein.</string>
   <string name="error_syncTwoFactorRequired">Dieses Sync-Konto braucht einen Code aus deiner Authenticator-App. Gib den 6-stelligen Code ein.</string>
-  <string name="error_vaultUnavailable">Dieser Tresor lässt sich in dieser Sitzung nicht öffnen. Entsperre ihn mit seinem Hardware-Schlüssel oder synchronisiere und versuche es dann noch einmal.</string>
-  <string name="error_wrongCredentials">Das Master-Passwort oder der Secret Key hat nicht funktioniert. Prüfe die Feststelltaste und dein Tastaturlayout und versuche es noch einmal.</string>
+  <string name="error_vaultUnavailable">Dieser Tresor lässt sich gerade nicht öffnen. Synchronisiere und versuche es noch einmal oder entsperre Mosaic neu.</string>
+  <string name="error_wrongCredentials">Das Master-Passwort oder der Secret Key hat nicht funktioniert. Prüfe auf Tippfehler und die Tastatursprache und versuche es noch einmal.</string>
   <string name="item_copy">%1$s kopieren</string>
   <string name="item_customFields">Eigene Felder</string>
   <string name="item_field_addressLine1">Adresszeile 1</string>
@@ -143,10 +143,12 @@
   <string name="mobile_common_done">Fertig</string>
   <string name="mobile_common_edit">Bearbeiten</string>
   <string name="mobile_common_hide">Verbergen</string>
+  <string name="mobile_common_hideField">%1$s verbergen</string>
   <string name="mobile_common_notNow">Jetzt nicht</string>
   <string name="mobile_common_remove">Entfernen</string>
   <string name="mobile_common_save">Speichern</string>
   <string name="mobile_common_show">Anzeigen</string>
+  <string name="mobile_common_showField">%1$s anzeigen</string>
   <string name="mobile_common_tryAgain">Noch einmal versuchen</string>
   <string name="mobile_common_working">Einen Moment</string>
   <plurals name="mobile_copy_done">
@@ -276,12 +278,13 @@
   <string name="mobile_onboarding_autofill_body">Lass Mosaic deine Logins in anderen Apps und im Browser anbieten. Das kannst du später in den Systemeinstellungen ändern.</string>
   <string name="mobile_onboarding_autofill_open">Autofill-Einstellungen öffnen</string>
   <string name="mobile_onboarding_autofill_title">Logins automatisch ausfüllen</string>
-  <string name="mobile_onboarding_autofillSteps">Öffne die Einstellungen, dann Allgemein, dann AutoFill &amp; Passwörter, und schalte Mosaic ein.</string>
+  <string name="mobile_onboarding_autofillSteps">Öffne die Einstellungen-App, tippe auf „Passwörter“, dann auf „Passwortoptionen“, und schalte Mosaic ein.</string>
   <string name="mobile_onboarding_details_checking">Server wird geprüft</string>
   <string name="mobile_onboarding_details_deviceName">Name dieses Handys</string>
   <string name="mobile_onboarding_details_deviceNameDefault">Android-Handy</string>
   <string name="mobile_onboarding_details_email">E-Mail</string>
   <string name="mobile_onboarding_details_keyFromCode">Secret Key aus dem Einrichtungscode</string>
+  <string name="mobile_onboarding_details_keyWiped">Mosaic hat den gescannten Secret Key entfernt, als du die App verlassen hast. Scanne den Code noch einmal oder tippe den Schlüssel ein.</string>
   <string name="mobile_onboarding_details_scanOr">Oder gib die Angaben von Hand ein</string>
   <string name="mobile_onboarding_details_scanned">Server, E-Mail und Secret Key sind aus dem Einrichtungscode übernommen. Prüfe sie und fahre dann fort.</string>
   <string name="mobile_onboarding_details_secretKey">Secret Key</string>
@@ -327,6 +330,7 @@
   <string name="mobile_onboarding_welcome_start">Los geht\'s</string>
   <string name="mobile_onboarding_welcome_title">Mosaic auf diesem Handy einrichten</string>
   <string name="mobile_onboarding_working">Anmeldung läuft. Das kann ein paar Sekunden dauern.</string>
+  <string name="mobile_provider_errorTitle">Mosaic kann nicht weitermachen</string>
   <string name="mobile_scan_allow">Kamera erlauben</string>
   <string name="mobile_scan_denied">Mosaic darf die Kamera nicht nutzen. Erlaube sie in den Einstellungen dieses Handys, oder gib die Angaben von Hand ein.</string>
   <string name="mobile_scan_looking">Suche nach einem QR-Code</string>
@@ -395,18 +399,19 @@
     <item quantity="one">%1$d Änderung wartet aufs Hochladen</item>
     <item quantity="other">%1$d Änderungen warten aufs Hochladen</item>
   </plurals>
-  <string name="mobile_sync_warning_accountRollback">Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Prüfe den Server und wähle dann „Ich habe es geprüft“.</string>
+  <string name="mobile_sync_warning_accountRollback">Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.</string>
   <string name="mobile_sync_warning_freezeSuspected">Änderungen von einem anderen Gerät sind seit einer Weile nicht angekommen. Prüfe, ob das andere Gerät an und online ist.</string>
   <string name="mobile_sync_warning_identityDuplicated">Eine andere Kopie von Mosaic schreibt unter der Identität dieses Handys, zum Beispiel nach dem Wiederherstellen einer Sicherung. Die Synchronisierung ist pausiert. Stelle sicher, dass nur eine Kopie benutzt wird, und wähle dann „Ich habe es geprüft“.</string>
-  <string name="mobile_sync_warning_noCommonView">Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen.</string>
-  <string name="mobile_sync_warning_rollbackDetected">Deine Sync-Daten wirken älter als dieses Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“.</string>
-  <string name="mobile_sync_warning_serverInconsistent">Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Prüfe den Server und wähle dann „Ich habe es geprüft“.</string>
-  <string name="mobile_sync_warning_serverRollback">Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“.</string>
+  <string name="mobile_sync_warning_noCommonView">Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen. Synchronisiere dein anderes Gerät und dann dieses.</string>
+  <string name="mobile_sync_warning_rollbackDetected">Deine Sync-Daten wirken älter als dieses Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.</string>
+  <string name="mobile_sync_warning_serverInconsistent">Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.</string>
+  <string name="mobile_sync_warning_serverRollback">Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.</string>
   <plurals name="mobile_sync_warning_undecryptable">
     <item quantity="one">%1$d empfangener Eintrag konnte auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.</item>
     <item quantity="other">%1$d empfangene Einträge konnten auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.</item>
   </plurals>
   <string name="mobile_sync_warnings">Sync-Warnungen</string>
+  <string name="mobile_sync_warningsBanner">Die Synchronisierung hat ein Problem gefunden. Öffne die Einstellungen, um es zu prüfen.</string>
   <string name="mobile_sync_working">Synchronisiere</string>
   <string name="mobile_unlock_account">%1$s wird entsperrt</string>
   <string name="mobile_unlock_action">Entsperren</string>
@@ -414,11 +419,11 @@
   <string name="mobile_unlock_biometricSubtitle">Bestätige, dass du es bist</string>
   <string name="mobile_unlock_biometricTitle">Mosaic entsperren</string>
   <string name="mobile_unlock_busyTitle">Mosaic ist beschäftigt</string>
-  <string name="mobile_unlock_enrollNext">Nächstes Mal mit Fingerabdruck entsperren</string>
+  <string name="mobile_unlock_enrollNext">Nächstes Mal mit meinem Fingerabdruck entsperren</string>
   <string name="mobile_unlock_faceIdReason">Mosaic nutzt Face ID, um deinen Tresor schnell zu entsperren. Dein Master-Passwort funktioniert immer auch.</string>
   <plurals name="mobile_unlock_failed">
-    <item quantity="one">Das hat nicht geklappt. %1$d Versuch bisher.</item>
-    <item quantity="other">Das hat nicht geklappt. %1$d Versuche bisher.</item>
+    <item quantity="one">Das hat %1$d Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue.</item>
+    <item quantity="other">Das hat %1$d Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue.</item>
   </plurals>
   <string name="mobile_unlock_passwordLabel">Master-Passwort</string>
   <string name="mobile_unlock_quick">Schnell entsperren</string>
@@ -440,7 +445,7 @@
     <item quantity="one">%1$d Eintrag</item>
     <item quantity="other">%1$d Einträge</item>
   </plurals>
-  <string name="mobile_vault_emptyBody">Füge deinen ersten Login hinzu oder synchronisiere mit deinem Desktop, um deine Einträge hierher zu holen.</string>
+  <string name="mobile_vault_emptyBody">Zieh nach unten, um mit deinen anderen Geräten zu synchronisieren, oder füge deinen ersten Login hinzu.</string>
   <string name="mobile_vault_emptyTitle">Noch keine Einträge</string>
   <string name="mobile_vault_favorite">Favorit</string>
   <string name="mobile_vault_title">Dein Tresor</string>

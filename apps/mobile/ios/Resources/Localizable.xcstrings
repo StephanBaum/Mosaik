@@ -177,13 +177,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Etwas in diesem Formular ist ungültig. Prüfe die markierten Felder und versuche es noch einmal."
+            "value" : "Etwas in deinen Eingaben ist ungültig. Prüfe sie und versuche es noch einmal."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Something in this form isn't valid. Check the highlighted fields and try again."
+            "value" : "Something you entered isn't valid. Check your entries and try again."
           }
         }
       }
@@ -228,13 +228,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auf diesem Gerät gibt es noch kein Konto. Erstelle eins oder melde dich mit deinem Emergency Kit an."
+            "value" : "Mosaic ist auf diesem Handy noch nicht eingerichtet. Öffne Mosaic, um es einzurichten."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "There's no account on this device yet. Create one, or sign in with your Emergency Kit."
+            "value" : "Mosaic isn't set up on this phone yet. Open Mosaic to set it up."
           }
         }
       }
@@ -670,13 +670,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic ist auf diesem Computer schon geöffnet. Schließe das andere Fenster und versuche es dann noch einmal."
+            "value" : "Mosaic wird auf diesem Handy gerade an anderer Stelle benutzt. Warte einen Moment und versuche es dann noch einmal."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic is already open on this computer. Close the other window, then try again."
+            "value" : "Mosaic is busy elsewhere on this phone. Wait a moment, then try again."
           }
         }
       }
@@ -942,13 +942,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dieser Tresor lässt sich in dieser Sitzung nicht öffnen. Entsperre ihn mit seinem Hardware-Schlüssel oder synchronisiere und versuche es dann noch einmal."
+            "value" : "Dieser Tresor lässt sich gerade nicht öffnen. Synchronisiere und versuche es noch einmal oder entsperre Mosaic neu."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This vault can't be opened in this session. Unlock it with its hardware key, or sync and try again."
+            "value" : "This vault can't be opened right now. Sync and try again, or unlock Mosaic again."
           }
         }
       }
@@ -959,13 +959,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das Master-Passwort oder der Secret Key hat nicht funktioniert. Prüfe die Feststelltaste und dein Tastaturlayout und versuche es noch einmal."
+            "value" : "Das Master-Passwort oder der Secret Key hat nicht funktioniert. Prüfe auf Tippfehler und die Tastatursprache und versuche es noch einmal."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "That master password or Secret Key didn't work. Check Caps Lock and your keyboard layout, then try again."
+            "value" : "That master password or Secret Key didn't work. Check for typos and the keyboard language, then try again."
           }
         }
       }
@@ -2381,6 +2381,23 @@
         }
       }
     },
+    "mobile.common.hideField" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ verbergen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide %1$@"
+          }
+        }
+      }
+    },
     "mobile.common.notNow" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2445,6 +2462,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Show"
+          }
+        }
+      }
+    },
+    "mobile.common.showField" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ anzeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show %1$@"
           }
         }
       }
@@ -4567,13 +4601,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Öffne die Einstellungen, dann Allgemein, dann AutoFill & Passwörter, und schalte Mosaic ein."
+            "value" : "Öffne die Einstellungen-App, tippe auf „Passwörter“, dann auf „Passwortoptionen“, und schalte Mosaic ein."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open Settings, then General, then AutoFill & Passwords, and turn on Mosaic."
+            "value" : "Open the Settings app, tap Passwords, then Password Options, and turn on Mosaic."
           }
         }
       }
@@ -4659,6 +4693,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Secret Key from the setup code"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.details.keyWiped" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic hat den gescannten Secret Key entfernt, als du die App verlassen hast. Scanne den Code noch einmal oder tippe den Schlüssel ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic removed the scanned Secret Key when you left the app. Scan the code again or type the key."
           }
         }
       }
@@ -5424,6 +5475,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Signing in. This can take a few seconds."
+          }
+        }
+      }
+    },
+    "mobile.provider.errorTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic kann nicht weitermachen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic can't continue"
           }
         }
       }
@@ -6509,13 +6577,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Prüfe den Server und wähle dann „Ich habe es geprüft“."
+            "value" : "Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The server shows an older account key than this phone has. Nothing was changed. Check the server, then choose “I've checked”."
+            "value" : "The server shows an older account key than this phone has. Nothing was changed. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”."
           }
         }
       }
@@ -6560,13 +6628,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen."
+            "value" : "Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen. Synchronisiere dein anderes Gerät und dann dieses."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This phone and another device haven't seen the same server data for two days. The server may be showing them different versions."
+            "value" : "This phone and another device haven't seen the same server data for two days. The server may be showing them different versions. Sync your other device, then sync here."
           }
         }
       }
@@ -6577,13 +6645,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Sync-Daten wirken älter als dieses Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“."
+            "value" : "Deine Sync-Daten wirken älter als dieses Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your sync data looks older than this phone. Check the server, then choose “I've checked”."
+            "value" : "Your sync data looks older than this phone. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”."
           }
         }
       }
@@ -6594,13 +6662,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Prüfe den Server und wähle dann „Ich habe es geprüft“."
+            "value" : "Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The server showed this phone different data than another device. Check the server, then choose “I've checked”."
+            "value" : "The server showed this phone different data than another device. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”."
           }
         }
       }
@@ -6611,13 +6679,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“."
+            "value" : "Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The server's copy of one of your vaults is older than this phone's. Check the server, then choose “I've checked”."
+            "value" : "The server's copy of one of your vaults is older than this phone's. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”."
           }
         }
       }
@@ -6676,6 +6744,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync warnings"
+          }
+        }
+      }
+    },
+    "mobile.sync.warningsBanner" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Synchronisierung hat ein Problem gefunden. Öffne die Einstellungen, um es zu prüfen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync found a problem. Open Settings to check it."
           }
         }
       }
@@ -6805,7 +6890,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nächstes Mal mit Fingerabdruck entsperren"
+            "value" : "Nächstes Mal mit meinem Fingerabdruck entsperren"
           }
         },
         "en" : {
@@ -6842,13 +6927,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Das hat nicht geklappt. %1$lld Versuch bisher."
+                  "value" : "Das hat %1$lld Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Das hat nicht geklappt. %1$lld Versuche bisher."
+                  "value" : "Das hat %1$lld Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue."
                 }
               }
             }
@@ -6860,13 +6945,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "That didn't work. %1$lld attempt so far."
+                  "value" : "That didn't work %1$lld time. Mosaic can't reset your master password. If you changed it on another device, use the new one."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "That didn't work. %1$lld attempts so far."
+                  "value" : "That didn't work %1$lld times. Mosaic can't reset your master password. If you changed it on another device, use the new one."
                 }
               }
             }
@@ -7193,13 +7278,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Füge deinen ersten Login hinzu oder synchronisiere mit deinem Desktop, um deine Einträge hierher zu holen."
+            "value" : "Zieh nach unten, um mit deinen anderen Geräten zu synchronisieren, oder füge deinen ersten Login hinzu."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add your first login, or sync with your desktop to bring your items here."
+            "value" : "Pull down to sync with your other devices, or add your first login."
           }
         }
       }

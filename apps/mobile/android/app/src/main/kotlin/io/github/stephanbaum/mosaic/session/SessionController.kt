@@ -53,6 +53,9 @@ class JoinTracker {
     }
 }
 
+/** The first join step: what the server asked for, and whether quick unlock is on now (an unlocked join only). */
+class JoinResult(val outcome: JoinOutcome, val quickEnrolled: Boolean)
+
 private class NotEnoughMemory : Exception()
 
 private class QuickUnlockFailure(val code: String) : Exception()
@@ -117,45 +120,67 @@ class SessionController(
     /**
      * The first join step. A new phone has no stored profile yet, so no memory preflight is possible here.
      * [secretKey] is kept by the onboarding flow across attempts, so a wrong password does not ask for it again:
-     * each attempt works on a copy that is wiped afterwards.
+     * each attempt works on a copy that is wiped afterwards. With [enrollQuick] and an unlocked join, the typed
+     * password starts the quick-unlock enrolment inside the same core call, and is wiped with the rest (M10-G4
+     * item 7). After a second factor the password is gone, so the caller asks for it again.
      */
     suspend fun join(
+        context: Context,
         serverUrl: String,
         email: String,
         deviceName: String,
         password: SecretBytes,
         secretKey: ByteArray,
-    ): Outcome<JoinOutcome> =
+        enrollQuick: Boolean,
+        text: PromptText,
+    ): Outcome<JoinResult> =
         guarded {
             val key = SecretBytes.of(secretKey.copyOf())
+            val joined: Pair<JoinOutcome, QuickUnlockSetup?>
             try {
-                val outcome =
+                joined =
                     holder.call { core ->
                         password.consume { pw ->
                             key.consume { sk ->
-                                core.joinHosted(
-                                    JoinHostedRequest(
-                                        serverUrl = serverUrl,
-                                        email = email,
-                                        password = pw,
-                                        secretKey = sk,
-                                        deviceName = deviceName.trim().ifEmpty { null },
-                                    ),
-                                )
+                                val outcome =
+                                    core.joinHosted(
+                                        JoinHostedRequest(
+                                            serverUrl = serverUrl,
+                                            email = email,
+                                            password = pw,
+                                            secretKey = sk,
+                                            deviceName = deviceName.trim().ifEmpty { null },
+                                        ),
+                                    )
+                                val setup =
+                                    if (enrollQuick && outcome is JoinOutcome.Unlocked) {
+                                        runCatching { core.quickUnlockEnrollBegin(pw) }.getOrNull()
+                                    } else {
+                                        null
+                                    }
+                                outcome to setup
                             }
                         }
                     }
-                when (outcome) {
-                    is JoinOutcome.Unlocked -> {
-                        joinTracker.set(false)
-                        afterUnlocked()
-                    }
-                    is JoinOutcome.SecondFactor -> joinTracker.set(true)
-                }
-                outcome
             } finally {
                 password.wipe()
                 key.wipe()
+            }
+            val outcome = joined.first
+            val pendingSetup = joined.second
+            when (outcome) {
+                is JoinOutcome.Unlocked -> {
+                    joinTracker.set(false)
+                    // An enrolment that does not work never fails the join; the caller then asks again.
+                    val enrolled =
+                        pendingSetup != null && runCatching { finishEnroll(context, pendingSetup, text) }.isSuccess
+                    afterUnlocked()
+                    JoinResult(outcome, enrolled)
+                }
+                is JoinOutcome.SecondFactor -> {
+                    joinTracker.set(true)
+                    JoinResult(outcome, false)
+                }
             }
         }
 

@@ -164,6 +164,7 @@ final class AppModel {
             isSceneActive = false
             privacy.sceneWillResignActive()
             onboarding?.sceneWentToBackground()
+            unlock?.sceneWentToBackground()
             idle?.stop()
             idleStarted = false
             lifecycle?.sceneDidEnterBackground()
@@ -181,6 +182,8 @@ final class AppModel {
         guard let lifecycle else { return }
         _ = try? await lifecycle.sceneDidBecomeActive()
         refreshState()
+        // A return to the foreground syncs, while unlocked (the model keeps it to one sync at a time).
+        if case .unlocked = session { await vault?.autoSync() }
     }
 
     // MARK: Unlock

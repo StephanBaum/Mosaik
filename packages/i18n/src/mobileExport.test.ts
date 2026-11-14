@@ -14,6 +14,7 @@ import {
   kotlinL10n,
   mobileKeys,
   swiftL10n,
+  withMobileErrorTexts,
   xcstrings,
 } from "./mobileExport.ts";
 
@@ -164,6 +165,16 @@ describe("mobile export", () => {
       );
     }
     expect(() => entriesOf({ "mobile.x": "{a}" }, { "mobile.x": "{b}" })).toThrow(/^mobile\.x: DE and EN/);
+  });
+
+  it("a mobile.error text replaces the desktop error text and is not exported as its own key", () => {
+    const merged = withMobileErrorTexts({ "error.x": "desktop", "mobile.error.x": "phone" });
+    expect(merged["error.x"]).toBe("phone");
+    expect(mobileKeys({ "mobile.error.x": "phone", "mobile.a": "a" }, [])).toEqual(["mobile.a"]);
+    const phone = withMobileErrorTexts(en);
+    expect(phone["error.storeInUse"]).toBe(en["mobile.error.storeInUse"]);
+    expect(phone["error.storeInUse"]).not.toMatch(/computer|window/i);
+    expect(withMobileErrorTexts(de)["error.wrongCredentials"]).not.toMatch(/Feststelltaste/);
   });
 
   it("every mobileShared key exists", () => {

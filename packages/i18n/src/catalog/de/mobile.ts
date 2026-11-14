@@ -15,13 +15,13 @@ export const mobile = {
   "mobile.unlock.action": "Entsperren",
   "mobile.unlock.quick": "Schnell entsperren",
   "mobile.unlock.failed":
-    "{attempts, plural, one {Das hat nicht geklappt. # Versuch bisher.} other {Das hat nicht geklappt. # Versuche bisher.}}",
+    "{attempts, plural, one {Das hat # Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue.} other {Das hat # Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue.}}",
   "mobile.lock.now": "Jetzt sperren",
   "mobile.vault.title": "Dein Tresor",
   "mobile.vault.count": "{count, plural, one {# Eintrag} other {# Einträge}}",
   "mobile.vault.emptyTitle": "Noch keine Einträge",
   "mobile.vault.emptyBody":
-    "Füge deinen ersten Login hinzu oder synchronisiere mit deinem Desktop, um deine Einträge hierher zu holen.",
+    "Zieh nach unten, um mit deinen anderen Geräten zu synchronisieren, oder füge deinen ersten Login hinzu.",
   "mobile.search.placeholder": "Tresor durchsuchen",
   "mobile.copy.done":
     "Kopiert. Die Zwischenablage wird in {seconds, plural, one {# Sekunde} other {# Sekunden}} geleert.",
@@ -78,7 +78,8 @@ export const mobile = {
   "mobile.unlock.secretKey": "Secret Key",
   "mobile.unlock.secretKeyHelp":
     "Auf diesem Handy ist dein Secret Key nicht gespeichert. Tippe ihn aus deinem Emergency Kit ein.",
-  "mobile.unlock.enrollNext": "Nächstes Mal mit Fingerabdruck entsperren",
+  "mobile.unlock.enrollNext":
+    "Nächstes Mal mit meinem Fingerabdruck entsperren",
   "mobile.unlock.working": "Entsperren läuft. Das kann ein paar Sekunden dauern.",
   "mobile.unlock.biometricTitle": "Mosaic entsperren",
   "mobile.unlock.biometricSubtitle": "Bestätige, dass du es bist",
@@ -146,7 +147,7 @@ export const mobile = {
   "mobile.onboarding.securityKeyWaiting":
     "Schließe die Anmeldung in deinem Browser ab. Prüfe, dass dort der Code {code} steht, und komm dann hierher zurück.",
   "mobile.onboarding.autofillSteps":
-    "Öffne die Einstellungen, dann Allgemein, dann AutoFill & Passwörter, und schalte Mosaic ein.",
+    "Öffne die Einstellungen-App, tippe auf „Passwörter“, dann auf „Passwortoptionen“, und schalte Mosaic ein.",
   "mobile.onboarding.openSettings": "Einstellungen öffnen",
   "mobile.onboarding.notNow": "Nicht jetzt",
   "mobile.unlock.secretKeyNeeded":
@@ -189,19 +190,19 @@ export const mobile = {
   "mobile.sync.warning.freezeSuspected":
     "Änderungen von einem anderen Gerät sind seit einer Weile nicht angekommen. Prüfe, ob das andere Gerät an und online ist.",
   "mobile.sync.warning.noCommonView":
-    "Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen.",
+    "Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen. Synchronisiere dein anderes Gerät und dann dieses.",
   "mobile.sync.warning.rollbackDetected":
-    "Deine Sync-Daten wirken älter als dieses Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
+    "Deine Sync-Daten wirken älter als dieses Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
   "mobile.sync.warning.identityDuplicated":
     "Eine andere Kopie von Mosaic schreibt unter der Identität dieses Handys, zum Beispiel nach dem Wiederherstellen einer Sicherung. Die Synchronisierung ist pausiert. Stelle sicher, dass nur eine Kopie benutzt wird, und wähle dann „Ich habe es geprüft“.",
   "mobile.sync.warning.serverInconsistent":
-    "Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
+    "Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
   "mobile.sync.warning.serverRollback":
-    "Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
+    "Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
   "mobile.sync.warning.undecryptable":
     "{count, plural, one {# empfangener Eintrag konnte} other {# empfangene Einträge konnten}} auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.",
   "mobile.sync.warning.accountRollback":
-    "Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
+    "Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
   "mobile.sync.acknowledge": "Ich habe es geprüft…",
   "mobile.sync.acknowledgeTitle": "Sync-Warnungen löschen?",
   "mobile.sync.acknowledgeBody":

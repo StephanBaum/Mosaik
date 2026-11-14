@@ -26,6 +26,7 @@ import { rotation } from "./catalog/en/rotation.ts";
 import { credentialRotation } from "./catalog/en/credentialRotation.ts";
 import { breach } from "./catalog/en/breach.ts";
 import { mobile } from "./catalog/en/mobile.ts";
+import { mobileUx } from "./catalog/en/mobileUx.ts";
 
 export const en = {
   ...app,
@@ -52,6 +53,7 @@ export const en = {
   ...credentialRotation,
   ...breach,
   ...mobile,
+  ...mobileUx,
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

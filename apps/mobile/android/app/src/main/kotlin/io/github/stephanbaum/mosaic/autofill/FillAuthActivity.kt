@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import io.github.stephanbaum.mosaic.MosaicApp
 import io.github.stephanbaum.mosaic.ffi.ItemKey
+import io.github.stephanbaum.mosaic.ffi.OriginWarning
 import io.github.stephanbaum.mosaic.provider.ProviderFlows
 import io.github.stephanbaum.mosaic.provider.ProviderGate
 import io.github.stephanbaum.mosaic.security.ErrorCodes
@@ -23,7 +24,9 @@ import io.github.stephanbaum.mosaic.security.ProviderActivity
 import io.github.stephanbaum.mosaic.security.SecureActivity
 import io.github.stephanbaum.mosaic.ui.MosaicTheme
 import io.github.stephanbaum.mosaic.ui.components.ErrorText
+import io.github.stephanbaum.mosaic.ui.components.BodyText
 import io.github.stephanbaum.mosaic.ui.components.PrimaryButton
+import io.github.stephanbaum.mosaic.ui.components.QuietButton
 import io.github.stephanbaum.mosaic.ui.components.ScreenFrame
 import io.github.stephanbaum.mosaic.ui.components.TitleText
 import io.github.stephanbaum.mosaic.ui.errorText
@@ -38,6 +41,9 @@ import kotlinx.coroutines.CancellationException
  *    datasets. The flow stays open, because the next step is the user's tap.
  *  - **fill** (a tap on a dataset): unlock if the session ended, look the target up again, check that the tapped
  *    login is still a candidate, and answer with **one** dataset holding that login's values. Then the flow ends.
+ *    A look-alike or punycode address is asked about first, on a confirm screen of this activity (M10-G4 item 4):
+ *    the warning is derived again from the core on every tap, a failure to derive it stops the fill, and the
+ *    answer lives in this screen's memory only, so no intent extra can skip it. No dataset holds a value before.
  *  - **dismiss**: close.
  *
  * Everything is derived again from the caller's package and the core: the intent carries no value and no match.
@@ -64,7 +70,7 @@ class FillAuthActivity : SecureActivity(), ProviderActivity {
         }
         setContent {
             MosaicTheme {
-                ProviderGate(app, ProviderFlows.AUTOFILL) {
+                ProviderGate(app, ProviderFlows.AUTOFILL, onClose = { abandon(app) }) {
                     Runner(app, mode, info)
                 }
             }
@@ -75,12 +81,16 @@ class FillAuthActivity : SecureActivity(), ProviderActivity {
     private fun Runner(app: MosaicApp, mode: String, info: FillRequestInfo) {
         val resources = LocalContext.current.resources
         var failure by remember { mutableStateOf<String?>(null) }
-        LaunchedEffect(Unit) {
+        var warning by remember { mutableStateOf<OriginWarning?>(null) }
+        var confirmed by remember { mutableStateOf(false) }
+        LaunchedEffect(confirmed) {
             try {
-                val data = work(app, mode, info)
+                val data = work(app, mode, info, confirmed)
                 finishWith(app, mode, data)
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: NeedsConfirmation) {
+                warning = e.warning
             } catch (e: NoLongerMatches) {
                 failure = "noMatch"
             } catch (e: Exception) {
@@ -88,7 +98,28 @@ class FillAuthActivity : SecureActivity(), ProviderActivity {
             }
         }
         val code = failure
-        if (code == null) {
+        val pending = warning
+        if (code == null && pending != null) {
+            ScreenFrame {
+                TitleText(L10n.autofillWarning(resources))
+                BodyText(
+                    when (pending) {
+                        is OriginWarning.Punycode -> L10n.extWarnPunycode(resources, pending.unicode)
+                        is OriginWarning.Lookalike -> L10n.extWarnLookalike(resources, pending.savedHost)
+                    },
+                )
+                val address = info.webDomain
+                if (address != null) BodyText(address)
+                PrimaryButton(
+                    L10n.extConfirmFillButton(resources),
+                    onClick = {
+                        warning = null
+                        confirmed = true
+                    },
+                )
+                QuietButton(L10n.commonCancel(resources), onClick = { abandon(app) })
+            }
+        } else if (code == null) {
             ScreenFrame { }
         } else {
             ScreenFrame {
@@ -99,7 +130,7 @@ class FillAuthActivity : SecureActivity(), ProviderActivity {
         }
     }
 
-    private suspend fun work(app: MosaicApp, mode: String, info: FillRequestInfo): Intent? {
+    private suspend fun work(app: MosaicApp, mode: String, info: FillRequestInfo, confirmed: Boolean): Intent? {
         val planner = FillPlanner(app.holder)
         val factory = FillResponseFactory(this, app.linkTokens)
         val target = planner.target(this, info)
@@ -113,6 +144,11 @@ class FillAuthActivity : SecureActivity(), ProviderActivity {
             val response = factory.candidatesResponse(info, candidates.candidates, warning, label)
             if (response == null) null else result(response)
         } else {
+            if (!confirmed) {
+                // Not through the planner's lenient reader: an error here must stop the fill, never skip the question.
+                val warning = app.holder.call { it.fillWarning(target) }
+                if (warning != null) throw NeedsConfirmation(warning)
+            }
             fill(app, factory, info, candidates.sessionId, candidates.candidates.map { it.key })
         }
     }
@@ -181,6 +217,9 @@ class FillAuthActivity : SecureActivity(), ProviderActivity {
         app.lockPolicy.closeProviderFlow(ProviderFlows.AUTOFILL)
         finish()
     }
+
+    /** The address looks like another site or uses punycode: the user confirms before any value is read. */
+    private class NeedsConfirmation(val warning: OriginWarning) : Exception()
 
     /** The tapped login is no longer a candidate for this request (the match changed since the list was shown). */
     private class NoLongerMatches : Exception()

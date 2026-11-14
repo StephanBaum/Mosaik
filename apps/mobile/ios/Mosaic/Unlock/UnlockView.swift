@@ -12,6 +12,8 @@ final class UnlockModel {
     var secretKeyClearToken = 0
     var passwordFilled = false
     var secretKeyFilled = false
+    /// The Secret Key is shown as typed (never while the screen is captured); hidden again in the background.
+    var showSecretKey = false
     private(set) var errorMessage: String?
     private(set) var isWorking = false
     private(set) var failedAttempts = 0
@@ -74,7 +76,13 @@ final class UnlockModel {
         }
     }
 
+    /// The app left the foreground: a shown Secret Key goes back to hidden.
+    func sceneWentToBackground() {
+        showSecretKey = false
+    }
+
     func wipe() {
+        showSecretKey = false
         password.wipe()
         secretKey.wipe()
         passwordFilled = false
@@ -87,6 +95,7 @@ final class UnlockModel {
 struct UnlockView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Bindable var model: UnlockModel
+    let capture: CaptureObserver
     let email: String?
     let secretKeyStored: Bool
     let availability: QuickUnlockAvailability
@@ -113,7 +122,17 @@ struct UnlockView: View {
                 SecretField(
                     label: L10n.onboardingSecretKey(), buffer: model.secretKey,
                     identifier: "unlock-secret-key", clearToken: model.secretKeyClearToken,
+                    reveal: model.showSecretKey && capture.revealAllowed,
                     onChange: { empty in model.secretKeyFilled = !empty })
+                if let note = capture.hiddenNote {
+                    BodyText(text: note, muted: true)
+                } else {
+                    Toggle(isOn: $model.showSecretKey) {
+                        Text(L10n.itemSecretRevealAction(field: L10n.onboardingSecretKey()))
+                            .font(Font.mosaic(MosaicTokens.FontSize.sm))
+                    }
+                    .accessibilityIdentifier("unlock-secret-key-reveal")
+                }
             }
             SecretField(
                 label: L10n.unlockPasswordLabel(), buffer: model.password, identifier: "unlock-password",
@@ -121,9 +140,10 @@ struct UnlockView: View {
                 onChange: { empty in model.passwordFilled = !empty },
                 onSubmit: { Task { await model.submit(needsSecretKey: !secretKeyStored) } })
             if passwordRequiredAfterBoot {
-                BodyText(text: L10n.unlockRebootNote(), muted: true)
+                // After a restart and after five wrong tries alike: the same plain reason.
+                BodyText(text: L10n.errorPasswordRequired(), muted: true)
             }
-            if !quickUnlockAvailable && model.enrollQuickUnlockOffered {
+            if !quickUnlockAvailable && !passwordRequiredAfterBoot && model.enrollQuickUnlockOffered {
                 OptionRow(
                     text: L10n.unlockQuickOptionFaceId(), isOn: $model.enrollQuickUnlock,
                     identifier: "unlock-enroll-quick")

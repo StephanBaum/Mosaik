@@ -35,6 +35,7 @@ import io.github.stephanbaum.mosaic.security.SecretField
 import io.github.stephanbaum.mosaic.security.SecretFieldState
 import io.github.stephanbaum.mosaic.session.Outcome
 import io.github.stephanbaum.mosaic.ui.components.BodyText
+import io.github.stephanbaum.mosaic.ui.components.CheckRow
 import io.github.stephanbaum.mosaic.ui.components.ErrorText
 import io.github.stephanbaum.mosaic.ui.components.FieldLabel
 import io.github.stephanbaum.mosaic.ui.components.HintText
@@ -117,6 +118,8 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
     var handoff by remember { mutableStateOf<HandoffInfo?>(null) }
     var scanning by remember { mutableStateOf(false) }
     var scanned by remember { mutableStateOf(false) }
+    var keyWiped by remember { mutableStateOf(false) }
+    var enrollNext by remember { mutableStateOf(false) }
 
     val keyHolder = remember { KeyHolder() }
     val keyField = remember { SecretFieldState() }
@@ -131,8 +134,23 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
             negativeButton = L10n.unlockUsePassword(resources),
         )
 
+    val biometricAvailable = remember { gate.isAvailable(context) }
+
+    /** After the join: the quick-unlock step only when it was asked for and is not done yet. */
+    fun afterJoin(): Step = if (enrollNext && biometricAvailable) Step.Quick else Step.Autofill
+
     DisposableEffect(Unit) {
         onDispose { keyHolder.wipe() }
+    }
+
+    // A scanned key that was wiped (background, five minutes) is not filled in any more: say so (item 9).
+    LaunchedEffect(keyHolder.version) {
+        if (keyHolder.bytes != null) {
+            keyWiped = false
+        } else if (scanned && (step == Step.Details || step == Step.Password)) {
+            scanned = false
+            keyWiped = true
+        }
     }
 
     // The key is wiped when the app goes to the background, and five minutes after it was set.
@@ -165,7 +183,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                         is HandoffStatus.Waiting -> Unit
                         is HandoffStatus.Done -> {
                             handoff = null
-                            step = Step.Quick
+                            step = afterJoin()
                         }
                         is HandoffStatus.Failed -> {
                             handoff = null
@@ -200,6 +218,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                 keyField.take()?.wipe()
                 errorCode = null
                 scanned = true
+                keyWiped = false
                 scanning = false
             },
             onOtp = {},
@@ -220,6 +239,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
             ScreenFrame {
                 TitleText(L10n.onboardingDetailsTitle(resources))
                 SecondaryButton(L10n.scanSetupAction(resources), onClick = { scanning = true }, enabled = !busy)
+                if (keyWiped) ErrorText(L10n.onboardingDetailsKeyWiped(resources))
                 if (scanned) HintText(L10n.onboardingDetailsScanned(resources)) else HintText(L10n.onboardingDetailsScanOr(resources))
                 TextInput(
                     value = server,
@@ -293,6 +313,14 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                     label = L10n.unlockPasswordLabel(resources),
                     enabled = !busy,
                 )
+                if (biometricAvailable) {
+                    CheckRow(
+                        checked = enrollNext,
+                        onCheckedChange = { enrollNext = it },
+                        label = L10n.unlockEnrollNext(resources),
+                        enabled = !busy,
+                    )
+                }
                 if (error != null) ErrorText(errorText(resources, error))
                 if (busy) {
                     Working(L10n.onboardingPasswordWorking(resources))
@@ -312,11 +340,17 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                                     errorCode = "secretKeyRequired"
                                     step = Step.Details
                                 } else {
-                                    when (val outcome = session.join(origin, email.trim(), deviceName, password, key)) {
+                                    val wantQuick = enrollNext && biometricAvailable
+                                    val outcome =
+                                        session.join(
+                                            context, origin, email.trim(), deviceName, password, key, wantQuick, promptText,
+                                        )
+                                    when (outcome) {
                                         is Outcome.Ok -> {
                                             keyHolder.wipe()
-                                            when (val joined = outcome.value) {
-                                                is JoinOutcome.Unlocked -> step = Step.Quick
+                                            when (val joined = outcome.value.outcome) {
+                                                is JoinOutcome.Unlocked ->
+                                                    step = if (wantQuick && !outcome.value.quickEnrolled) Step.Quick else Step.Autofill
                                                 is JoinOutcome.SecondFactor -> {
                                                     methods = joined.methods
                                                     step = Step.Second
@@ -362,7 +396,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                                     errorCode = "syncTwoFactorInvalid"
                                 } else {
                                     when (val outcome = session.joinTotp(typedCode)) {
-                                        is Outcome.Ok -> step = Step.Quick
+                                        is Outcome.Ok -> step = afterJoin()
                                         is Outcome.Failed -> {
                                             errorCode = outcome.code
                                             if (outcome.code in GIVE_UP_ERRORS) step = Step.Details
@@ -413,7 +447,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
         }
 
         Step.Quick -> {
-            val available = remember { gate.isAvailable(context) }
+            val available = biometricAvailable
             ScreenFrame {
                 TitleText(L10n.onboardingQuickTitle(resources))
                 BodyText(L10n.onboardingQuickBody(resources))

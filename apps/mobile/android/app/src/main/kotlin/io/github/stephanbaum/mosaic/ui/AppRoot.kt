@@ -56,7 +56,14 @@ fun AppRoot(app: MosaicApp, linkPackage: String? = null) {
     if (!deviceSecure && current !is SessionState.Unlocked) {
         DeviceLockScreen()
     } else if (inOnboarding) {
-        OnboardingFlow(app = app, onFinished = { inOnboarding = false })
+        OnboardingFlow(
+            app = app,
+            onFinished = {
+                // The first sync after the join: the vault screen runs it at once, as it opens (item 1 of M10-G4).
+                app.vault.resetAutoSync()
+                inOnboarding = false
+            },
+        )
     } else if (failure != null) {
         MessageScreen(
             title = L10n.unlockBusyTitle(resources),

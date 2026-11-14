@@ -15,6 +15,8 @@ struct MainShell: View {
     let vault: VaultModel
     @State private var tab = ShellTab.vault
 
+    private var hasSyncWarnings: Bool { !SyncWarnings.texts(for: vault.overview).isEmpty }
+
     enum ShellTab: Hashable {
         case vault
         case search
@@ -23,7 +25,7 @@ struct MainShell: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            VaultTab(app: app, vault: vault)
+            VaultTab(app: app, vault: vault, onOpenSettings: { tab = .settings })
                 .tabItem { Label(L10n.navVault(), systemImage: "lock.rectangle.stack").accessibilityLabel(L10n.navVault()) }
                 .tag(ShellTab.vault)
             SearchTab(app: app, vault: vault)
@@ -31,6 +33,7 @@ struct MainShell: View {
                 .tag(ShellTab.search)
             SettingsTab(app: app, vault: vault)
                 .tabItem { Label(L10n.navSettings(), systemImage: "gearshape").accessibilityLabel(L10n.navSettings()) }
+                .badge(hasSyncWarnings ? Text("!") : nil)
                 .tag(ShellTab.settings)
         }
         .tint(colorScheme.mosaic.accent)
@@ -143,6 +146,7 @@ private struct NoteEditorScreen: View {
 private struct VaultTab: View {
     let app: AppModel
     let vault: VaultModel
+    let onOpenSettings: () -> Void
     @State private var path: [VaultRoute] = []
 
     var body: some View {
@@ -154,7 +158,8 @@ private struct VaultTab: View {
                 },
                 onAdd: { login in
                     path.append(login ? .editLogin(vaultId: nil, itemId: nil) : .editNote(vaultId: nil, itemId: nil))
-                })
+                },
+                onOpenSettings: onOpenSettings)
                 .navigationDestination(for: VaultRoute.self) { route in
                     RouteDestination(route: route, app: app, vault: vault, path: $path)
                 }

@@ -18,6 +18,7 @@ import {
   kotlinL10n,
   mobileKeys,
   swiftL10n,
+  withMobileErrorTexts,
   xcstrings,
 } from "../src/mobileExport.ts";
 
@@ -25,7 +26,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const android = join(root, "apps", "mobile", "android", "app", "src", "main");
 const ios = join(root, "apps", "mobile", "ios");
 
-const entries = buildEntries(en, de, mobileKeys(en, mobileShared));
+const entries = buildEntries(
+  withMobileErrorTexts(en),
+  withMobileErrorTexts(de),
+  mobileKeys(en, mobileShared),
+);
 
 const files = [
   [join(android, "res", "values", "strings.xml"), androidStrings(entries, "en")],

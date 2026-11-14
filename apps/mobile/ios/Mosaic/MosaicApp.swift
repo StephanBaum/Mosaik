@@ -64,7 +64,7 @@ struct RootView: View {
             case let .locked(email, secretKeyStored, availability):
                 if let unlock = model.unlock {
                     UnlockView(
-                        model: unlock, email: email, secretKeyStored: secretKeyStored,
+                        model: unlock, capture: model.capture, email: email, secretKeyStored: secretKeyStored,
                         availability: availability)
                 }
             case .unlocked:

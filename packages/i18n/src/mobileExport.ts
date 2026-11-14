@@ -52,9 +52,24 @@ export function accessorName(key: string): string {
     .join("");
 }
 
+const mobileErrorPrefix = "mobile.error.";
+
+/**
+ * The catalog the apps export: a `mobile.error.<code>` text replaces the desktop `error.<code>` text, so the
+ * phone never says "computer", "window" or "Caps Lock" (docs/MOBILE.md §2).
+ */
+export function withMobileErrorTexts(catalog: Catalog): Catalog {
+  const out: Record<string, string> = { ...catalog };
+  for (const [key, text] of Object.entries(catalog)) {
+    if (key.startsWith(mobileErrorPrefix)) out[`error.${key.slice(mobileErrorPrefix.length)}`] = text;
+  }
+  return out;
+}
+
 /** Every `mobile.*` key of `en`, plus `shared`, sorted and unique. */
 export function mobileKeys(en: Catalog, shared: readonly string[]): string[] {
-  const own = Object.keys(en).filter((k) => k.startsWith("mobile."));
+  // `mobile.error.<code>` only overrides the desktop `error.<code>` (see `withMobileErrorTexts`).
+  const own = Object.keys(en).filter((k) => k.startsWith("mobile.") && !k.startsWith(mobileErrorPrefix));
   return [...new Set([...own, ...shared])].sort(compare);
 }
 

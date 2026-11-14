@@ -480,6 +480,9 @@ object L10n {
     fun commonHide(r: Resources): String =
         r.getString(R.string.mobile_common_hide)
 
+    fun commonHideField(r: Resources, field: String): String =
+        r.getString(R.string.mobile_common_hideField, field)
+
     fun commonNotNow(r: Resources): String =
         r.getString(R.string.mobile_common_notNow)
 
@@ -491,6 +494,9 @@ object L10n {
 
     fun commonShow(r: Resources): String =
         r.getString(R.string.mobile_common_show)
+
+    fun commonShowField(r: Resources, field: String): String =
+        r.getString(R.string.mobile_common_showField, field)
 
     fun commonTryAgain(r: Resources): String =
         r.getString(R.string.mobile_common_tryAgain)
@@ -870,6 +876,9 @@ object L10n {
     fun onboardingDetailsKeyFromCode(r: Resources): String =
         r.getString(R.string.mobile_onboarding_details_keyFromCode)
 
+    fun onboardingDetailsKeyWiped(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_details_keyWiped)
+
     fun onboardingDetailsScanOr(r: Resources): String =
         r.getString(R.string.mobile_onboarding_details_scanOr)
 
@@ -1004,6 +1013,9 @@ object L10n {
 
     fun onboardingWorking(r: Resources): String =
         r.getString(R.string.mobile_onboarding_working)
+
+    fun providerErrorTitle(r: Resources): String =
+        r.getString(R.string.mobile_provider_errorTitle)
 
     fun scanAllow(r: Resources): String =
         r.getString(R.string.mobile_scan_allow)
@@ -1208,6 +1220,9 @@ object L10n {
 
     fun syncWarnings(r: Resources): String =
         r.getString(R.string.mobile_sync_warnings)
+
+    fun syncWarningsBanner(r: Resources): String =
+        r.getString(R.string.mobile_sync_warningsBanner)
 
     fun syncWorking(r: Resources): String =
         r.getString(R.string.mobile_sync_working)

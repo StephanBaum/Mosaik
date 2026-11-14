@@ -26,6 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,8 +49,10 @@ import io.github.stephanbaum.mosaic.ui.MosaicTheme
 import io.github.stephanbaum.mosaic.ui.components.ErrorText
 import io.github.stephanbaum.mosaic.ui.components.HintText
 import io.github.stephanbaum.mosaic.ui.components.Line
+import io.github.stephanbaum.mosaic.ui.components.SecondaryButton
 import io.github.stephanbaum.mosaic.ui.components.SectionTitle
 import io.github.stephanbaum.mosaic.ui.components.TopBar
+import io.github.stephanbaum.mosaic.ui.components.Working
 import io.github.stephanbaum.mosaic.ui.errorText
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 import io.github.stephanbaum.mosaic.ui.theme.MosaicRadius
@@ -91,13 +94,16 @@ fun VaultScreen(
     version: Int,
     onOpen: (ItemSummary) -> Unit,
     onAdd: (login: Boolean) -> Unit,
+    onOpenSettings: () -> Unit = {},
 ) {
     val resources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
+    val foreground by app.foreground.collectAsState()
     var items by remember { mutableStateOf<List<ItemSummary>?>(null) }
     var overview by remember { mutableStateOf<SyncOverview?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
+    var syncing by remember { mutableStateOf(false) }
 
     suspend fun load() {
         when (val result = app.vault.items()) {
@@ -114,29 +120,46 @@ fun VaultScreen(
 
     LaunchedEffect(version) { load() }
 
+    // A sync on every unlock and every return to the foreground while unlocked (the controller keeps it to one
+    // sync at a time, rate-limited, and never on a locked session). It is also the first sync after the join.
+    LaunchedEffect(foreground) {
+        if (!foreground) return@LaunchedEffect
+        syncing = true
+        try {
+            val result = app.vault.autoSync() ?: return@LaunchedEffect
+            if (result is Outcome.Ok) overview = result.value
+            load()
+        } finally {
+            syncing = false
+        }
+    }
+
+    suspend fun syncByHand() {
+        refreshing = true
+        when (val result = app.vault.syncNow()) {
+            is Outcome.Ok -> {
+                overview = result.value
+                failure = null
+            }
+            is Outcome.Failed -> if (result.code != "syncNotConfigured") failure = result.code
+            Outcome.Cancelled -> Unit
+        }
+        load()
+        refreshing = false
+    }
+
     VaultListContent(
         items = items,
-        syncText = syncLine(resources, overview, System.currentTimeMillis()),
+        syncText = if (syncing) L10n.syncWorking(resources) else syncLine(resources, overview, System.currentTimeMillis()),
         pendingUploads = overview?.pendingUploads?.toInt() ?: 0,
         error = failure?.let { errorText(resources, it) },
         refreshing = refreshing,
-        onRefresh = {
-            scope.launch {
-                refreshing = true
-                when (val result = app.vault.syncNow()) {
-                    is Outcome.Ok -> {
-                        overview = result.value
-                        failure = null
-                    }
-                    is Outcome.Failed -> if (result.code != "syncNotConfigured") failure = result.code
-                    Outcome.Cancelled -> Unit
-                }
-                load()
-                refreshing = false
-            }
-        },
+        onRefresh = { scope.launch { syncByHand() } },
         onOpen = onOpen,
         onAdd = onAdd,
+        hasSyncWarnings = overview?.warnings.orEmpty().isNotEmpty(),
+        onOpenSettings = onOpenSettings,
+        onSync = { scope.launch { syncByHand() } },
     )
 }
 
@@ -152,6 +175,9 @@ fun VaultListContent(
     onRefresh: () -> Unit,
     onOpen: (ItemSummary) -> Unit,
     onAdd: (login: Boolean) -> Unit,
+    hasSyncWarnings: Boolean = false,
+    onOpenSettings: () -> Unit = {},
+    onSync: () -> Unit = {},
 ) {
     val resources = LocalContext.current.resources
     Box(
@@ -169,6 +195,12 @@ fun VaultListContent(
             if (syncText.isNotEmpty()) HintText(syncText)
             if (pendingUploads > 0) HintText(L10n.syncPending(resources, pendingUploads))
             if (error != null) ErrorText(error)
+            if (hasSyncWarnings) {
+                Column(verticalArrangement = Arrangement.spacedBy(MosaicSpace.s2)) {
+                    ErrorText(L10n.syncWarningsBanner(resources))
+                    SecondaryButton(L10n.navSettings(resources), onClick = onOpenSettings)
+                }
+            }
             PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.weight(1f)) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -183,6 +215,7 @@ fun VaultListContent(
                             ) {
                                 SectionTitle(L10n.vaultEmptyTitle(resources))
                                 Line(L10n.vaultEmptyBody(resources), muted = true)
+                                if (refreshing) Working(L10n.syncWorking(resources)) else SecondaryButton(L10n.syncNow(resources), onClick = onSync)
                             }
                         }
                     } else if (items != null) {

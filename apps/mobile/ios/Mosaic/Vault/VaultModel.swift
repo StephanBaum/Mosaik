@@ -17,6 +17,7 @@ final class VaultModel {
 
     let holder: CoreHolder
     @ObservationIgnored private unowned let app: AppModel
+    @ObservationIgnored private var lastAutoSync: ContinuousClock.Instant?
     @ObservationIgnored private let identityStore: any CredentialIdentityStoring
 
     init(app: AppModel, holder: CoreHolder, identityStore: any CredentialIdentityStoring = SystemIdentityStore()) {
@@ -27,10 +28,24 @@ final class VaultModel {
 
     var clipboardSeconds: Int { Int(settings?.clipboardClearSeconds ?? 30) }
 
-    /// Loads the list and, once, brings the identity store in step with the vault.
+    /// Loads the list, brings the identity store in step with the vault, then syncs (the model is made on every
+    /// unlock, so this is the sync after an unlock and after the join).
     func start() async {
         await load()
         await syncIdentities()
+        await autoSync()
+    }
+
+    /// The automatic sync (after the join, after an unlock, on a return to the foreground). At most one sync runs
+    /// at a time (`isRefreshing`), an automatic one waits at least 20 seconds after the last, and none runs unless
+    /// the session is unlocked (M10-G4 item 1). `force` skips the rate limit only.
+    func autoSync(force: Bool = false) async {
+        guard !isRefreshing else { return }
+        guard case .unlocked = app.session else { return }
+        let now = ContinuousClock.now
+        if !force, let last = lastAutoSync, now - last < .seconds(20) { return }
+        lastAutoSync = now
+        await refresh()
     }
 
     func load() async {

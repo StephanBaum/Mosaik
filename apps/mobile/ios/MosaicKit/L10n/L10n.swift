@@ -615,6 +615,10 @@ public enum L10n {
         NSLocalizedString("mobile.common.hide", bundle: .main, comment: "")
     }
 
+    public static func commonHideField(field: String) -> String {
+        String(format: NSLocalizedString("mobile.common.hideField", bundle: .main, comment: ""), locale: .current, arguments: [field])
+    }
+
     public static func commonNotNow() -> String {
         NSLocalizedString("mobile.common.notNow", bundle: .main, comment: "")
     }
@@ -629,6 +633,10 @@ public enum L10n {
 
     public static func commonShow() -> String {
         NSLocalizedString("mobile.common.show", bundle: .main, comment: "")
+    }
+
+    public static func commonShowField(field: String) -> String {
+        String(format: NSLocalizedString("mobile.common.showField", bundle: .main, comment: ""), locale: .current, arguments: [field])
     }
 
     public static func commonTryAgain() -> String {
@@ -1135,6 +1143,10 @@ public enum L10n {
         NSLocalizedString("mobile.onboarding.details.keyFromCode", bundle: .main, comment: "")
     }
 
+    public static func onboardingDetailsKeyWiped() -> String {
+        NSLocalizedString("mobile.onboarding.details.keyWiped", bundle: .main, comment: "")
+    }
+
     public static func onboardingDetailsScanOr() -> String {
         NSLocalizedString("mobile.onboarding.details.scanOr", bundle: .main, comment: "")
     }
@@ -1313,6 +1325,10 @@ public enum L10n {
 
     public static func onboardingWorking() -> String {
         NSLocalizedString("mobile.onboarding.working", bundle: .main, comment: "")
+    }
+
+    public static func providerErrorTitle() -> String {
+        NSLocalizedString("mobile.provider.errorTitle", bundle: .main, comment: "")
     }
 
     public static func scanAllow() -> String {
@@ -1585,6 +1601,10 @@ public enum L10n {
 
     public static func syncWarnings() -> String {
         NSLocalizedString("mobile.sync.warnings", bundle: .main, comment: "")
+    }
+
+    public static func syncWarningsBanner() -> String {
+        NSLocalizedString("mobile.sync.warningsBanner", bundle: .main, comment: "")
     }
 
     public static func syncWorking() -> String {

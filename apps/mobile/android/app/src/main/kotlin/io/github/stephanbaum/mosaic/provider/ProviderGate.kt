@@ -33,7 +33,7 @@ object ProviderFlows {
  * seconds (ADR-0094). A lock while the activity is open brings the unlock screen back.
  */
 @Composable
-fun ProviderGate(app: MosaicApp, flow: String, content: @Composable () -> Unit) {
+fun ProviderGate(app: MosaicApp, flow: String, onClose: () -> Unit = {}, content: @Composable () -> Unit) {
     val resources = LocalContext.current.resources
     val epoch by app.sessionEpoch.collectAsState()
     var state by remember { mutableStateOf<SessionState?>(null) }
@@ -53,7 +53,7 @@ fun ProviderGate(app: MosaicApp, flow: String, content: @Composable () -> Unit) 
     val current = state
     val error = failure
     if (error != null) {
-        Message(L10n.unlockBusyTitle(resources), errorText(resources, error), L10n.unlockRetry(resources)) {
+        Message(L10n.providerErrorTitle(resources), errorText(resources, error), L10n.unlockRetry(resources)) {
             app.session.notifyChanged()
         }
     } else if (current is SessionState.Locked) {
@@ -63,13 +63,11 @@ fun ProviderGate(app: MosaicApp, flow: String, content: @Composable () -> Unit) 
         content()
     } else if (current == null) {
         ScreenFrame { }
+    } else if (current is SessionState.NoAccount) {
+        // Nothing to retry: the app has to be set up first.
+        Message(L10n.appName(resources), errorText(resources, "noAccount"), L10n.commonClose(resources), onClose)
     } else {
-        val code =
-            when (current) {
-                is SessionState.NoAccount -> "noAccount"
-                is SessionState.StoreBusy -> "storeInUse"
-                else -> "busy"
-            }
+        val code = if (current is SessionState.StoreBusy) "storeInUse" else "busy"
         Message(L10n.unlockBusyTitle(resources), errorText(resources, code), L10n.unlockRetry(resources)) {
             app.session.notifyChanged()
         }

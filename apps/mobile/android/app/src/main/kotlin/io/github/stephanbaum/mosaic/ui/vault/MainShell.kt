@@ -9,10 +9,14 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -26,8 +30,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import io.github.stephanbaum.mosaic.MosaicApp
 import io.github.stephanbaum.mosaic.ffi.ItemKind
+import io.github.stephanbaum.mosaic.session.Outcome
 import io.github.stephanbaum.mosaic.ui.MosaicTheme
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 import io.github.stephanbaum.mosaic.ui.link.LinkAppScreen
@@ -71,6 +78,13 @@ fun MainShell(
     val resources = LocalContext.current.resources
     var tab by remember { mutableStateOf(Tab.Vault) }
     var version by remember { mutableIntStateOf(0) }
+    var hasSyncWarnings by remember { mutableStateOf(false) }
+    val foreground by app.foreground.collectAsState()
+    // The badge on the Settings tab: read again on every tab change, data change and return to the foreground.
+    LaunchedEffect(tab, version, foreground) {
+        val overview = app.vault.syncOverview()
+        if (overview is Outcome.Ok) hasSyncWarnings = overview.value.warnings.isNotEmpty()
+    }
     val stack =
         remember {
             mutableStateListOf<Screen>().also {
@@ -100,6 +114,7 @@ fun MainShell(
                                 version = version,
                                 onOpen = { stack.add(Screen.Detail(it.vaultId, it.itemId)) },
                                 onAdd = { login -> stack.add(if (login) Screen.EditLogin(null, null) else Screen.EditNote(null, null)) },
+                                onOpenSettings = { tab = Tab.Settings },
                             )
                         Tab.Search ->
                             SearchScreen(
@@ -189,7 +204,21 @@ fun MainShell(
                     NavigationBarItem(
                         selected = tab == entry,
                         onClick = { tab = entry },
-                        icon = { TabIcon(entry, MosaicTheme.colors.text) },
+                        icon = {
+                            if (entry == Tab.Settings && hasSyncWarnings) {
+                                val label = L10n.syncWarnings(resources)
+                                BadgedBox(
+                                    badge = {
+                                        Badge(
+                                            containerColor = MosaicTheme.colors.warning,
+                                            modifier = Modifier.semantics { contentDescription = label },
+                                        )
+                                    },
+                                ) { TabIcon(entry, MosaicTheme.colors.text) }
+                            } else {
+                                TabIcon(entry, MosaicTheme.colors.text)
+                            }
+                        },
                         label = {
                             Text(
                                 when (entry) {

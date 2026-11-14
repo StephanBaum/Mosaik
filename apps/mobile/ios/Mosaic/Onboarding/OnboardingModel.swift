@@ -16,6 +16,8 @@ final class OnboardingModel {
         case password
         case secondFactor
         case securityKey
+        /// Quick unlock was asked for, but the password was wiped (a second factor, a background): ask once more.
+        case quickPassword
         case autofill
         case done
     }
@@ -117,6 +119,9 @@ final class OnboardingModel {
         wipeSecrets()
         if step == .password {
             step = .details
+        }
+        if step == .quickPassword {
+            errorMessage = nil
         }
     }
 
@@ -292,8 +297,12 @@ final class OnboardingModel {
     private func finishJoin() async {
         pollTask?.cancel()
         pollTask = nil
-        // A password wiped in the background (second factor) leaves quick unlock off; Settings can turn it on.
-        if enrollQuickUnlock, canUseQuickUnlock, !password.isEmpty, let holder = app.holder {
+        // After a second factor the password is gone (wiped in the background, or never kept): then it is asked
+        // for once more, in its own step, before AutoFill (M10-G4 item 8).
+        var askPasswordAgain = false
+        if enrollQuickUnlock, canUseQuickUnlock, password.isEmpty {
+            askPasswordAgain = true
+        } else if enrollQuickUnlock, canUseQuickUnlock, let holder = app.holder {
             let keys = app.keys
             let passwordBuffer = password
             do {
@@ -309,6 +318,30 @@ final class OnboardingModel {
         }
         wipeSecrets()
         app.refreshState()
+        errorMessage = nil
+        step = askPasswordAgain ? .quickPassword : .autofill
+    }
+
+    /// Turns quick unlock on with the password typed in the `quickPassword` step; the buffer is wiped after use.
+    func enrollQuickFromPrompt() async {
+        guard passwordFilled, !isWorking else { return }
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+        do {
+            try await app.enrollQuickUnlock(password: password)
+            wipePassword()
+            step = .autofill
+        } catch {
+            errorMessage = ErrorText.message(for: error)
+            wipePassword()
+        }
+    }
+
+    /// Leaves the `quickPassword` step without quick unlock (Settings can turn it on later).
+    func skipQuickPrompt() {
+        wipePassword()
+        errorMessage = nil
         step = .autofill
     }
 
@@ -320,6 +353,8 @@ final class OnboardingModel {
         pollTask?.cancel()
         wipeSecrets()
         app.onboardingFinished()
+        // The join pulls nothing by itself: the first sync runs now, so the vault is not empty (M10-G4 item 1).
+        Task { await app.vault?.autoSync(force: true) }
     }
 
     // MARK: AutoFill setup

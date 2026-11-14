@@ -134,7 +134,11 @@ fun UnlockScreen(app: MosaicApp, state: SessionState.Locked) {
             )
             HintText(L10n.unlockSecretKeyHelp(resources))
         }
-        if (biometricAvailable && quick !is QuickUnlockAvailability.Available) {
+        // After a restart or five wrong tries the fingerprint needs the password first: say so, and do not offer
+        // to enrol again while the enrolment is still there.
+        val passwordFirst = quick is QuickUnlockAvailability.PasswordRequired
+        if (passwordFirst) HintText(errorText(resources, "passwordRequired"))
+        if (biometricAvailable && quick !is QuickUnlockAvailability.Available && !passwordFirst) {
             CheckRow(
                 checked = enrollNext,
                 onCheckedChange = { enrollNext = it },
@@ -144,7 +148,7 @@ fun UnlockScreen(app: MosaicApp, state: SessionState.Locked) {
         }
         val code = errorCode
         if (code != null) ErrorText(errorText(resources, code))
-        if (failures > 0 && code == "wrongCredentials") HintText(L10n.unlockFailed(resources, failures))
+        if (failures >= 2 && code == "wrongCredentials") HintText(L10n.unlockFailed(resources, failures))
         if (busy) {
             Working(L10n.unlockWorking(resources))
         } else if (quick is QuickUnlockAvailability.Available) {

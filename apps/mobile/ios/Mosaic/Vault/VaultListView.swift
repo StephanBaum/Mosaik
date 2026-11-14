@@ -49,6 +49,7 @@ struct VaultListView: View {
     let vault: VaultModel
     let onOpen: (ItemSummary) -> Void
     let onAdd: (_ login: Bool) -> Void
+    let onOpenSettings: () -> Void
 
     var body: some View {
         let colors = colorScheme.mosaic
@@ -65,6 +66,13 @@ struct VaultListView: View {
                         VStack(alignment: .leading, spacing: MosaicTokens.Space.s3) {
                             SectionTitle(text: L10n.vaultEmptyTitle())
                             BodyText(text: L10n.vaultEmptyBody(), muted: true)
+                            if vault.isRefreshing {
+                                HintText(text: L10n.syncWorking())
+                            } else {
+                                Button(L10n.syncNow()) { Task { await vault.refresh() } }
+                                    .buttonStyle(SecondaryButtonStyle())
+                                    .accessibilityIdentifier("vault-empty-sync")
+                            }
                         }
                         .padding(.top, MosaicTokens.Space.s7)
                         .listRowBackground(Color.clear)
@@ -119,6 +127,13 @@ struct VaultListView: View {
             }
             if let code = vault.failureCode {
                 ErrorLine(text: ErrorText.message(forCode: code))
+            }
+            if !SyncWarnings.texts(for: vault.overview).isEmpty {
+                ErrorLine(text: L10n.syncWarningsBanner())
+                    .accessibilityIdentifier("sync-warnings-banner")
+                Button(L10n.navSettings()) { onOpenSettings() }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .accessibilityIdentifier("sync-warnings-open-settings")
             }
         }
     }
