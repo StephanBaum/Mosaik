@@ -6,8 +6,11 @@ import io.github.stephanbaum.mosaic.ffi.AndroidCaller
 import io.github.stephanbaum.mosaic.ffi.FillCandidates
 import io.github.stephanbaum.mosaic.ffi.FillTarget
 import io.github.stephanbaum.mosaic.ffi.FillTargetKind
+import io.github.stephanbaum.mosaic.ffi.LinkCandidate
+import io.github.stephanbaum.mosaic.ffi.LinkOffer
 import io.github.stephanbaum.mosaic.ffi.MobileException
 import io.github.stephanbaum.mosaic.ffi.OriginWarning
+import io.github.stephanbaum.mosaic.ui.link.installerOf
 import kotlinx.coroutines.CancellationException
 
 /** What a fill request is for, as far as it can be known without the vault. */
@@ -109,6 +112,34 @@ class FillPlanner(private val holder: CoreHolder) {
         } catch (e: Exception) {
             null
         }
+
+    /**
+     * The strong link candidates of the fill session [sessionId], or null when the core
+     * gives none or cannot compute them. Lenient: the list never fails because of a link offer.
+     */
+    suspend fun linkOffer(sessionId: String): LinkOffer? =
+        try {
+            holder.call { it.fillLinkOffer(sessionId) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+
+    /**
+     * The link entries to add to the response: at most [LinkFlow.MAX_ENTRIES] candidates of [linkOffer], where an
+     * imported login (no certificate) is dropped unless the installer of [callerPackage] is a trusted store.
+     */
+    suspend fun linkEntries(context: Context, sessionId: String, callerPackage: String): List<LinkCandidate> {
+        val offer = linkOffer(sessionId) ?: return emptyList()
+        if (offer.candidates.isEmpty()) return emptyList()
+        // The installer matters for imported candidates only, so it is read only then.
+        val installer =
+            if (offer.candidates.any { isImported(it.reason) }) installerOf(context.packageManager, callerPackage) else null
+        return offer.candidates
+            .filter { LinkFlow.mayOffer(isImported(it.reason), installer) }
+            .take(LinkFlow.MAX_ENTRIES)
+    }
 
     /** True when [target] is an app (not a page in a browser): only then can the user link a login to it. */
     fun isApp(target: FillTarget): Boolean = target.kind is FillTargetKind.AndroidApp

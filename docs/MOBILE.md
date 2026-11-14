@@ -123,7 +123,7 @@ The binding surface is `crates/mobile-ffi/src/lib.rs`; its rustdoc is the refere
 | Screen | `FLAG_SECURE` on every window; no recents screenshot (API 33+); content sensitivity (API 35+) | privacy cover; hidden while captured; `.privacySensitive()` | ADR-0094 |
 | Secret input | native `EditText` read into byte arrays and wiped; no personalized IME learning; excluded from other autofill services | `UITextField` with secure entry (not `SecureField`) | CRYPTO_SPEC §6.9.5 |
 | TLS | system anchors from the default trust manager; no user CAs; TLS 1.3 only | `rustls-platform-verifier` (Security.framework) | CRYPTO_SPEC §2, §6.9.6, ADR-0091 |
-| Autofill | Autofill Service with per-dataset authentication; values only after a tap; `webDomain` only from allowlisted browsers; app logins bound to package and exactly one current signer (`apkContentsSigners`, or the last entry of `signingCertificateHistory`; more than one is refused, ADR-0092 amendment); `fill_candidates` returns a fill session bound to the resolved target and `fill_values`/`fill_otp` take that session, never a target from the platform (M10-G1-12); no compatibility mode, inline suggestions or save | Credential Provider: quick unlock, matching items first, `userInteractionRequired` for silent requests, one-time codes on 18+ | ADR-0092 |
+| Autofill | Autofill Service with per-dataset authentication; values only after a tap; `webDomain` only from allowlisted browsers; app logins bound to package and exactly one current signer (`apkContentsSigners`, or the last entry of `signingCertificateHistory`; more than one is refused, ADR-0092 amendment); `fill_candidates` returns a fill session bound to the resolved target and `fill_values`/`fill_otp` take that session, never a target from the platform (M10-G1-12); one-tap linking of strong candidates from the fill session, confirmed by the biometric prompt (ADR-0092 amendment; an imported login only when the installer is Google Play or the Galaxy Store); no compatibility mode, inline suggestions or save | Credential Provider: quick unlock, matching items first, `userInteractionRequired` for silent requests, one-time codes on 18+ | ADR-0092 |
 | Passwords via Credential Manager | API 34+; entries without values; the value only from `CredentialActivity` | — | ADR-0092 |
 | Passkeys | Credential Manager API 34+; privileged browsers in hash mode with a double allowlist check; other apps need asset-links delegation; UV always | Credential Provider 17+, hash mode; UV from the biometric unlock; a ceremony without UV is refused, and the extension signs only with a session from `unlock_quick` in that process (M10-G1-4) | CRYPTO_SPEC §16, ADR-0093 |
 | Identity store | — | passkey identities with the passkey setting; password identities only with OD-M10-7 (default off) | ADR-0092, R132 |
@@ -332,6 +332,8 @@ tests run in `mobile.yml`. The names below are binding: each track writes the te
 - screens and unlock: `ScreenSecurityTest.everyActivityHasFlagSecure`, `UnlockFlowTest.passwordUnlockShowsVault`
 - autofill: `AutofillInstrumentedTest.fillsLinkedAppAfterDatasetTap`, `AutofillInstrumentedTest.noDatasetValuesBeforeTap`,
   `AutofillInstrumentedTest.ignoresWebDomainFromNonBrowserApp`, `AutofillInstrumentedTest.excludesForeignFrameFields`.
+  One-tap linking: `OneTapLinkInstrumentedTest.noValuesBeforeConfirm`, `OneTapLinkInstrumentedTest.oneTapLinkNeedsBiometricConfirm` (confirm
+  screen path), `OneTapLinkInstrumentedTest.importedLoginFromAnUntrustedInstallerGetsNoLinkEntry`; JVM: `LinkFlowTest`.
   The test client activity declares a `MAIN`/`LAUNCHER` intent filter, so it is visible under the `<queries>`
   rule (ADR-0092).
 - screenshots: `ScreenshotTest.mainScreensLightDarkEnDe`
@@ -420,6 +422,7 @@ These need real hardware, and they wait for OD-M10-2 and OD-M10-3. Record each r
   and in the providers until the next reboot.
 - [ ] Autofill in a linked app; "No login for X" in an unlinked app; a sideloaded copy signed with another key
   is not filled.
+- [ ] One-tap linking: an imported login (app from Google Play or the Galaxy Store) and a site with assetlinks.json each offer "Link <title> and fill"; the biometric prompt names the login, app, App ID, signature start and the reason (an imported login says the website has not confirmed the app), and is readable on a small screen at 200 % font (ux-reviewer); Cancel links nothing; confirm links and fills; a sideloaded copy gets no offer for an imported login and none for a verified site with another key.
 - [ ] Web autofill in Chrome (with "Autofill using another service" on), Firefox and Samsung Internet; a
   cross-origin iframe is not filled.
 - [ ] Credential Manager: password and passkey sign-in in a real app, for example a site with

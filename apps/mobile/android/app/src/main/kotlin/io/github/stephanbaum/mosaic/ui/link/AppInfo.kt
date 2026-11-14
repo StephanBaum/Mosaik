@@ -36,12 +36,19 @@ fun certificateDigest(certificate: ByteArray): ByteArray = MessageDigest.getInst
  */
 private fun currentSigners(signing: SigningInfo?): List<ByteArray> = Signers.of(signing)
 
+/** The package that installed [packageName] (API 30+: the install source, before: the installer), or null. */
 @Suppress("DEPRECATION")
-private fun installerOf(pm: PackageManager, packageName: String): String? =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        pm.getInstallSourceInfo(packageName).installingPackageName
-    } else {
-        pm.getInstallerPackageName(packageName)
+internal fun installerOf(pm: PackageManager, packageName: String): String? =
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            pm.getInstallSourceInfo(packageName).installingPackageName
+        } else {
+            pm.getInstallerPackageName(packageName)
+        }
+    } catch (e: PackageManager.NameNotFoundException) {
+        null
+    } catch (e: IllegalArgumentException) {
+        null
     }
 
 /** The details of an installed package, or null when it is not visible or not installed. */
