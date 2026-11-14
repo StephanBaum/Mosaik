@@ -261,6 +261,7 @@ Design: `docs/MOBILE.md`, CRYPTO_SPEC §6.9, ADR-0088 to ADR-0096. Until OD-M10-
 | A look-alike program (`dlscord.exe`, a Cyrillic `о` in the name) is taken for a linked one | the identity is the signer's subject hash plus the folded exe name, or the package family, never a title or caption; a homoglyph name is a different name and never matches; a one-edit look-alike of an already linked exe name is a warning when linking (ADR-0158, `mosaic_origin::program`) |
 | An unsigned program at a user-writable path is replaced by another file | an unsigned program binds path plus file hash; a changed hash no longer matches and asks to link again; a signed image never matches a path binding (ADR-0158) |
 | A browser, script or interpreter host, credential or UAC broker or remote-desktop client poses as a program, or is made one by a stolen signature | excluded by file name (and package family) for any signer: never bindable, never match (ADR-0158) |
+| A medium-integrity Mosaic would gain power over elevated UI (a fill into an administrator's program, a way around UAC prompts) | a target whose integrity level is above Mosaic's gets no chip and no fill (`CaptureRefusal::Elevated`); Mosaic never asks for `uiAccess` or elevation; UAC and credential brokers are excluded by name (ADR-0158, `mosaic-program-fill`) |
 
 ## 5. Residual risks register
 

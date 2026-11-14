@@ -3449,6 +3449,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaic-program-fill"
+version = "0.0.0"
+dependencies = [
+ "mosaic-core",
+ "mosaic-origin",
+ "proptest",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "mosaic-qr"
 version = "0.0.0"
 dependencies = [
