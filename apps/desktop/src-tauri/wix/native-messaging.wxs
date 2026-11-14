@@ -13,7 +13,7 @@
 
   The manifests are generated at build time, from the same code as `mosaic-native-host install`:
 
-    mosaic-native-host manifest --system --os windows --out <dir>
+    mosaic-native-host manifest (options: system, os windows, out <dir>)
 
   and the environment variable MOSAIC_NM_MANIFEST_DIR names <dir> when the MSI is built (the
   preprocessor stops with an error if it is unset). tauri.release.conf.json lists the component
