@@ -107,6 +107,12 @@ pub enum EntryWarning {
     /// [`MAX_IMPORT_PASSKEYS`] in the file, were left out (their keys were
     /// not read).
     PasskeysLimit,
+    /// The one-time-password secret is shorter than 80 bits, so its codes
+    /// are easy to guess. It was kept as it is.
+    OtpWeak,
+    /// A note did not fit under the item size limit and was left out (or
+    /// cut off at a note boundary): the entry's notes are incomplete.
+    NotesTruncated,
 }
 
 /// An attachment file of an entry.
@@ -368,6 +374,9 @@ pub(crate) struct Builder {
     draft: ItemDraft,
     warnings: Vec<EntryWarning>,
     fields: usize,
+    /// The notes so far, appended in place (one copy per note, not one of
+    /// the whole text), moved into the draft by [`Builder::finish`].
+    notes: Option<Str>,
     /// How many passkeys the rest of the import has room for.
     passkey_room: usize,
 }
@@ -378,6 +387,7 @@ impl Builder {
             draft: ItemDraft::new(item_type),
             warnings: Vec::new(),
             fields: 0,
+            notes: None,
             passkey_room: MAX_IMPORT_PASSKEYS,
         }
     }
@@ -443,29 +453,34 @@ impl Builder {
         self.text(TextField::Title, clean.trim(), "Title");
     }
 
-    /// Adds notes; several notes are joined by a blank line.
+    /// Adds notes; several notes are joined by a blank line. Each note is
+    /// appended to one buffer, so many notes cost time linear in their total
+    /// size. The text stops growing at the item size limit: a note that does
+    /// not fit is left out whole and the entry gets
+    /// [`EntryWarning::NotesTruncated`].
     pub(crate) fn notes(&mut self, value: &str) {
         if value.trim().is_empty() {
             return;
         }
-        let pos = self
-            .draft
-            .texts
-            .iter()
-            .position(|(f, _)| *f == TextField::Notes);
-        match pos.and_then(|i| self.draft.texts.get_mut(i)) {
-            Some((_, existing)) => {
-                let mut joined = Str::default();
-                joined.push_str(existing.as_str());
-                joined.push_str("\n\n");
-                joined.push_str(value);
-                *existing = Text::new(&joined);
+        let cap = mosaic_core::envelope::MAX_ITEM_PLAINTEXT_LEN;
+        if let Some(existing) = &mut self.notes {
+            if existing.len().saturating_add(value.len()).saturating_add(2) > cap {
+                self.warn(EntryWarning::NotesTruncated);
+            } else {
+                existing.push_str(
+                    "
+
+",
+                );
+                existing.push_str(value);
             }
-            None => {
-                if self.room() {
-                    self.draft.texts.push((TextField::Notes, Text::new(value)));
-                }
-            }
+        } else if value.len() > cap {
+            self.warn(EntryWarning::NotesTruncated);
+        } else if self.room() {
+            // The first note's length is known: one allocation of its size.
+            let mut buf = Str::new(String::with_capacity(value.len()));
+            buf.push_str(value);
+            self.notes = Some(buf);
         }
     }
 
@@ -520,11 +535,19 @@ impl Builder {
         }
     }
 
+    /// Warns about a secret shorter than 80 bits; the OTP is kept.
+    fn warn_if_weak(&mut self, config: &OtpConfig) {
+        if config.secret.expose_secret().len() < mosaic_totp::COMMON_MIN_SECRET_LEN {
+            self.warn(EntryWarning::OtpWeak);
+        }
+    }
+
     /// Adds a parsed OTP configuration (see [`Builder::otp_text`]).
     pub(crate) fn otp(&mut self, parsed: otp::Parsed, label: &str) {
         if !self.room() {
             return;
         }
+        self.warn_if_weak(&parsed.0);
         let item_slot = matches!(self.draft.item_type, ItemType::Login | ItemType::Totp);
         if item_slot && self.draft.otp.is_none() {
             self.draft.otp = Some(parsed);
@@ -576,6 +599,7 @@ impl Builder {
             }
             return;
         };
+        self.warn_if_weak(&config);
         if self.room() {
             self.draft.custom_fields.push(CustomField::new(
                 Text::new(label_or(label, "One-time password")),
@@ -753,6 +777,9 @@ impl Builder {
     /// passkeys without a title get the entry's title, else their relying
     /// party.
     pub(crate) fn finish(mut self) -> Option<(ItemDraft, Vec<EntryWarning>)> {
+        if let Some(notes) = self.notes.take() {
+            self.draft.texts.push((TextField::Notes, Text::new(&notes)));
+        }
         if self.draft.lacks_content(true) && self.draft.passkeys.is_empty() {
             return None;
         }
@@ -1053,6 +1080,27 @@ mod tests {
         let mut b = Builder::new(ItemType::Login);
         b.tag("only a tag");
         assert!(b.finish().is_none());
+    }
+
+    /// A note that does not fit under the item size limit gets
+    /// `NotesTruncated` (not `FieldsDropped`), whether it is the first note
+    /// or a later one; the notes already kept stay.
+    #[test]
+    fn oversized_notes_warn_notes_truncated() {
+        let cap = mosaic_core::envelope::MAX_ITEM_PLAINTEXT_LEN;
+        let mut b = Builder::new(ItemType::SecureNote);
+        b.title("t");
+        b.notes(&"a".repeat(cap + 1));
+        let (_, w) = b.finish().unwrap();
+        assert_eq!(w, [EntryWarning::NotesTruncated]);
+
+        let mut b = Builder::new(ItemType::SecureNote);
+        b.title("t");
+        b.notes("first");
+        b.notes(&"b".repeat(cap));
+        let (d, w) = b.finish().unwrap();
+        assert_eq!(w, [EntryWarning::NotesTruncated]);
+        assert_eq!(d.text(TextField::Notes), Some("first"));
     }
 
     #[test]

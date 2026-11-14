@@ -5,3 +5,4 @@ mod formats;
 mod mosaic_export;
 mod passkeys;
 mod properties;
+mod redteam;

@@ -440,6 +440,7 @@ export const fixtures = {
     "importEntryWarning": [
       "unmappedFields",
       "otpUnreadable",
+      "otpWeak",
       "attachmentTooLarge",
       "attachmentMissing",
       "tagsDropped",
@@ -452,7 +453,8 @@ export const fixtures = {
       "titleCleaned",
       "passkeyUnreadable",
       "passkeyUnsupported",
-      "passkeysLimit"
+      "passkeysLimit",
+      "notesTruncated"
     ],
     "importFormat": [
       "enpass",
@@ -472,6 +474,7 @@ export const fixtures = {
       "attachmentsSkipped",
       "entriesSkipped",
       "otpUnreadable",
+      "otpWeak",
       "passkeysNotImported",
       "passkeyUnreadable",
       "passkeyUnsupported",
@@ -659,6 +662,11 @@ export const fixtures = {
       "allowOnce",
       "allowFor15Minutes",
       "deny"
+    ],
+    "sshOrigin": [
+      "local",
+      "forwarded",
+      "bindFailed"
     ],
     "sshSignFailReason": [
       "passphraseRequired",
@@ -1229,6 +1237,7 @@ export const fixtures = {
         "fingerprint": "SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s",
         "itemId": "019a2b3c-4d5e-7020-8000-000000000003",
         "keyTitle": "Deploy key",
+        "origin": "local",
         "requestId": "ssh-1",
         "requestedAt": 1761480035000,
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
@@ -4114,6 +4123,7 @@ export const fixtures = {
             "warnings": [
               "unmappedFields",
               "otpUnreadable",
+              "otpWeak",
               "attachmentTooLarge",
               "attachmentMissing",
               "tagsDropped",
@@ -4126,7 +4136,8 @@ export const fixtures = {
               "titleCleaned",
               "passkeyUnreadable",
               "passkeyUnsupported",
-              "passkeysLimit"
+              "passkeysLimit",
+              "notesTruncated"
             ]
           },
           {
@@ -4161,6 +4172,7 @@ export const fixtures = {
           "attachmentsSkipped",
           "entriesSkipped",
           "otpUnreadable",
+          "otpWeak",
           "passkeysNotImported",
           "passkeyUnreadable",
           "passkeyUnsupported",
