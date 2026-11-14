@@ -8,9 +8,12 @@
 //!
 //! - [`identity`]: the captured identity of a process (exe, package, trusted
 //!   signer or file hash) and why a capture is refused.
+//! - [`policy`]: the link policy: what a login is bound to, and the two
+//!   confirmations an unsigned program needs.
 #![forbid(unsafe_code)]
 
 pub mod identity;
+pub mod policy;
 
 pub use identity::{
     CaptureRefusal, CapturedIdentity, HashError, IdentitySource, MAX_UNSIGNED_IMAGE_BYTES,
