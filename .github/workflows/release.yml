@@ -324,7 +324,7 @@ jobs:
           bash scripts/release/assert-host.sh "target/${{ matrix.target }}/release/mosaic-native-host$ext"
       # System native-messaging manifests, generated from the same source as install.rs (M9 T8).
       # The deb and rpm file lists read the Linux ones; the WiX fragment reads the Windows ones
-      # from MOSAIC_NM_MANIFEST_DIR. macOS repairs the per-user manifests at start instead.
+      # from that folder, relative to itself. macOS repairs the per-user manifests at start instead.
       - name: Generate the system manifests
         if: runner.os != 'macOS'
         shell: bash
@@ -334,7 +334,6 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then
             out="apps/desktop/src-tauri/binaries/native-messaging/windows"
             "$host.exe" manifest --system --os windows --out "$out"
-            echo "MOSAIC_NM_MANIFEST_DIR=$(cygpath -w "$PWD/$out")" >> "$GITHUB_ENV"
           else
             "$host" manifest --system --os linux --out apps/desktop/src-tauri/binaries/native-messaging/linux
           fi

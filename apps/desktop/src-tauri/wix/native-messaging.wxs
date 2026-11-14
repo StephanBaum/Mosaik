@@ -15,8 +15,9 @@
 
     mosaic-native-host manifest (options: system, os windows, out <dir>)
 
-  and the environment variable MOSAIC_NM_MANIFEST_DIR names <dir> when the MSI is built (the
-  preprocessor stops with an error if it is unset). tauri.release.conf.json lists the component
+  into ..\binaries\native-messaging\windows next to this file. The paths below use the WiX
+  variable sys.SOURCEFILEDIR, because tauri-bundler does not pass the build environment to candle
+  (a missing file stops the build). tauri.release.conf.json lists the component
   group MosaicNativeMessaging in bundle.windows.wix.componentRefs.
 
   The registry key names are the per-user ones of install.rs below HKLM; a test of the
@@ -28,11 +29,11 @@
       <Directory Id="MosaicNativeMessagingDir" Name="native-messaging">
         <Component Id="MosaicManifestChromium" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c01" Win64="yes">
           <File Id="MosaicChromiumJson" Name="chromium.json" KeyPath="yes"
-                Source="$(env.MOSAIC_NM_MANIFEST_DIR)\chromium.json" />
+                Source="$(sys.SOURCEFILEDIR)\..\binaries\native-messaging\windows\chromium.json" />
         </Component>
         <Component Id="MosaicManifestFirefox" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c02" Win64="yes">
           <File Id="MosaicFirefoxJson" Name="firefox.json" KeyPath="yes"
-                Source="$(env.MOSAIC_NM_MANIFEST_DIR)\firefox.json" />
+                Source="$(sys.SOURCEFILEDIR)\..\binaries\native-messaging\windows\firefox.json" />
         </Component>
       </Directory>
     </DirectoryRef>
