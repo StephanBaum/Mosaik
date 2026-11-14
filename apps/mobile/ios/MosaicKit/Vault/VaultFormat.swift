@@ -110,6 +110,7 @@ public enum SyncWarnings {
         case .serverRollback: return L10n.syncWarningServerRollback()
         case .undecryptable: return L10n.syncWarningUndecryptable(count: Int(warning.count ?? 1))
         case .accountRollback: return L10n.syncWarningAccountRollback()
+        case .sharingAttention: return L10n.syncWarningSharingAttention()
         }
     }
 }

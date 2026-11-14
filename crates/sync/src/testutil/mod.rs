@@ -15,6 +15,7 @@
 mod chaos;
 mod cloudsim;
 mod malicious;
+mod refused;
 mod session;
 
 use std::sync::Arc;
@@ -23,6 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub use chaos::{ChaosConfig, ChaosTransport};
 pub use cloudsim::{CloudSim, RoundStats, SimConfig};
 pub use malicious::MaliciousTransport;
+pub use refused::RefusedSharing;
 pub use session::{LocalSession, SessionMut, SessionRef};
 
 use crate::clock::{Clock, SystemClock};
