@@ -12,6 +12,8 @@ use mosaic_sync::TransportError;
 
 use crate::common::Phone;
 
+type Answer = Box<dyn Fn(&str) -> Result<Vec<u8>, TransportError> + Send + Sync>;
+
 const CERT: [u8; 32] = [0x11; 32];
 const OTHER_CERT: [u8; 32] = [0x22; 32];
 
@@ -406,21 +408,94 @@ fn unreachable_asset_links_give_no_candidate_and_are_not_cached() {
 }
 
 #[test]
-fn link_offer_skips_trashed_and_deleted_logins() {
+fn link_offer_skips_trashed_logins_and_refuses_a_link_after_the_trash() {
     let (phone, _) = Phone::android_with_account();
     let key = imported(&phone, "A", "com.example.app");
     let s = session(&phone, "com.example.app", CERT);
-    phone.core.trash_item(&key.vault_id, &key.item_id).unwrap();
-    assert!(
+    // Offered first, trashed after the list was shown.
+    assert_eq!(
         phone
             .core
             .fill_link_offer(s.clone())
             .unwrap()
             .candidates
-            .is_empty()
+            .len(),
+        1
     );
+    phone.core.trash_item(&key.vault_id, &key.item_id).unwrap();
     assert!(matches!(
-        phone.core.link_app_in_fill_session(s, key),
+        phone.core.link_app_in_fill_session(s.clone(), key.clone()),
         Err(MobileError::NotFound)
     ));
+    assert!(phone.core.fill_link_offer(s).unwrap().candidates.is_empty());
+    assert!(urls_of(&phone, &key).iter().all(|u| !u.contains("?cert=")));
+}
+
+#[test]
+fn verified_login_links_with_the_session_signer() {
+    let (phone, _) = Phone::android_with_account();
+    let key = login(&phone, "GitHub", vec![url("https://github.com")]);
+    hook(&phone, |_| Ok(assetlinks_json("com.github.android", &CERT)));
+    let s = session(&phone, "com.github.android", CERT);
+    phone.core.link_app_in_fill_session(s, key.clone()).unwrap();
+    assert!(urls_of(&phone, &key).contains(&format!(
+        "androidapp://com.github.android?cert={}",
+        b64url(&CERT)
+    )));
+}
+
+#[test]
+fn verified_link_needs_the_site_to_list_package_and_signer_and_be_reachable() {
+    let (phone, _) = Phone::android_with_account();
+    let key = login(&phone, "GitHub", vec![url("https://github.com")]);
+    let before = urls_of(&phone, &key);
+    // Lists another signer, another package, no file, unreachable.
+    let answers: Vec<Answer> = vec![
+        Box::new(|_| Ok(assetlinks_json("com.github.android", &OTHER_CERT))),
+        Box::new(|_| Ok(assetlinks_json("com.github.other", &CERT))),
+        Box::new(|_| Err(TransportError::NotFound)),
+        Box::new(|_| Err(TransportError::Unreachable)),
+    ];
+    for answer in answers {
+        hook(&phone, answer);
+        let s = session(&phone, "com.github.android", CERT);
+        assert!(matches!(
+            phone.core.link_app_in_fill_session(s, key.clone()),
+            Err(MobileError::NoMatch)
+        ));
+        assert_eq!(urls_of(&phone, &key), before);
+    }
+}
+
+#[test]
+fn a_session_for_another_package_refuses_to_link_an_import() {
+    let (phone, _) = Phone::android_with_account();
+    let key = imported(&phone, "Example", "com.example.app");
+    let before = urls_of(&phone, &key);
+    let s = session(&phone, "com.example.app2", CERT);
+    assert!(matches!(
+        phone.core.link_app_in_fill_session(s, key.clone()),
+        Err(MobileError::NoMatch)
+    ));
+    assert_eq!(urls_of(&phone, &key), before);
+}
+
+#[test]
+fn imports_that_fill_the_list_make_no_network_request() {
+    let (phone, _) = Phone::android_with_account();
+    for n in 0..MAX_LINK_CANDIDATES {
+        imported(&phone, &format!("Mail {n}"), "com.google.android.gm");
+    }
+    login(&phone, "Google", vec![url("https://mail.google.com")]);
+    let seen = hook(&phone, |_| {
+        Ok(assetlinks_json("com.google.android.gm", &CERT))
+    });
+    assert_eq!(
+        offer(&phone, "com.google.android.gm", CERT)
+            .unwrap()
+            .candidates
+            .len(),
+        MAX_LINK_CANDIDATES
+    );
+    assert!(seen.lock().unwrap().is_empty());
 }

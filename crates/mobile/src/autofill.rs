@@ -962,8 +962,10 @@ impl Core {
         };
         let web_domain = package_web_domain(package);
         self.with_session(|s| {
-            let writable: HashSet<VaultId> = usable_vaults(s)
-                .into_iter()
+            let usable = usable_vaults(s);
+            let writable: HashSet<VaultId> = usable
+                .iter()
+                .copied()
                 .filter(|v| {
                     matches!(
                         s.vault_own_role(*v),
@@ -977,15 +979,19 @@ impl Core {
             };
             for entry in s.items(&SessionFilter::default()) {
                 let item = entry.item;
-                if !writable.contains(&entry.vault_id)
+                if !usable.contains(&entry.vault_id)
                     || item.item_type() != Some(ItemType::Login)
                     || item.is_deleted()
                     || item.trashed_at().is_some()
                 {
                     continue;
                 }
+                // A login of a read-only vault still fills, so it counts.
                 if match_item(item, &target).is_ok() {
                     scan.already_linked = true;
+                }
+                if !writable.contains(&entry.vault_id) {
+                    continue;
                 }
                 let (imported, hosts) = link_urls_of(item, package, web_domain.as_deref());
                 let key = ItemKey {
@@ -1053,6 +1059,10 @@ impl Core {
             .collect();
         probes.sort_by_key(|l| link_order(l));
         probes.truncate(MAX_ASSET_LINK_CHECKS);
+        if imports.len() >= MAX_LINK_CANDIDATES {
+            // Imports fill the list: no network for the rest.
+            probes.clear();
+        }
         offer.candidates.extend(
             imports
                 .into_iter()
@@ -1116,7 +1126,23 @@ impl Core {
         if !strong {
             return Err(MobileError::NoMatch);
         }
-        self.with_session(|s| write_app_link(s, vault, id, &package, cert))
+        self.with_session(|s| {
+            // The login may have been trashed, or the role lowered, since the
+            // checks above.
+            if !usable_vaults(s).contains(&vault)
+                || !matches!(
+                    s.vault_own_role(vault),
+                    Ok(Role::Owner | Role::Manage | Role::Write)
+                )
+            {
+                return Err(MobileError::VaultUnavailable);
+            }
+            let item = s.item(vault, id)?;
+            if item.is_deleted() || item.trashed_at().is_some() {
+                return Err(MobileError::NotFound);
+            }
+            write_app_link(s, vault, id, &package, cert)
+        })
     }
 
     /// What the asset-links files of the login's web domains say about the
