@@ -41,6 +41,8 @@ wire_enum!(
         EntriesSkipped,
         /// Some one-time-password settings could not be read.
         OtpUnreadable,
+        /// Some one-time-password secrets are shorter than 80 bits.
+        OtpWeak,
         /// Passkeys are left out: the format holds none of their private keys
         /// (1PUX).
         PasskeysNotImported,
@@ -61,6 +63,8 @@ wire_enum!(
         UnmappedFields,
         /// The one-time-password setting could not be read.
         OtpUnreadable,
+        /// The one-time-password secret is shorter than 80 bits.
+        OtpWeak,
         /// An attachment is over the size limit and is left out.
         AttachmentTooLarge,
         /// An attachment's data is missing from the file.
@@ -90,6 +94,9 @@ wire_enum!(
         /// Passkeys over the limit (100 per entry, 10,000 per file) are left
         /// out.
         PasskeysLimit,
+        /// A note was over the item size limit; the entry's notes are
+        /// incomplete.
+        NotesTruncated,
     }
 );
 

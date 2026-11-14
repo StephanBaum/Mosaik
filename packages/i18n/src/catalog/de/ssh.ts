@@ -30,5 +30,8 @@ export const ssh = {
   "ssh.skip.malformed": "Wird nicht angeboten: Der Schlüssel ist nicht lesbar.",
   "ssh.skip.duplicate": "Wird nicht angeboten: Ein anderer Eintrag hat denselben Schlüssel.",
   "ssh.description": "Eine App hat den Mosaic-SSH-Agenten gebeten, sich mit diesem Schlüssel anzumelden.",
+  "ssh.origin.forwarded": "Ein Server, mit dem du verbunden bist, möchte diesen Schlüssel verwenden.",
+  "ssh.origin.bindFailed":
+    "Mosaic kann nicht erkennen, woher diese Anfrage kommt: Die Prüfung des Hosts ist fehlgeschlagen. Erlaube sie nur, wenn du sie erwartest.",
   "ssh.escDenies": "zum Ablehnen",
 } satisfies Record<keyof typeof en, string>;

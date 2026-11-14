@@ -17,6 +17,7 @@ use crate::attachment_files::write_file_atomic;
 use crate::browser::check_vault;
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::export::{ExportPasskeysRequest, PasskeysExported};
+use crate::contract::session::ReauthPurpose;
 use crate::dialogs::JSON;
 use crate::passkey_export;
 use crate::state::{AppState, Backend};
@@ -66,9 +67,9 @@ impl Backend {
         if let Some(password) = request.password
             && !password.expose_secret().is_empty()
         {
-            self.reauthenticate(password)?;
+            self.reauthenticate(password, ReauthPurpose::PasskeyExport)?;
         }
-        let grant = self.take_reauth_grant()?;
+        let grant = self.take_reauth_grant(ReauthPurpose::PasskeyExport)?;
         let exported = self.export_passkeys_now(vault);
         if !matches!(exported, Ok(PasskeysExported::Saved { .. })) {
             self.quick_unlock.restore_reauth(grant);

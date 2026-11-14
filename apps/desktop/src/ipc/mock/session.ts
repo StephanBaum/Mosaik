@@ -159,6 +159,7 @@ export const sessionHandlers: MockHandlers = {
       fail("wrongCredentials");
     }
     state.quick.reauthUntil = state.now() + MOCK_REAUTH_MS;
+    state.quick.reauthPurpose = request.purpose;
     return null;
   },
 

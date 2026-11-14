@@ -295,8 +295,10 @@ pub struct FolderChoice {
     pub display_path: String,
     /// What it holds.
     pub contents: FolderState,
-    /// The Mosaic accounts in it (to join one).
+    /// The Mosaic accounts in it (to join one), at most 64.
     pub accounts: Vec<WireAccountId>,
+    /// The folder holds more account directories than `accounts` lists.
+    pub accounts_truncated: bool,
 }
 
 /// `sync_folder_connect`.
@@ -740,18 +742,21 @@ pub(crate) mod samples {
                 display_path: "C:\\Users\\alex\\Dropbox\\Mosaic".into(),
                 contents: FolderState::Mosaic,
                 accounts: vec![ids::account()],
+                accounts_truncated: false,
             }),
             Some(FolderChoice {
                 choice_id: "choice-2".into(),
                 display_path: "D:\\Sync".into(),
                 contents: FolderState::Empty,
                 accounts: vec![],
+                accounts_truncated: false,
             }),
             Some(FolderChoice {
                 choice_id: "choice-3".into(),
                 display_path: "D:\\Documents".into(),
                 contents: FolderState::Other,
                 accounts: vec![],
+                accounts_truncated: false,
             }),
         ]
     }

@@ -8,7 +8,7 @@ import { useRef, useState, type ReactNode } from "react";
 import type { MessageKey } from "@mosaic/i18n";
 import { ReauthDialog } from "../components/ReauthDialog.tsx";
 import { useIpc } from "../ipc/IpcProvider.tsx";
-import type { IpcResult } from "../ipc/contract/index.ts";
+import type { IpcResult, ReauthPurpose } from "../ipc/contract/index.ts";
 
 /** What `guard` resolves to when the user closes the dialog without a password. */
 export const CANCELLED = { ok: false, error: { code: "cancelled" } } as const satisfies IpcResult<never>;
@@ -20,7 +20,22 @@ interface Request {
   retrying: boolean;
 }
 
-export function useReauth(body: MessageKey): {
+/** The purposes this dialog serves, each with the one text that says what the password is for. */
+export type DialogReauthPurpose = Extract<ReauthPurpose, "hardwareVaultKey" | "leaveHardwareVault" | "vaultKeyRotation">;
+
+/**
+ * The dialog text of each purpose. The text is derived from the purpose the grant is requested for,
+ * so what the user reads and what the password unlocks cannot drift apart.
+ */
+export const REAUTH_BODY: Readonly<Record<DialogReauthPurpose, MessageKey>> = {
+  hardwareVaultKey: "reauth.bodyKey",
+  leaveHardwareVault: "reauth.bodyMove",
+  vaultKeyRotation: "vaultKey.reauth",
+};
+
+export function useReauth(
+  purpose: DialogReauthPurpose,
+): {
   /** Runs `run`; the result is the command's, or `CANCELLED` if the user gave up. */
   guard: <T>(run: () => Promise<IpcResult<T>>) => Promise<IpcResult<T>>;
   /** Render this once, anywhere in the component. */
@@ -46,10 +61,10 @@ export function useReauth(body: MessageKey): {
 
   const dialog = open ? (
     <ReauthDialog
-      body={body}
+      body={REAUTH_BODY[purpose]}
       onSubmit={async (password) => {
         const current = request.current;
-        const result = await ipc.call("reauthenticate", { password });
+        const result = await ipc.call("reauthenticate", { password, purpose });
         if (!result.ok) {
           return result.error;
         }

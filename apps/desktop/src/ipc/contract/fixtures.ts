@@ -12,6 +12,7 @@ export interface EnumFixtures {
   biometricPlatformKind: string[];
   errorCode: string[];
   quickUnlockKind: string[];
+  reauthPurpose: string[];
   itemKind: string[];
   textFieldKey: string[];
   secretFieldKey: string[];
@@ -48,6 +49,7 @@ export interface EnumFixtures {
   sshSignFailReason: string[];
   sshDecision: string[];
   sshCloseReason: string[];
+  sshOrigin: string[];
   browserEndpointState: string[];
   browserRegistryState: string[];
   browserFamily: string[];

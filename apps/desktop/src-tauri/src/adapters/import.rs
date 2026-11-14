@@ -178,6 +178,7 @@ fn entry_warning(warning: EntryWarning) -> Option<ImportEntryWarning> {
     Some(match warning {
         EntryWarning::UnmappedFields => ImportEntryWarning::UnmappedFields,
         EntryWarning::OtpUnreadable => ImportEntryWarning::OtpUnreadable,
+        EntryWarning::OtpWeak => ImportEntryWarning::OtpWeak,
         EntryWarning::AttachmentTooLarge => ImportEntryWarning::AttachmentTooLarge,
         EntryWarning::AttachmentMissing => ImportEntryWarning::AttachmentMissing,
         EntryWarning::TagsDropped => ImportEntryWarning::TagsDropped,
@@ -191,6 +192,7 @@ fn entry_warning(warning: EntryWarning) -> Option<ImportEntryWarning> {
         EntryWarning::PasskeyUnreadable => ImportEntryWarning::PasskeyUnreadable,
         EntryWarning::PasskeyUnsupported => ImportEntryWarning::PasskeyUnsupported,
         EntryWarning::PasskeysLimit => ImportEntryWarning::PasskeysLimit,
+        EntryWarning::NotesTruncated => ImportEntryWarning::NotesTruncated,
         _ => return None,
     })
 }
@@ -202,6 +204,7 @@ fn warning(warning: mosaic_import::ImportWarning) -> Option<ImportWarning> {
         W::AttachmentsSkipped => ImportWarning::AttachmentsSkipped,
         W::EntriesSkipped => ImportWarning::EntriesSkipped,
         W::OtpUnreadable => ImportWarning::OtpUnreadable,
+        W::OtpWeak => ImportWarning::OtpWeak,
         W::PasskeysNotImported => ImportWarning::PasskeysNotImported,
         W::PasskeyUnreadable => ImportWarning::PasskeyUnreadable,
         W::PasskeyUnsupported => ImportWarning::PasskeyUnsupported,
