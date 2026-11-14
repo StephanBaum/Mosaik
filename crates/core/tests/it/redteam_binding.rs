@@ -12,7 +12,7 @@
 //! (no `#[ignore]`). They would start failing if a label were reused or an
 //! ID dropped from an AAD.
 
-#![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "test helpers")]
+#![expect(clippy::unwrap_used, reason = "test helpers")]
 
 use mosaic_core::{
     AccountId, AccountKey, AttachmentId, AttachmentKey, ContactsCiphertext, Error, ItemId,
@@ -137,13 +137,13 @@ fn attachment_is_bound_to_its_context() {
         &pt[..]
     );
 
-    let other_v = vault(9);
-    let other_it = item(9);
-    let other_at = AttachmentId::from_bytes([9; 16]).unwrap();
+    let foreign_vault = vault(9);
+    let foreign_item = item(9);
+    let foreign_attachment = AttachmentId::from_bytes([9; 16]).unwrap();
     for (vv, ii, aa) in [
-        (other_v, it, at),
-        (v, other_it, at),
-        (v, it, other_at),
+        (foreign_vault, it, at),
+        (v, foreign_item, at),
+        (v, it, foreign_attachment),
         // vault and item swapped.
         (
             VaultId::from_bytes([2; 16]).unwrap(),
