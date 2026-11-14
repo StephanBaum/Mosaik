@@ -12,9 +12,12 @@ use mosaic_vault::session::{LockedSession, RevocationReason};
 use mosaic_vault::storage::{PeerCheckpoint, PeerEntry, Store, VaultFlag};
 
 use super::pull::RunStats;
+use super::sharing::RotateOutcome;
 use super::{EngineConfig, SyncEngine, SyncReport, SyncWarning};
 use crate::folder::{self, FolderConfig, FolderTransport};
-use crate::testutil::{FixedJitter, LocalSession, MaliciousTransport, ManualClock, RefusedSharing};
+use crate::testutil::{
+    FixedJitter, LocalSession, MaliciousTransport, ManualClock, RefusedSharing, RotateStub,
+};
 use crate::transport::{TransportError, TransportKind};
 use crate::wire::SessionCrypto;
 use crate::wire::device_info::{DeviceInfo, Platform};
@@ -31,6 +34,12 @@ struct Rig {
 /// A device that owns a shared vault (the owner's own sharing row), over a
 /// server that answers `refusal` to everything about the vault.
 fn rig(refusal: TransportError) -> Rig {
+    rig_with(Some(refusal), RefusedSharing::new(refusal))
+}
+
+/// [`rig`] with the vault calls refused only if `vault_refusal` is set, and
+/// the sharing backend `sharing`.
+fn rig_with(vault_refusal: Option<TransportError>, sharing: RefusedSharing) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("folder");
     std::fs::create_dir_all(&root).unwrap();
@@ -63,8 +72,8 @@ fn rig(refusal: TransportError) -> Rig {
     .unwrap();
     let mut hostile = MaliciousTransport::new(transport);
     hostile.kind_override = Some(TransportKind::Hosted);
-    hostile.refuse_vault_calls = Some(refusal);
-    hostile.sharing_stub = Some(RefusedSharing(refusal));
+    hostile.refuse_vault_calls = vault_refusal;
+    hostile.sharing_stub = Some(sharing);
     let engine = SyncEngine::with_jitter(
         hostile,
         EngineConfig::for_kind(TransportKind::Hosted),
@@ -175,7 +184,7 @@ fn a_refused_rotation_of_an_owned_vault_is_blocked_and_visible() {
                 &mut stats,
             )
             .unwrap();
-        assert!(rotated.is_none());
+        assert_eq!(rotated, RotateOutcome::Blocked);
         assert!(
             report
                 .warnings
@@ -195,6 +204,139 @@ fn a_refused_rotation_of_an_owned_vault_is_blocked_and_visible() {
             1,
             "the revocation stays queued"
         );
+    }
+}
+
+fn rotate_once(rig: &mut Rig) -> (RotateOutcome, SyncReport) {
+    let (mut report, mut stats) = (SyncReport::default(), RunStats::default());
+    let outcome = rig
+        .engine
+        .rotate_shared(
+            &mut rig.access,
+            rig.vault,
+            &BTreeSet::new(),
+            false,
+            &mut report,
+            &mut stats,
+        )
+        .unwrap();
+    (outcome, report)
+}
+
+fn queued(rig: &Rig) -> usize {
+    rig.access
+        .session()
+        .unwrap()
+        .pending_revocations()
+        .unwrap()
+        .len()
+}
+
+/// FIX-2: another install rotated first (`GenerationTaken`) is benign: a
+/// retry, no `RotationBlocked`, no finding, the revocation stays queued.
+#[test]
+fn a_generation_taken_rotation_is_a_retry_not_a_block() {
+    let mut rig = rig_with(
+        None,
+        RefusedSharing::new(TransportError::Forbidden).with_rotate(RotateStub::GenerationTaken),
+    );
+    rig.queue_revocation();
+    let (outcome, report) = rotate_once(&mut rig);
+    assert_eq!(outcome, RotateOutcome::Retry, "{:?}", report.warnings);
+    assert!(
+        !report
+            .warnings
+            .iter()
+            .any(|w| matches!(w, SyncWarning::RotationBlocked { .. })),
+        "{:?}",
+        report.warnings
+    );
+    assert!(!rig.flagged() && !rig.lost());
+    assert_eq!(queued(&rig), 1, "the revocation stays queued");
+}
+
+/// FIX-2: the same through `process_revocations`, which no longer words a
+/// retry as a block.
+#[test]
+fn a_generation_taken_revocation_run_gives_no_warning() {
+    let mut rig = rig_with(
+        None,
+        RefusedSharing::new(TransportError::Forbidden).with_rotate(RotateStub::GenerationTaken),
+    );
+    rig.queue_revocation();
+    let (mut report, mut stats) = (SyncReport::default(), RunStats::default());
+    rig.engine
+        .process_revocations(&mut rig.access, &mut report, &mut stats, &[])
+        .unwrap();
+    assert!(
+        !report
+            .warnings
+            .iter()
+            .any(|w| matches!(w, SyncWarning::RotationBlocked { .. })),
+        "{:?}",
+        report.warnings
+    );
+    assert_eq!(queued(&rig), 1);
+}
+
+/// FIX-2 (missing branch): the rotation rejected with `role_forbidden`, which
+/// an honest server never answers the owner, is `Blocked` with a persisted
+/// finding, nothing marked lost, the revocation queued.
+#[test]
+fn a_role_forbidden_rotation_of_an_owned_vault_is_blocked() {
+    let mut rig = rig_with(
+        None,
+        RefusedSharing::new(TransportError::Forbidden).with_rotate(RotateStub::RoleForbidden),
+    );
+    rig.queue_revocation();
+    let (outcome, report) = rotate_once(&mut rig);
+    assert_eq!(outcome, RotateOutcome::Blocked);
+    assert!(
+        report
+            .warnings
+            .contains(&SyncWarning::RotationBlocked { vault: rig.vault }),
+        "{:?}",
+        report.warnings
+    );
+    assert!(rig.flagged() && !rig.lost());
+    assert_eq!(queued(&rig), 1);
+}
+
+/// FIX-2: a refused roster upload of an owned vault is a finding against the
+/// server, reported as `ServerInconsistent`, not as a blocked rotation.
+#[test]
+fn a_refused_roster_upload_is_not_worded_as_a_rotation() {
+    for refusal in REFUSALS {
+        let mut rig = rig_with(None, RefusedSharing::new(refusal));
+        assert!(
+            rig.access
+                .session()
+                .unwrap()
+                .pending_roster_upload(rig.vault)
+                .unwrap()
+                .is_some(),
+            "the owner roster waits for its upload"
+        );
+        let (mut report, mut stats) = (SyncReport::default(), RunStats::default());
+        rig.engine
+            .push_pending_rosters(&mut rig.access, &mut report, &mut stats)
+            .unwrap();
+        assert!(
+            !report
+                .warnings
+                .iter()
+                .any(|w| matches!(w, SyncWarning::RotationBlocked { .. })),
+            "{refusal:?}: {:?}",
+            report.warnings
+        );
+        assert!(
+            report
+                .warnings
+                .contains(&SyncWarning::ServerInconsistent { vault: rig.vault }),
+            "{refusal:?}: {:?}",
+            report.warnings
+        );
+        assert!(rig.flagged() && !rig.lost());
     }
 }
 

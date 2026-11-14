@@ -9,6 +9,7 @@ use mosaic_vault::session::{
 
 use super::pull::RunStats;
 use super::rekey::{RekeyError, RekeyProgress};
+use super::sharing::RotateOutcome;
 use super::{RotationOutcome, SessionAccess, SyncEngine, SyncError, SyncReport};
 use crate::clock::Clock;
 use crate::transport::{Cursor, KeyPushResult, Transport};
@@ -77,8 +78,10 @@ impl<T: Transport> SyncEngine<T> {
                 &mut report,
                 &mut stats,
             )? {
-                Some(generation) => Ok(RotationOutcome::Rotated(generation)),
-                None => Err(SyncError::Session(Error::NotOwner)),
+                RotateOutcome::Rotated(generation) => Ok(RotationOutcome::Rotated(generation)),
+                RotateOutcome::Retry | RotateOutcome::Blocked => {
+                    Err(SyncError::Session(Error::NotOwner))
+                }
             };
         }
         self.rotate_inner(access, vault, reseal)

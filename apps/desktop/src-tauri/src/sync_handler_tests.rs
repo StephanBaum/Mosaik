@@ -144,7 +144,12 @@ pub(crate) struct Env {
 
 impl Env {
     pub(crate) fn new() -> Self {
-        Self::with_store(Store::open_in_memory().unwrap(), None)
+        Self::with_store(Store::open_in_memory().unwrap(), None, None)
+    }
+
+    /// [`Self::new`] with a quick-unlock service (fake platforms).
+    pub(crate) fn with_quick_unlock(service: crate::quick_unlock::QuickUnlockService) -> Self {
+        Self::with_store(Store::open_in_memory().unwrap(), None, Some(service))
     }
 
     /// An environment over a store file in `dir` (attachments need one).
@@ -152,10 +157,15 @@ impl Env {
         Self::with_store(
             Store::open(dir.join("vault.sqlite3")).unwrap(),
             Some(dir.to_path_buf()),
+            None,
         )
     }
 
-    fn with_store(store: Store, dir: Option<PathBuf>) -> Self {
+    fn with_store(
+        store: Store,
+        dir: Option<PathBuf>,
+        quick: Option<crate::quick_unlock::QuickUnlockService>,
+    ) -> Self {
         let tokens = Arc::new(MemorySyncTokens::default());
         let picked = Arc::new(Mutex::new(None));
         let confirm = Arc::new(AtomicBool::new(true));
@@ -180,6 +190,9 @@ impl Env {
         .with_opener(Box::new(RecordingOpener(Arc::clone(&opened))));
         if let Some(dir) = dir {
             backend = backend.with_store_dir(dir);
+        }
+        if let Some(quick) = quick {
+            backend = backend.with_quick_unlock(quick);
         }
         let state = AppState::new(backend);
         let (channel, events) = recording_channel();

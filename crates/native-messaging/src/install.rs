@@ -300,10 +300,11 @@ pub trait Registry {
     /// does not exist (or cannot be read).
     fn default_value(&mut self, key: &str) -> Option<PathBuf>;
 
-    /// Deletes `HKCU\<key>`; a missing key is fine.
+    /// Deletes `HKCU\<key>`; a key that is not there is fine.
     ///
     /// # Errors
-    /// Never in practice; the install is best effort.
+    /// [`Error::Install`] if the key could not be deleted and is still there.
+    /// `Ok` means the key is gone.
     fn delete(&mut self, key: &str) -> Result<(), Error>;
 
     /// The registry root the keys are below, as shown in findings.
@@ -460,13 +461,33 @@ impl Registry for RegExe {
     }
 
     fn delete(&mut self, key: &str) -> Result<(), Error> {
-        // A missing key is a non-zero exit; either way the key is gone.
-        let _ = Self::command()
+        let full = format!(r"HKCU\{key}");
+        let deleted = Self::command()
             .arg("delete")
-            .arg(format!(r"HKCU\{key}"))
+            .arg(&full)
             .arg("/f")
-            .output();
-        Ok(())
+            .output()
+            .map_err(|_| Error::Install)?
+            .status
+            .success();
+        if deleted {
+            return Ok(());
+        }
+        // A non-zero exit is either a key that was never there (fine) or a
+        // failure (access denied, a locked hive): told apart by asking whether
+        // the key is still there. Only a key that is really gone is `Ok`.
+        let still_there = Self::command()
+            .arg("query")
+            .arg(&full)
+            .output()
+            .map_err(|_| Error::Install)?
+            .status
+            .success();
+        if still_there {
+            Err(Error::Install)
+        } else {
+            Ok(())
+        }
     }
 }
 

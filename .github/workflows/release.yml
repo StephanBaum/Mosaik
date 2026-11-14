@@ -176,6 +176,13 @@ jobs:
       - name: Build mosaic and mosaic-native-host
         shell: bash
         run: cargo build --release --locked --target "${{ matrix.target }}" -p mosaic-cli -p mosaic-native-messaging
+      # ADR-0153: the built host must refuse the dev extension ID and must not name it in a manifest.
+      - name: The built host does not trust the dev extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""; if [ "$RUNNER_OS" = Windows ]; then ext=".exe"; fi
+          bash scripts/release/assert-host.sh "target/${{ matrix.target }}/release/mosaic-native-host$ext"
       - name: Collect the binaries
         shell: bash
         run: |
@@ -299,6 +306,12 @@ jobs:
           mkdir -p apps/desktop/src-tauri/binaries
           cp "target/${{ matrix.target }}/release/mosaic$ext" "apps/desktop/src-tauri/binaries/mosaic-${{ matrix.target }}$ext"
           cp "target/${{ matrix.target }}/release/mosaic-native-host$ext" "apps/desktop/src-tauri/binaries/mosaic-native-host-${{ matrix.target }}$ext"
+      - name: The built host does not trust the dev extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""; if [ "$RUNNER_OS" = Windows ]; then ext=".exe"; fi
+          bash scripts/release/assert-host.sh "target/${{ matrix.target }}/release/mosaic-native-host$ext"
       # System native-messaging manifests, generated from the same source as install.rs (M9 T8).
       # The deb and rpm file lists read the Linux ones; the WiX fragment reads the Windows ones
       # from MOSAIC_NM_MANIFEST_DIR. macOS repairs the per-user manifests at start instead.
