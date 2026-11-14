@@ -3,7 +3,9 @@
 //! a connection for ever. This loop serves the router through hyper's
 //! `http1::Builder` with `header_read_timeout`, which hyper arms every time it
 //! starts reading a request head: that covers the first request, a trickled
-//! head and the idle wait on a keep-alive connection alike.
+//! head and the idle wait on a keep-alive connection alike. The same duration
+//! bounds the idle time between two request body frames (`TimeoutBody`), so a
+//! client that sends a head and then trickles the body is cut off too.
 
 use std::future::Future;
 use std::io;
@@ -19,9 +21,11 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
+use tower_http::timeout::TimeoutBody;
 
 /// How long a client may take to send a request head (and to send the next one
-/// on an idle keep-alive connection).
+/// on an idle keep-alive connection), and the longest pause it may make between
+/// two frames of a request body.
 pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Pause after an accept error that is not about one dead connection (file
@@ -30,6 +34,9 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(200);
 
 /// Serves `router` on `listener` until `shutdown` completes, then lets the
 /// connections in flight finish (idle ones close at once).
+///
+/// `header_read_timeout` is both the request head deadline and the longest
+/// idle pause between request body frames.
 ///
 /// The peer address is available to handlers as `ConnectInfo<SocketAddr>`.
 ///
@@ -78,6 +85,14 @@ pub async fn serve_listener(
         let router = router.clone();
         let service = service_fn(move |mut request: hyper::Request<Incoming>| {
             request.extensions_mut().insert(ConnectInfo(peer));
+            // The pause between two body frames is bounded by the same
+            // duration as the head: a body read that stalls fails with a
+            // timeout error, which ends the request (the handler's body
+            // extractor rejects) instead of holding a slot for the per-route
+            // request timeout. It is idle time, not a total: a slow but
+            // steady upload is the per-route `TimeoutLayer`'s concern.
+            let request = request
+                .map(|body| axum::body::Body::new(TimeoutBody::new(header_read_timeout, body)));
             let router = router.clone();
             async move { router.oneshot(request).await }
         });

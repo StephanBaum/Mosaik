@@ -263,18 +263,12 @@ async fn shutdown_completes_with_the_cap_reached() {
     read_to_close(&mut b, Duration::from_secs(1)).await;
 }
 
-/// RT-final-1: the header read timeout covers the request head only. A client
-/// that sends a complete head and then trickles the BODY one byte at a time is
-/// never cut off by the accept loop: hyper's `header_read_timeout` is disarmed
-/// once the head is parsed, and there is no body inactivity timeout. In the
-/// production stack only the per-route `TimeoutLayer` (60 s JSON, 600 s
-/// attachments) ends such a request, and it holds a `ConcurrencyLimitLayer`
-/// permit for all of that time (512 slow bodies stall every other request).
-/// Fix: a body inactivity timeout (`tower_http::timeout::RequestBodyTimeoutLayer`
-/// or hyper's per-frame deadline) of a few seconds, and the gates before the
-/// concurrency permit.
+/// RT-final-1: the header read timeout covers the request head only; the
+/// accept loop also bounds the idle time between request body frames. A client
+/// that sends a complete head and then trickles the BODY one byte per 2x the
+/// timeout is cut off (the handler's body read fails and the connection is
+/// closed) instead of holding its slot for the per-route request timeout.
 #[tokio::test]
-#[ignore = "RT-final-1: a trickled body is not cut by any inactivity timeout, only by the 60 s request timeout"]
 async fn a_trickled_body_is_cut_off_like_a_trickled_head() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -312,11 +306,26 @@ async fn a_trickled_body_is_cut_off_like_a_trickled_head() {
             }
         }
     });
+    // An error response may come first; the connection must then close.
+    let mut out = Vec::new();
     let mut buf = [0_u8; 512];
-    let closed = tokio::time::timeout(TIMEOUT * 6, reader.read(&mut buf)).await;
+    let deadline = Instant::now() + TIMEOUT * 6;
+    let closed = loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match tokio::time::timeout(left, reader.read(&mut buf)).await {
+            Ok(Ok(0) | Err(_)) => break true,
+            Ok(Ok(n)) => out.extend_from_slice(&buf[..n]),
+            Err(_) => break false,
+        }
+    };
     trickle.abort();
     assert!(
-        matches!(closed, Ok(Ok(0) | Err(_))),
-        "the connection should be closed within a few header timeouts, not held for the whole body: {closed:?}"
+        closed,
+        "the connection should be closed within a few body timeouts, not held for the whole body"
+    );
+    let text = String::from_utf8_lossy(&out);
+    assert!(
+        !text.starts_with("HTTP/1.1 200"),
+        "a cut body is not a success: {text}"
     );
 }
