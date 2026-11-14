@@ -299,3 +299,25 @@ describe("isElementVisible", () => {
     expect(isElementVisible(field(), makeEnv({ opacity: () => 0.1 }))).toBe(false);
   });
 });
+
+describe("RT-verify-ext: the hit-test majority", () => {
+  // The centre is fixed, so a page can leave it open, and only two of the four random points
+  // have to land on the field. An opaque overlay over the left half of a field (a pinhole at the
+  // centre) therefore passes whenever two random points fall right of the middle: with p = 0.5
+  // per point that is 1 - 0.5^4 - 4 * 0.5^4 = 69 % of the checks (82 % for an overlay over 40 %
+  // of the field, 52 % for one over 60 %, 18 % for one over 80 %); the probe and the fill check
+  // twice, so a 40 % overlay is accepted on two thirds of the fills. Wanted: a field whose
+  // half is under an opaque overlay is not fillable. Fix: require every random point (or raise
+  // the sample to eight and demand at least six), and keep the margin so the points stay inside.
+  it.skip("RT-verify-ext-1: a field half covered by an opaque overlay is not fillable", () => {
+    const el = field();
+    const cover = document.createElement("div");
+    // The box is 100..300 wide: everything left of the centre line is the overlay.
+    const env = makeEnv({ elementAt: (target, x) => (x < 200 ? cover : target) });
+    // Two of the four random points right of the middle, two left of it.
+    const draws = [0.6, 0.5, 0.7, 0.5, 0.2, 0.5, 0.3, 0.5];
+    let i = 0;
+    const random = (): number => draws[i++] ?? 0.5;
+    expect(isFillable(el, env, random)).toBe(false);
+  });
+});
