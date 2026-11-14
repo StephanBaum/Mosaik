@@ -97,7 +97,13 @@ fn setup_code_requires_reauth() {
     e.b().setup_code_show(ask(PASSWORD)).unwrap();
     // The right password earns no two-minute grant for other commands.
     assert_eq!(
-        e.b().require_reauth(None).unwrap_err().code,
+        e.b()
+            .require_reauth(
+                None,
+                crate::contract::session::ReauthPurpose::QuickUnlockEnroll
+            )
+            .unwrap_err()
+            .code,
         ErrorCode::ReauthRequired
     );
 }
