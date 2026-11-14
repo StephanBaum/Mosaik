@@ -1227,3 +1227,26 @@ A fresh builder read this document. Its questions fall into two groups.
   - No self-hosted runner: the repository is public, and a self-hosted runner on a public repository runs untrusted pull-request code.
   - Matching, identity and policy logic is unit-tested in CI.
   - Interactive UIA, focus and `SendInput` tests run locally from a documented manual checklist before each release, the same way as the existing device checks in MOBILE.md.
+
+### Owner answers (2026-11-14, later the same day)
+
+- **O1, resolved.** Mosaic must work with whatever provider a client has. The owner's own mail is a custom domain (`@brussobaum.de`) on IMAP. Plan for the most common providers, in this order:
+  1. Generic IMAP with a password or app password, with server discovery from the address. That means the Thunderbird autoconfig and ISPDB data, plus DNS SRV records (RFC 6186). This covers custom domains.
+  2. Microsoft (Outlook.com, Microsoft 365) through OAuth2/XOAUTH2. Microsoft no longer accepts passwords for mailbox access. Registering the app is free.
+  3. Google (Gmail, Workspace).
+     - App passwords first.
+     - OAuth only after the owner has checked the cost of Google's verification and the yearly security assessment for the restricted mail scope.
+- **O2, resolved: the exception is accepted.** All Windows calls that need `unsafe` live in one small, isolated shim crate. The rest of the workspace keeps `#![forbid(unsafe_code)]`.
+  - Every `unsafe` block has a `// SAFETY:` comment.
+  - The crate's API is safe and minimal.
+  - A Fable red-team review runs before the first merge, and tests cover the API.
+  - The vetting spike (§5.1.1) still runs first. A vetted wrapper crate is preferred where one passes; the shim covers only what no vetted crate offers.
+  - Record this as an ADR that names the crate and the rule.
+- **O3, resolved.** One extra click for Renew is acceptable: "the click on renew is not too much to ask". The owner calls a working Renew a "gamechanger" compared with doing it by hand.
+- **New: auto-renew on a schedule.** This is an option after Renew works, and is off by default.
+  - My calls:
+    - It runs only while the vault is unlocked and the user is present (not idle-locked). It never runs unattended, because a confirmation mail or a code may need the user.
+    - The new password is stored in the item history before submission, as in Renew. This follows ADR-0066.
+    - It never renews two logins of the same service at once.
+    - A failure shows a finding and stops that login's schedule until the user looks.
+  - The owner's wording: "if its working we could enable autorenew in intervalls for example as an option".
