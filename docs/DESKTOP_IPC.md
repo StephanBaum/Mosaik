@@ -85,7 +85,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `unlock` | `{ password, secretKey \| null }` → `SessionState` | `wrongCredentials` (never says which secret; from the third in a row, `unlockDelayed` answers the next attempts for 1 s, 2 s, 4 s ... up to 30 s before any key work, nothing sleeps and nothing else is blocked; the UI shows `error.unlockDelayed` and the unlock button can retry after a few seconds; the wait lives in memory and resets on a right password or an app restart), `unlockDelayed`, `secretKeyRequired`, `secretKeyMalformed`, `secretKeyMistyped`, `alreadyUnlocked`, `noAccount` | live |
 | `unlock_quick` | `{ method: "biometric" \| "hardwareKey", pin \| null }` → `SessionState` | `quickUnlockUnavailable`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`, `cancelled`, `alreadyUnlocked`, `busy`, `hardwareKey*` codes | live (OS prompt; `pin` only for `hardwareKey`; without it a key that needs one fails with `hardwareKeyPinRequired`) |
 | `lock` | `null` → `SessionState` | none; locking a locked vault is a no-op | live |
-| `reauthenticate` | `{ password }` → `null` | `locked`, `secretKeyRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `emptyPassword` | live (a right password opens a 2-minute window in which `enroll_*`, `add_hardware_vault_key` and `move_item` out of a hardware vault accept `password: null`; the UI sends those first without a password and calls this on `reauthRequired`, then retries) |
+| `reauthenticate` | `{ password, purpose: "quickUnlockEnroll" \| "hardwareVaultKey" \| "leaveHardwareVault" \| "passkeyExport" \| "vaultKeyRotation" }` → `null` | `locked`, `secretKeyRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `emptyPassword` | live (a right password opens a 2-minute window for the one command `purpose` names: `enroll_*` (`quickUnlockEnroll`), `add_hardware_vault_key` (`hardwareVaultKey`), `move_item` out of a hardware vault (`leaveHardwareVault`), `export_passkeys_cxf` (`passkeyExport`), `vault_rotate_key` (`vaultKeyRotation`) accept `password: null`; any other command answers `reauthRequired`. A password typed inside `save_emergency_kit`, `update_settings` or the passkey dialog is only checked and opens no window. The UI sends the command first without a password and calls this on `reauthRequired`, then retries; RT-desktop-1, ADR-0151) |
 | `subscribe_events` | a `Channel<AppEvent>` → `null` | none | live |
 | `app_status` | `null` → `{ shortcut: "registered" \| "conflict" \| "unavailable" \| "unsupported", screenLockDetection, otpScreenScan }` (`unsupported`: no global shortcuts on this system, Wayland; the settings field is disabled) | none | live |
 | **Quick unlock** | | | |
@@ -160,7 +160,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `sync_check_server` | `{ serverUrl }` → `{ serverUrl, registration: "open" \| "invite" \| "closed" }` (`serverUrl` is the canonical origin) | `syncServerInvalid`, `syncServerInsecure` (`http` to anything but this computer), `syncServerUnreachable`, `syncServerMismatch`, `syncServerIncompatible`, `invalidInput` (an address over 2048 bytes), `locked` (the app is locked and has an account: the probe is closed). Works while unlocked, and in the onboarding while the app has no account | live |
 | `sync_hosted_connect` | `{ serverUrl, mode: "register" \| "signIn", password: SecretIn, inviteCode: SecretIn \| null, deviceName }` → `SyncOverview` | `locked`, `syncAlreadyConfigured`, `invalidInput` (device name over 64 characters, address over 2048 bytes, invite code over 128 bytes, a code that is not 6 to 8 ASCII digits, no email on file), `emptyPassword`, `wrongCredentials` (the master password, counted towards the five-failure lock; also a rejected server login), `secretKeyRequired`, `syncAccountMismatch` (sign-in: the server's account is not this device's), `syncPasswordChanged` (sign-in: the password was just verified on this device and the server refuses it, so the server holds a newer one; `SyncOverview.passwordChanged` turns `true` and `sync_recover_password` brings it in), `syncAccountExists`, `syncRegistrationClosed`, `syncInviteInvalid`, `syncTwoFactorRequired` (the login waits five minutes for `sync_hosted_two_factor`, or, M9, for a security key: `sync_login_methods`, `sync_hosted_webauthn_begin`), the server codes of `sync_check_server`, `syncRateLimited` | live |
 | `sync_hosted_two_factor` | `{ code: SecretIn }` → `SyncOverview` | `syncSignedOut` (no login waits, or it ran out), `syncTwoFactorInvalid` (the login keeps waiting), `syncRateLimited` | live |
-| `sync_pick_folder` | `null` → `{ choiceId, displayPath, contents: "empty" \| "mosaic" \| "other", accounts: AccountId[] } \| null` (`null`: the user cancelled) | the store's code when it is unavailable, `internal`. Works without an account too. The path stays in Rust; `choiceId` is random and expires after 5 minutes (ADR-0034) | live |
+| `sync_pick_folder` | `null` → `{ choiceId, displayPath, contents: "empty" \| "mosaic" \| "other", accounts: AccountId[] (at most 64), accountsTruncated: bool } \| null` (`null`: the user cancelled; `accountsTruncated`: the folder holds more account directories than listed, a folder shared with a hostile peer can hold any number) | the store's code when it is unavailable, `internal`. Works without an account too. The path stays in Rust; `choiceId` is random and expires after 5 minutes (ADR-0034) | live |
 | `sync_folder_connect` | `{ choiceId, deviceName }` → `SyncOverview` | `locked`, `syncChoiceExpired`, `syncFolderNotEmpty`, `syncFolderUnavailable`, `syncAlreadyConfigured`, `invalidInput` | live |
 | `sync_now` | `null` → `SyncOverview` (after the run ended, at most two minutes) | `locked`, `syncNotConfigured` | live |
 | `sync_disconnect` | `null` → `SyncOverview` (signs out of the server best effort, deletes the token and the backend choice; the local data stays) | `locked`, `syncNotConfigured` | live |
@@ -506,7 +506,7 @@ Notes per area:
   with `duplicateOf` or `duplicateInFile` start unticked in the UI. `ImportEntryWarning` is
   `unmappedFields`, `otpUnreadable`, `attachmentTooLarge`, `attachmentMissing`, `tagsDropped`,
   `historyTruncated`, `passkeysNotImported`, `unknownCategory`, `fieldsDropped`, `archived` or
-  `attachmentQuota`, `titleCleaned`, `passkeyUnreadable`, `passkeyUnsupported` or `passkeysLimit`.
+  `attachmentQuota`, `titleCleaned`, `passkeyUnreadable`, `passkeyUnsupported`, `passkeysLimit` or `notesTruncated` (a note over the item size limit was left out).
   `ImportWarning` is
   `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`, `otpUnreadable`, `passkeysNotImported`,
   `passkeyUnreadable`, `passkeyUnsupported` or `passkeysSkipped`. `ImportFormat` is `enpass`, `bitwarden`, `keepass`,
@@ -529,7 +529,12 @@ Notes per area:
   - the key item and its fingerprint;
   - the client process (`processName` and `pid`: both `null` on Windows, `pid` only on macOS);
   - `requestedAt` and `expiresAt`;
-  - `canRemember`: when it is `false`, the UI hides "Allow for 15 minutes".
+  - `origin`: `local`, `forwarded` (a server the user is connected to asks, through agent
+    forwarding) or `bindFailed` (the connection's host binding was malformed or did not verify,
+    which includes RSA, P-384 and P-521 host keys the agent cannot check). The prompt shows a
+    warning line for the last two;
+  - `canRemember`: when it is `false`, the UI hides "Allow for 15 minutes". It is `false` for
+    every origin but `local`.
 
   The UI answers with `ssh_respond`. An unanswered request is refused on expiry, on lock, or when
   4 prompts are already open (`sshApprovalClosed`). A request that fails after approval arrives as

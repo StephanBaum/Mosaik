@@ -48,7 +48,7 @@ pub use self::hardware::{
 };
 use crate::contract::errors::{ErrorCode, IpcError};
 use crate::contract::quick_unlock::BiometricPlatformKind;
-use crate::contract::session::QuickUnlockKind;
+use crate::contract::session::{QuickUnlockKind, ReauthPurpose};
 
 /// How long a right master password lets the enroll commands run without
 /// asking again (the vault's own limit, CRYPTO_SPEC §6.2).
@@ -135,6 +135,9 @@ pub(crate) fn system_now_ms() -> i64 {
 /// What the re-authentication grant remembers.
 pub(crate) struct Grant {
     proof: Reauthenticated,
+    /// What the password was typed for: the grant pays for this and nothing
+    /// else (RT-desktop-1, ADR-0151).
+    purpose: ReauthPurpose,
     at: Instant,
     /// The lock count when it was earned: a grant taken out before a lock is
     /// not put back after it.
@@ -282,11 +285,12 @@ impl QuickUnlockService {
         self.reauth.lock().ok()
     }
 
-    /// Remembers the proof of a right master password.
-    pub(crate) fn grant_reauth(&self, proof: Reauthenticated) {
+    /// Remembers the proof of a right master password for `purpose`.
+    pub(crate) fn grant_reauth(&self, proof: Reauthenticated, purpose: ReauthPurpose) {
         if let Some(mut grant) = self.grant() {
             *grant = Some(Grant {
                 proof,
+                purpose,
                 at: Instant::now(),
                 epoch: self.lock_epoch.load(Ordering::SeqCst),
             });
@@ -300,24 +304,27 @@ impl QuickUnlockService {
         self.failed_reauth.store(0, Ordering::SeqCst);
     }
 
-    /// Whether a grant is held and not older than [`REAUTH_GRANT`].
-    pub(crate) fn reauth_granted(&self) -> bool {
+    /// Whether a grant for `purpose` is held and not older than
+    /// [`REAUTH_GRANT`].
+    pub(crate) fn reauth_granted(&self, purpose: ReauthPurpose) -> bool {
         self.grant().is_some_and(|grant| {
             grant
                 .as_ref()
-                .is_some_and(|g| g.at.elapsed() <= REAUTH_GRANT)
+                .is_some_and(|g| g.purpose == purpose && g.at.elapsed() <= REAUTH_GRANT)
         })
     }
 
     /// Runs `f` with the held proof and **consumes** it when `f` succeeds
     /// (an enrollment uses the grant up: the next one asks again). A failed
-    /// `f` keeps it. `None` without a grant.
+    /// `f` keeps it. `None` without a grant for `purpose`.
     pub(crate) fn consume_reauth<T, E>(
         &self,
+        purpose: ReauthPurpose,
         f: impl FnOnce(&Reauthenticated) -> Result<T, E>,
     ) -> Option<Result<T, E>> {
         let mut grant = self.grant()?;
-        let result = f(&grant.as_ref()?.proof);
+        let held = grant.as_ref().filter(|g| g.purpose == purpose)?;
+        let result = f(&held.proof);
         if result.is_ok() {
             *grant = None;
         }
@@ -326,13 +333,16 @@ impl QuickUnlockService {
 
     /// Takes the held grant out, atomically: of two concurrent commands that
     /// need one grant, only one gets it. `None` without a grant or when it
-    /// is older than [`REAUTH_GRANT`]. A command that fails after taking it
+    /// is older than [`REAUTH_GRANT`], or when it was earned for another
+    /// purpose (that grant stays where it is). A command that fails after taking it
     /// hands it back with [`QuickUnlockService::restore_reauth`]; one that
     /// succeeds simply drops it (the grant is spent).
-    pub(crate) fn take_reauth(&self) -> Option<Grant> {
-        self.grant()?
-            .take()
-            .filter(|g| g.at.elapsed() <= REAUTH_GRANT)
+    pub(crate) fn take_reauth(&self, purpose: ReauthPurpose) -> Option<Grant> {
+        let mut slot = self.grant()?;
+        if slot.as_ref().is_none_or(|g| g.purpose != purpose) {
+            return None;
+        }
+        slot.take().filter(|g| g.at.elapsed() <= REAUTH_GRANT)
     }
 
     /// Puts a grant taken by [`QuickUnlockService::take_reauth`] back after
@@ -453,8 +463,17 @@ mod tests {
         assert!(service.biometric().is_none());
         assert!(service.available_biometric().is_none());
         assert!(!service.hardware().is_supported());
-        assert!(!service.reauth_granted());
-        assert!(service.consume_reauth(|_| Ok::<(), ()>(())).is_none());
+        assert!(
+            !service.reauth_granted(crate::contract::session::ReauthPurpose::QuickUnlockEnroll)
+        );
+        assert!(
+            service
+                .consume_reauth(
+                    crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+                    |_| Ok::<(), ()>(())
+                )
+                .is_none()
+        );
         assert_eq!(service.reauth_failed(), 1);
         assert_eq!(service.reauth_failed(), 2);
         let vault = VaultId::from_bytes([
@@ -496,6 +515,13 @@ mod tests {
     fn without_a_grant_nothing_runs() {
         let service = QuickUnlockService::default();
         // No grant: nothing runs.
-        assert!(service.consume_reauth(|_| Ok::<(), ()>(())).is_none());
+        assert!(
+            service
+                .consume_reauth(
+                    crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+                    |_| Ok::<(), ()>(())
+                )
+                .is_none()
+        );
     }
 }

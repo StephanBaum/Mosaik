@@ -33,6 +33,11 @@ mosaic-totp = { path = "../totp" }
 axum.workspace = true
 tower-http.workspace = true
 tower.workspace = true
+# The accept loop with a header read timeout (R64); both are already locked through axum.
+# hyper: http1::Builder::header_read_timeout and the Incoming body type.
+hyper = { version = "=1.12.0", default-features = false, features = ["http1", "server"] }
+# hyper-util: TokioIo, TokioTimer (the timeout needs a timer) and GracefulShutdown.
+hyper-util = { version = "=0.1.21", default-features = false, features = ["server", "server-graceful", "tokio", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net"] }
 rusqlite.workspace = true
 toml.workspace = true
@@ -68,5 +73,5 @@ p256.workspace = true
 ed25519-dalek.workspace = true
 
 tempfile.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "test-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "test-util", "io-util", "time"] }
 mosaic-sync = { path = "../sync", features = ["opaque", "http", "test-util"] }

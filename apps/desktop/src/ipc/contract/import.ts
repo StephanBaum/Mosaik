@@ -10,6 +10,7 @@ export const importWarnings = [
   "attachmentsSkipped",
   "entriesSkipped",
   "otpUnreadable",
+  "otpWeak",
   "passkeysNotImported",
   "passkeyUnreadable",
   "passkeyUnsupported",
@@ -20,6 +21,7 @@ export type ImportWarning = (typeof importWarnings)[number];
 export const importEntryWarnings = [
   "unmappedFields",
   "otpUnreadable",
+  "otpWeak",
   "attachmentTooLarge",
   "attachmentMissing",
   "tagsDropped",
@@ -33,6 +35,7 @@ export const importEntryWarnings = [
   "passkeyUnreadable",
   "passkeyUnsupported",
   "passkeysLimit",
+  "notesTruncated",
 ] as const;
 export type ImportEntryWarning = (typeof importEntryWarnings)[number];
 

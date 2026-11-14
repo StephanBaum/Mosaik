@@ -17,6 +17,8 @@ ssh-key.workspace = true
 ed25519-dalek.workspace = true
 # Feature unification only: zeroize bcrypt-pbkdf's passphrase hash (see the root manifest).
 bcrypt-pbkdf.workspace = true
+# Verifier trait for ssh-key's host-key signature check (session-bind); already in the lock file.
+signature.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 zeroize.workspace = true
@@ -26,6 +28,5 @@ base64ct = { workspace = true, features = ["alloc"] }
 hex-literal.workspace = true
 p256.workspace = true
 proptest.workspace = true
-signature.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }

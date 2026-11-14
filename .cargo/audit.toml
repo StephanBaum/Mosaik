@@ -3,7 +3,7 @@
 [advisories]
 ignore = [
     "RUSTSEC-2024-0370", # proc-macro-error (glib-macros, Linux)
-    "RUSTSEC-2024-0429", # glib VariantStrIter (unused, Linux)
+    "RUSTSEC-2024-0429", # glib 0.18.5 VariantStrIter (unused, Linux). Still needed here: cargo audit reads every Cargo.lock entry, while cargo deny (deny.toml) only the build graph of the targets it checks, so deny.toml no longer lists it
     "RUSTSEC-2026-0370", # zvariant (zbus 5, single-instance on Linux)
     "RUSTSEC-2026-0371", # zbus_names (zbus 5, single-instance on Linux)
     "RUSTSEC-2026-0372", # zvariant_derive (zbus 5, single-instance on Linux)

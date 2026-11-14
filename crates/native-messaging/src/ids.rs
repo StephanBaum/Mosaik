@@ -191,6 +191,34 @@ mod tests {
         }
     }
 
+    /// RT-EXT red team: argument orders no browser produces but a launcher
+    /// could: the origin after the parent-window flag or a manifest path,
+    /// the Firefox ID behind a foreign Chromium origin, padding around the
+    /// origin. The Chromium branch decides first and never falls through.
+    #[test]
+    fn redteam_argument_order_tricks() {
+        let dev = format!("chrome-extension://{DEV_CHROMIUM_EXTENSION_ID}/");
+        for bad in [
+            args(&["host", "--parent-window=1", &dev]),
+            args(&["host", "manifest.json", &dev]),
+            args(&[
+                "host",
+                "chrome-extension://abcdefghijklmnopabcdefghijklmnop/",
+                FIREFOX_EXTENSION_ID,
+            ]),
+            args(&["host", &format!("{dev}?x"), FIREFOX_EXTENSION_ID]),
+            args(&["host", &format!(" {dev}")]),
+            args(&["host", &format!("{dev} ")]),
+            args(&["host", &format!("{dev}\0")]),
+        ] {
+            assert_eq!(
+                caller_from_args(&bad),
+                Err(Error::CallerNotAllowed),
+                "{bad:?}"
+            );
+        }
+    }
+
     #[test]
     fn garbage_is_refused() {
         assert_eq!(caller_from_args(&[]), Err(Error::CallerNotAllowed));

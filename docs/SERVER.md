@@ -84,6 +84,7 @@ refuses to run if the secret file or the database already exists.
 | `[limits] account_record_count` / `account_record_bytes` | Records and record ciphertext per account (default 50 000 and 256 MiB). |
 | `[limits] session_idle_days` / `session_max_days` | A session ends after this many idle days (default 30) or this many days in all (default 180). |
 | `[limits] max_concurrent_requests` | Requests handled at once, server-wide; more wait in the queue (default 512). |
+| `[limits] max_connections` | Open connections at once, server-wide; at the cap new clients wait in the kernel backlog (default 1024). |
 | `[limits] max_key_generations` | Key generations per vault (default 10 000). |
 | `[limits] soft_delete_days` | A deleted attachment is kept this long, so a device can restore it (default 30). |
 
@@ -213,10 +214,22 @@ again from a device that holds the vault.
 
 ## Slow clients
 
-The server limits request time, body size and concurrent requests, but has no
-header read timeout of its own. The reverse proxy is the defence against
-slow-header clients (slowloris): keep its read timeouts and per-IP connection
-limits on (Caddy and nginx do by default).
+The server limits request time, body size and concurrent requests, and closes
+a connection that takes longer than 10 s to send a request head, pauses longer
+than 10 s between two frames of a request body, or sits idle that long between
+requests (R64). A request that waits more than 5 s for one of the
+`max_concurrent_requests` slots gets `503`, and a client over a per-IP gate
+(prelogin, register, login start, security-key handoff) is refused before it
+takes a slot. The server caps open connections server-wide
+(`[limits] max_connections`, default 1024): at the cap it stops accepting until
+one closes. The cap is not per IP, so one client can fill it: configure a
+per-IP connection limit in your reverse proxy. Neither nginx nor Caddy does
+this by default. In nginx, declare `limit_conn_zone $binary_remote_addr
+zone=perip:10m;` and set `limit_conn perip 20;` in the server block. Caddy has
+no built-in per-IP connection limit: use a third-party module (for example
+`caddy-ratelimit`, whose `rate_limit` directive limits requests per client,
+not connections) or put nginx or a firewall rule (`iptables -m connlimit`) in
+front.
 
 ## Upgrades
 

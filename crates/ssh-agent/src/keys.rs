@@ -334,6 +334,21 @@ fn sign_with<K: ssh_key::SigningKey>(key: &K, data: &[u8]) -> Option<ssh_key::Si
     key.try_sign(data).ok()
 }
 
+/// Whether `signature` (an SSH signature blob) is the host key's signature
+/// over `session_id`, as in `session-bind@openssh.com`. Uses ssh-key's
+/// verifier; a host key of a type it cannot verify counts as not verified.
+#[must_use]
+pub fn verify_session_bind(host_key: &[u8], session_id: &[u8], signature: &[u8]) -> bool {
+    use signature::Verifier;
+    let Ok(public) = PublicKey::from_bytes(host_key) else {
+        return false;
+    };
+    let Ok(sig) = ssh_key::Signature::try_from(signature) else {
+        return false;
+    };
+    Verifier::verify(&public, session_id, &sig).is_ok()
+}
+
 /// The longest private key text [`material_from_openssh`] accepts, in
 /// bytes. A real OpenSSH key file is well under 4 KiB (RSA 4096 is about
 /// 3.4 KiB).

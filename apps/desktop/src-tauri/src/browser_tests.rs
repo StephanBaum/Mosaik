@@ -1841,6 +1841,19 @@ fn check_save_tells_new_update_and_unchanged() {
                 "invalidRequest"
             );
         }
+        // A frame is no top-level page: neither check nor proposal for it (RT-EXT-3).
+        let mut framed = save_body(o, Some("alex@example.com"), "new-pw");
+        framed["topOrigin"] = json!("https://evil.example");
+        assert_eq!(
+            check_save(&mut peer, &env, framed.clone())
+                .await
+                .unwrap_err(),
+            "crossOriginFrame"
+        );
+        assert_eq!(
+            peer.call("proposeSave", framed).await.unwrap_err(),
+            "crossOriginFrame"
+        );
     });
 }
 
@@ -4284,13 +4297,26 @@ mod passkeys {
             // A move out of a hardware vault (and every other change that
             // spends the grant) still asks for the password itself.
             assert_eq!(
-                code_of(env.backend().take_reauth_grant().map(|_| ())),
+                code_of(
+                    env.backend()
+                        .take_reauth_grant(
+                            crate::contract::session::ReauthPurpose::QuickUnlockEnroll
+                        )
+                        .map(|_| ())
+                ),
                 ErrorCode::ReauthRequired
             );
             env.backend()
-                .reauthenticate(SecretIn::test(PASSWORD))
+                .reauthenticate(
+                    SecretIn::test(PASSWORD),
+                    crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+                )
                 .unwrap();
-            assert!(env.backend().take_reauth_grant().is_ok());
+            assert!(
+                env.backend()
+                    .take_reauth_grant(crate::contract::session::ReauthPurpose::QuickUnlockEnroll)
+                    .is_ok()
+            );
         });
     }
 

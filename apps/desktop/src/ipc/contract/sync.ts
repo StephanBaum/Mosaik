@@ -104,6 +104,8 @@ export interface FolderChoice {
   displayPath: string;
   contents: FolderState;
   accounts: AccountId[];
+  /** More account directories exist than `accounts` lists (at most 64 are listed). */
+  accountsTruncated: boolean;
 }
 
 export interface FolderConnectRequest {

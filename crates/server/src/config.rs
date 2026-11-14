@@ -55,6 +55,9 @@ pub struct Limits {
     pub soft_delete_days: u64,
     /// Requests handled at once, server-wide (long polls excepted).
     pub max_concurrent_requests: u64,
+    /// Open connections at once, server-wide; at the cap the server stops
+    /// accepting until one closes (R64).
+    pub max_connections: u64,
     /// Key generations per vault.
     pub max_key_generations: u64,
 }
@@ -70,6 +73,7 @@ impl Default for Limits {
             session_max_days: 180,
             soft_delete_days: 30,
             max_concurrent_requests: 512,
+            max_connections: 1024,
             max_key_generations: 10_000,
         }
     }
@@ -174,6 +178,11 @@ impl Config {
         if !(1..=100_000).contains(&l.max_concurrent_requests) {
             return Err(ConfigError::Invalid(
                 "limits.max_concurrent_requests (1 to 100000)",
+            ));
+        }
+        if !(1..=1_000_000).contains(&l.max_connections) {
+            return Err(ConfigError::Invalid(
+                "limits.max_connections (1 to 1000000)",
             ));
         }
         if !(1..=1_000_000).contains(&l.max_key_generations) {

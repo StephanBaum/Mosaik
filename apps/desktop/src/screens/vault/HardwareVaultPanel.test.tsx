@@ -96,8 +96,8 @@ describe("hardware-protected vault", () => {
       expect(screen.queryByRole("region", { name: "Register a backup key" })).toBeNull();
     });
     expect(calls.filter((c) => c.command === "reauthenticate").map((c) => c.request)).toEqual([
-      { password: "wrong" },
-      { password: "mosaic" },
+      { password: "wrong", purpose: "hardwareVaultKey" },
+      { password: "mosaic", purpose: "hardwareVaultKey" },
     ]);
     expect(calls.filter((c) => c.command === "add_hardware_vault_key")).toHaveLength(2);
     expect(dialog.isConnected).toBe(false);

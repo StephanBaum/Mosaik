@@ -19,7 +19,7 @@ export const exportHandlers: MockHandlers = {
       fail("itemNotFound");
     }
     if (request.password === null) {
-      requireFreshReauth(state, true);
+      requireFreshReauth(state, true, "passkeyExport");
     } else if (request.password !== state.account?.password) {
       fail("wrongCredentials");
     }

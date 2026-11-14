@@ -6,5 +6,6 @@ mod model_golden;
 mod model_items;
 mod model_sync;
 mod properties;
+mod redteam_binding;
 mod secret_key;
 mod setup_code_props;

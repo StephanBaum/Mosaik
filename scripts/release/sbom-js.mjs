@@ -140,6 +140,18 @@ function npmSbom(options) {
   };
   walk(rootRef, project.dependencies);
 
+  // RT-release-4: an SBOM must never be silently empty or thin. A project with declared production
+  // dependencies for which pnpm resolved none (not installed, or an empty tree) is an error, and so
+  // is a registry component without a lockfile hash (a workspace link has none by design).
+  const declared = Object.keys(own.dependencies ?? {}).length + Object.keys(own.optionalDependencies ?? {}).length;
+  if (declared > 0 && components.size === 0) {
+    fail(`${own.name} declares ${declared} dependencies but pnpm list resolved none (run pnpm install --frozen-lockfile first)`);
+  }
+  const unhashed = [...components.values()].filter((c) => !c.properties && (!c.hashes || c.hashes.length === 0));
+  if (unhashed.length > 0) {
+    fail(`no pnpm-lock.yaml hash for ${unhashed.length} component(s), e.g. ${unhashed[0]["bom-ref"]}`);
+  }
+
   const list = [...components.values()]
     .map((c) => JSON.parse(JSON.stringify(c)))
     .sort((a, b) => a["bom-ref"].localeCompare(b["bom-ref"]));

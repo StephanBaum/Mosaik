@@ -109,7 +109,10 @@ impl KeepassOtp {
             "Secret-Base64" => self.set_secret(hotp, buf::base64_decode(v).ok()),
             "Length" if !hotp => self.length = Some(v.parse().unwrap_or(0)),
             "Period" if !hotp => self.period = Some(v.parse().unwrap_or(0)),
-            "Counter" if hotp => self.counter = Some(v.parse().unwrap_or(u64::MAX)),
+            "Counter" if hotp => match v.parse() {
+                Ok(n) => self.counter = Some(n),
+                Err(_) => self.invalid = true,
+            },
             "Algorithm" if !hotp => {
                 self.algorithm = match v {
                     "HMAC-SHA-1" | "" => Some(OtpAlgorithm::Sha1),
@@ -320,8 +323,22 @@ mod tests {
         assert!(
             kp(&[("HmacOtp-Secret", "abc"), ("HmacOtp-Counter", "x")])
                 .finish()
-                .is_some_and(|(_, n)| n == u64::MAX)
+                .is_none()
         );
+    }
+
+    /// RT-parsers-5 (red team 2026-11-13): an `HmacOtp-Counter` that is not
+    /// a number becomes `u64::MAX`. The import stores it, the item's counter
+    /// can never go down (`ItemEdit::set_otp_counter` only raises), and the
+    /// next code needs `counter + 1`, which overflows: the imported HOTP
+    /// never produces a code and cannot be repaired without re-creating the
+    /// item. A value that does not parse should make the OTP unreadable
+    /// (kept as hidden custom fields), like every other bad attribute.
+    #[test]
+    fn keepass_hmac_otp_with_a_bad_counter_is_unreadable() {
+        let k = kp(&[("HmacOtp-Secret", "abcdefghij"), ("HmacOtp-Counter", "x")]);
+        assert!(k.is_present());
+        assert!(k.finish().is_none());
     }
 
     #[test]

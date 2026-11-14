@@ -330,8 +330,11 @@ Enrolling requires the master password, and the vault API enforces it: the
 enrollment call takes a proof (`Reauthenticated`) that only a successful
 master-password and Secret Key check of the same unlocked session creates,
 and refuses one older than 120 seconds (`REAUTH_GRANT`) or from another
-session. The previous enrollment is replaced in one transaction. This
-wrapping is never synced.
+session. The previous enrollment is replaced in one transaction. A proof is
+bound to its purpose: the app remembers a master-password check for the one
+action it was typed for (ADR-0151) and a check done for another action, such
+as the Emergency Kit, a settings change or a passkey confirmation, does not
+count. This wrapping is never synced.
 
 ### 6.3 Hardware-key unlock (`method = 0x03`)
 Uses the WebAuthn PRF extension (CTAP2 `hmac-secret`):
@@ -353,7 +356,7 @@ including the one at registration, MUST use user verification and the
 client MUST check the UV flag of the returned authenticator data
 (hmac-secret outputs differ with and without UV). At most 8 hardware keys
 per account. Enrolling needs the master password, enforced by the vault API
-as in §6.2 (a proof of the same session, at most 120 seconds old). A
+as in §6.2 (a proof of the same session, at most 120 seconds old, and earned for that purpose). A
 `prf_salt` (and a `prf_salt_hw`, §7.4) MUST be new for its credential: the
 vault refuses one that equals any stored salt of the same credential, in the
 unlock wrapping or in any TK wrapping, so one PRF output never serves two
@@ -3297,7 +3300,7 @@ in M9 T9).
 **Keys and custody.** Two minisign keys, one for releases and one for the
 updater, each encrypted with its own password. The secret keys and passwords
 are secrets of the GitHub environment `release`, which needs the owner's
-approval and runs only for protected `v*` tags. They are never on a developer
+approval and runs only for protected `v*` tags on commits that are on `main` (the `prepare` job checks that). They are never on a developer
 machine after generation, never in the repository and never printed (no
 `set -x` around them). The public release key is published in
 `release/minisign.pub`, `SECURITY.md` and `docs/VERIFY.md` once the owner has

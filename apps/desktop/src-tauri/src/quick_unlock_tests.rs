@@ -504,7 +504,11 @@ fn enrolling_needs_the_password_and_a_right_one_opens_a_two_minute_grant() {
     assert_eq!(r.fake.prompts(), 0);
 
     // A right password opens the grant for one enrollment.
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+    )
+    .unwrap();
     let first = enroll(b, None).unwrap();
     assert!(first.biometric.enrolled);
     assert_eq!(r.fake.prompts(), 1);
@@ -550,7 +554,11 @@ fn five_wrong_reauthentications_in_a_row_lock_and_a_right_one_resets_the_count()
     }
     assert!(!events(&r.events).contains(&locked_event()));
     // A right password resets the count.
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+    )
+    .unwrap();
     for _ in 0..4 {
         assert_eq!(code(wrong(b)), ErrorCode::WrongCredentials);
         assert!(b.is_unlocked());
@@ -1090,7 +1098,11 @@ fn check_add_and_remove_keys(r: &HwRig, vault: &str, first_id: &str) {
         ),
         ErrorCode::ReauthRequired
     );
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::HardwareVaultKey,
+    )
+    .unwrap();
     let second = b
         .add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })))
         .unwrap();
@@ -1231,7 +1243,11 @@ fn l2_a_failed_enrollment_keeps_the_grant_and_a_success_uses_it_up() {
     let _kdf = crate::test_support::kdf_permit();
     let r = rig(true);
     let b = &r.backend;
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+    )
+    .unwrap();
     r.fake.fail_next(PlatformError::Failed);
     assert_eq!(code(enroll(b, None).unwrap_err()), ErrorCode::Internal);
     assert!(!r.fake.has_key());
@@ -1383,7 +1399,11 @@ fn l6_moving_an_item_out_of_a_hardware_vault_needs_a_fresh_password() {
         code(b.move_item(typed(mv.clone())).unwrap_err()),
         ErrorCode::ReauthRequired
     );
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::LeaveHardwareVault,
+    )
+    .unwrap();
     b.move_item(typed(mv)).unwrap();
 }
 

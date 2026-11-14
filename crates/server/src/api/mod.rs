@@ -22,10 +22,11 @@ mod wire;
 
 use std::marker::PhantomData;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::Router;
-use axum::extract::{ConnectInfo, FromRequestParts, MatchedPath, Request};
+use axum::extract::{ConnectInfo, FromRequestParts, MatchedPath, Request, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
@@ -34,7 +35,7 @@ use axum::routing::{get, post, put};
 use mosaic_sync::wire::json::{self, JsonError};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tower::limit::ConcurrencyLimitLayer;
+use tokio::sync::Semaphore;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
@@ -103,6 +104,9 @@ const AUTH_BODY: usize = 16 * 1024;
 const JSON_TIMEOUT: Duration = Duration::from_secs(60);
 /// Request timeout of the attachment routes (client: 600 s).
 const ATTACHMENT_TIMEOUT: Duration = Duration::from_secs(600);
+/// How long a request may wait for a concurrency permit before it is answered
+/// `503` (a queue wait is not covered by the per-route request timeout).
+const PERMIT_WAIT: Duration = Duration::from_secs(5);
 
 /// A successful response: a status and a JSON (or binary) body.
 pub struct Reply {
@@ -308,12 +312,84 @@ impl<G: Gate + Send + Sync> FromRequestParts<AppState> for Gated<G> {
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         let ip = ClientIp::from_request_parts(parts, state).await?;
-        state
-            .rate
-            .check(state.clock.now_ms(), G::SCOPE, &ip.key(), G::RULE)
-            .map_err(ApiError::rate_limited)?;
+        // `pre_gate` already took the token for this scope before the request
+        // got a concurrency permit; a second check would charge it twice. A
+        // route that `pre_gate` does not know is still checked here (fail
+        // closed). Only the server sets this extension.
+        let passed = parts
+            .extensions
+            .get::<GatePassed>()
+            .is_some_and(|g| g.0 == G::SCOPE);
+        if !passed {
+            state
+                .rate
+                .check(state.clock.now_ms(), G::SCOPE, &ip.key(), G::RULE)
+                .map_err(ApiError::rate_limited)?;
+        }
         Ok(Self(ip, PhantomData))
     }
+}
+
+/// Set by `pre_gate` on a request whose per-IP gate already passed.
+#[derive(Clone, Copy)]
+struct GatePassed(Scope);
+
+/// The per-IP gate of a route that has one, by method and path. Must list
+/// every route whose handler takes `Gated<G>`; a route missing here is still
+/// gated by the extractor, only after it has taken a permit.
+fn gate_of(method: &axum::http::Method, path: &str) -> Option<(Scope, Rule)> {
+    if method != axum::http::Method::POST {
+        return None;
+    }
+    Some(match path {
+        "/v1/prelogin" => (PreloginGate::SCOPE, PreloginGate::RULE),
+        "/v1/register/start" => (RegisterStartGate::SCOPE, RegisterStartGate::RULE),
+        "/v1/register/finish" => (RegisterFinishGate::SCOPE, RegisterFinishGate::RULE),
+        "/v1/login/start" => (LoginGate::SCOPE, LoginGate::RULE),
+        "/v1/webauthn/handoff/options" | "/v1/webauthn/handoff/finish" => {
+            (HandoffGate::SCOPE, HandoffGate::RULE)
+        }
+        _ => return None,
+    })
+}
+
+/// Runs OUTSIDE the concurrency limit: a client refused by its per-IP gate
+/// never takes (or waits for) a permit. Auth stays inside: a session lookup
+/// is database work, which the permit is there to bound.
+async fn pre_gate(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let Some((scope, rule)) = gate_of(request.method(), request.uri().path()) else {
+        return next.run(request).await;
+    };
+    let (mut parts, body) = request.into_parts();
+    let ip = match ClientIp::from_request_parts(&mut parts, &state).await {
+        Ok(ip) => ip,
+        Err(e) => return e.into_response(),
+    };
+    if let Err(retry) = state
+        .rate
+        .check(state.clock.now_ms(), scope, &ip.key(), rule)
+    {
+        return ApiError::rate_limited(retry).into_response();
+    }
+    parts.extensions.insert(GatePassed(scope));
+    next.run(Request::from_parts(parts, body)).await
+}
+
+/// The server-wide limit on requests in flight. A request waits at most
+/// `PERMIT_WAIT` for a slot, then gets `503` (fail closed: a closed semaphore
+/// does too). The permit is held until the response is produced and is
+/// released on every exit, including a dropped (cancelled) request future.
+async fn concurrency_limit(
+    State(slots): State<Arc<Semaphore>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let Ok(Ok(permit)) = tokio::time::timeout(PERMIT_WAIT, slots.acquire_owned()).await else {
+        return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "busy").into_response();
+    };
+    let response = next.run(request).await;
+    drop(permit);
+    response
 }
 
 /// Every response: `Cache-Control: no-store`, JSON for the body-limit layer's
@@ -566,9 +642,14 @@ pub fn router(state: AppState) -> Router {
     let limited = json_routes
         .merge(public_routes)
         .merge(attachment_routes)
-        .layer(ConcurrencyLimitLayer::new(
-            usize::try_from(state.limits.max_concurrent_requests).unwrap_or(usize::MAX),
-        ));
+        .layer(middleware::from_fn_with_state(
+            Arc::new(Semaphore::new(
+                usize::try_from(state.limits.max_concurrent_requests).unwrap_or(usize::MAX),
+            )),
+            concurrency_limit,
+        ))
+        // Outside the permit: see `pre_gate`.
+        .layer(middleware::from_fn_with_state(state.clone(), pre_gate));
     let poll_routes: Router<AppState> =
         Router::new()
             .route("/v1/poll", get(poll::get))
@@ -592,6 +673,49 @@ pub fn router(state: AppState) -> Router {
 mod tests {
     use super::*;
     use tower::ServiceExt as _;
+
+    /// A request that cannot get a permit within `PERMIT_WAIT` is answered
+    /// `503`, and a permit is free again once the holder's future is dropped
+    /// (a cancelled request leaks nothing).
+    #[tokio::test(start_paused = true)]
+    async fn the_permit_wait_times_out_and_a_dropped_request_frees_its_permit() {
+        async fn hang() -> &'static str {
+            std::future::pending::<()>().await;
+            "never"
+        }
+        let slots = Arc::new(Semaphore::new(1));
+        let router: Router = Router::new()
+            .route("/hang", get(hang))
+            .route("/ok", get(|| async { "ok" }))
+            .layer(middleware::from_fn_with_state(
+                Arc::clone(&slots),
+                concurrency_limit,
+            ));
+        let req = || {
+            axum::http::Request::builder()
+                .uri("/hang")
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+        let holder = tokio::spawn(router.clone().oneshot(req()));
+        tokio::task::yield_now().await;
+        assert_eq!(slots.available_permits(), 0);
+        let waited = router.clone().oneshot(req()).await.unwrap();
+        assert_eq!(waited.status(), StatusCode::SERVICE_UNAVAILABLE);
+        holder.abort();
+        let _ = holder.await;
+        assert_eq!(slots.available_permits(), 1, "the permit came back");
+        let ok = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/ok")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), StatusCode::OK);
+    }
 
     /// A panic in a handler becomes a bare `500 internal`: the body names no
     /// detail and the panic message never reaches the response.
