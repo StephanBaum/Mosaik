@@ -19,6 +19,7 @@ use crate::AppState;
 use crate::auth::handoff::{NewHandoff, Purpose, Refused, State as HState, Taken, Verified};
 use crate::auth::webauthn::{CeremonyState, Rp, RpError, StoredCredential};
 use crate::auth::{AnySession, Authed, Session};
+use crate::db::accounts::SlotClaim;
 use crate::db::webauthn::{self as dbw, InsertError};
 use crate::db::{accounts, audit, devices, sessions};
 use crate::error::ApiError;
@@ -258,8 +259,11 @@ pub async fn remove(
 }
 
 /// Claims one attempt of the per-account failure budget; `rate_limited` when
-/// it is empty.
-fn claim(st: &AppState, account: &[u8; 16], now: u64) -> Result<(), ApiError> {
+/// it is empty. A claim is refunded at most once (the refund spends it), and
+/// only after the check it guards succeeded: `options` refunds its own claim
+/// after the right code, `finish` hands its own claim to the transaction that
+/// stores the credential.
+fn claim(st: &AppState, account: &[u8; 16], now: u64) -> Result<SlotClaim, ApiError> {
     st.db
         .run(|c| accounts::claim_second_factor_slot(c, account, now))?
         .map_err(ApiError::rate_limited)
@@ -280,12 +284,12 @@ pub async fn options(
         .account_of(&id, now)
         .ok_or_else(handoff_expired)?;
     // A wrong code counts against the account before it is looked at.
-    claim(&st, &account, now)?;
+    let claim = claim(&st, &account, now)?;
     let v = st
         .handoffs
         .verify_code(&id, req.code.expose_secret().as_bytes(), now)
         .map_err(refused)?;
-    st.db.run(|c| accounts::refund_totp_slot(c, &account))?;
+    st.db.run(|c| accounts::refund_totp_slot(c, claim))?;
     let (state, public_key) = build_options(&st, rp, &v)?;
     if !st.handoffs.set_state(&id, state, now) {
         return Err(handoff_expired());
@@ -358,16 +362,16 @@ pub async fn finish(
         .handoffs
         .account_of(&id, now)
         .ok_or_else(handoff_expired)?;
-    claim(&st, &account, now)?;
+    let claim = claim(&st, &account, now)?;
     // The state is taken out first: a second finish finds none.
     let taken = st.handoffs.take_for_finish(&id, now).map_err(refused)?;
     let credential = serde_json::to_vec(&req.credential).map_err(|_| ApiError::bad_request())?;
     let outcome = match taken.rp_state {
         CeremonyState::Registration(ref state) => {
-            finish_register(&st, rp, &taken, state, &credential, now)
+            finish_register(&st, rp, &taken, state, &credential, now, claim)
         }
         CeremonyState::Assertion(ref state) => {
-            finish_assert(&st, rp, &taken, state, &credential, now)
+            finish_assert(&st, rp, &taken, state, &credential, now, claim)
         }
     };
     match outcome {
@@ -387,6 +391,7 @@ fn finish_register(
     state: &passkey_auth::RegistrationState,
     credential: &[u8],
     now: u64,
+    claim: SlotClaim,
 ) -> Result<Finished, ApiError> {
     let new = rp
         .finish_registration(state, credential)
@@ -413,7 +418,7 @@ fn finish_register(
             Ok(()) => {}
             Err(InsertError::Limit | InsertError::Duplicate) => return Err(two_factor_invalid()),
         }
-        accounts::refund_totp_slot(tx, &taken.account_id)?;
+        accounts::refund_totp_slot(tx, claim)?;
         audit::record(
             tx,
             &taken.account_id,
@@ -432,6 +437,7 @@ fn finish_assert(
     state: &passkey_auth::AuthenticationState,
     credential: &[u8],
     now: u64,
+    claim: SlotClaim,
 ) -> Result<Finished, ApiError> {
     let rows = st.db.run(|c| dbw::list(c, &taken.account_id))?;
     let outcome = match rp.finish_assertion(state, credential, &stored(&rows)) {
@@ -493,7 +499,7 @@ fn finish_assert(
             }
             Purpose::Register => return Err(two_factor_invalid()),
         }
-        accounts::refund_totp_slot(tx, &taken.account_id)?;
+        accounts::refund_totp_slot(tx, claim)?;
         Ok(Finished::Done)
     })
 }

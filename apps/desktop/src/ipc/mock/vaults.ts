@@ -175,7 +175,7 @@ export const vaultAsyncHandlers: MockAsyncHandlers = {
     requireUnlocked(state);
     const hardware = hardwareVault(state, request.vaultId);
     requireOpen(hardware);
-    requireFreshReauth(state, true);
+    requireFreshReauth(state, true, "hardwareVaultKey");
     if (hardware.keys.length >= MAX_VAULT_KEYS) {
       fail("hardwareKeyLimit");
     }

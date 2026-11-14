@@ -10,6 +10,7 @@ import type {
   QuickUnlockKind,
   QuickUnlockRequest,
   QuickUnlockStatus,
+  ReauthPurpose,
 } from "../contract/index.ts";
 import { sampleHardwareVault, sampleKey } from "./data.ts";
 import {
@@ -83,6 +84,7 @@ export function defaultQuick(): MockQuick {
     hwOpenSeconds: 300,
     pendingTouch: null,
     reauthUntil: 0,
+    reauthPurpose: null,
   };
 }
 
@@ -122,18 +124,23 @@ export function newKey(state: MockState): HardwareKeySummary {
 export const MOCK_REAUTH_MS = 120_000;
 
 /** `reauthRequired` unless the two-minute proof of `reauthenticate` is fresh; `consume` uses it up. */
-export function requireFreshReauth(state: MockState, consume: boolean): void {
-  if (state.quick.reauthUntil < state.now() || state.quick.reauthUntil === 0) {
+export function requireFreshReauth(state: MockState, consume: boolean, purpose: ReauthPurpose): void {
+  if (
+    state.quick.reauthUntil < state.now() ||
+    state.quick.reauthUntil === 0 ||
+    state.quick.reauthPurpose !== purpose
+  ) {
     fail("reauthRequired");
   }
   if (consume) {
     state.quick.reauthUntil = 0;
+    state.quick.reauthPurpose = null;
   }
 }
 
 function checkPassword(state: MockState, password: string | null): void {
   if (password === null) {
-    requireFreshReauth(state, true);
+    requireFreshReauth(state, true, "quickUnlockEnroll");
     return;
   }
   if (password !== state.account?.password) {

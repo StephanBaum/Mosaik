@@ -705,7 +705,11 @@ fn vault_rotate_key_spends_the_proof_also_when_it_fails() {
     e.create();
     let b = e.b();
     let vault = b.list_vaults().unwrap()[0].vault_id.get();
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::VaultKeyRotation,
+    )
+    .unwrap();
     // No backend: the first call fails after the proof was taken.
     assert_eq!(
         b.vault_rotate_key(rotate_request(vault, false, None))
@@ -773,7 +777,11 @@ fn vault_rotate_key_reseals_attachments_and_resumes() {
     assert_eq!(before.len(), 2);
 
     // The proof of `reauthenticate` is enough, and is spent on this rotation.
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::VaultKeyRotation,
+    )
+    .unwrap();
     let done = b
         .vault_rotate_key(rotate_request(vault, true, None))
         .unwrap();

@@ -4297,13 +4297,26 @@ mod passkeys {
             // A move out of a hardware vault (and every other change that
             // spends the grant) still asks for the password itself.
             assert_eq!(
-                code_of(env.backend().take_reauth_grant().map(|_| ())),
+                code_of(
+                    env.backend()
+                        .take_reauth_grant(
+                            crate::contract::session::ReauthPurpose::QuickUnlockEnroll
+                        )
+                        .map(|_| ())
+                ),
                 ErrorCode::ReauthRequired
             );
             env.backend()
-                .reauthenticate(SecretIn::test(PASSWORD))
+                .reauthenticate(
+                    SecretIn::test(PASSWORD),
+                    crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+                )
                 .unwrap();
-            assert!(env.backend().take_reauth_grant().is_ok());
+            assert!(
+                env.backend()
+                    .take_reauth_grant(crate::contract::session::ReauthPurpose::QuickUnlockEnroll)
+                    .is_ok()
+            );
         });
     }
 
