@@ -15,6 +15,7 @@ import type { IpcError, SyncConfigView, SyncDevice } from "../../ipc/contract/in
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { useNow } from "./hooks.ts";
 import { PasswordDialog } from "./PasswordDialog.tsx";
+import { SetupPhone } from "./SetupPhone.tsx";
 
 function RenameRow({
   device,
@@ -346,6 +347,7 @@ export function DevicesCard({
       {config.kind === "folder" && (
         <p className="field__hint">{t("settings.sync.devices.folderNote")}</p>
       )}
+      <SetupPhone config={config} />
       {removing !== null && (
         <RemoveDialog
           device={removing}

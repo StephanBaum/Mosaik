@@ -8,7 +8,7 @@ use zeroize::Zeroizing;
 use crate::testing::{SAMPLE_URI, canvas, inverted, jpeg, png, qr_frame, qr_frame_transparent};
 use crate::{
     Frame, ImageLimits, OwnedFrame, Payload, PixelLayout, ScanError, classify, scan_frames,
-    scan_image,
+    scan_image, scan_setup_frames,
 };
 
 const DEFAULT: ImageLimits = ImageLimits::DEFAULT;
@@ -580,5 +580,94 @@ fn fake_finder_field_is_bounded() {
             "scan of {n}x{n} fake finders took {:?}",
             started.elapsed()
         );
+    }
+}
+
+const SETUP_CODE: &str = "mosaic-setup:1:eyJ2IjoxfQ";
+
+fn scan_setup(frame: &OwnedFrame) -> Result<Zeroizing<String>, ScanError> {
+    scan_setup_frames(&[frame.frame()])
+}
+
+#[test]
+fn setup_payload_is_classified_and_returned() {
+    // The code comes back as it was read (the parser of `mosaic-core` checks it).
+    let qr = qr_frame(SETUP_CODE, 5, 4);
+    assert_eq!(scan_setup(&qr).unwrap().as_str(), SETUP_CODE);
+    // Prefix case and surrounding whitespace do not matter to the scanner.
+    let qr = qr_frame(" MOSAIC-SETUP:1:eyJ2IjoxfQ\n", 5, 4);
+    assert_eq!(
+        scan_setup(&qr).unwrap().as_str(),
+        "MOSAIC-SETUP:1:eyJ2IjoxfQ"
+    );
+    // A white-on-black code too.
+    let qr = inverted(&qr_frame(SETUP_CODE, 5, 4));
+    assert_eq!(scan_setup(&qr).unwrap().as_str(), SETUP_CODE);
+    // It is not an OTP code: the otpauth scan drops it as something else.
+    let qr = qr_frame(SETUP_CODE, 5, 4);
+    assert_eq!(scan_one(&qr).unwrap_err(), ScanError::NotOtp);
+    // Two different setup codes are not guessed between.
+    let two = screen(
+        &[SETUP_CODE, "mosaic-setup:1:eyJ2IjoyfQ"],
+        PixelLayout::Rgbx8,
+    );
+    assert_eq!(scan_setup(&two).unwrap_err(), ScanError::Multiple);
+}
+
+#[test]
+fn scan_drops_other_payloads_unread() {
+    for other in [
+        SAMPLE_URI,
+        "otpauth-migration://offline?data=CgYKBAAAAAA%3D",
+        "https://example.com",
+        "mosaic-setup",
+    ] {
+        let qr = qr_frame(other, 5, 4);
+        assert_eq!(
+            scan_setup(&qr).unwrap_err(),
+            ScanError::NotSetupCode,
+            "{other}"
+        );
+    }
+    // An otpauth code beside a setup code is dropped, not mixed in.
+    let both = screen(&[SAMPLE_URI, SETUP_CODE], PixelLayout::Rgbx8);
+    assert_eq!(scan_setup(&both).unwrap().as_str(), SETUP_CODE);
+    // A setup code that is too long is something else.
+    let long = format!("mosaic-setup:1:{}", "A".repeat(1100));
+    let qr = qr_frame(&long, 3, 4);
+    assert_eq!(scan_setup(&qr).unwrap_err(), ScanError::NotSetupCode);
+    // The otpauth scan still ignores a setup code beside the OTP code.
+    assert_sample(&scan_one(&both).unwrap());
+}
+
+#[test]
+fn setup_payload_length_limit_is_exact() {
+    // 1024 bytes is the longest code kept (`MAX_SETUP_CODE_LEN`); one more is
+    // some other payload.
+    let prefix = "mosaic-setup:1:";
+    let at_limit = format!("{prefix}{}", "A".repeat(1024 - prefix.len()));
+    assert_eq!(at_limit.len(), 1024);
+    let qr = qr_frame(&at_limit, 3, 4);
+    assert_eq!(scan_setup(&qr).unwrap().as_str(), at_limit);
+    let over = format!("{at_limit}A");
+    let qr = qr_frame(&over, 3, 4);
+    assert_eq!(scan_setup(&qr).unwrap_err(), ScanError::NotSetupCode);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(12))]
+
+    /// Whatever base64url-looking text follows the prefix, a scan returns it
+    /// unchanged (trimmed) and an otpauth scan of the same frame refuses it.
+    #[test]
+    fn setup_payload_round_trips_through_a_frame(
+        body in "[A-Za-z0-9_-]{1,200}",
+        pad in "[ \t\n]{0,3}",
+    ) {
+        let code = format!("mosaic-setup:1:{body}");
+        let qr = qr_frame(&format!("{pad}{code}{pad}"), 3, 4);
+        let scanned = scan_setup(&qr).unwrap();
+        prop_assert_eq!(scanned.as_str(), code.as_str());
+        prop_assert_eq!(scan_one(&qr).unwrap_err(), ScanError::NotOtp);
     }
 }

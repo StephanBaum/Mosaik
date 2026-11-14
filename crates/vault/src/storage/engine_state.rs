@@ -455,7 +455,8 @@ impl Store {
 
     /// Where the comparisons of view digests with `device` for `vault`
     /// stand: since when they keep failing to happen (`None`: the last one
-    /// succeeded) and the peer's checkpoint counter then.
+    /// succeeded), the peer's checkpoint counter then and this device's own
+    /// checkpoint counter then (one per run), as `(since, peer, own)`.
     ///
     /// # Errors
     /// [`Error::Corrupt`], [`Error::Database`].
@@ -463,18 +464,24 @@ impl Store {
         &self,
         device: &InstallId,
         vault_id: &VaultId,
-    ) -> Result<Option<(Option<u64>, u64)>> {
-        let row: Option<(Option<i64>, i64)> = self
+    ) -> Result<Option<(Option<u64>, u64, u64)>> {
+        let row: Option<(Option<i64>, i64, i64)> = self
             .conn
             .query_row(
-                "SELECT since_ms, counter FROM sync_view_compare
+                "SELECT since_ms, counter, own_counter FROM sync_view_compare
                  WHERE device_id = ?1 AND vault_id = ?2",
                 params![device.as_bytes(), vault_id.as_bytes()],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()?;
-        row.map(|(t, c)| Ok((t.map(seq_from_sql).transpose()?, seq_from_sql(c)?)))
-            .transpose()
+        row.map(|(t, peer, own)| {
+            Ok((
+                t.map(seq_from_sql).transpose()?,
+                seq_from_sql(peer)?,
+                seq_from_sql(own)?,
+            ))
+        })
+        .transpose()
     }
 
     /// Stores where the comparisons stand (see [`Store::view_compare`]).
@@ -486,18 +493,21 @@ impl Store {
         device: &InstallId,
         vault_id: &VaultId,
         since_ms: Option<u64>,
-        counter: u64,
+        peer_counter: u64,
+        own_counter: u64,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO sync_view_compare (device_id, vault_id, since_ms, counter)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO sync_view_compare (device_id, vault_id, since_ms, counter, own_counter)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (device_id, vault_id) DO UPDATE SET
-                 since_ms = excluded.since_ms, counter = excluded.counter",
+                 since_ms = excluded.since_ms, counter = excluded.counter,
+                 own_counter = excluded.own_counter",
             params![
                 device.as_bytes(),
                 vault_id.as_bytes(),
                 since_ms.map(ms_to_sql).transpose()?,
-                seq_to_sql(counter)?
+                seq_to_sql(peer_counter)?,
+                seq_to_sql(own_counter)?
             ],
         )?;
         Ok(())
@@ -1323,6 +1333,31 @@ mod tests {
         assert_eq!(s.recent_rotations(&vault(2), 3_000, day).unwrap(), 0);
     }
 
+    /// RT-final-2: both counters have a column of their own and go through
+    /// the checked sequence conversion, so a counter beyond 32 bits round-trips
+    /// and one beyond `i64::MAX` is refused, not wrapped.
+    #[test]
+    fn view_compare_counters_use_the_whole_checked_range() {
+        let mut s = store();
+        let v = vault(1);
+        let big = u64::from(u32::MAX) + 5;
+        s.put_view_compare(&id(4), &v, Some(70), big, big + 1)
+            .unwrap();
+        assert_eq!(
+            s.view_compare(&id(4), &v).unwrap(),
+            Some((Some(70), big, big + 1))
+        );
+        assert!(matches!(
+            s.put_view_compare(&id(4), &v, None, 1, u64::MAX),
+            Err(Error::SeqOutOfRange)
+        ));
+        // The refused write changed nothing.
+        assert_eq!(
+            s.view_compare(&id(4), &v).unwrap(),
+            Some((Some(70), big, big + 1))
+        );
+    }
+
     #[test]
     fn clearing_the_findings_rebuilds_the_flagged_vaults_and_leaves_the_halt_alone() {
         let mut s = store();
@@ -1331,7 +1366,8 @@ mod tests {
         s.set_checkpoint_strikes(1, Some(5), Some(2)).unwrap();
         s.set_vault_flag(&v, VaultFlag::ServerInconsistent).unwrap();
         s.set_no_common_view(&id(4), &v, 77).unwrap();
-        s.put_view_compare(&id(4), &v, Some(70), 3).unwrap();
+        s.put_view_compare(&id(4), &v, Some(70), 3, 5).unwrap();
+        assert_eq!(s.view_compare(&id(4), &v).unwrap(), Some((Some(70), 3, 5)));
         s.put_served(&v, &record(1), 3, &[1; 32]).unwrap();
         s.put_served(&vault(2), &record(1), 3, &[1; 32]).unwrap();
         let cp = PeerCheckpoint {

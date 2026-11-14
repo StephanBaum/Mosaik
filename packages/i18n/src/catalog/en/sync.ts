@@ -99,6 +99,23 @@ export const sync = {
   "settings.sync.devices.folderNote":
     "To lock a device out, change your master password and Secret Key.",
 
+  "settings.sync.phone.title": "Set up a phone",
+  "settings.sync.phone.body":
+    "Show a code that your phone scans, so you don't have to type your Secret Key. The phone still needs your master password.",
+  "settings.sync.phone.button": "Set up a phone",
+  "settings.sync.phone.reauth": "The code contains your Secret Key, so it needs your master password.",
+  "settings.sync.phone.dialogTitle": "Scan this code with your phone",
+  "settings.sync.phone.steps":
+    "On your phone, open Mosaic and choose to set it up, then scan this code.",
+  "settings.sync.phone.hint":
+    "The code hides after 60 seconds or when you leave this window. Don't share a photo of it.",
+  "settings.sync.phone.canvas": "Setup code for your phone",
+  "settings.sync.phone.hidden.time": "The 60 seconds are over, so the code is hidden.",
+  "settings.sync.phone.hidden.away": "You left this window, so the code is hidden.",
+  "settings.sync.phone.again": "Show again",
+  "settings.sync.phone.folder":
+    "This account syncs through a folder. The phone apps support Mosaic sync for now.",
+
   "settings.sync.totp.title": "Authenticator app",
   "settings.sync.totp.body":
     "Asks for a code from an authenticator app when someone signs in to your sync account. It protects the server account, not your vaults: those stay encrypted with your master password and Secret Key.",

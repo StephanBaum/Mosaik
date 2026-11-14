@@ -1,0 +1,8 @@
+# UniFFI binding configuration (docs/MOBILE.md section 2). The bindings are generated in CI and
+# never committed (scripts/mobile/bindgen.sh).
+[bindings.kotlin]
+package_name = "io.github.stephanbaum.mosaic.ffi"
+cdylib_name = "mosaic_mobile_ffi"
+
+[bindings.swift]
+module_name = "MosaicFFI"

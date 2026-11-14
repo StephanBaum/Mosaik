@@ -43,7 +43,6 @@ opaque-ke = { workspace = true, optional = true }
 # (ring provider, TLS 1.3 only, OS trust store through the platform verifier).
 reqwest = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
-rustls-platform-verifier = { workspace = true, optional = true }
 # Wipes OPAQUE's session and export keys and builds the bearer value (only
 # with feature `http`; the crate is already in the workspace).
 zeroize = { workspace = true, optional = true }
@@ -52,6 +51,11 @@ sha2_0_10 = { workspace = true, optional = true }
 # Random temp file names of the folder transport, the retry jitter and
 # opaque-ke's random number generator (ADR-0011).
 getrandom.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+# The OS trust store; not on Android, where the platform passes its trust
+# anchors instead (`http::TlsTrust::Anchors`, ADR-0091).
+rustls-platform-verifier = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # `O_NONBLOCK` for opening files in a folder anyone can write to: a FIFO

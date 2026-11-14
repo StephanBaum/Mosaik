@@ -1,0 +1,40 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSCameraUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic nutzt die Kamera nur, um diesen QR-Code zu lesen. Es wird nichts gespeichert oder gesendet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        }
+      }
+    },
+    "NSFaceIDUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic nutzt Face ID, um deinen Tresor schnell zu entsperren. Dein Master-Passwort funktioniert immer auch."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

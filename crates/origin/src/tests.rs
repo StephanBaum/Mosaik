@@ -473,6 +473,27 @@ fn rp(origin: &str, requested: Option<&str>) -> Result<String, RpIdError> {
 }
 
 #[test]
+fn webauthn_rp_id_refuses_non_dns_labels_at_creation() {
+    // M10-G3 round 2, N1: the DNS-label check of `canonical_rp_id` applies here too.
+    for bad in [
+        "my_app.example.com",
+        "a*b.example.com",
+        "-a.example.com",
+        "a-.example.com",
+    ] {
+        assert_eq!(
+            rp("https://login.example.com", Some(bad)),
+            Err(RpIdError::NotCanonical),
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        rp("https://my-app.example.com", Some("my-app.example.com")),
+        Ok("my-app.example.com".to_owned())
+    );
+}
+
+#[test]
 #[expect(clippy::too_many_lines, reason = "one table of cases")]
 fn webauthn_rp_id_table() {
     use RpIdError::{InsecureOrigin, NotADomain, NotASuffix, NotCanonical, PublicSuffix};

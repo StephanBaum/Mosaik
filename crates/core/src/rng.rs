@@ -24,6 +24,17 @@ pub(crate) fn array<const N: usize>() -> Result<[u8; N]> {
     Ok(out)
 }
 
+/// `N` random bytes for a value that is **not secret**: a nonce, an alias, a
+/// session ID. The mobile core takes its pending-slot IDs and key-alias nonces
+/// from here, so no crate outside `mosaic-core` calls the OS CSPRNG itself.
+/// Secrets are generated in place in their zeroizing container, never here.
+///
+/// # Errors
+/// [`Error::Randomness`] if the OS CSPRNG fails.
+pub fn random_public_bytes<const N: usize>() -> Result<[u8; N]> {
+    array()
+}
+
 /// The random number generator handed to `hpke` for one seal.
 ///
 /// A seal draws exactly one ephemeral X25519 `ikm` (32 bytes). Instead of

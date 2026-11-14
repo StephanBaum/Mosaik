@@ -26,6 +26,9 @@ export const size = {
   input: 36,
   controlLg: 40,
   inputXl: 56,
+  /** Smallest touch targets on the phones: 44 pt (iOS minimum) and 48 dp (Android minimum). */
+  touchMin: 44,
+  touch: 48,
   avatar: 32,
   avatarLg: 52,
   rail: 64,

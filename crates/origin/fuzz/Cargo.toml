@@ -31,3 +31,24 @@ path = "fuzz_targets/origin_match.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "assetlinks_parse"
+path = "fuzz_targets/assetlinks_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "field_selection"
+path = "fuzz_targets/field_selection.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "app_url_rp_id"
+path = "fuzz_targets/app_url_rp_id.rs"
+test = false
+doc = false
+bench = false

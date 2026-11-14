@@ -13,6 +13,7 @@ export * from "./insights.ts";
 export * from "./items.ts";
 export * from "./otp.ts";
 export * from "./session.ts";
+export * from "./setupCode.ts";
 export * from "./settings.ts";
 export * from "./sharing.ts";
 export * from "./quickUnlock.ts";

@@ -1,0 +1,9 @@
+# Vendored from https://github.com/google/fonts at commit c30b221beb0c1da59d563feb91ec8656a1fa972a (ofl/ directory).
+# DMSans-Variable.ttf is ofl/dmsans/DMSans[opsz,wght].ttf renamed (brackets break build tools).
+# IBMPlexMono-{Regular,Medium,SemiBold}.ttf are ofl/ibmplexmono/ files of the same name.
+# Check with: sha256sum -c SHA256SUMS
+8cd08d97e89c24d0aa92edd2f0f4c8ee6195eee9b7c9f154865a58b02f0c1c0d *DMSans-Variable.ttf
+a9b4c49bb299e05b5f6c481e7fb5e78943d2793249a0c8874ab574a2d1ea6755 *IBMPlexMono-Medium.ttf
+6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46 *IBMPlexMono-Regular.ttf
+d3c38e55c78f5b0f28009fddba4834ec503278936a5986032424c9bd2d23aa46 *IBMPlexMono-SemiBold.ttf
+845e58417f8e64abfac654e17e7c531c135c2ccdbd4988cbd2ab285406dd0d96 *OFL.txt

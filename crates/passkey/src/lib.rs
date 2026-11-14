@@ -26,8 +26,9 @@ mod name;
 mod tests;
 
 pub use ceremony::{
-    AssertionResponse, CountPersisted, CreateInput, Created, GetInput, PendingAssertion, assert,
-    create, select_algorithm,
+    AssertionResponse, ClientAssertionResponse, ClientCreated, ClientData, CountPersisted,
+    CreateInput, CreateRequest, Created, GetInput, GetRequest, PendingAssertion,
+    android_app_origin, assert, assert_request, create, create_request, select_algorithm,
 };
 pub use encode::{
     attestation_object_none, b64url, ccd_to_string, client_data_json, from_b64url, rp_id_hash,
