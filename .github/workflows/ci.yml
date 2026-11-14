@@ -46,7 +46,9 @@ jobs:
           if (-not (Test-Path 'C:\Windows\System32\OpenSSH\ssh-keygen.exe')) {
             Write-Error 'The Windows OpenSSH client is missing'; exit 1
           }
-      - run: cargo test --release --locked --workspace --exclude mosaic-desktop -- --ignored
+      # The mobile crates are left out: their tests enable the `test-hooks` feature, which refuses to
+      # compile in a release build by design (crates/mobile/src/lib.rs), and they have no ignored tests.
+      - run: cargo test --release --locked --workspace --exclude mosaic-desktop --exclude mosaic-mobile --exclude mosaic-mobile-ffi -- --ignored
 
   cli:
     name: CLI (${{ matrix.os }})
