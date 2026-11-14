@@ -7,6 +7,7 @@
 
 use std::future::Future;
 use std::io;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
@@ -16,6 +17,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
+use tokio::sync::Semaphore;
 use tower::ServiceExt;
 
 /// How long a client may take to send a request head (and to send the next one
@@ -31,6 +33,12 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(200);
 ///
 /// The peer address is available to handlers as `ConnectInfo<SocketAddr>`.
 ///
+/// At most `max_connections` connections are open at once (at least 1). A
+/// permit is taken before `accept()` and moves into the connection task, so it
+/// is released when the connection ends, on a panic and on an accept error
+/// alike. At the cap the loop waits on the semaphore (no spin) and the kernel
+/// backlog holds further clients; shutdown still ends that wait.
+///
 /// # Errors
 /// None today; the signature keeps room for listener setup errors.
 pub async fn serve_listener(
@@ -38,10 +46,21 @@ pub async fn serve_listener(
     router: Router,
     shutdown: impl Future<Output = ()>,
     header_read_timeout: Duration,
+    max_connections: usize,
 ) -> io::Result<()> {
     let graceful = GracefulShutdown::new();
+    let slots = Arc::new(Semaphore::new(max_connections.max(1)));
     tokio::pin!(shutdown);
     loop {
+        let permit = tokio::select! {
+            () = &mut shutdown => break,
+            // The semaphore is never closed, so an error cannot happen; if it
+            // did, stop serving rather than spin.
+            acquired = Arc::clone(&slots).acquire_owned() => match acquired {
+                Ok(permit) => permit,
+                Err(_) => break,
+            },
+        };
         let (stream, peer) = tokio::select! {
             () = &mut shutdown => break,
             accepted = listener.accept() => match accepted {
@@ -69,6 +88,8 @@ pub async fn serve_listener(
         let connection = builder.serve_connection(TokioIo::new(stream), service);
         let connection = graceful.watch(connection);
         tokio::spawn(async move {
+            // Held until the connection task ends (or unwinds).
+            let _permit = permit;
             // A connection error (reset, bad request, header timeout) ends
             // only this connection; nothing of it is logged.
             let _ = connection.await;

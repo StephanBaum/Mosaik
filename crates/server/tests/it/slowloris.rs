@@ -37,6 +37,10 @@ struct Server {
 }
 
 async fn start() -> Server {
+    start_capped(1024).await
+}
+
+async fn start_capped(max_connections: usize) -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
@@ -48,6 +52,7 @@ async fn start() -> Server {
                 let _ = stopped.await;
             },
             TIMEOUT,
+            max_connections,
         )
         .await
         .unwrap();
@@ -202,4 +207,58 @@ async fn shutdown_drains_the_request_in_flight_and_closes_idle_connections() {
     read_to_close(&mut idle, Duration::from_secs(1)).await;
     // And it accepts no new connections.
     assert!(TcpStream::connect(server.addr).await.is_err());
+}
+
+/// Sends a ping and reports whether a reply arrives within `wait`.
+async fn served_within(stream: &mut TcpStream, wait: Duration) -> bool {
+    stream
+        .write_all(b"GET /ping HTTP/1.1\r\nHost: x\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf = [0_u8; 512];
+    matches!(
+        tokio::time::timeout(wait, stream.read(&mut buf)).await,
+        Ok(Ok(n)) if n > 0
+    )
+}
+
+/// Opens two keep-alive connections that have been served and sit idle.
+async fn fill_cap(addr: SocketAddr) -> (TcpStream, TcpStream) {
+    let mut a = TcpStream::connect(addr).await.unwrap();
+    let mut b = TcpStream::connect(addr).await.unwrap();
+    assert!(served_within(&mut a, Duration::from_secs(2)).await);
+    assert!(served_within(&mut b, Duration::from_secs(2)).await);
+    (a, b)
+}
+
+#[tokio::test]
+async fn connection_cap_holds_back_the_third_client_until_one_closes() {
+    let server = start_capped(2).await;
+    let (a, _b) = fill_cap(server.addr).await;
+    // The kernel completes the TCP handshake, but the loop does not accept.
+    let mut third = TcpStream::connect(server.addr).await.unwrap();
+    assert!(!served_within(&mut third, Duration::from_millis(150)).await);
+    // Closing one frees a permit; the queued request is then served.
+    drop(a);
+    let mut buf = [0_u8; 512];
+    let n = tokio::time::timeout(Duration::from_secs(2), third.read(&mut buf))
+        .await
+        .expect("the third client is served after a slot frees")
+        .unwrap();
+    assert!(String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200"));
+}
+
+#[tokio::test]
+async fn shutdown_completes_with_the_cap_reached() {
+    let mut server = start_capped(2).await;
+    let (mut a, mut b) = fill_cap(server.addr).await;
+    let _third = TcpStream::connect(server.addr).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let _ = server.stop.take().unwrap().send(());
+    tokio::time::timeout(Duration::from_secs(3), server.task)
+        .await
+        .expect("serve_listener returned with the cap reached")
+        .unwrap();
+    read_to_close(&mut a, Duration::from_secs(1)).await;
+    read_to_close(&mut b, Duration::from_secs(1)).await;
 }

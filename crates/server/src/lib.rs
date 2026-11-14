@@ -224,6 +224,7 @@ pub async fn serve(config: Config) -> Result<(), StartError> {
         app(state),
         shutdown(),
         accept::HEADER_READ_TIMEOUT,
+        usize::try_from(config.limits.max_connections).unwrap_or(usize::MAX),
     )
     .await?;
     Ok(())
