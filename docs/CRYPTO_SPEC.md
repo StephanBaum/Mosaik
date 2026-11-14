@@ -744,10 +744,15 @@ read a secret to tell whether it is there.
   temporary file, `fsync`, then rename.
 - **iOS.** A Keychain generic password per value:
   - `kSecAttrService = "<bundle id>.secure-store"`, `kSecAttrAccount = name`;
-  - `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, `kSecAttrSynchronizable = false`;
+  - `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` (no secret is stored on a device without a passcode),
+    `kSecAttrSynchronizable = false`. A `put` sets the class again on update, so an item that an older build
+    stored in a weaker class is upgraded; the unlocked-only class exists in Debug builds only, for the
+    simulator tests;
   - `kSecAttrAccessGroup` = the app-private group `<team prefix><bundle id>`.
 
-  The AutoFill extension has no access to this group and never needs `SK` or the token.
+  The AutoFill extension has no access to this group and never needs `SK` or the token: it is given a
+  `SecureStorage` that refuses every call (`contains` fails too, which the core reads as "not stored"). A
+  device build whose `Info.plist` has no keychain group refuses to open the store (a configuration error).
 - Values cross the FFI under the rules of §6.9.5. Neither `SK` nor the token is ever shown to the platform as
   text, logged, or written outside these places.
 
@@ -891,6 +896,12 @@ availability limit, not a security one (`docs/MOBILE.md` §3).
   - JVM and Swift strings: `UITextField.text`, displayed values, the clipboard text, `AutofillValue.forText`,
     `PasswordCredential` and `ASPasswordCredential`;
   - IME buffers;
+  - on iOS, further `String`s and `Data` the system API hands over or takes: `ASPasswordCredential` and
+    `ASOneTimeCodeCredential` (a `String` each), the AVFoundation `stringValue` of the scanned setup QR (it
+    holds the Secret Key), the generator preview `String`, and the `Data` that passes through
+    `SecureStorage.get` and `put`, together with the copies inside Security.framework and `securityd`;
+  - on iOS, `W` as `SecKeyCreateDecryptedData` returns it: a `CFData` that the system allocates and does not zero
+    when it is released (`SecretBuffer` takes a copy and wipes that one);
   - arrays that ART's compacting collector moved before they were zeroed;
   - the plaintext array that `SecureStorage.get` returns to the Rust side through the foreign trait: Kotlin cannot
     wipe it after the call (Rust wipes its own copy at once). `put` wipes the array it was given in a `finally`

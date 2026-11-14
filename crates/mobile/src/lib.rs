@@ -48,7 +48,7 @@ mod sync;
 pub mod test_hooks;
 mod unlock;
 
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -88,7 +88,7 @@ pub use storage::{
 };
 pub use sync::{ResetConfirm, ResetOutcome, SyncOverview};
 
-use state::{Inner, Phase, Slots, UnlockedInfo, UnlockedPhase};
+use state::{Inner, Pending, Phase, Slots, UnlockedInfo, UnlockedPhase};
 
 /// The version of this library.
 #[must_use]
@@ -130,12 +130,6 @@ pub struct Core {
     pub(crate) storage: Arc<dyn SecureStorage>,
     pub(crate) clock: CoreClock,
     pub(crate) inner: Mutex<Inner>,
-    /// `lock()` was called while a long call held the session out. Read and
-    /// cleared only while the core's mutex is held.
-    pub(crate) lock_requested: AtomicBool,
-    /// The pending lock must also require the master password (the
-    /// re-authentication limit was hit while a long call held the session).
-    pub(crate) lock_strict: AtomicBool,
     /// Counts locks. A secret value is handed out only if no lock happened
     /// since its call started (G1-6).
     generation: AtomicU64,
@@ -243,9 +237,8 @@ impl Core {
                 last_sync_error: None,
                 secret_key_stored,
                 signed_in,
+                pending: Pending::default(),
             }),
-            lock_requested: AtomicBool::new(false),
-            lock_strict: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             issued: Mutex::new(Vec::new()),
             assetlinks: autofill::AssetLinks::new(),
@@ -335,10 +328,8 @@ impl Core {
         value: SecretValue,
         generation: u64,
     ) -> Result<Arc<SecretValue>> {
-        let _guard = self.guard()?;
-        if self.generation.load(Ordering::SeqCst) != generation
-            || self.lock_requested.load(Ordering::SeqCst)
-        {
+        let guard = self.guard()?;
+        if self.generation.load(Ordering::SeqCst) != generation || guard.pending.lock {
             value.wipe();
             return Err(MobileError::Locked);
         }
@@ -368,7 +359,7 @@ impl Core {
             return SessionState::StoreClosed;
         };
         let inner = &mut *guard;
-        inner.slots.drop_expired_join(now);
+        inner.drop_expired_join(now);
         match &mut inner.phase {
             Phase::Closed => {
                 if inner.store_busy {
@@ -423,34 +414,64 @@ impl Core {
     /// secret value handed out. Never waits for a long call: while one runs it
     /// only sets a flag, and the call locks again before it stores its result.
     pub fn lock(&self) {
-        self.lock_with(false, false);
+        self.lock_with(false, false, false);
     }
 
     /// Locks and refuses quick unlock until the next master-password unlock
     /// (the re-authentication limit, ADR-0028 item 8; the boot marker goes too,
     /// CRYPTO_SPEC §6.9.2).
     pub(crate) fn lock_requiring_password(&self) {
-        self.lock_with(true, false);
+        self.lock_with(true, false, false);
     }
 
-    fn lock_with(&self, require_password: bool, keep_join: bool) {
+    /// The one place a lock is decided. `close` (a `close_store()`) is decided
+    /// in the same critical section as the lock: a close that finds a phase
+    /// held out arms `pending.close` next to `pending.lock`, so whoever
+    /// settles that phase locks it and then closes it.
+    fn lock_with(&self, require_password: bool, keep_join: bool, close: bool) {
+        let now = self.now_ms();
         let taken = {
             let Ok(mut guard) = self.guard() else {
                 return;
             };
+            let inner = &mut *guard;
             // The counter and the slots change under the mutex; the values
             // handed out are wiped after it (see `issue_gated`).
             self.generation.fetch_add(1, Ordering::SeqCst);
-            guard.slots.clear_on_lock(keep_join);
-            guard.settings.locked();
-            match std::mem::replace(&mut guard.phase, Phase::Busy) {
-                Phase::Unlocked(unlocked) => Some(unlocked),
-                Phase::Unlocking | Phase::Busy => {
-                    self.lock_requested.store(true, Ordering::SeqCst);
-                    if require_password {
-                        self.lock_strict.store(true, Ordering::SeqCst);
+            inner.slots.clear_on_lock(keep_join);
+            inner.settings.locked();
+            if close {
+                inner.drop_expired_join(now);
+            }
+            let in_flight = inner.pending.join_in_flight;
+            match std::mem::replace(&mut inner.phase, Phase::Busy) {
+                // A join is fetching its account (`finish_join`): the request
+                // is armed for it, so the join ends locked (or closed) and
+                // nothing settles it away (N3). A store that is closed (a
+                // reopen follows the fetch) keeps the lock; a close there is
+                // already met.
+                other @ (Phase::Locked(_) | Phase::NoAccount(_) | Phase::Closed) if in_flight => {
+                    let closed = matches!(other, Phase::Closed);
+                    inner.phase = other;
+                    inner.pending.lock = true;
+                    inner.pending.strict |= require_password;
+                    if closed {
+                        inner.pending.close |= close && inner.pending.reopening;
+                    } else {
+                        inner.pending.close |= close;
                     }
-                    guard.phase = Phase::Unlocking;
+                    None
+                }
+                Phase::Unlocked(unlocked) => {
+                    // `finish_lock` closes the locked phase it stores.
+                    inner.pending.close |= close;
+                    Some(unlocked)
+                }
+                Phase::Unlocking | Phase::Busy => {
+                    inner.pending.lock = true;
+                    inner.pending.strict |= require_password;
+                    inner.pending.close |= close;
+                    inner.phase = Phase::Unlocking;
                     None
                 }
                 // A strict lock that finds the session locked already (a plain
@@ -458,11 +479,35 @@ impl Core {
                 // requires the password and takes the boot marker (N4).
                 Phase::Locked(mut locked) if require_password => {
                     locked.require_password();
-                    guard.phase = Phase::Locked(locked);
+                    inner.phase = Phase::Locked(locked);
+                    inner.settle_fresh_phase();
                     None
                 }
+                // A settled phase is closed here, in the deciding section; the
+                // dropped store releases its file lock. No request stays armed
+                // on it (a join start may have kept one).
+                Phase::Locked(_) | Phase::NoAccount(_) if close => {
+                    inner.phase = Phase::Closed;
+                    inner.store_busy = false;
+                    inner.pending.lock = false;
+                    inner.pending.strict = false;
+                    inner.pending.close = false;
+                    None
+                }
+                // A reopen is opening the store: it closes what it opened
+                // (G3i-2).
+                Phase::Closed => {
+                    inner.pending.close |= close && inner.pending.reopening;
+                    inner.phase = Phase::Closed;
+                    None
+                }
+                // A lock on a phase that is settled is met by it: a request a
+                // join start kept for a `finish_join` that never came is
+                // cleared and a pending close applied. Any other phase keeps
+                // its requests.
                 other => {
-                    guard.phase = other;
+                    inner.phase = other;
+                    inner.settle_abandoned_join();
                     None
                 }
             }
@@ -475,11 +520,15 @@ impl Core {
 
     /// Takes the session back from its holder and stores the locked phase.
     /// The holder's mutex is taken **without** the core's mutex (the order is
-    /// always holder first, then core).
+    /// always holder first, then core). In the same critical section as the
+    /// phase it consumes every lock request that came while the session was
+    /// out (the lock is done; a strict one still sets the password limit) and
+    /// closes the store if a close is pending.
     fn finish_lock(&self, unlocked: UnlockedPhase, require_password: bool) {
         // A session that cannot be taken back (it cannot happen: only a lock
         // takes it) closes the store.
-        let phase = unlocked.owned.take().map_or(Phase::Closed, |session| {
+        let owned = unlocked.owned.take();
+        let mut phase = owned.map_or(Phase::Closed, |session| {
             Phase::Locked(if require_password {
                 session.lock_requiring_password()
             } else {
@@ -487,7 +536,20 @@ impl Core {
             })
         });
         if let Ok(mut guard) = self.guard() {
+            let late_strict = guard.pending.strict;
+            guard.pending.lock = false;
+            guard.pending.strict = false;
+            if late_strict && let Phase::Locked(locked) = &mut phase {
+                locked.require_password();
+            }
+            // A session that could not be taken back leaves the phase closed
+            // already: a pending close has nothing left to close.
+            let closed = matches!(phase, Phase::Closed);
             guard.phase = phase;
+            if closed {
+                guard.pending.close = false;
+            }
+            guard.close_if_requested();
         }
     }
 
@@ -495,16 +557,7 @@ impl Core {
     /// the extension before it ends). An unexpired pending join survives this
     /// (it holds no store; the Safari handoff needs it), unlike a `lock()`.
     pub fn close_store(&self) {
-        self.lock_with(false, true);
-        let now = self.now_ms();
-        let Ok(mut guard) = self.guard() else {
-            return;
-        };
-        guard.slots.drop_expired_join(now);
-        if matches!(guard.phase, Phase::Locked(_) | Phase::NoAccount(_)) {
-            guard.phase = Phase::Closed;
-            guard.store_busy = false;
-        }
+        self.lock_with(false, true, true);
     }
 
     /// Opens the store again after [`Core::close_store`].
@@ -512,15 +565,43 @@ impl Core {
     /// # Errors
     /// `storeUnavailable`.
     pub fn reopen_store(&self) -> Result<SessionState> {
-        let closed = matches!(self.guard()?.phase, Phase::Closed);
+        let closed = {
+            let mut guard = self.guard()?;
+            let closed = matches!(guard.phase, Phase::Closed);
+            if closed {
+                // A reopen that is already running does the opening; this call
+                // only reports the state.
+                if guard.pending.reopening {
+                    drop(guard);
+                    return Ok(self.state());
+                }
+                // A close that came before this open does not apply to it.
+                guard.pending.close = false;
+                guard.pending.reopening = true;
+            }
+            closed
+        };
         if closed {
             // The file lock is taken outside the mutex.
-            let (phase, busy) = open_phase(&self.config)?;
+            let (phase, busy) = match open_phase(&self.config) {
+                Ok(opened) => opened,
+                Err(e) => {
+                    if let Ok(mut guard) = self.guard() {
+                        guard.pending.reopening = false;
+                        guard.pending.close = false;
+                    }
+                    return Err(e);
+                }
+            };
             // The presence flags are asked outside the mutex too: a core that
             // opened while another process held the store has none (N5).
             let (secret_key_stored, signed_in) = stored_flags(&phase, self.storage.as_ref());
             let mut guard = self.guard()?;
-            if matches!(guard.phase, Phase::Closed) {
+            guard.pending.reopening = false;
+            // A `close_store()` during the open wins: the opened store is
+            // dropped, and its file lock released, here (G3i-2).
+            let close = std::mem::take(&mut guard.pending.close);
+            if matches!(guard.phase, Phase::Closed) && !close {
                 guard.phase = phase;
                 guard.store_busy = busy;
                 guard.secret_key_stored = secret_key_stored;
@@ -588,18 +669,18 @@ impl Core {
         }
     }
 
-    /// Puts a taken unlocked phase back; a `lock()` that came meanwhile wins.
+    /// Puts a taken unlocked phase back; a `lock()` or `close_store()` that
+    /// came meanwhile wins (a close locks first, then closes).
     ///
     /// # Errors
     /// `locked` when the phase was locked instead.
     pub(crate) fn restore_unlocked(&self, unlocked: Box<UnlockedPhase>) -> Result<()> {
-        // The flag is read and cleared **under the mutex**, in the same step
+        // The requests are read and cleared **under the mutex**, in the same step
         // that decides the phase: a `lock()` either ran before (the flag is set
         // and wins here) or runs after (it finds the unlocked phase). A flag
         // read before the mutex lost a lock that came in between (G1-1).
         let mut guard = self.guard()?;
-        if self.lock_requested.swap(false, Ordering::SeqCst) {
-            let strict = self.lock_strict.swap(false, Ordering::SeqCst);
+        if let Some(strict) = guard.pending.take_lock() {
             self.generation.fetch_add(1, Ordering::SeqCst);
             guard.slots.clear_on_lock(false);
             guard.settings.locked();

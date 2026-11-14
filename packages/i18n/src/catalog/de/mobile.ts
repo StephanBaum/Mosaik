@@ -124,6 +124,42 @@ export const mobile = {
     "Mosaic hat in diesem Bild keinen QR-Code gefunden. Versuche es mit einem schärferen Bild noch einmal.",
   "error.storageUnavailable":
     "Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Telefon neu und versuche es noch einmal.",
+  // iOS (T10)
+  "mobile.common.tryAgain": "Noch einmal versuchen",
+  "mobile.onboarding.preAudit": "Pre-Audit: Mosaic wurde noch nicht von außen geprüft.",
+  "mobile.onboarding.start": "Los geht's",
+  "mobile.onboarding.server": "Serveradresse",
+  "mobile.onboarding.serverPlaceholder": "https://",
+  "mobile.onboarding.email": "E-Mail",
+  "mobile.onboarding.secretKey": "Secret Key",
+  "mobile.onboarding.secretKeyHint":
+    "Du findest ihn in deinem Emergency Kit oder in den Einstellungen auf deinem Computer. Groß- und Kleinschreibung und Bindestriche spielen keine Rolle.",
+  "mobile.onboarding.deviceName": "Name dieses Handys",
+  "mobile.onboarding.passwordHint":
+    "Mosaic prüft es auf diesem Handy. Es wird nie an den Server gesendet.",
+  "mobile.onboarding.signIn": "Anmelden",
+  "mobile.onboarding.working": "Anmeldung läuft. Das kann ein paar Sekunden dauern.",
+  "mobile.onboarding.secondFactorTitle": "Noch ein Schritt",
+  "mobile.onboarding.totpLabel": "Code aus deiner Authenticator-App",
+  "mobile.onboarding.verify": "Bestätigen",
+  "mobile.onboarding.securityKey": "Sicherheitsschlüssel verwenden",
+  "mobile.onboarding.securityKeyWaiting":
+    "Schließe die Anmeldung in deinem Browser ab. Prüfe, dass dort der Code {code} steht, und komm dann hierher zurück.",
+  "mobile.onboarding.autofillSteps":
+    "Öffne die Einstellungen, dann Allgemein, dann AutoFill & Passwörter, und schalte Mosaic ein.",
+  "mobile.onboarding.openSettings": "Einstellungen öffnen",
+  "mobile.onboarding.notNow": "Nicht jetzt",
+  "mobile.unlock.secretKeyNeeded":
+    "Dieses Handy kennt deinen Secret Key nicht. Gib ihn einmal ein, um zu entsperren.",
+  "mobile.unlock.quickOptionFaceId": "Nächstes Mal mit Face ID entsperren",
+  "mobile.unlock.biometricReason": "Deinen Mosaic-Tresor entsperren",
+  "mobile.unlock.faceIdReason":
+    "Mosaic nutzt Face ID, um deinen Tresor schnell zu entsperren. Dein Master-Passwort funktioniert immer auch.",
+  "mobile.unlock.quickInvalidated":
+    "Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um das schnelle Entsperren wieder einzuschalten.",
+  "mobile.unlock.storeBusy": "Mosaic ist beschäftigt. Versuche es gleich noch einmal.",
+  "mobile.unlock.rebootNote": "Entsperre nach einem Neustart einmal mit deinem Master-Passwort.",
+  "mobile.capture.hidden": "Ausgeblendet, solange dein Bildschirm aufgezeichnet wird",
   // Android (T8): Tresor, Editor, App verknüpfen, Einstellungen, Gerätesperre.
   "mobile.deviceLock.required.title": "Richte zuerst eine Bildschirmsperre ein",
   "mobile.deviceLock.required.body":
@@ -304,4 +340,43 @@ export const mobile = {
     "Server, E-Mail und Secret Key sind aus dem Einrichtungscode übernommen. Prüfe sie und fahre dann fort.",
   "mobile.onboarding.details.scanOr": "Oder gib die Angaben von Hand ein",
   "mobile.onboarding.details.keyFromCode": "Secret Key aus dem Einrichtungscode",
+  // iOS (T11): identity store settings and the licences intro.
+  "mobile.settings.passkeyIdentities": "Mosaic für Passkeys verwenden",
+  "mobile.settings.passkeyIdentitiesHint":
+    "Mosaic teilt dem System Website und Benutzernamen jedes Passkeys mit, damit es ihn anbieten kann. Die Schlüssel verlassen Mosaic nie.",
+  "mobile.settings.passwordIdentities": "Logins über der Tastatur vorschlagen",
+  "mobile.settings.passwordIdentitiesHint":
+    "Mosaic teilt dem System Website und Benutzernamen jedes Logins mit. Das System speichert diese Liste auf dem Handy, außerhalb der Verschlüsselung von Mosaic.",
+  "mobile.settings.identitiesPassword": "Gib dein Master-Passwort ein, um das einzuschalten.",
+  "mobile.licences.introIos": "Mosaic für das iPhone besteht aus diesen Open-Source-Teilen.",
+  // iOS (T12): the AutoFill extension (password, passkey and one-time-code pickers, configuration).
+  "mobile.ext.openApp": "Öffne Mosaic und entsperre es einmal mit deinem Master-Passwort.",
+  "mobile.ext.noAccount":
+    "Auf diesem iPhone ist noch kein Mosaic-Konto eingerichtet. Öffne Mosaic, um es einzurichten.",
+  "mobile.ext.loading": "Dein Tresor wird geöffnet",
+  "mobile.ext.thisSite": "diese Website",
+  "mobile.ext.matches": "Logins für {site}",
+  "mobile.ext.noMatches": "Kein Login für {site}",
+  "mobile.ext.noMatchesHint":
+    "Mosaic füllt nur Logins aus, die für diese Website gespeichert sind. Öffne Mosaic, um diese Website bei einem Login einzutragen.",
+  "mobile.ext.searchAll": "Alle Logins durchsuchen",
+  "mobile.ext.hideAll": "Andere Logins ausblenden",
+  "mobile.ext.notSavedFor": "Nicht für {site} gespeichert",
+  "mobile.ext.fillHint": "Füllt diesen Login aus",
+  "mobile.ext.warnPunycode":
+    "Diese Adresse enthält Sonderzeichen: {unicode}. Prüfe, ob es die Website ist, die du meinst.",
+  "mobile.ext.warnLookalike":
+    "Diese Adresse sieht aus wie {site}, die du in Mosaic gespeichert hast. Prüfe, ob es die Website ist, die du meinst.",
+  "mobile.ext.otpTitle": "Einmalcode auswählen",
+  "mobile.ext.passkeyTitle": "Passkey auswählen",
+  "mobile.ext.configTitle": "Mosaic AutoFill",
+  "mobile.ext.configBody":
+    "Mosaic bietet deine Logins, Passkeys und Einmalcodes an, wenn du ein Feld oder eine Anmelde-Schaltfläche antippst. Was Mosaic anbietet, änderst du in den Einstellungen der Mosaic-App.",
+  // iOS (G2): a QuickType suggestion asks first (M3), and the settings text names the limit.
+  "mobile.ext.confirmFillTitle": "Login für {site} ausfüllen?",
+  "mobile.ext.confirmFillBody":
+    "iOS teilt Mosaic nicht mit, auf welcher Seite du bist, deshalb kann Mosaic das nicht prüfen. Fülle nur aus, wenn das die Website ist, die du meinst. Danach fragt Mosaic nach Face ID oder Touch ID.",
+  "mobile.ext.confirmFillButton": "Diesen Login ausfüllen",
+  "mobile.settings.passwordIdentitiesLimit":
+    "Wenn du einen Vorschlag antippst, teilt iOS Mosaic nicht mit, auf welcher Seite du bist. Deshalb zeigt Mosaic die gespeicherte Website und füllt erst aus, nachdem du sie bestätigt und mit Face ID oder Touch ID entsperrt hast.",
 } satisfies Record<keyof typeof en, string>;

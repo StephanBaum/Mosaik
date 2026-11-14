@@ -13,9 +13,9 @@ on:
       - ".github/workflows/mobile.yml"
       - "Cargo.lock"
   push:
-    # feat/m10-mobile: workflow_dispatch only works for workflows on the default branch, so until M10 is
+    # feat/m10-mobile and feat/m10-ios: workflow_dispatch only works for workflows on the default branch, so until M10 is
     # merged the branch itself triggers the run. Remove that entry at the merge.
-    branches: [main, feat/m10-mobile]
+    branches: [main, feat/m10-mobile, feat/m10-ios]
     paths:
       - "apps/mobile/**"
       - "crates/**"
@@ -248,6 +248,9 @@ jobs:
       - run: bash scripts/mobile/check-ffi-crate.sh
       - name: Static libraries, Swift bindings and the XCFramework (debug, with test hooks)
         run: bash scripts/mobile/build-ios-xcframework.sh debug --features test-hooks
+      - name: Show the generated Swift API the app code uses (names, labels, cases)
+        run: >
+          grep -hnE '^public (protocol|enum|struct|final class) |^    (case|public func|public static func|public init|public convenience init) |^    public (var|let) ' apps/mobile/ios/Generated/Bindings/*.swift | head -1500 || true
       - name: Generate the Xcode project
         run: xcodegen generate --spec apps/mobile/ios/project.yml
       - run: bash scripts/mobile/check-ios-deps.sh

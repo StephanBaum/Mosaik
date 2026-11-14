@@ -29,6 +29,7 @@ targets:
     platform: iOS
     sources:
       - path: MosaicKit
+      - path: Resources/PrivacyInfo.xcprivacy
       # UniFFI output (git-ignored), written by build-ios-xcframework.sh.
       - path: Generated/Bindings
         optional: true
@@ -51,8 +52,15 @@ targets:
         excludes: ["Info.plist", "*.entitlements"]
       # L10n looks strings up in Bundle.main, so the catalog is a resource of the app and the extension.
       - path: Resources/Localizable.xcstrings
-      - path: Resources/en.lproj
-      - path: Resources/de.lproj
+      # The localized Info.plist strings (Face ID, camera) are a String Catalog named InfoPlist: Xcode writes
+      # en.lproj/InfoPlist.strings and de.lproj/InfoPlist.strings into the app from it. (A bare lproj folder as a
+      # source did not put the InfoPlist table into the built app.)
+      - path: Resources/InfoPlist.xcstrings
+      - path: Resources/PrivacyInfo.xcprivacy
+      # DM Sans and IBM Plex Mono (SIL OFL), registered at launch by MosaicFonts.
+      - path: ../shared/fonts
+        includes: ["*.ttf"]
+        buildPhase: resources
     dependencies:
       - target: MosaicKit
         embed: true
@@ -70,6 +78,13 @@ targets:
       - path: MosaicAutoFill
         excludes: ["Info.plist", "*.entitlements"]
       - path: Resources/Localizable.xcstrings
+      # The Face ID text of the extension (quick unlock runs in it) comes from the same InfoPlist catalog as
+      # the app's, so both bundles ship it in English and German.
+      - path: Resources/InfoPlist.xcstrings
+      - path: Resources/PrivacyInfo.xcprivacy
+      - path: ../shared/fonts
+        includes: ["*.ttf"]
+        buildPhase: resources
     dependencies:
       - target: MosaicKit
         embed: true

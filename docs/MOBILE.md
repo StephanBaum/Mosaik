@@ -106,12 +106,12 @@ The binding surface is `crates/mobile-ffi/src/lib.rs`; its rustdoc is the refere
 
 | Topic | Android | iOS | Reference |
 |---|---|---|---|
-| Secret Key and session token | Keystore key `mosaic-secure-store` (AES-256-GCM, unlocked device required, StrongBox when available); one AEAD file per value under `noBackupFilesDir/secure/` | Keychain generic password, `WhenUnlockedThisDeviceOnly`, app-private group | CRYPTO_SPEC §6.9.1, ADR-0090 |
+| Secret Key and session token | Keystore key `mosaic-secure-store` (AES-256-GCM, unlocked device required, StrongBox when available); one AEAD file per value under `noBackupFilesDir/secure/` | Keychain generic password, `WhenPasscodeSetThisDeviceOnly`, app-private group | CRYPTO_SPEC §6.9.1, ADR-0090 |
 | Quick unlock | Keystore AES key per enrolment, Class 3 biometrics, invalidated by enrolment changes; API 28–29 per-use branch; platform byte `0x04` | Secure Enclave P-256 key in the shared keychain group, `.biometryCurrentSet`; platform byte `0x03` | CRYPTO_SPEC §6.2, ADR-0090 |
 | When quick unlock applies | once the master password has unlocked since the device booted (boot marker, store v11), within the maximum age (default 14 days) | same; the extension uses the app's marker | CRYPTO_SPEC §6.9.2 |
 | Memory | free-memory check before Argon2id (`notEnoughMemory`) | the same check; the extension never runs Argon2id | CRYPTO_SPEC §6.9.3, §6.9.4 |
 | Store | `noBackupFilesDir/mosaic/store.sqlite`; backups and device transfer off | app group, excluded from backup, `NSFileProtectionComplete`; closed on background and after each extension request | ADR-0094 |
-| Lock | background (default immediately), idle 5 min, screen off, new process; provider grace of at most 60 s inside a provider flow | background, idle 5 min, device lock, end of each extension request | ADR-0094 |
+| Lock | background (default immediately), idle 5 min, screen off, new process; provider grace of at most 60 s inside a provider flow | background, idle 5 min, device lock, end of each extension request; in the extension a dismissal, the host resigning active or entering the background, and a locked device also end the request (`RequestLifecycle`, `DismissalObserver`). The extension's 120 s idle timer is re-armed on each action, does not run while the process is suspended, and is only a backstop | ADR-0094 (Amendment M10-G2-iOS M1) |
 | Clipboard | `EXTRA_IS_SENSITIVE`; cleared after 30 s unless the user copied something else | `.localOnly`, `.expirationDate` | ADR-0094 |
 | Screen | `FLAG_SECURE` on every window; no recents screenshot (API 33+); content sensitivity (API 35+) | privacy cover; hidden while captured; `.privacySensitive()` | ADR-0094 |
 | Secret input | native `EditText` read into byte arrays and wiped; no personalized IME learning; excluded from other autofill services | `UITextField` with secure entry (not `SecureField`) | CRYPTO_SPEC §6.9.5 |
@@ -340,6 +340,15 @@ tests run in `mobile.yml`. The names below are binding: each track writes the te
   `CredentialProviderLogicTests.testPasskeyAssertAndRegisterHashMode`,
   `IdentityStoreSyncTests.testPasswordIdentitiesOnlyWhenOptedIn`, `StoreLifecycleTests.testCloseOnBackgroundReleasesLock`,
   `MemoryTests.testUnlock5000ItemsUnder60MiB`
+- `MosaicKitTests`, extension request (T12): `CredentialProviderLogicTests` (the password and passkey flows against a
+  real core), `MemoryTests` (5 000 items under 60 MiB), `ServiceIdentifierTests` (domain and URL targets). The
+  app's `AppModel` clears the system identity store whenever the core says `noAccount` (once, without asking the
+  core: a locked app cannot read its settings), so a removed account leaves no identities behind.
+- `MosaicKitTests`, M10-G2-iOS: `RequestLifecycleTests` (a dismissal or a host notification closes the store exactly
+  once, M1), `CredentialProviderLogicTests.testExpiredEnrolmentDeletesTheKeyInTheExtension` and
+  `testFailedQuickUnlockOfAnInvalidatedKeyDeletesItAndAsksForThePassword` (M2), `ProviderFillPolicyTests` (a QuickType
+  request never fills without the confirm step, M3), `StorageConfigurationTests` (a missing keychain group fails
+  closed, the extension's storage refuses every call)
 - `MosaicUITests`: `testPasswordUnlockShowsVault`, `testAccessibilityAuditMainScreens`, `testScreenshotsLightDarkEnDe`
 
 **TypeScript:**
@@ -362,7 +371,7 @@ applies.
 | OD-M10-4 | Distribution outside the stores (a signed APK on GitHub Releases, F-Droid) | no; revisit after OD-M10-3 |
 | OD-M10-5 | Minimum OS | iOS 17; Android API 28. Raise Android to API 30 to drop the API 28–29 key branch and the Android versions without security updates |
 | OD-M10-6 | Store listings (DE/EN text, screenshots, privacy labels "Data not collected", the "pre-audit" wording) and store names: is "Mosaic" free on both stores? | drafted below, not submitted |
-| OD-M10-7 | iOS password identities in the system identity store (QuickType suggestions) | off; passkey identities on with the passkey setting |
+| OD-M10-7 | iOS password identities in the system identity store (QuickType suggestions) | off; passkey identities on with the passkey setting. iOS does not tell Mosaic which page a tapped suggestion is for, so the extension names the saved site and fills only after a confirm and Face ID (ADR-0092 Amendment M10-G2-iOS M3) |
 | OD-M10-8 | Android inline (keyboard) suggestions | off |
 | OD-M10-9 | 32-bit Android (`armv7`) | no |
 | OD-M10-10 | Desktop setup code (a QR code with the Secret Key) | yes, behind re-authentication, 60 s |
@@ -426,6 +435,13 @@ These need real hardware, and they wait for OD-M10-2 and OD-M10-3. Record each r
 - [ ] The app switcher shows the privacy cover; a screen recording hides revealed values.
 - [ ] Extension memory with a large vault (5 000 items) stays under the limit.
 - [ ] The app and the extension never crash with `0xdead10cc` (the store is closed on background).
+- [ ] Is `UIApplication.protectedDataWillBecomeUnavailableNotification` delivered to the extension when the
+  phone locks during a request? If not, the host's background notification is the only bound (G3i).
+- [ ] Does the Face ID prompt fire `NSExtensionHostWillResignActive` in the extension? If so, the request ends
+  silently during the unlock; today the sheet then gets one `userCanceled` on the next action or on
+  `NSExtensionHostDidBecomeActive` (G3i-4). Decide from the result whether `WillResignActive` stays an end.
+- [ ] Does Safari send a `.domain` identifier for `http://` pages? The core refuses an insecure origin; check
+  that the list then shows no matches and says why (G3i).
 
 **Both:**
 - [ ] Join with a desktop setup code, then with a TOTP second factor, then with the WebAuthn handoff in the

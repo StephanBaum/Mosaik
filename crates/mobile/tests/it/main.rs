@@ -20,6 +20,7 @@ mod autofill;
 mod common;
 mod g1_review;
 mod g3_redteam;
+mod g3i_redteam;
 mod g5_gaps;
 mod items;
 mod join;

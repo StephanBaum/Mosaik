@@ -122,6 +122,42 @@ export const mobile = {
   "error.qrNotFound": "Mosaic found no QR code in that image. Try again with a sharper picture.",
   "error.storageUnavailable":
     "Mosaic couldn't reach the secure storage of this device. Restart your phone and try again.",
+  // iOS (T10)
+  "mobile.common.tryAgain": "Try again",
+  "mobile.onboarding.preAudit": "Pre-audit software: no outside security review yet.",
+  "mobile.onboarding.start": "Get started",
+  "mobile.onboarding.server": "Server address",
+  "mobile.onboarding.serverPlaceholder": "https://",
+  "mobile.onboarding.email": "Email",
+  "mobile.onboarding.secretKey": "Secret Key",
+  "mobile.onboarding.secretKeyHint":
+    "You find it in your Emergency Kit or in Settings on your computer. Capital letters and dashes do not matter.",
+  "mobile.onboarding.deviceName": "Name of this phone",
+  "mobile.onboarding.passwordHint":
+    "Mosaic checks it on this phone. It is never sent to the server.",
+  "mobile.onboarding.signIn": "Sign in",
+  "mobile.onboarding.working": "Signing in. This can take a few seconds.",
+  "mobile.onboarding.secondFactorTitle": "One more step",
+  "mobile.onboarding.totpLabel": "Code from your authenticator app",
+  "mobile.onboarding.verify": "Verify",
+  "mobile.onboarding.securityKey": "Use your security key",
+  "mobile.onboarding.securityKeyWaiting":
+    "Finish the sign-in in your browser. Check that it shows the code {code}, then come back here.",
+  "mobile.onboarding.autofillSteps":
+    "Open Settings, then General, then AutoFill & Passwords, and turn on Mosaic.",
+  "mobile.onboarding.openSettings": "Open settings",
+  "mobile.onboarding.notNow": "Not now",
+  "mobile.unlock.secretKeyNeeded":
+    "This phone does not have your Secret Key. Enter it once to unlock.",
+  "mobile.unlock.quickOptionFaceId": "Unlock with Face ID next time",
+  "mobile.unlock.biometricReason": "Unlock your Mosaic vault",
+  "mobile.unlock.faceIdReason":
+    "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too.",
+  "mobile.unlock.quickInvalidated":
+    "Your Face ID settings changed. Unlock with your master password to turn quick unlock on again.",
+  "mobile.unlock.storeBusy": "Mosaic is busy. Try again in a moment.",
+  "mobile.unlock.rebootNote": "Unlock once with your master password after a restart.",
+  "mobile.capture.hidden": "Hidden while your screen is recorded",
   // Android (T8): vault, editor, link app, settings, device lock.
   "mobile.deviceLock.required.title": "Set a screen lock first",
   "mobile.deviceLock.required.body":
@@ -297,4 +333,43 @@ export const mobile = {
     "Server, email and Secret Key are filled in from the setup code. Check them, then continue.",
   "mobile.onboarding.details.scanOr": "Or enter the details by hand",
   "mobile.onboarding.details.keyFromCode": "Secret Key from the setup code",
+  // iOS (T11): identity store settings and the licences intro.
+  "mobile.settings.passkeyIdentities": "Use Mosaic for passkeys",
+  "mobile.settings.passkeyIdentitiesHint":
+    "Mosaic tells the system the website and username of each passkey so it can offer it. The keys never leave Mosaic.",
+  "mobile.settings.passwordIdentities": "Suggest logins above the keyboard",
+  "mobile.settings.passwordIdentitiesHint":
+    "Mosaic tells the system the website and username of each login. The system keeps this list on the phone, outside Mosaic's encryption.",
+  "mobile.settings.identitiesPassword": "Type your master password to turn this on.",
+  "mobile.licences.introIos": "Mosaic for iPhone is built with these open-source parts.",
+  // iOS (T12): the AutoFill extension (password, passkey and one-time-code pickers, configuration).
+  "mobile.ext.openApp": "Open Mosaic and unlock it once with your master password.",
+  "mobile.ext.noAccount":
+    "Mosaic has no account on this iPhone yet. Open Mosaic to set it up.",
+  "mobile.ext.loading": "Opening your vault",
+  "mobile.ext.thisSite": "this site",
+  "mobile.ext.matches": "Logins for {site}",
+  "mobile.ext.noMatches": "No login for {site}",
+  "mobile.ext.noMatchesHint":
+    "Mosaic fills only logins that are saved for this site. Open Mosaic to add this site to a login.",
+  "mobile.ext.searchAll": "Search all logins",
+  "mobile.ext.hideAll": "Hide other logins",
+  "mobile.ext.notSavedFor": "Not saved for {site}",
+  "mobile.ext.fillHint": "Fills this login",
+  "mobile.ext.warnPunycode":
+    "This address is written with special characters: {unicode}. Check that it is the site you mean.",
+  "mobile.ext.warnLookalike":
+    "This address looks like {site}, which you saved in Mosaic. Check that it is the site you mean.",
+  "mobile.ext.otpTitle": "Choose a one-time code",
+  "mobile.ext.passkeyTitle": "Choose a passkey",
+  "mobile.ext.configTitle": "Mosaic AutoFill",
+  "mobile.ext.configBody":
+    "Mosaic offers your logins, passkeys and one-time codes when you tap a field or a sign-in button. You change what it offers in Settings in the Mosaic app.",
+  // iOS (G2): a QuickType suggestion asks first (M3), and the settings text names the limit.
+  "mobile.ext.confirmFillTitle": "Fill the login for {site}?",
+  "mobile.ext.confirmFillBody":
+    "iOS does not tell Mosaic which page you are on, so Mosaic cannot check it. Fill only if this is the site you mean. Mosaic then asks for Face ID or Touch ID.",
+  "mobile.ext.confirmFillButton": "Fill this login",
+  "mobile.settings.passwordIdentitiesLimit":
+    "When you tap a suggestion, iOS does not tell Mosaic which page you are on. So Mosaic shows the saved site and fills only after you confirm it and unlock with Face ID or Touch ID.",
 } as const satisfies Record<string, string>;

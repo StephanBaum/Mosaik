@@ -2,8 +2,6 @@
 //! (CRYPTO_SPEC §6.1, §6.2, §6.9.2 to §6.9.4), and the helpers that take the
 //! locked store out of the core for one long call and put it back.
 
-use std::sync::atomic::Ordering;
-
 use mosaic_core::{AccountId, Kek, MasterPassword, SecretBytes, SecretKey};
 use mosaic_vault::session::{
     BootId, Error as SessionError, LockedSession, Reauthenticated, UnlockedSession,
@@ -82,8 +80,8 @@ impl Core {
             let strict = if keep_lock {
                 false
             } else {
-                self.lock_requested.store(false, Ordering::SeqCst);
-                self.lock_strict.swap(false, Ordering::SeqCst)
+                guard.pending.lock = false;
+                std::mem::take(&mut guard.pending.strict)
             };
             guard.phase = match taken {
                 Taken::NoAccount(ls) => Phase::NoAccount(ls),
@@ -99,6 +97,12 @@ impl Core {
                     Phase::Locked(ls)
                 }
             };
+            // A `close_store()` that came meanwhile closes the store now
+            // (G3i-1). A put-back that goes on to unlock leaves it to the end
+            // of that unlock.
+            if !keep_lock {
+                guard.close_if_requested();
+            }
         }
     }
 
@@ -122,14 +126,14 @@ impl Core {
             unlock,
         };
         let mut guard = self.guard()?;
-        if self.lock_requested.swap(false, Ordering::SeqCst) {
-            let strict = self.lock_strict.swap(false, Ordering::SeqCst);
+        if let Some(strict) = guard.pending.take_lock() {
             self.generation_bump();
             guard.phase = Phase::Locked(if strict {
                 session.lock_requiring_password()
             } else {
                 session.lock()
             });
+            guard.close_if_requested();
             drop(guard);
             return Ok(self.state());
         }
@@ -149,6 +153,7 @@ impl Core {
                 guard.settings.locked();
                 guard.expired_alias = alias;
                 guard.phase = Phase::Locked(session.lock());
+                guard.close_if_requested();
                 drop(guard);
                 return Err(MobileError::QuickUnlockExpired);
             }
@@ -493,7 +498,242 @@ mod tests {
             panic!("not locked");
         };
         assert!(locked.password_required(QuickMethod::Biometric));
-        assert!(!core.lock_strict.load(Ordering::SeqCst));
-        assert!(!core.lock_requested.load(Ordering::SeqCst));
+        assert!(!guard.pending.strict);
+        assert!(!guard.pending.lock);
+    }
+
+    const RT_PASSWORD: &str = "correct horse battery staple";
+
+    /// An opened core with a local account, unlocked; the Secret Key's
+    /// display form comes with it.
+    #[expect(clippy::unwrap_used, reason = "a test helper")]
+    fn core_with_account(dir: &std::path::Path) -> (Core, Zeroizing<String>) {
+        let core = Core::open(
+            CoreConfig {
+                store_dir: dir.join("mosaic"),
+                platform: Platform::Ios,
+                context: CoreContext::App,
+                boot_id: vec![0, 0, 0, 7],
+                trust_anchors_der: Vec::new(),
+            },
+            Arc::new(Mem::default()),
+        )
+        .unwrap();
+        let (_, key) = core
+            .test_hooks()
+            .create_local_account("user@example.com", RT_PASSWORD)
+            .unwrap();
+        (core, key)
+    }
+
+    /// RT-verify-ios-1 (red team verify 2026-11-14, G3i-1 follow-up; fixed: the
+    /// requests live in `Inner::pending`, and `close_store()` decides lock and
+    /// close in one critical section). The window, as found:
+    /// `close_store()` decides in two critical sections: `lock_with` takes
+    /// the mutex, locks an `Unlocked` phase (no lock is requested, the phase
+    /// was there to lock), releases the mutex for `finish_lock`, and only
+    /// then takes the mutex again to close. Between the two an unlock can
+    /// take the locked store (`take_locked`, phase `Unlocking`): the close
+    /// section then sets only `pending.close`. The unlock's success path
+    /// (`finish_unlocked`) honours `pending.lock` alone, so it ends
+    /// `Unlocked` with the store open and its file lock held, after a
+    /// `close_store()` that returned. The flag stays set and closes the
+    /// store at the next settled lock instead (a surprise `StoreClosed`).
+    /// Defense wanted: every path that settles a phase treats
+    /// `pending.close` like `pending.lock` (lock, then close), and
+    /// `close_store()` sets the flag in the same critical section that
+    /// decides the lock. This test puts the core into the state the window
+    /// leaves (`Unlocking`, no lock requested, a close requested) and lets
+    /// the unlock finish.
+    #[test]
+    fn rt_verify_ios_1_close_requested_without_a_lock_requested_does_not_end_unlocked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (core, key) = core_with_account(dir.path());
+        core.lock();
+        // The unlock took the store out.
+        let taken = core.take_locked().unwrap();
+        // The app goes to the background: `close_store()` finds `Unlocking`.
+        core.close_store();
+        assert!(core.guard().unwrap().pending.close);
+        // The window of `close_store()`: its lock section ran before this
+        // unlock took the store, so no lock is requested.
+        core.guard().unwrap().pending.lock = false;
+        let Taken::Locked(locked) = taken else {
+            panic!("no account");
+        };
+        let secret_key = SecretKey::parse(&key).unwrap();
+        let Ok(mut session) =
+            locked.unlock(&MasterPassword::new(RT_PASSWORD.to_owned()), &secret_key)
+        else {
+            panic!("the password unlock failed");
+        };
+        core.record_boot(&mut session);
+        let state = core.finish_unlocked(session, UnlockKind::Password).unwrap();
+        assert_eq!(
+            state,
+            SessionState::StoreClosed,
+            "a close during the unlock must end closed, not {state:?}"
+        );
+        assert!(!core.guard().unwrap().pending.close);
+    }
+
+    /// RT-verify-ios-2: the same window with a long call. `restore_unlocked`
+    /// honours `pending.lock` alone; with only `pending.close` set it puts
+    /// the unlocked phase back and the flag stays armed.
+    #[test]
+    fn rt_verify_ios_2_restore_unlocked_honours_a_close_requested_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (core, _) = core_with_account(dir.path());
+        let unlocked = core.take_unlocked().unwrap();
+        core.close_store();
+        assert!(core.guard().unwrap().pending.close);
+        core.guard().unwrap().pending.lock = false;
+        let restored = core.restore_unlocked(unlocked);
+        assert_eq!(restored, Err(MobileError::Locked), "the close must win");
+        assert_eq!(core.state(), SessionState::StoreClosed);
+        assert!(!core.guard().unwrap().pending.close);
+    }
+
+    /// A reopen that is already running does the opening: a second
+    /// `reopen_store()` only reports the state and neither opens the store nor
+    /// clears the running reopen's flag.
+    #[test]
+    fn a_second_reopen_while_one_runs_does_not_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let (core, _) = core_with_account(dir.path());
+        core.close_store();
+        assert_eq!(core.state(), SessionState::StoreClosed);
+        // The state a running reopen leaves: still closed, flag set.
+        core.guard().unwrap().pending.reopening = true;
+        assert_eq!(core.reopen_store(), Ok(SessionState::StoreClosed));
+        let guard = core.guard().unwrap();
+        assert!(matches!(guard.phase, Phase::Closed));
+        assert!(guard.pending.reopening, "the running reopen keeps its flag");
+    }
+
+    /// A lock that arrives while a lock is settling (the session is out in
+    /// `finish_lock`) is met by that lock: no request survives to lock the
+    /// next unlock, and a strict one still requires the password.
+    #[test]
+    fn a_lock_during_a_settling_lock_does_not_survive() {
+        let dir = tempfile::tempdir().unwrap();
+        let (core, _) = core_with_account(dir.path());
+        let unlocked = core.take_unlocked().unwrap();
+        {
+            let mut guard = core.guard().unwrap();
+            guard.pending.lock = true;
+            guard.pending.strict = true;
+        }
+        core.finish_lock(*unlocked, false);
+        let guard = core.guard().unwrap();
+        assert!(!guard.pending.lock && !guard.pending.strict && !guard.pending.close);
+        let Phase::Locked(locked) = &guard.phase else {
+            panic!("not locked");
+        };
+        assert!(locked.password_required(QuickMethod::Biometric));
+    }
+
+    /// A fresh core without an account, as a phone before a join.
+    #[expect(clippy::unwrap_used, reason = "a test helper")]
+    fn core_without_account(dir: &std::path::Path) -> Core {
+        Core::open(
+            CoreConfig {
+                store_dir: dir.join("mosaic"),
+                platform: Platform::Ios,
+                context: CoreContext::App,
+                boot_id: vec![0, 0, 0, 7],
+                trust_anchors_der: Vec::new(),
+            },
+            Arc::new(Mem::default()),
+        )
+        .unwrap()
+    }
+
+    /// RT-verify2-ios-1 (red team verify 2 of 2026-11-14). `put_back_keeping_lock`
+    /// settles a phase and keeps `pending.lock` and `pending.strict` armed
+    /// for the `finish_join` that is meant to follow (N3). When no
+    /// `finish_join` follows (the user cancels the join, or it expires), the
+    /// requests outlive the phase they were made against: the `NoAccount`
+    /// phase is settled, `join_cancel` does not clear them, and neither does a
+    /// later `lock()` on the settled phase (`lock_with`'s `other` arm). The
+    /// next phase settled through `finish_unlocked`, here the account the user
+    /// creates instead (a second join behaves the same), is locked at once,
+    /// with the password required because the stale lock was strict.
+    /// Fail-safe, but stale state applied to a later request. Defense wanted:
+    /// `join_cancel` and the join's expiry settle the requests they kept, or
+    /// `lock_with` on a settled phase clears `pending.lock`/`strict` (a lock
+    /// on a locked phase is met).
+    #[test]
+    fn rt_verify2_ios_1_a_lock_kept_for_an_abandoned_join_outlives_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_without_account(dir.path());
+        // `join_start`: the store is out during the network call...
+        let taken = core.take_locked().unwrap();
+        // ...and the re-authentication limit (or the app's background hook) locks meanwhile.
+        core.lock_requiring_password();
+        // The login succeeded: the lock is kept for `finish_join` (N3).
+        core.put_back_keeping_lock(taken);
+        // The user never finishes the join.
+        core.join_cancel();
+        core.lock();
+        assert_eq!(core.state(), SessionState::NoAccount);
+        let (state, _) = core
+            .test_hooks()
+            .create_local_account("user@example.com", RT_PASSWORD)
+            .unwrap();
+        assert!(
+            matches!(state, SessionState::Unlocked { .. }),
+            "the account created after an abandoned join must end unlocked, not {state:?}"
+        );
+    }
+
+    /// RT-verify2-ios-2: the same window with `close_store()`. The rewrite
+    /// says whoever settles a held-out phase locks and then closes it, but
+    /// `put_back_keeping_lock` is a settling path that leaves `pending.close`
+    /// to a `finish_join` that may never come. After `close_store()` returned
+    /// (iOS: the app went to the background during the join's network call),
+    /// the store is open again with its file lock held, and stays so through
+    /// `join_cancel` until the next phase that is settled. Defense wanted: as
+    /// RT-verify2-ios-1, or `put_back_keeping_lock` honours `pending.close`
+    /// (a close ends the join: it needs the store).
+    #[test]
+    fn rt_verify2_ios_2_a_close_kept_for_an_abandoned_join_leaves_the_store_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_without_account(dir.path());
+        let taken = core.take_locked().unwrap();
+        core.close_store();
+        core.put_back_keeping_lock(taken);
+        core.join_cancel();
+        assert_eq!(
+            core.state(),
+            SessionState::StoreClosed,
+            "a close_store() that returned must leave the store closed"
+        );
+    }
+    /// A join in flight (its fetch runs): a strict lock is armed with its
+    /// strictness, a close is armed, and `join_cancel` and the expiry leave
+    /// them. The settled phase stays `NoAccount` until the join ends.
+    #[test]
+    fn a_lock_and_a_close_during_a_join_in_flight_are_armed_and_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_without_account(dir.path());
+        core.guard().unwrap().pending.join_in_flight = true;
+        core.lock_requiring_password();
+        {
+            let guard = core.guard().unwrap();
+            assert!(guard.pending.lock && guard.pending.strict && !guard.pending.close);
+        }
+        core.close_store();
+        core.join_cancel();
+        core.guard().unwrap().drop_expired_join(u64::MAX);
+        {
+            let guard = core.guard().unwrap();
+            assert!(guard.pending.lock && guard.pending.strict && guard.pending.close);
+            assert!(matches!(guard.phase, Phase::NoAccount(_)));
+        }
+        // The join ends (its guard clears the mark): the same calls settle.
+        core.guard().unwrap().pending.join_in_flight = false;
+        core.join_cancel();
+        assert_eq!(core.state(), SessionState::StoreClosed);
     }
 }

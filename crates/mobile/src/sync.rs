@@ -393,10 +393,7 @@ impl Core {
             guard.last_sync_at_ms = None;
             guard.last_sync_error = None;
             guard.settings = crate::settings::SettingsGuard::load(self.config.settings_path());
-            self.lock_requested
-                .store(false, std::sync::atomic::Ordering::SeqCst);
-            self.lock_strict
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+            guard.settle_fresh_phase();
         }
         wiped?;
         Ok(ResetOutcome {

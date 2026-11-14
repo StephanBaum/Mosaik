@@ -151,11 +151,13 @@ impl Slots {
         }
     }
 
-    /// Drops a pending join that ran out.
-    pub(crate) fn drop_expired_join(&mut self, now_ms: u64) {
-        if self.join.as_ref().is_some_and(|j| j.expired(now_ms)) {
+    /// Drops a pending join that ran out; `true` when one was dropped.
+    pub(crate) fn drop_expired_join(&mut self, now_ms: u64) -> bool {
+        let expired = self.join.as_ref().is_some_and(|j| j.expired(now_ms));
+        if expired {
             self.join = None;
         }
+        expired
     }
 }
 
@@ -180,4 +182,87 @@ pub(crate) struct Inner {
     pub secret_key_stored: bool,
     /// A session token is in secure storage (cached like `secret_key_stored`).
     pub signed_in: bool,
+    /// Requests that came while a phase was held out. Read and changed only
+    /// under the core's mutex, in the same step that decides the phase.
+    pub pending: Pending,
+}
+
+/// Requests that arrived while an unlock, a long call or a reopen held the
+/// phase out. Whoever settles the phase takes them (`Core::finish_lock`,
+/// `Inner::close_if_requested`).
+#[derive(Debug, Default)]
+pub(crate) struct Pending {
+    /// `lock()` or `close_store()` came: the settled session ends locked.
+    pub lock: bool,
+    /// The pending lock must also require the master password (the
+    /// re-authentication limit was hit while a long call held the session).
+    pub strict: bool,
+    /// `close_store()` came while an unlock, a long call or a reopen was in
+    /// flight (G3i-1, G3i-2): after the lock, the store is closed.
+    pub close: bool,
+    /// A `reopen_store()` is opening the store.
+    pub reopening: bool,
+    /// A join is between its pending slot and its end (the network fetch,
+    /// the unlock): a `lock()` or `close_store()` that comes meanwhile is
+    /// armed for it, never settled away, and `join_cancel` and the expiry
+    /// leave the armed requests alone. Set and cleared by `JoinFlight`.
+    pub join_in_flight: bool,
+}
+
+impl Inner {
+    /// Closes a settled locked phase when `close_store()` came while it was
+    /// out. The dropped store releases its file lock. Called with the mutex
+    /// held, right after the phase is set.
+    pub fn close_if_requested(&mut self) {
+        if matches!(self.phase, Phase::Locked(_) | Phase::NoAccount(_))
+            && std::mem::take(&mut self.pending.close)
+        {
+            self.phase = Phase::Closed;
+            self.store_busy = false;
+        }
+    }
+
+    /// Settles a phase installed fresh from the store file (a failed join, a
+    /// reset): a lock request that came meanwhile is met by the fresh locked
+    /// state (a strict one still sets the password limit, as in `put_back`),
+    /// and a pending close is honoured.
+    pub fn settle_fresh_phase(&mut self) {
+        self.pending.lock = false;
+        if std::mem::take(&mut self.pending.strict)
+            && let Phase::Locked(locked) = &mut self.phase
+        {
+            locked.require_password();
+        }
+        self.close_if_requested();
+    }
+
+    /// Settles the requests a join start kept (`put_back_keeping_lock`) when
+    /// the join ends without `finish_join` (cancelled, expired, refused): on
+    /// a settled phase no request stays armed. A phase that is held out, or
+    /// a closed one a reopen is opening, keeps them for whoever settles it.
+    pub fn settle_abandoned_join(&mut self) {
+        if matches!(self.phase, Phase::Locked(_) | Phase::NoAccount(_)) {
+            self.settle_fresh_phase();
+        }
+    }
+
+    /// Drops a pending join that ran out and settles what it kept.
+    pub fn drop_expired_join(&mut self, now_ms: u64) {
+        if self.slots.drop_expired_join(now_ms) && !self.pending.join_in_flight {
+            self.settle_abandoned_join();
+        }
+    }
+}
+
+impl Pending {
+    /// Takes the lock request that settles a held-out session: `Some(strict)`
+    /// when a lock or a close is pending. A close is also a lock (lock, then
+    /// close); `close` stays set for `Inner::close_if_requested`.
+    pub fn take_lock(&mut self) -> Option<bool> {
+        if !(self.lock || self.close) {
+            return None;
+        }
+        self.lock = false;
+        Some(std::mem::take(&mut self.strict))
+    }
 }

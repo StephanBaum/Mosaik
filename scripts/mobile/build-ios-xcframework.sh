@@ -105,8 +105,8 @@ else
   cp "${sim_libs[0]}" "$work/sim/libmosaic_mobile_ffi.a"
 fi
 
-# Swift bindings of the library without features (the shipped API); features only add test symbols.
-bash scripts/mobile/bindgen.sh --out "$work/generated" swift
+# Swift bindings of the library with the same features as the static libraries: none for release (the shipped API), test-hooks for debug (MosaicTestHooks, used by the UI tests).
+bash scripts/mobile/bindgen.sh --out "$work/generated" ${features:+--features "$features"} swift
 found_swift=0
 for f in "$work/generated/swift"/*.swift; do
   [ -f "$f" ] || continue
