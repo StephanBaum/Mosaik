@@ -49,11 +49,9 @@ impl Backend {
         // outcome (M9-F5): of two parallel calls one gets it, and a failed
         // rotation, which may have offered a key, does not leave it behind.
         match request.proof {
+            // A typed password pays for this call only: no grant is stored.
             Some(password) if !password.expose_secret().is_empty() => {
-                self.reauthenticate(password, ReauthPurpose::VaultKeyRotation)?;
-                let _ = self
-                    .quick_unlock
-                    .take_reauth(ReauthPurpose::VaultKeyRotation);
+                self.verify_master_only_in(password)?;
             }
             _ => {
                 let _ = self.take_reauth_grant(ReauthPurpose::VaultKeyRotation)?;

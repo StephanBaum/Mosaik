@@ -546,6 +546,15 @@ impl Backend {
         self.check_master(password, None)
     }
 
+    /// [`Backend::verify_master_only`] for a password as it arrives over IPC:
+    /// the copy moves into a zeroizing type and the `SecretIn` zeroizes on drop.
+    ///
+    /// # Errors
+    /// As [`Backend::reauthenticate`].
+    pub(crate) fn verify_master_only_in(&self, password: SecretIn) -> IpcResult<()> {
+        self.verify_master_only(&master_password(password))
+    }
+
     fn check_master(
         &self,
         password: &MasterPassword,
@@ -643,7 +652,7 @@ impl Backend {
                 return Err(IpcError::new(ErrorCode::ReauthRequired));
             }
             // The password typed for the kit pays for the kit only.
-            self.verify_master_only(&master_password(password))?;
+            self.verify_master_only_in(password)?;
         }
         self.touch();
         let Some(path) = self

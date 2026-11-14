@@ -20,9 +20,21 @@ interface Request {
   retrying: boolean;
 }
 
+/** The purposes this dialog serves, each with the one text that says what the password is for. */
+export type DialogReauthPurpose = Extract<ReauthPurpose, "hardwareVaultKey" | "leaveHardwareVault" | "vaultKeyRotation">;
+
+/**
+ * The dialog text of each purpose. The text is derived from the purpose the grant is requested for,
+ * so what the user reads and what the password unlocks cannot drift apart.
+ */
+export const REAUTH_BODY: Readonly<Record<DialogReauthPurpose, MessageKey>> = {
+  hardwareVaultKey: "reauth.bodyKey",
+  leaveHardwareVault: "reauth.bodyMove",
+  vaultKeyRotation: "vaultKey.reauth",
+};
+
 export function useReauth(
-  body: MessageKey,
-  purpose: ReauthPurpose,
+  purpose: DialogReauthPurpose,
 ): {
   /** Runs `run`; the result is the command's, or `CANCELLED` if the user gave up. */
   guard: <T>(run: () => Promise<IpcResult<T>>) => Promise<IpcResult<T>>;
@@ -49,7 +61,7 @@ export function useReauth(
 
   const dialog = open ? (
     <ReauthDialog
-      body={body}
+      body={REAUTH_BODY[purpose]}
       onSubmit={async (password) => {
         const current = request.current;
         const result = await ipc.call("reauthenticate", { password, purpose });

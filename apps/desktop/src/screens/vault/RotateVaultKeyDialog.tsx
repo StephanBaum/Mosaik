@@ -24,7 +24,7 @@ type Step = { kind: "ask" } | { kind: "working" } | { kind: "done"; result: Rota
 
 function useRotation(vault: VaultSummary) {
   const ipc = useIpc();
-  const { guard, dialog } = useReauth("vaultKey.reauth", "vaultKeyRotation");
+  const { guard, dialog } = useReauth("vaultKeyRotation");
   const [reseal, setReseal] = useState(false);
   const [step, setStep] = useState<Step>({ kind: "ask" });
   const [error, setError] = useState<IpcError | null>(null);

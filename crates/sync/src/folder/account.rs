@@ -11,7 +11,7 @@ use std::path::Path;
 use mosaic_core::{AccountId, MasterPassword, PasswordParams, SecretKey, WrappedKey};
 use mosaic_vault::session::{Error as SessionError, LockedSession, UnlockedSession};
 
-use super::init::{FolderContents, FolderError, inspect, list_accounts};
+use super::init::{FolderContents, FolderError, has_account, inspect};
 use super::layout::Layout;
 use super::{FolderCrypto, FolderTransport, fsutil, lock_or};
 use crate::transport::TransportError;
@@ -177,8 +177,8 @@ pub fn join_from_folder(
     secret_key: &SecretKey,
 ) -> Result<UnlockedSession, Box<JoinFailure>> {
     match inspect(root) {
-        // The full list, not `inspect`'s capped one: the account may be the 65th.
-        FolderContents::Mosaic { .. } if list_accounts(root).contains(&account) => {}
+        // A direct check, not `inspect`'s capped list: the account may be the 65th.
+        FolderContents::Mosaic { .. } if has_account(root, &account) => {}
         FolderContents::Mosaic { .. } => return Err(fail(JoinError::NoAccountFile, Some(session))),
         FolderContents::Missing | FolderContents::Empty | FolderContents::Foreign => {
             return Err(fail(

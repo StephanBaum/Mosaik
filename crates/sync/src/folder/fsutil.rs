@@ -44,6 +44,23 @@ pub(crate) fn io_error(e: &std::io::Error) -> TransportError {
     }
 }
 
+/// The entry of one directory item; `None` for one that vanished while it was
+/// listed (a sync client at work) and for a symlink. `DirEntry::metadata` does
+/// not follow symlinks; Mosaic never writes one, so a link (anyone with write
+/// access to the folder can plant one) is not an entry at all.
+fn entry_of(item: &fs::DirEntry) -> Option<Entry> {
+    let meta = item.metadata().ok()?;
+    if meta.file_type().is_symlink() {
+        return None;
+    }
+    Some(Entry {
+        name: item.file_name(),
+        is_dir: meta.is_dir(),
+        len: meta.len(),
+        modified: meta.modified().ok(),
+    })
+}
+
 /// The entries of a directory; a missing directory has none.
 pub(crate) fn list(dir: &Path) -> Result<Vec<Entry>, TransportError> {
     let read = match fs::read_dir(dir) {
@@ -51,26 +68,53 @@ pub(crate) fn list(dir: &Path) -> Result<Vec<Entry>, TransportError> {
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(io_error(&e)),
     };
+    let mut out: Vec<Entry> = read
+        .filter_map(Result::ok)
+        .filter_map(|i| entry_of(&i))
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+/// At most `max_scanned` directory items are looked at by [`list_capped`], so a
+/// folder with millions of planted entries costs bounded work.
+pub(crate) const MAX_SCANNED: usize = 4096;
+
+/// The entries of a directory that `keep` accepts, sorted by name, from a read
+/// that stops as soon as `limit` accepted entries are found or [`MAX_SCANNED`]
+/// items have been looked at (no full read, no full sort). Which entries come
+/// first is the file system's order, so when the directory holds more than
+/// `limit` accepted entries the listed ones are an arbitrary subset. A missing
+/// directory has none.
+pub(crate) fn list_capped(
+    dir: &Path,
+    limit: usize,
+    keep: impl Fn(&Entry) -> bool,
+) -> Result<Vec<Entry>, TransportError> {
+    let read = match fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io_error(&e)),
+    };
     let mut out = Vec::new();
-    for item in read {
-        let Ok(item) = item else { continue };
-        // An entry that vanishes while it is listed (a sync client at work)
-        // is skipped. `DirEntry::metadata` does not follow symlinks; Mosaic
-        // never writes one, so a link (anyone with write access to the folder
-        // can plant one) is not an entry at all.
-        let Ok(meta) = item.metadata() else { continue };
-        if meta.file_type().is_symlink() {
-            continue;
+    for item in read.take(MAX_SCANNED) {
+        if out.len() >= limit {
+            break;
         }
-        out.push(Entry {
-            name: item.file_name(),
-            is_dir: meta.is_dir(),
-            len: meta.len(),
-            modified: meta.modified().ok(),
-        });
+        let Some(entry) = item.ok().and_then(|i| entry_of(&i)) else {
+            continue;
+        };
+        if keep(&entry) {
+            out.push(entry);
+        }
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
+}
+
+/// Whether `path` is a real directory: a symlink to one is not (as in [`list`]).
+pub(crate) fn is_real_dir(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
 }
 
 /// Reads a regular file of at most `max` bytes; `None` if it is missing or
@@ -211,6 +255,56 @@ pub(crate) fn remove(path: &Path) -> Result<(), TransportError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_capped_stops_at_the_limit_and_filters() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..20 {
+            fs::create_dir(dir.path().join(format!("d{i:02}"))).unwrap();
+            fs::write(dir.path().join(format!("f{i:02}")), b"x").unwrap();
+        }
+        let dirs = list_capped(dir.path(), 5, |e| e.is_dir).unwrap();
+        assert_eq!(dirs.len(), 5);
+        assert!(dirs.iter().all(|e| e.is_dir));
+        assert!(dirs.windows(2).all(|w| w[0].name < w[1].name), "sorted");
+        // Under the limit, everything that is kept is listed.
+        assert_eq!(
+            list_capped(dir.path(), 100, |e| e.is_dir).unwrap().len(),
+            20
+        );
+        assert!(
+            list_capped(&dir.path().join("missing"), 5, |_| true)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn list_capped_scans_a_bounded_number_of_items() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..(MAX_SCANNED + 50) {
+            fs::write(dir.path().join(format!("f{i}")), b"").unwrap();
+        }
+        // Nothing is kept, so the read runs to its scan bound and no further.
+        let seen = std::cell::Cell::new(0usize);
+        let kept = list_capped(dir.path(), 1, |_| {
+            seen.set(seen.get() + 1);
+            false
+        })
+        .unwrap();
+        assert!(kept.is_empty());
+        assert_eq!(seen.get(), MAX_SCANNED);
+    }
+
+    #[test]
+    fn is_real_dir_is_true_for_directories_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f");
+        fs::write(&file, b"x").unwrap();
+        assert!(is_real_dir(dir.path()));
+        assert!(!is_real_dir(&file));
+        assert!(!is_real_dir(&dir.path().join("missing")));
+    }
 
     #[test]
     fn read_capped_reads_only_small_regular_files() {
