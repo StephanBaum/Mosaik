@@ -11,7 +11,7 @@ import androidx.test.platform.app.InstrumentationRegistry
  */
 object AppForeground {
     fun hold(app: MosaicApp) {
-        InstrumentationRegistry.getInstrumentation().runOnMainSync { app.lockPolicy.onForeground() }
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { app.lockPolicy.onForeground(providerActivity = false) }
     }
 
     /** Runs [block]; a `Locked` from it gets the state the policy saw, so a failure says why (no secrets). */
