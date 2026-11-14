@@ -31,7 +31,7 @@ export const mobile = {
     "Copied. It clears from the clipboard in {seconds, plural, one {# second} other {# seconds}}.",
   "mobile.setup.scanTitle": "Scan your setup code",
   "mobile.setup.scanHint":
-    "Hold the camera over the code on your computer. Mosaic reads it on this device only.",
+    "On your computer, open Mosaic, go to Settings > Sync and choose “Set up a phone”. Hold the camera over the code.",
   "mobile.autofill.title": "Fill from Mosaic",
   "mobile.autofill.target": "Fill in {app}?",
   "mobile.settings.title": "Settings",
@@ -70,7 +70,7 @@ export const mobile = {
     "Use your fingerprint to unlock Mosaic next time. After a restart of the phone you still need your master password once.",
   "mobile.onboarding.quick.enable": "Turn on quick unlock",
   "mobile.onboarding.quick.unavailable":
-    "This phone has no strong biometric set up, so quick unlock is not available.",
+    "Add a fingerprint in your phone's settings to use quick unlock.",
   "mobile.onboarding.autofill.title": "Fill logins automatically",
   "mobile.onboarding.autofill.body":
     "Let Mosaic offer your logins in other apps and in the browser. You can change this later in the system settings.",
@@ -209,9 +209,9 @@ export const mobile = {
   "mobile.detail.favoriteAdd": "Add to favorites",
   "mobile.detail.favoriteRemove": "Remove from favorites",
   "mobile.detail.delete": "Move to trash",
-  "mobile.detail.deleteTitle": "Move this item to the trash?",
+  "mobile.detail.deleteTitle": "Move “{title}” to the trash?",
   "mobile.detail.deleteBody":
-    "{title} moves to the trash, and the change syncs to your other devices.",
+    "The change syncs to your other devices.",
   "mobile.detail.otpLeft": "{seconds, plural, one {# second left} other {# seconds left}}",
   "mobile.detail.passkey": "Passkey for {site}",
   "mobile.detail.attachments":
@@ -262,10 +262,10 @@ export const mobile = {
   "mobile.link.choose": "Choose the app to link to {login}.",
   "mobile.link.filter": "Find an app",
   "mobile.link.app": "App",
-  "mobile.link.package": "Package",
+  "mobile.link.package": "App ID",
   "mobile.link.installer": "Installed from",
   "mobile.link.installerUnknown": "Unknown source",
-  "mobile.link.certificate": "Certificate (first bytes)",
+  "mobile.link.certificate": "Developer signature (start)",
   "mobile.link.verified": "Verified by {host}",
   "mobile.link.notVerified": "Not verified",
   "mobile.link.unavailable": "Could not check",
@@ -325,13 +325,13 @@ export const mobile = {
   "mobile.credential.verifySignIn": "Sign in to {site}",
   "mobile.credential.verifyCreate": "Save a passkey for {site}",
   "mobile.credential.verifyFailed": "Mosaic could not confirm that it is you. Try again.",
-  "mobile.credential.unsupported": "Mosaic can't handle this request.",
+  "mobile.credential.unsupported": "Mosaic can't answer this sign-in request. Cancel and choose another way to sign in.",
   "mobile.settings.fill": "Fill in other apps",
   "mobile.settings.autofillOn": "Mosaic is your Autofill service.",
   "mobile.settings.autofillOff": "Mosaic is not your Autofill service yet.",
   "mobile.settings.autofillEnable": "Use Mosaic for Autofill",
   "mobile.settings.credentialHint":
-    "Passkeys and saved passwords can also be offered through the system's credential picker.",
+    "Android can also offer your passkeys and passwords from Mosaic when an app asks you to sign in.",
   "mobile.settings.credentialEnable": "Use Mosaic for passkeys and passwords",
   // Android (T13): the setup code and one-time code scanners (CameraX, no Play services).
   "mobile.scan.setupAction": "Scan setup code",

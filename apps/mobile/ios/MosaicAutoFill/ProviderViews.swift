@@ -30,7 +30,7 @@ struct ProviderRootView: View {
             Button(isConfiguration ? L10n.commonDone() : L10n.commonCancel()) { model.cancel() }
                 .font(Font.mosaic(MosaicTokens.FontSize.md, weight: .medium))
                 .foregroundStyle(colors.text)
-                .frame(minWidth: 44, minHeight: 44)
+                .frame(minWidth: MosaicTokens.Size.touchMin, minHeight: MosaicTokens.Size.touchMin)
                 .accessibilityIdentifier("provider-cancel")
         }
         .padding(.horizontal, MosaicTokens.Space.s6)
@@ -162,7 +162,7 @@ private struct ProviderPrimaryStyle: ButtonStyle {
         configuration.label
             .font(Font.mosaic(MosaicTokens.FontSize.md, weight: .semibold))
             .foregroundStyle(MosaicTokens.PrimaryAction.label)
-            .frame(maxWidth: .infinity, minHeight: 48)
+            .frame(maxWidth: .infinity, minHeight: MosaicTokens.Size.touch)
             .padding(.horizontal, MosaicTokens.Space.s5)
             .background(
                 configuration.isPressed
@@ -183,7 +183,7 @@ private struct ProviderQuietStyle: ButtonStyle {
         configuration.label
             .font(Font.mosaic(MosaicTokens.FontSize.md, weight: .medium))
             .foregroundStyle(colors.text)
-            .frame(maxWidth: .infinity, minHeight: 48)
+            .frame(maxWidth: .infinity, minHeight: MosaicTokens.Size.touch)
             .padding(.horizontal, MosaicTokens.Space.s5)
             .background(
                 configuration.isPressed ? colors.bgSelected : Color.clear,
@@ -300,7 +300,7 @@ private struct LoginRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, MosaicTokens.Space.s4)
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: MosaicTokens.Size.inputXl, alignment: .leading)
         .contentShape(Rectangle())
     }
 }
@@ -346,7 +346,7 @@ private struct LoginsPanel: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .padding(.horizontal, MosaicTokens.Space.s4)
-                    .frame(minHeight: 48)
+                    .frame(minHeight: MosaicTokens.Size.touch)
                     .background(colors.surface, in: RoundedRectangle(cornerRadius: MosaicTokens.Radius.field))
                     .overlay(
                         RoundedRectangle(cornerRadius: MosaicTokens.Radius.field)

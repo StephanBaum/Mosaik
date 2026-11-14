@@ -453,6 +453,9 @@ object L10n {
     fun autofillWarning(r: Resources): String =
         r.getString(R.string.mobile_autofill_warning)
 
+    fun autofillWarningWithName(r: Resources, name: String): String =
+        r.getString(R.string.mobile_autofill_warningWithName, name)
+
     fun captureHidden(r: Resources): String =
         r.getString(R.string.mobile_capture_hidden)
 
@@ -555,17 +558,20 @@ object L10n {
     fun detailDelete(r: Resources): String =
         r.getString(R.string.mobile_detail_delete)
 
-    fun detailDeleteBody(r: Resources, title: String): String =
-        r.getString(R.string.mobile_detail_deleteBody, title)
+    fun detailDeleteBody(r: Resources): String =
+        r.getString(R.string.mobile_detail_deleteBody)
 
-    fun detailDeleteTitle(r: Resources): String =
-        r.getString(R.string.mobile_detail_deleteTitle)
+    fun detailDeleteTitle(r: Resources, title: String): String =
+        r.getString(R.string.mobile_detail_deleteTitle, title)
 
     fun detailFavoriteAdd(r: Resources): String =
         r.getString(R.string.mobile_detail_favoriteAdd)
 
     fun detailFavoriteRemove(r: Resources): String =
         r.getString(R.string.mobile_detail_favoriteRemove)
+
+    fun detailLabelValue(r: Resources, label: String, value: String): String =
+        r.getString(R.string.mobile_detail_labelValue, label, value)
 
     fun detailLinkApp(r: Resources): String =
         r.getString(R.string.mobile_detail_linkApp)
@@ -581,6 +587,9 @@ object L10n {
 
     fun detailPasskey(r: Resources, site: String): String =
         r.getString(R.string.mobile_detail_passkey, site)
+
+    fun detailReadCode(r: Resources): String =
+        r.getString(R.string.mobile_detail_readCode)
 
     fun deviceLockRequiredAction(r: Resources): String =
         r.getString(R.string.mobile_deviceLock_required_action)
@@ -1265,6 +1274,9 @@ object L10n {
 
     fun unlockQuickOptionFaceId(r: Resources): String =
         r.getString(R.string.mobile_unlock_quickOptionFaceId)
+
+    fun unlockQuickOptionTouchId(r: Resources): String =
+        r.getString(R.string.mobile_unlock_quickOptionTouchId)
 
     fun unlockRebootNote(r: Resources): String =
         r.getString(R.string.mobile_unlock_rebootNote)

@@ -38,8 +38,8 @@
   <string name="error_secretKeyMalformed">Das ist kein Secret Key. Deiner beginnt mit „M1-“ und steht in deinem Emergency Kit.</string>
   <string name="error_secretKeyMistyped">Der Secret Key enthält einen Tippfehler. Vergleiche ihn Zeichen für Zeichen mit deinem Emergency Kit.</string>
   <string name="error_secretKeyRequired">Dieses Gerät kennt deinen Secret Key nicht. Gib ihn aus deinem Emergency Kit ein.</string>
-  <string name="error_setupCodeInvalid">Dieser Setup-Code ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal.</string>
-  <string name="error_storageUnavailable">Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Telefon neu und versuche es noch einmal.</string>
+  <string name="error_setupCodeInvalid">Dieser Einrichtungscode ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal.</string>
+  <string name="error_storageUnavailable">Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Handy neu und versuche es noch einmal.</string>
   <string name="error_storeInUse">Mosaic wird auf diesem Handy gerade an anderer Stelle benutzt. Warte einen Moment und versuche es dann noch einmal.</string>
   <string name="error_storeUnavailable">Mosaic konnte deine Tresordatei auf diesem Gerät nicht öffnen. Prüfe, ob das Laufwerk verfügbar ist und freien Speicher hat, und starte Mosaic dann neu.</string>
   <string name="error_syncAccountRekeyed">Die Schlüssel deines Kontos wurden auf einem anderen Gerät erneuert. Nutze den Secret Key aus dem neuen Emergency Kit, um weiterzumachen.</string>
@@ -123,7 +123,7 @@
   </plurals>
   <string name="mobile_about_licences">Open-Source-Lizenzen</string>
   <string name="mobile_about_preAudit">Mosaic ist Pre-Audit-Software. Ein unabhängiges Sicherheitsaudit hat noch nicht stattgefunden.</string>
-  <string name="mobile_about_privacy">Keine Analysen, kein Tracking und keine Absturzberichte verlassen dieses Telefon.</string>
+  <string name="mobile_about_privacy">Keine Analysen, kein Tracking und keine Absturzberichte verlassen dieses Handy.</string>
   <string name="mobile_app_name">Mosaic</string>
   <string name="mobile_autofill_cannotCheck">Diese App konnte nicht geprüft werden</string>
   <string name="mobile_autofill_noLogin">Kein Login für %1$s</string>
@@ -134,6 +134,7 @@
   <string name="mobile_autofill_title">Mit Mosaic ausfüllen</string>
   <string name="mobile_autofill_unlockEntry">Mosaic entsperren</string>
   <string name="mobile_autofill_warning">Prüfe zuerst die Adresse</string>
+  <string name="mobile_autofill_warningWithName">Prüfe zuerst die Adresse | %1$s</string>
   <string name="mobile_capture_hidden">Ausgeblendet, solange dein Bildschirm aufgezeichnet wird</string>
   <string name="mobile_common_back">Zurück</string>
   <string name="mobile_common_cancel">Abbrechen</string>
@@ -163,7 +164,7 @@
   <string name="mobile_credential_passkeyEntry">Passkey</string>
   <string name="mobile_credential_passwordEntry">Passwort</string>
   <string name="mobile_credential_unlockEntry">Mosaic entsperren</string>
-  <string name="mobile_credential_unsupported">Mosaic kann diese Anfrage nicht bearbeiten.</string>
+  <string name="mobile_credential_unsupported">Mosaic kann diese Anmeldeanfrage nicht beantworten. Brich ab und wähle einen anderen Weg zur Anmeldung.</string>
   <string name="mobile_credential_vaultDefault">Persönlicher Tresor</string>
   <string name="mobile_credential_verifyCreate">Passkey für %1$s speichern</string>
   <string name="mobile_credential_verifyFailed">Mosaic konnte nicht bestätigen, dass du es bist. Versuche es noch einmal.</string>
@@ -174,10 +175,11 @@
     <item quantity="other">%1$d Dateien sind angehängt. Öffne sie auf deinem Computer.</item>
   </plurals>
   <string name="mobile_detail_delete">In den Papierkorb</string>
-  <string name="mobile_detail_deleteBody">%1$s kommt in den Papierkorb, und die Änderung wird mit deinen anderen Geräten synchronisiert.</string>
-  <string name="mobile_detail_deleteTitle">Diesen Eintrag in den Papierkorb legen?</string>
+  <string name="mobile_detail_deleteBody">Die Änderung wird mit deinen anderen Geräten synchronisiert.</string>
+  <string name="mobile_detail_deleteTitle">„%1$s“ in den Papierkorb legen?</string>
   <string name="mobile_detail_favoriteAdd">Zu Favoriten hinzufügen</string>
   <string name="mobile_detail_favoriteRemove">Aus Favoriten entfernen</string>
+  <string name="mobile_detail_labelValue">%1$s: %2$s</string>
   <string name="mobile_detail_linkApp">App verknüpfen</string>
   <string name="mobile_detail_linkedApp">App: %1$s</string>
   <string name="mobile_detail_needsLinking">Muss verknüpft werden, bevor es ausfüllen kann</string>
@@ -186,8 +188,9 @@
     <item quantity="other">%1$d Sekunden übrig</item>
   </plurals>
   <string name="mobile_detail_passkey">Passkey für %1$s</string>
+  <string name="mobile_detail_readCode">Code vorlesen</string>
   <string name="mobile_deviceLock_required_action">Sicherheitseinstellungen öffnen</string>
-  <string name="mobile_deviceLock_required_body">Mosaic schützt deine Schlüssel mit der Bildschirmsperre deines Telefons. Lege in den Systemeinstellungen eine PIN, ein Muster oder ein Passwort fest und komm dann zurück.</string>
+  <string name="mobile_deviceLock_required_body">Mosaic schützt deine Schlüssel mit der Bildschirmsperre deines Handys. Lege in den Systemeinstellungen eine PIN, ein Muster oder ein Passwort fest und komm dann zurück.</string>
   <string name="mobile_deviceLock_required_title">Richte zuerst eine Bildschirmsperre ein</string>
   <string name="mobile_editor_editLogin">Zugangsdaten bearbeiten</string>
   <string name="mobile_editor_editNote">Notiz bearbeiten</string>
@@ -254,7 +257,7 @@
   <string name="mobile_licences_rust">Der Rust-Kern nutzt Open-Source-Crates. Ihre Lizenzen stehen im Quellcode-Repository des Projekts.</string>
   <string name="mobile_licences_title">Open-Source-Lizenzen</string>
   <string name="mobile_link_app">App</string>
-  <string name="mobile_link_certificate">Zertifikat (erste Bytes)</string>
+  <string name="mobile_link_certificate">Signatur des Entwicklers (Anfang)</string>
   <string name="mobile_link_checking">Prüfe die Website</string>
   <string name="mobile_link_choose">Wähle die App, die du mit %1$s verknüpfen willst.</string>
   <string name="mobile_link_confirm">%1$s ab jetzt in dieser App ausfüllen</string>
@@ -264,7 +267,7 @@
   <string name="mobile_link_installerUnknown">Unbekannte Quelle</string>
   <string name="mobile_link_noApps">Keine weiteren Apps gefunden.</string>
   <string name="mobile_link_notVerified">Nicht bestätigt</string>
-  <string name="mobile_link_package">Paket</string>
+  <string name="mobile_link_package">App-ID</string>
   <string name="mobile_link_pickLogin">Wähle den Login, den Mosaic in %1$s ausfüllen soll.</string>
   <string name="mobile_link_title">App verknüpfen</string>
   <string name="mobile_link_unavailable">Konnte nicht geprüft werden</string>
@@ -306,9 +309,9 @@
   <string name="mobile_onboarding_passwordHint">Mosaic prüft es auf diesem Handy. Es wird nie an den Server gesendet.</string>
   <string name="mobile_onboarding_preAudit">Pre-Audit: Mosaic wurde noch nicht von außen geprüft.</string>
   <string name="mobile_onboarding_quick_body">Entsperre Mosaic beim nächsten Mal mit deinem Fingerabdruck. Nach einem Neustart des Handys brauchst du einmal dein Master-Passwort.</string>
-  <string name="mobile_onboarding_quick_enable">Schnelles Entsperren einschalten</string>
-  <string name="mobile_onboarding_quick_title">Schneller entsperren</string>
-  <string name="mobile_onboarding_quick_unavailable">Auf diesem Handy ist keine starke Biometrie eingerichtet, deshalb ist schnelles Entsperren nicht verfügbar.</string>
+  <string name="mobile_onboarding_quick_enable">Schnellentsperrung einschalten</string>
+  <string name="mobile_onboarding_quick_title">Schnellentsperrung</string>
+  <string name="mobile_onboarding_quick_unavailable">Füge in den Einstellungen deines Handys einen Fingerabdruck hinzu, um die Schnellentsperrung zu nutzen.</string>
   <string name="mobile_onboarding_second_keyAction">Sicherheitsschlüssel verwenden</string>
   <string name="mobile_onboarding_second_keyWaiting">Warte auf deinen Sicherheitsschlüssel. Schließe den Vorgang im Browser ab und komm dann zurück. Der Code dort sollte %1$s lauten.</string>
   <string name="mobile_onboarding_second_title">Noch ein Schritt</string>
@@ -362,7 +365,7 @@
     <item quantity="other">Nach %1$d Sekunden</item>
   </plurals>
   <string name="mobile_settings_credentialEnable">Mosaic für Passkeys und Passwörter verwenden</string>
-  <string name="mobile_settings_credentialHint">Passkeys und gespeicherte Passwörter kann auch die Anmeldeauswahl des Systems anbieten.</string>
+  <string name="mobile_settings_credentialHint">Android kann deine Passkeys und Passwörter aus Mosaic auch anbieten, wenn eine App nach einer Anmeldung fragt.</string>
   <string name="mobile_settings_fill">In anderen Apps ausfüllen</string>
   <string name="mobile_settings_identitiesPassword">Gib dein Master-Passwort ein, um das einzuschalten.</string>
   <string name="mobile_settings_idle">Sperren, wenn du den Bildschirm nicht berührst</string>
@@ -385,14 +388,14 @@
   <string name="mobile_settings_sync">Synchronisierung</string>
   <string name="mobile_settings_title">Einstellungen</string>
   <string name="mobile_settings_version">Version %1$s</string>
-  <string name="mobile_setup_scanHint">Halte die Kamera auf den Code auf deinem Computer. Mosaic liest ihn nur auf diesem Gerät.</string>
-  <string name="mobile_setup_scanTitle">Setup-Code scannen</string>
+  <string name="mobile_setup_scanHint">Öffne auf deinem Computer Mosaic, geh in den Einstellungen zu Sync und wähle „Handy einrichten“. Halte die Kamera auf den Code.</string>
+  <string name="mobile_setup_scanTitle">Einrichtungscode scannen</string>
   <string name="mobile_sync_acknowledge">Ich habe es geprüft…</string>
   <string name="mobile_sync_acknowledgeBody">Mach nur weiter, wenn du den Server selbst geprüft hast. Das löscht alle Warnungen, und die Synchronisierung läuft weiter. Wurden deine Daten wirklich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen. Mach das auf jedem deiner Geräte.</string>
   <string name="mobile_sync_acknowledgeConfirm">Ich habe es geprüft</string>
   <string name="mobile_sync_acknowledgeTitle">Sync-Warnungen löschen?</string>
   <string name="mobile_sync_last">Synchronisiert %1$s</string>
-  <string name="mobile_sync_localOnly">Dieser Tresor liegt nur auf diesem Telefon. Die Synchronisierung ist nicht eingerichtet.</string>
+  <string name="mobile_sync_localOnly">Dieser Tresor liegt nur auf diesem Handy. Die Synchronisierung ist nicht eingerichtet.</string>
   <string name="mobile_sync_never">Noch nicht synchronisiert</string>
   <string name="mobile_sync_now">Jetzt synchronisieren</string>
   <plurals name="mobile_sync_pending">
@@ -426,9 +429,10 @@
     <item quantity="other">Das hat %1$d Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue.</item>
   </plurals>
   <string name="mobile_unlock_passwordLabel">Master-Passwort</string>
-  <string name="mobile_unlock_quick">Schnell entsperren</string>
-  <string name="mobile_unlock_quickInvalidated">Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um das schnelle Entsperren wieder einzuschalten.</string>
+  <string name="mobile_unlock_quick">Schnellentsperrung verwenden</string>
+  <string name="mobile_unlock_quickInvalidated">Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um die Schnellentsperrung wieder einzuschalten.</string>
   <string name="mobile_unlock_quickOptionFaceId">Nächstes Mal mit Face ID entsperren</string>
+  <string name="mobile_unlock_quickOptionTouchId">Nächstes Mal mit Touch ID entsperren</string>
   <string name="mobile_unlock_rebootNote">Entsperre nach einem Neustart einmal mit deinem Master-Passwort.</string>
   <string name="mobile_unlock_retry">Noch einmal versuchen</string>
   <string name="mobile_unlock_secretKey">Secret Key</string>

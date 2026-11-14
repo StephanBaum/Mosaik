@@ -130,7 +130,7 @@ private struct PasswordStep: View {
                 onSubmit: { Task { await model.signIn() } })
             if model.canUseQuickUnlock {
                 OptionRow(
-                    text: L10n.unlockQuickOptionFaceId(), isOn: $model.enrollQuickUnlock,
+                    text: DeviceLock.quickUnlockOptionText(), isOn: $model.enrollQuickUnlock,
                     identifier: "onboarding-quick-unlock")
             }
             if let message = model.errorMessage { ErrorLine(text: message) }
@@ -259,7 +259,7 @@ private struct DoneStep: View {
         MosaicScreen {
             ScreenTitle(text: L10n.onboardingDoneTitle())
             BodyText(text: L10n.onboardingDoneBody())
-            Button(L10n.commonDone()) { model.finish() }
+            Button(L10n.onboardingDoneAction()) { model.finish() }
                 .buttonStyle(PrimaryButtonStyle())
                 .accessibilityIdentifier("onboarding-done")
         }

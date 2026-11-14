@@ -4,13 +4,13 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="56dp"
+    android:minHeight="@dimen/mosaic_size_input_xl"
     android:gravity="center_vertical"
     android:orientation="vertical"
-    android:paddingStart="16dp"
-    android:paddingTop="8dp"
-    android:paddingEnd="16dp"
-    android:paddingBottom="8dp">
+    android:paddingStart="@dimen/mosaic_space_s5"
+    android:paddingTop="@dimen/mosaic_space_s3"
+    android:paddingEnd="@dimen/mosaic_space_s5"
+    android:paddingBottom="@dimen/mosaic_space_s3">
 
     <TextView
         android:id="@+id/autofill_title"
@@ -19,7 +19,7 @@
         android:ellipsize="end"
         android:maxLines="1"
         android:textColor="?android:attr/textColorPrimary"
-        android:textSize="16sp"
+        android:textSize="@dimen/mosaic_font_size_md"
         android:textStyle="bold" />
 
     <TextView
@@ -29,5 +29,5 @@
         android:ellipsize="end"
         android:maxLines="1"
         android:textColor="?android:attr/textColorSecondary"
-        android:textSize="14sp" />
+        android:textSize="@dimen/mosaic_font_size_sm" />
 </LinearLayout>

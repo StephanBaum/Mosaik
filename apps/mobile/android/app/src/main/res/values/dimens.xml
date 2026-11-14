@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The values of packages/design-tokens that XML layouts need. The Autofill popup is drawn by the system from
+     RemoteViews, so Compose cannot reach MosaicTokens there; keep these in step with it (see the names). -->
+<resources>
+    <!-- size.inputXl -->
+    <dimen name="mosaic_size_input_xl">56dp</dimen>
+    <!-- space.s5 -->
+    <dimen name="mosaic_space_s5">16dp</dimen>
+    <!-- space.s3 -->
+    <dimen name="mosaic_space_s3">8dp</dimen>
+    <!-- fontSize.md -->
+    <dimen name="mosaic_font_size_md">16sp</dimen>
+    <!-- fontSize.sm -->
+    <dimen name="mosaic_font_size_sm">14sp</dimen>
+</resources>

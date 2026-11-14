@@ -154,11 +154,13 @@ fun TextInput(
     label: String,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     enabled: Boolean = true,
+    placeholder: String? = null,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
+        placeholder = placeholder?.let { hint -> { Text(hint) } },
         singleLine = true,
         enabled = enabled,
         keyboardOptions = keyboardOptions,

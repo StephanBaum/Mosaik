@@ -15,6 +15,7 @@ import io.github.stephanbaum.mosaic.ui.components.BodyText
 import io.github.stephanbaum.mosaic.ui.components.PrimaryButton
 import io.github.stephanbaum.mosaic.ui.components.ScreenFrame
 import io.github.stephanbaum.mosaic.ui.components.TitleText
+import io.github.stephanbaum.mosaic.ui.components.Working
 import io.github.stephanbaum.mosaic.ui.errorText
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 import io.github.stephanbaum.mosaic.ui.unlock.UnlockScreen
@@ -62,7 +63,7 @@ fun ProviderGate(app: MosaicApp, flow: String, onClose: () -> Unit = {}, content
         LaunchedEffect(Unit) { app.lockPolicy.openProviderFlow(flow) }
         content()
     } else if (current == null) {
-        ScreenFrame { }
+        ScreenFrame { Working(L10n.commonWorking(resources)) }
     } else if (current is SessionState.NoAccount) {
         // Nothing to retry: the app has to be set up first.
         Message(L10n.appName(resources), errorText(resources, "noAccount"), L10n.commonClose(resources), onClose)

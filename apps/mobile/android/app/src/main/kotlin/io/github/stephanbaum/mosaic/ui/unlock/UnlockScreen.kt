@@ -54,7 +54,7 @@ fun UnlockScreen(app: MosaicApp, state: SessionState.Locked) {
     var busy by remember { mutableStateOf(false) }
     var errorCode by remember { mutableStateOf<String?>(null) }
     var failures by remember { mutableIntStateOf(0) }
-    var enrollNext by remember { mutableStateOf(false) }
+    var enrollNext by remember { mutableStateOf(true) }
 
     val quick = state.quickUnlock
     if (quick is QuickUnlockAvailability.Expired) {

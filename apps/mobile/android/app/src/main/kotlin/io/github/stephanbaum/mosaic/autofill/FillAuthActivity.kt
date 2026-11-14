@@ -28,6 +28,7 @@ import io.github.stephanbaum.mosaic.ui.components.BodyText
 import io.github.stephanbaum.mosaic.ui.components.PrimaryButton
 import io.github.stephanbaum.mosaic.ui.components.QuietButton
 import io.github.stephanbaum.mosaic.ui.components.ScreenFrame
+import io.github.stephanbaum.mosaic.ui.components.Working
 import io.github.stephanbaum.mosaic.ui.components.TitleText
 import io.github.stephanbaum.mosaic.ui.errorText
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
@@ -120,7 +121,7 @@ class FillAuthActivity : SecureActivity(), ProviderActivity {
                 QuietButton(L10n.commonCancel(resources), onClick = { abandon(app) })
             }
         } else if (code == null) {
-            ScreenFrame { }
+            ScreenFrame { Working(L10n.commonWorking(resources)) }
         } else {
             ScreenFrame {
                 TitleText(L10n.appName(resources))

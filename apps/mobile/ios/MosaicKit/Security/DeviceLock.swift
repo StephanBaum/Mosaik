@@ -17,4 +17,12 @@ public enum DeviceLock {
         var error: NSError?
         return LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
     }
+
+    /// The text of the "unlock with … next time" option: Touch ID on a Touch ID phone, Face ID otherwise.
+    public static func quickUnlockOptionText() -> String {
+        let context = LAContext()
+        var error: NSError?
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+        return context.biometryType == .touchID ? L10n.unlockQuickOptionTouchId() : L10n.unlockQuickOptionFaceId()
+    }
 }

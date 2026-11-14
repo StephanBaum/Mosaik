@@ -145,7 +145,7 @@ struct UnlockView: View {
             }
             if !quickUnlockAvailable && !passwordRequiredAfterBoot && model.enrollQuickUnlockOffered {
                 OptionRow(
-                    text: L10n.unlockQuickOptionFaceId(), isOn: $model.enrollQuickUnlock,
+                    text: DeviceLock.quickUnlockOptionText(), isOn: $model.enrollQuickUnlock,
                     identifier: "unlock-enroll-quick")
             }
             if let message = model.errorMessage {

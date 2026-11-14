@@ -636,7 +636,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dieser Setup-Code ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal."
+            "value" : "Dieser Einrichtungscode ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal."
           }
         },
         "en" : {
@@ -653,7 +653,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Telefon neu und versuche es noch einmal."
+            "value" : "Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Handy neu und versuche es noch einmal."
           }
         },
         "en" : {
@@ -2047,7 +2047,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Keine Analysen, kein Tracking und keine Absturzberichte verlassen dieses Telefon."
+            "value" : "Keine Analysen, kein Tracking und keine Absturzberichte verlassen dieses Handy."
           }
         },
         "en" : {
@@ -2224,6 +2224,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Check the address first"
+          }
+        }
+      }
+    },
+    "mobile.autofill.warningWithName" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfe zuerst die Adresse | %1$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check the address first | %1$@"
           }
         }
       }
@@ -2700,13 +2717,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic kann diese Anfrage nicht bearbeiten."
+            "value" : "Mosaic kann diese Anmeldeanfrage nicht beantworten. Brich ab und wähle einen anderen Weg zur Anmeldung."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic can't handle this request."
+            "value" : "Mosaic can't answer this sign-in request. Cancel and choose another way to sign in."
           }
         }
       }
@@ -2860,13 +2877,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@ kommt in den Papierkorb, und die Änderung wird mit deinen anderen Geräten synchronisiert."
+            "value" : "Die Änderung wird mit deinen anderen Geräten synchronisiert."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@ moves to the trash, and the change syncs to your other devices."
+            "value" : "The change syncs to your other devices."
           }
         }
       }
@@ -2877,13 +2894,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Diesen Eintrag in den Papierkorb legen?"
+            "value" : "„%1$@“ in den Papierkorb legen?"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Move this item to the trash?"
+            "value" : "Move “%1$@” to the trash?"
           }
         }
       }
@@ -2918,6 +2935,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remove from favorites"
+          }
+        }
+      }
+    },
+    "mobile.detail.labelValue" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: %2$@"
           }
         }
       }
@@ -3031,6 +3065,23 @@
         }
       }
     },
+    "mobile.detail.readCode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code vorlesen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read code"
+          }
+        }
+      }
+    },
     "mobile.deviceLock.required.action" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3054,7 +3105,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic schützt deine Schlüssel mit der Bildschirmsperre deines Telefons. Lege in den Systemeinstellungen eine PIN, ein Muster oder ein Passwort fest und komm dann zurück."
+            "value" : "Mosaic schützt deine Schlüssel mit der Bildschirmsperre deines Handys. Lege in den Systemeinstellungen eine PIN, ein Muster oder ein Passwort fest und komm dann zurück."
           }
         },
         "en" : {
@@ -4193,13 +4244,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zertifikat (erste Bytes)"
+            "value" : "Signatur des Entwicklers (Anfang)"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Certificate (first bytes)"
+            "value" : "Developer signature (start)"
           }
         }
       }
@@ -4363,13 +4414,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Paket"
+            "value" : "App-ID"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Package"
+            "value" : "App ID"
           }
         }
       }
@@ -5077,7 +5128,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schnelles Entsperren einschalten"
+            "value" : "Schnellentsperrung einschalten"
           }
         },
         "en" : {
@@ -5094,7 +5145,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schneller entsperren"
+            "value" : "Schnellentsperrung"
           }
         },
         "en" : {
@@ -5111,13 +5162,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auf diesem Handy ist keine starke Biometrie eingerichtet, deshalb ist schnelles Entsperren nicht verfügbar."
+            "value" : "Füge in den Einstellungen deines Handys einen Fingerabdruck hinzu, um die Schnellentsperrung zu nutzen."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This phone has no strong biometric set up, so quick unlock is not available."
+            "value" : "Add a fingerprint in your phone's settings to use quick unlock."
           }
         }
       }
@@ -6002,13 +6053,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Passkeys und gespeicherte Passwörter kann auch die Anmeldeauswahl des Systems anbieten."
+            "value" : "Android kann deine Passkeys und Passwörter aus Mosaic auch anbieten, wenn eine App nach einer Anmeldung fragt."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Passkeys and saved passwords can also be offered through the system's credential picker."
+            "value" : "Android can also offer your passkeys and passwords from Mosaic when an app asks you to sign in."
           }
         }
       }
@@ -6366,13 +6417,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Halte die Kamera auf den Code auf deinem Computer. Mosaic liest ihn nur auf diesem Gerät."
+            "value" : "Öffne auf deinem Computer Mosaic, geh in den Einstellungen zu Sync und wähle „Handy einrichten“. Halte die Kamera auf den Code."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hold the camera over the code on your computer. Mosaic reads it on this device only."
+            "value" : "On your computer, open Mosaic, go to Settings > Sync and choose “Set up a phone”. Hold the camera over the code."
           }
         }
       }
@@ -6383,7 +6434,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Setup-Code scannen"
+            "value" : "Einrichtungscode scannen"
           }
         },
         "en" : {
@@ -6485,7 +6536,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dieser Tresor liegt nur auf diesem Telefon. Die Synchronisierung ist nicht eingerichtet."
+            "value" : "Dieser Tresor liegt nur auf diesem Handy. Die Synchronisierung ist nicht eingerichtet."
           }
         },
         "en" : {
@@ -6982,7 +7033,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schnell entsperren"
+            "value" : "Schnellentsperrung verwenden"
           }
         },
         "en" : {
@@ -6999,7 +7050,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um das schnelle Entsperren wieder einzuschalten."
+            "value" : "Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um die Schnellentsperrung wieder einzuschalten."
           }
         },
         "en" : {
@@ -7023,6 +7074,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unlock with Face ID next time"
+          }
+        }
+      }
+    },
+    "mobile.unlock.quickOptionTouchId" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächstes Mal mit Touch ID entsperren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unlock with Touch ID next time"
           }
         }
       }

@@ -155,6 +155,8 @@ public enum MosaicTokens {
         public static let input: CGFloat = 36
         public static let controlLg: CGFloat = 40
         public static let inputXl: CGFloat = 56
+        public static let touchMin: CGFloat = 44
+        public static let touch: CGFloat = 48
         public static let avatar: CGFloat = 32
         public static let avatarLg: CGFloat = 52
         public static let rail: CGFloat = 64

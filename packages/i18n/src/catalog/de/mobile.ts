@@ -13,7 +13,7 @@ export const mobile = {
   "mobile.unlock.title": "Mosaic entsperren",
   "mobile.unlock.passwordLabel": "Master-Passwort",
   "mobile.unlock.action": "Entsperren",
-  "mobile.unlock.quick": "Schnell entsperren",
+  "mobile.unlock.quick": "Schnellentsperrung verwenden",
   "mobile.unlock.failed":
     "{attempts, plural, one {Das hat # Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue.} other {Das hat # Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue.}}",
   "mobile.lock.now": "Jetzt sperren",
@@ -25,9 +25,9 @@ export const mobile = {
   "mobile.search.placeholder": "Tresor durchsuchen",
   "mobile.copy.done":
     "Kopiert. Die Zwischenablage wird in {seconds, plural, one {# Sekunde} other {# Sekunden}} geleert.",
-  "mobile.setup.scanTitle": "Setup-Code scannen",
+  "mobile.setup.scanTitle": "Einrichtungscode scannen",
   "mobile.setup.scanHint":
-    "Halte die Kamera auf den Code auf deinem Computer. Mosaic liest ihn nur auf diesem Gerät.",
+    "Öffne auf deinem Computer Mosaic, geh in den Einstellungen zu Sync und wähle „Handy einrichten“. Halte die Kamera auf den Code.",
   "mobile.autofill.title": "Mit Mosaic ausfüllen",
   "mobile.autofill.target": "{app} ausfüllen?",
   "mobile.settings.title": "Einstellungen",
@@ -61,12 +61,12 @@ export const mobile = {
   "mobile.onboarding.second.keyAction": "Sicherheitsschlüssel verwenden",
   "mobile.onboarding.second.keyWaiting":
     "Warte auf deinen Sicherheitsschlüssel. Schließe den Vorgang im Browser ab und komm dann zurück. Der Code dort sollte {code} lauten.",
-  "mobile.onboarding.quick.title": "Schneller entsperren",
+  "mobile.onboarding.quick.title": "Schnellentsperrung",
   "mobile.onboarding.quick.body":
     "Entsperre Mosaic beim nächsten Mal mit deinem Fingerabdruck. Nach einem Neustart des Handys brauchst du einmal dein Master-Passwort.",
-  "mobile.onboarding.quick.enable": "Schnelles Entsperren einschalten",
+  "mobile.onboarding.quick.enable": "Schnellentsperrung einschalten",
   "mobile.onboarding.quick.unavailable":
-    "Auf diesem Handy ist keine starke Biometrie eingerichtet, deshalb ist schnelles Entsperren nicht verfügbar.",
+    "Füge in den Einstellungen deines Handys einen Fingerabdruck hinzu, um die Schnellentsperrung zu nutzen.",
   "mobile.onboarding.autofill.title": "Logins automatisch ausfüllen",
   "mobile.onboarding.autofill.body":
     "Lass Mosaic deine Logins in anderen Apps und im Browser anbieten. Das kannst du später in den Systemeinstellungen ändern.",
@@ -96,7 +96,7 @@ export const mobile = {
   "error.folderAccountUnsupported":
     "Dieses Konto synchronisiert über einen Cloud-Ordner, den Mosaic auf Smartphones noch nicht unterstützt. Nutze einen Desktop oder ein Konto auf einem Sync-Server.",
   "error.setupCodeInvalid":
-    "Dieser Setup-Code ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal.",
+    "Dieser Einrichtungscode ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal.",
   "error.notEnoughMemory":
     "Auf diesem Gerät ist nicht genug freier Speicher, um deinen Tresor zu entsperren. Schließe andere Apps und versuche es noch einmal.",
   "error.noMatch":
@@ -124,7 +124,7 @@ export const mobile = {
   "error.qrNotFound":
     "Mosaic hat in diesem Bild keinen QR-Code gefunden. Versuche es mit einem schärferen Bild noch einmal.",
   "error.storageUnavailable":
-    "Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Telefon neu und versuche es noch einmal.",
+    "Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Handy neu und versuche es noch einmal.",
   // iOS (T10)
   "mobile.common.tryAgain": "Noch einmal versuchen",
   "mobile.onboarding.preAudit": "Pre-Audit: Mosaic wurde noch nicht von außen geprüft.",
@@ -157,14 +157,14 @@ export const mobile = {
   "mobile.unlock.faceIdReason":
     "Mosaic nutzt Face ID, um deinen Tresor schnell zu entsperren. Dein Master-Passwort funktioniert immer auch.",
   "mobile.unlock.quickInvalidated":
-    "Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um das schnelle Entsperren wieder einzuschalten.",
+    "Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um die Schnellentsperrung wieder einzuschalten.",
   "mobile.unlock.storeBusy": "Mosaic ist beschäftigt. Versuche es gleich noch einmal.",
   "mobile.unlock.rebootNote": "Entsperre nach einem Neustart einmal mit deinem Master-Passwort.",
   "mobile.capture.hidden": "Ausgeblendet, solange dein Bildschirm aufgezeichnet wird",
   // Android (T8): Tresor, Editor, App verknüpfen, Einstellungen, Gerätesperre.
   "mobile.deviceLock.required.title": "Richte zuerst eine Bildschirmsperre ein",
   "mobile.deviceLock.required.body":
-    "Mosaic schützt deine Schlüssel mit der Bildschirmsperre deines Telefons. Lege in den Systemeinstellungen eine PIN, ein Muster oder ein Passwort fest und komm dann zurück.",
+    "Mosaic schützt deine Schlüssel mit der Bildschirmsperre deines Handys. Lege in den Systemeinstellungen eine PIN, ein Muster oder ein Passwort fest und komm dann zurück.",
   "mobile.deviceLock.required.action": "Sicherheitseinstellungen öffnen",
   "mobile.common.show": "Anzeigen",
   "mobile.common.hide": "Verbergen",
@@ -181,7 +181,7 @@ export const mobile = {
   "mobile.sync.never": "Noch nicht synchronisiert",
   "mobile.sync.last": "Synchronisiert {time}",
   "mobile.sync.localOnly":
-    "Dieser Tresor liegt nur auf diesem Telefon. Die Synchronisierung ist nicht eingerichtet.",
+    "Dieser Tresor liegt nur auf diesem Handy. Die Synchronisierung ist nicht eingerichtet.",
   "mobile.sync.pending":
     "{count, plural, one {# Änderung wartet aufs Hochladen} other {# Änderungen warten aufs Hochladen}}",
   "mobile.sync.now": "Jetzt synchronisieren",
@@ -213,9 +213,9 @@ export const mobile = {
   "mobile.detail.favoriteAdd": "Zu Favoriten hinzufügen",
   "mobile.detail.favoriteRemove": "Aus Favoriten entfernen",
   "mobile.detail.delete": "In den Papierkorb",
-  "mobile.detail.deleteTitle": "Diesen Eintrag in den Papierkorb legen?",
+  "mobile.detail.deleteTitle": "„{title}“ in den Papierkorb legen?",
   "mobile.detail.deleteBody":
-    "{title} kommt in den Papierkorb, und die Änderung wird mit deinen anderen Geräten synchronisiert.",
+    "Die Änderung wird mit deinen anderen Geräten synchronisiert.",
   "mobile.detail.otpLeft": "{seconds, plural, one {# Sekunde übrig} other {# Sekunden übrig}}",
   "mobile.detail.passkey": "Passkey für {site}",
   "mobile.detail.attachments":
@@ -266,10 +266,10 @@ export const mobile = {
   "mobile.link.choose": "Wähle die App, die du mit {login} verknüpfen willst.",
   "mobile.link.filter": "App suchen",
   "mobile.link.app": "App",
-  "mobile.link.package": "Paket",
+  "mobile.link.package": "App-ID",
   "mobile.link.installer": "Installiert über",
   "mobile.link.installerUnknown": "Unbekannte Quelle",
-  "mobile.link.certificate": "Zertifikat (erste Bytes)",
+  "mobile.link.certificate": "Signatur des Entwicklers (Anfang)",
   "mobile.link.verified": "Bestätigt durch {host}",
   "mobile.link.notVerified": "Nicht bestätigt",
   "mobile.link.unavailable": "Konnte nicht geprüft werden",
@@ -303,7 +303,7 @@ export const mobile = {
   "mobile.about.preAudit":
     "Mosaic ist Pre-Audit-Software. Ein unabhängiges Sicherheitsaudit hat noch nicht stattgefunden.",
   "mobile.about.privacy":
-    "Keine Analysen, kein Tracking und keine Absturzberichte verlassen dieses Telefon.",
+    "Keine Analysen, kein Tracking und keine Absturzberichte verlassen dieses Handy.",
   "mobile.about.licences": "Open-Source-Lizenzen",
   "mobile.licences.title": "Open-Source-Lizenzen",
   "mobile.licences.intro": "Mosaic für Android besteht auch aus diesen Open-Source-Teilen.",
@@ -332,13 +332,13 @@ export const mobile = {
   "mobile.credential.verifyCreate": "Passkey für {site} speichern",
   "mobile.credential.verifyFailed":
     "Mosaic konnte nicht bestätigen, dass du es bist. Versuche es noch einmal.",
-  "mobile.credential.unsupported": "Mosaic kann diese Anfrage nicht bearbeiten.",
+  "mobile.credential.unsupported": "Mosaic kann diese Anmeldeanfrage nicht beantworten. Brich ab und wähle einen anderen Weg zur Anmeldung.",
   "mobile.settings.fill": "In anderen Apps ausfüllen",
   "mobile.settings.autofillOn": "Mosaic ist dein Autofill-Dienst.",
   "mobile.settings.autofillOff": "Mosaic ist noch nicht dein Autofill-Dienst.",
   "mobile.settings.autofillEnable": "Mosaic für Autofill verwenden",
   "mobile.settings.credentialHint":
-    "Passkeys und gespeicherte Passwörter kann auch die Anmeldeauswahl des Systems anbieten.",
+    "Android kann deine Passkeys und Passwörter aus Mosaic auch anbieten, wenn eine App nach einer Anmeldung fragt.",
   "mobile.settings.credentialEnable": "Mosaic für Passkeys und Passwörter verwenden",
   // Android (T13): Scanner für Einrichtungscode und Einmalcode (CameraX, keine Play-Dienste).
   "mobile.scan.setupAction": "Einrichtungscode scannen",

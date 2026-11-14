@@ -68,6 +68,20 @@ struct ErrorLine: View {
     }
 }
 
+/// A warning line (something to check, not a failure), in the warning colour of the design tokens.
+struct WarningLine: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(Font.mosaic(MosaicTokens.FontSize.sm))
+            .foregroundStyle(colorScheme.mosaic.warning)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("warning-line")
+    }
+}
+
 /// The one primary action of a screen. The foil does not render natively, so this is the static fallback
 /// of the design (tokens `PrimaryAction`).
 struct PrimaryButtonStyle: ButtonStyle {
@@ -85,7 +99,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             configuration.label
                 .font(Font.mosaic(MosaicTokens.FontSize.md, weight: .semibold))
                 .foregroundStyle(MosaicTokens.PrimaryAction.label)
-                .frame(maxWidth: .infinity, minHeight: 48)
+                .frame(maxWidth: .infinity, minHeight: MosaicTokens.Size.touch)
                 .padding(.horizontal, MosaicTokens.Space.s5)
                 .background(
                     configuration.isPressed
@@ -118,7 +132,7 @@ struct SecondaryButtonStyle: ButtonStyle {
             configuration.label
                 .font(Font.mosaic(MosaicTokens.FontSize.md, weight: .medium))
                 .foregroundStyle(colors.text)
-                .frame(maxWidth: .infinity, minHeight: 48)
+                .frame(maxWidth: .infinity, minHeight: MosaicTokens.Size.touch)
                 .padding(.horizontal, MosaicTokens.Space.s5)
                 .background(
                     configuration.isPressed ? colors.bgSelected : Color.clear,
@@ -150,7 +164,7 @@ extension View {
     /// The border and fill of a text field, with the 44 pt minimum target.
     func mosaicFieldBox(colors: MosaicColors) -> some View {
         padding(.horizontal, MosaicTokens.Space.s4)
-            .frame(minHeight: 48)
+            .frame(minHeight: MosaicTokens.Size.touch)
             .background(colors.surface, in: RoundedRectangle(cornerRadius: MosaicTokens.Radius.field))
             .overlay(
                 RoundedRectangle(cornerRadius: MosaicTokens.Radius.field)
@@ -211,7 +225,7 @@ struct SecretField: View {
                 buffer: buffer, accessibilityText: label, identifier: identifier, clearToken: clearToken,
                 fillToken: fillToken, reveal: reveal, textColor: UIColor(colors.text), onChange: onChange, onSubmit: onSubmit
             )
-            .frame(minHeight: 48)
+            .frame(minHeight: MosaicTokens.Size.touch)
             .mosaicFieldBox(colors: colors)
             .privacySensitive()
         }
@@ -244,7 +258,8 @@ struct SecretTextField: UIViewRepresentable {
         field.smartInsertDeleteType = .no
         field.returnKeyType = .go
         field.clearButtonMode = .never
-        field.font = MosaicFonts.monoFont(size: MosaicTokens.FontSize.md.size)
+        field.font = UIFontMetrics(forTextStyle: .body).scaledFont(
+            for: MosaicFonts.monoFont(size: MosaicTokens.FontSize.md.size))
         field.adjustsFontForContentSizeCategory = true
         field.accessibilityLabel = accessibilityText
         field.accessibilityIdentifier = identifier
@@ -312,7 +327,7 @@ struct OptionRow: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .tint(colorScheme.mosaic.accent)
-        .frame(minHeight: 48)
+        .frame(minHeight: MosaicTokens.Size.touch)
         .accessibilityIdentifier(identifier)
     }
 }
@@ -382,7 +397,7 @@ struct QuietButtonStyle: ButtonStyle {
             configuration.label
                 .font(Font.mosaic(MosaicTokens.FontSize.sm, weight: .medium))
                 .foregroundStyle(colorScheme.mosaic.text)
-                .frame(minWidth: 44, minHeight: 44)
+                .frame(minWidth: MosaicTokens.Size.touchMin, minHeight: MosaicTokens.Size.touchMin)
                 .opacity(isEnabled ? (configuration.isPressed ? 0.6 : 1) : 0.5)
                 .contentShape(Rectangle())
         }
@@ -409,6 +424,9 @@ struct NoticeBanner: View {
             .accessibilityIdentifier("notice")
             .onAppear {
                 UIAccessibility.post(notification: .announcement, argument: text)
+            }
+            .onChange(of: text) { _, newText in
+                UIAccessibility.post(notification: .announcement, argument: newText)
             }
     }
 }

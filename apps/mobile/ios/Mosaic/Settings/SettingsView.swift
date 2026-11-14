@@ -273,7 +273,7 @@ struct SettingsView: View {
                 }
             }
             .pickerStyle(.menu)
-            .frame(minHeight: 44, alignment: .leading)
+            .frame(minHeight: MosaicTokens.Size.touchMin, alignment: .leading)
             .accessibilityIdentifier(identifier)
         }
     }
@@ -286,7 +286,7 @@ struct SettingsView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .tint(colorScheme.mosaic.accent)
-        .frame(minHeight: 48)
+        .frame(minHeight: MosaicTokens.Size.touch)
         .accessibilityIdentifier(identifier)
     }
 
@@ -397,7 +397,10 @@ struct SettingsView: View {
             Panel {
                 SectionTitle(text: L10n.syncWarnings())
                 ForEach(warnings, id: \.self) { warning in
-                    BodyText(text: warning)
+                    WarningLine(text: warning)
+                }
+                if let code = vault.acknowledgeFailureCode {
+                    ErrorLine(text: ErrorText.message(forCode: code))
                 }
                 if !vault.isRefreshing {
                     Button(L10n.syncAcknowledge()) { confirmAcknowledge = true }
@@ -421,7 +424,7 @@ struct SettingsView: View {
                 Text(L10n.aboutLicences())
                     .font(Font.mosaic(MosaicTokens.FontSize.md, weight: .medium))
                     .foregroundStyle(colorScheme.mosaic.accentText)
-                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: MosaicTokens.Size.touch, alignment: .leading)
             }
             .accessibilityIdentifier("about-licences")
         }

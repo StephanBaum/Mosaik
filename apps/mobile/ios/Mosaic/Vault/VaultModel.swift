@@ -11,6 +11,8 @@ final class VaultModel {
     private(set) var overview: SyncOverview?
     private(set) var settings: MobileSettings?
     private(set) var failureCode: String?
+    /// The error of "I've checked", shown in Settings where the button is, not on the Vault tab.
+    private(set) var acknowledgeFailureCode: String?
     private(set) var isRefreshing = false
     /// Bumped by every change, so a screen that shows an item loads it again.
     private(set) var version = 0
@@ -87,12 +89,12 @@ final class VaultModel {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+        acknowledgeFailureCode = nil
         do {
             overview = try await holder.call { core in try core.acknowledgeSyncFindings() }
             overview = try await holder.call { core in try core.syncNow() }
-            failureCode = nil
         } catch {
-            failureCode = ErrorText.code(of: error)
+            acknowledgeFailureCode = ErrorText.code(of: error)
         }
         await load()
     }

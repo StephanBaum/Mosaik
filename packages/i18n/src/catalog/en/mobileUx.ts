@@ -24,4 +24,12 @@ export const mobileUx = {
     "Something you entered isn't valid. Check your entries and try again.",
   "mobile.error.vaultUnavailable":
     "This vault can't be opened right now. Sync and try again, or unlock Mosaic again.",
+  "mobile.unlock.quickOptionTouchId":
+    "Unlock with Touch ID next time",
+  "mobile.detail.readCode":
+    "Read code",
+  "mobile.detail.labelValue":
+    "{label}: {value}",
+  "mobile.autofill.warningWithName":
+    "Check the address first | {name}",
 } as const satisfies Record<string, string>;

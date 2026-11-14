@@ -92,6 +92,8 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
     var enrolled by remember { mutableStateOf(quickEnrolled) }
     var askPassword by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    // Sync has its own flag, so a running sync does not grey out the quick-unlock buttons and the other way round.
+    var syncBusy by remember { mutableStateOf(false) }
     var errorCode by remember { mutableStateOf<String?>(null) }
     val passwordState = remember { SecretFieldState() }
     val biometricAvailable = remember { BiometricGate().isAvailable(context) }
@@ -127,6 +129,7 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
         passwordState = passwordState,
         version = appVersion(context),
         busy = busy,
+        syncBusy = syncBusy,
         error = errorCode?.let { errorText(resources, it) },
         onAutoLock = { change(update(auto = it)) },
         onIdle = { change(update(idle = it)) },
@@ -177,8 +180,8 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
             }
         },
         onSync = {
-            scope.launch {
-                busy = true
+            if (!syncBusy) scope.launch {
+                syncBusy = true
                 when (val result = app.vault.syncNow()) {
                     is Outcome.Ok -> {
                         overview = result.value
@@ -187,12 +190,12 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
                     is Outcome.Failed -> errorCode = result.code
                     Outcome.Cancelled -> Unit
                 }
-                busy = false
+                syncBusy = false
             }
         },
         onAcknowledge = {
             scope.launch {
-                busy = true
+                syncBusy = true
                 // Clears the findings (an unlocked session), then syncs again.
                 when (val cleared = app.vault.acknowledgeSyncFindings()) {
                     is Outcome.Ok -> {
@@ -207,7 +210,7 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
                     is Outcome.Failed -> errorCode = cleared.code
                     Outcome.Cancelled -> Unit
                 }
-                busy = false
+                syncBusy = false
             }
         },
         onLock = { app.lockNow() },
@@ -229,6 +232,7 @@ fun SettingsContent(
     passwordState: SecretFieldState,
     version: String,
     busy: Boolean,
+    syncBusy: Boolean,
     error: String?,
     onAutoLock: (Int) -> Unit,
     onIdle: (Int) -> Unit,
@@ -309,13 +313,13 @@ fun SettingsContent(
             SectionTitle(L10n.settingsSync(resources))
             if (syncText.isNotEmpty()) Line(syncText)
             if (pendingUploads > 0) HintText(L10n.syncPending(resources, pendingUploads))
-            if (busy) Working(L10n.syncWorking(resources)) else SecondaryButton(L10n.syncNow(resources), onClick = onSync)
+            if (syncBusy) Working(L10n.syncWorking(resources)) else SecondaryButton(L10n.syncNow(resources), onClick = onSync)
         }
         if (syncWarnings.isNotEmpty()) {
             Panel {
                 SectionTitle(L10n.syncWarnings(resources))
                 for (text in syncWarnings) ErrorText(text)
-                if (!busy) {
+                if (!syncBusy) {
                     SecondaryButton(L10n.syncAcknowledge(resources), onClick = { confirmAcknowledge = true })
                 }
             }

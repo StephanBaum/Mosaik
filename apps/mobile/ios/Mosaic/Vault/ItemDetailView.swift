@@ -295,7 +295,9 @@ struct ItemDetailView: View {
         }
         .onChange(of: app.capture.screenshotCount) { _, _ in model.hideEverything() }
         .onDisappear { model.hideEverything() }
-        .alert(L10n.detailDeleteTitle(), isPresented: $confirmDelete) {
+        .alert(
+            L10n.detailDeleteTitle(title: model.detail.map { $0.summary.title.isEmpty ? L10n.vaultUntitled() : $0.summary.title } ?? L10n.vaultUntitled()),
+            isPresented: $confirmDelete) {
             Button(L10n.detailDelete(), role: .destructive) {
                 Task {
                     if await model.delete() { onClose() }
@@ -303,7 +305,7 @@ struct ItemDetailView: View {
             }
             Button(L10n.commonCancel(), role: .cancel) {}
         } message: {
-            Text(L10n.detailDeleteBody(title: model.detail?.summary.title ?? ""))
+            Text(L10n.detailDeleteBody())
         }
     }
 
@@ -335,7 +337,7 @@ struct ItemDetailView: View {
                         }
                     } else {
                         BodyText(text: url.url)
-                            .accessibilityLabel(L10n.editorWebsites() + ": " + url.url)
+                            .accessibilityLabel(L10n.detailLabelValue(label: L10n.editorWebsites(), value: url.url))
                     }
                 }
             }
@@ -431,7 +433,7 @@ private struct FieldRow: View {
                 .font(Font.mosaic(MosaicTokens.FontSize.md))
                 .foregroundStyle(colors.text)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(FieldLabels.label(for: field) + ": " + (field.value ?? ""))
+                .accessibilityLabel(L10n.detailLabelValue(label: FieldLabels.label(for: field), value: field.value ?? ""))
         }
     }
 }
@@ -464,6 +466,12 @@ private struct OtpBlock: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(label)
+                .accessibilityAction(named: Text(L10n.detailReadCode())) {
+                    // Only on the user's explicit request does the code reach VoiceOver, digit by digit.
+                    if let otp = model.otp {
+                        UIAccessibility.post(notification: .announcement, argument: otp.code.map(String.init).joined(separator: " "))
+                    }
+                }
                 Button(L10n.commonCopy()) { model.copyOtp() }
                     .buttonStyle(QuietButtonStyle())
                     .disabled(model.otp == nil)

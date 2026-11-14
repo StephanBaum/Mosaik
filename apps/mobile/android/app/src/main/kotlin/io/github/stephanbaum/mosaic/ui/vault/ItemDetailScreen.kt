@@ -29,8 +29,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import io.github.stephanbaum.mosaic.MosaicApp
@@ -359,8 +362,10 @@ fun ItemDetailContent(
     if (confirmDelete && detail != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text(L10n.detailDeleteTitle(resources)) },
-            text = { Text(L10n.detailDeleteBody(resources, detail.summary.title)) },
+            title = {
+                Text(L10n.detailDeleteTitle(resources, detail.summary.title.ifBlank { L10n.vaultUntitled(resources) }))
+            },
+            text = { Text(L10n.detailDeleteBody(resources)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -413,11 +418,26 @@ private fun FieldRow(
 private fun OtpBlock(otp: OtpDisplay?, onCopy: () -> Unit) {
     val resources = LocalContext.current.resources
     val label = L10n.itemKindTotp(resources)
+    val view = LocalView.current
+    val readCode = L10n.detailReadCode(resources)
     Column(verticalArrangement = Arrangement.spacedBy(MosaicSpace.s1)) {
         HintText(label)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(MosaicSpace.s4)) {
             Row(
-                modifier = Modifier.weight(1f).clearAndSetSemantics { contentDescription = label },
+                modifier =
+                    Modifier.weight(1f).clearAndSetSemantics {
+                        contentDescription = label
+                        // Only on the user's explicit request does the code reach the screen reader, digit by digit.
+                        if (otp != null) {
+                            customActions =
+                                listOf(
+                                    CustomAccessibilityAction(readCode) {
+                                        view.announceForAccessibility(otp.code.toList().joinToString(" "))
+                                        true
+                                    },
+                                )
+                        }
+                    },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(MosaicSpace.s4),
             ) {

@@ -122,6 +122,8 @@ object MosaicSize {
     val input: Dp = 36.dp
     val controlLg: Dp = 40.dp
     val inputXl: Dp = 56.dp
+    val touchMin: Dp = 44.dp
+    val touch: Dp = 48.dp
     val avatar: Dp = 32.dp
     val avatarLg: Dp = 52.dp
     val rail: Dp = 64.dp

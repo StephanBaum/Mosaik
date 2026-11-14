@@ -138,7 +138,7 @@ class FillResponseFactory(private val context: Context, private val linkTokens: 
 
     private fun subtitle(username: String?, warning: Boolean): String {
         val name = username ?: L10n.autofillNoUsername(resources)
-        return if (warning) L10n.autofillWarning(resources) + " | " + name else name
+        return if (warning) L10n.autofillWarningWithName(resources, name) else name
     }
 
     private fun presentation(title: String, subtitle: String?): RemoteViews {

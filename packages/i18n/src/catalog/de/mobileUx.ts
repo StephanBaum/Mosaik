@@ -22,4 +22,12 @@ export const mobileUx = {
     "Etwas in deinen Eingaben ist ungültig. Prüfe sie und versuche es noch einmal.",
   "mobile.error.vaultUnavailable":
     "Dieser Tresor lässt sich gerade nicht öffnen. Synchronisiere und versuche es noch einmal oder entsperre Mosaic neu.",
+  "mobile.unlock.quickOptionTouchId":
+    "Nächstes Mal mit Touch ID entsperren",
+  "mobile.detail.readCode":
+    "Code vorlesen",
+  "mobile.detail.labelValue":
+    "{label}: {value}",
+  "mobile.autofill.warningWithName":
+    "Prüfe zuerst die Adresse | {name}",
 } satisfies Record<keyof typeof en, string>;

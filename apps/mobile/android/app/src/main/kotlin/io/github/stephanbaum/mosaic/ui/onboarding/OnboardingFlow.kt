@@ -119,7 +119,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
     var scanning by remember { mutableStateOf(false) }
     var scanned by remember { mutableStateOf(false) }
     var keyWiped by remember { mutableStateOf(false) }
-    var enrollNext by remember { mutableStateOf(false) }
+    var enrollNext by remember { mutableStateOf(true) }
 
     val keyHolder = remember { KeyHolder() }
     val keyField = remember { SecretFieldState() }
@@ -232,6 +232,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
             ScreenFrame {
                 TitleText(L10n.onboardingWelcomeTitle(resources))
                 BodyText(L10n.onboardingWelcomeBody(resources))
+                HintText(L10n.onboardingPreAudit(resources))
                 PrimaryButton(L10n.onboardingWelcomeStart(resources), onClick = { step = Step.Details })
             }
 
@@ -247,6 +248,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                     label = L10n.onboardingDetailsServer(resources),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     enabled = !busy,
+                    placeholder = L10n.onboardingDetailsServerHint(resources),
                 )
                 TextInput(
                     value = email,

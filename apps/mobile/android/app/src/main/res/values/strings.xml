@@ -134,6 +134,7 @@
   <string name="mobile_autofill_title">Fill from Mosaic</string>
   <string name="mobile_autofill_unlockEntry">Unlock Mosaic</string>
   <string name="mobile_autofill_warning">Check the address first</string>
+  <string name="mobile_autofill_warningWithName">Check the address first | %1$s</string>
   <string name="mobile_capture_hidden">Hidden while your screen is recorded</string>
   <string name="mobile_common_back">Back</string>
   <string name="mobile_common_cancel">Cancel</string>
@@ -163,7 +164,7 @@
   <string name="mobile_credential_passkeyEntry">Passkey</string>
   <string name="mobile_credential_passwordEntry">Password</string>
   <string name="mobile_credential_unlockEntry">Unlock Mosaic</string>
-  <string name="mobile_credential_unsupported">Mosaic can\'t handle this request.</string>
+  <string name="mobile_credential_unsupported">Mosaic can\'t answer this sign-in request. Cancel and choose another way to sign in.</string>
   <string name="mobile_credential_vaultDefault">Personal vault</string>
   <string name="mobile_credential_verifyCreate">Save a passkey for %1$s</string>
   <string name="mobile_credential_verifyFailed">Mosaic could not confirm that it is you. Try again.</string>
@@ -174,10 +175,11 @@
     <item quantity="other">%1$d files are attached. Open them on your computer.</item>
   </plurals>
   <string name="mobile_detail_delete">Move to trash</string>
-  <string name="mobile_detail_deleteBody">%1$s moves to the trash, and the change syncs to your other devices.</string>
-  <string name="mobile_detail_deleteTitle">Move this item to the trash?</string>
+  <string name="mobile_detail_deleteBody">The change syncs to your other devices.</string>
+  <string name="mobile_detail_deleteTitle">Move “%1$s” to the trash?</string>
   <string name="mobile_detail_favoriteAdd">Add to favorites</string>
   <string name="mobile_detail_favoriteRemove">Remove from favorites</string>
+  <string name="mobile_detail_labelValue">%1$s: %2$s</string>
   <string name="mobile_detail_linkApp">Link an app</string>
   <string name="mobile_detail_linkedApp">App: %1$s</string>
   <string name="mobile_detail_needsLinking">Needs linking before it can fill</string>
@@ -186,6 +188,7 @@
     <item quantity="other">%1$d seconds left</item>
   </plurals>
   <string name="mobile_detail_passkey">Passkey for %1$s</string>
+  <string name="mobile_detail_readCode">Read code</string>
   <string name="mobile_deviceLock_required_action">Open security settings</string>
   <string name="mobile_deviceLock_required_body">Mosaic keeps your keys behind your phone\'s screen lock. Set a PIN, pattern or password in the system settings, then come back.</string>
   <string name="mobile_deviceLock_required_title">Set a screen lock first</string>
@@ -254,7 +257,7 @@
   <string name="mobile_licences_rust">The Rust core uses open-source crates. Their licences are listed in the project\'s source repository.</string>
   <string name="mobile_licences_title">Open-source licences</string>
   <string name="mobile_link_app">App</string>
-  <string name="mobile_link_certificate">Certificate (first bytes)</string>
+  <string name="mobile_link_certificate">Developer signature (start)</string>
   <string name="mobile_link_checking">Checking the website</string>
   <string name="mobile_link_choose">Choose the app to link to %1$s.</string>
   <string name="mobile_link_confirm">Fill %1$s in this app from now on</string>
@@ -264,7 +267,7 @@
   <string name="mobile_link_installerUnknown">Unknown source</string>
   <string name="mobile_link_noApps">No other apps found.</string>
   <string name="mobile_link_notVerified">Not verified</string>
-  <string name="mobile_link_package">Package</string>
+  <string name="mobile_link_package">App ID</string>
   <string name="mobile_link_pickLogin">Choose the login Mosaic should fill in %1$s.</string>
   <string name="mobile_link_title">Link an app</string>
   <string name="mobile_link_unavailable">Could not check</string>
@@ -308,7 +311,7 @@
   <string name="mobile_onboarding_quick_body">Use your fingerprint to unlock Mosaic next time. After a restart of the phone you still need your master password once.</string>
   <string name="mobile_onboarding_quick_enable">Turn on quick unlock</string>
   <string name="mobile_onboarding_quick_title">Unlock faster</string>
-  <string name="mobile_onboarding_quick_unavailable">This phone has no strong biometric set up, so quick unlock is not available.</string>
+  <string name="mobile_onboarding_quick_unavailable">Add a fingerprint in your phone\'s settings to use quick unlock.</string>
   <string name="mobile_onboarding_second_keyAction">Use your security key</string>
   <string name="mobile_onboarding_second_keyWaiting">Waiting for your security key. Finish in the browser, then come back. The code there should read %1$s.</string>
   <string name="mobile_onboarding_second_title">One more step</string>
@@ -362,7 +365,7 @@
     <item quantity="other">After %1$d seconds</item>
   </plurals>
   <string name="mobile_settings_credentialEnable">Use Mosaic for passkeys and passwords</string>
-  <string name="mobile_settings_credentialHint">Passkeys and saved passwords can also be offered through the system\'s credential picker.</string>
+  <string name="mobile_settings_credentialHint">Android can also offer your passkeys and passwords from Mosaic when an app asks you to sign in.</string>
   <string name="mobile_settings_fill">Fill in other apps</string>
   <string name="mobile_settings_identitiesPassword">Type your master password to turn this on.</string>
   <string name="mobile_settings_idle">Lock when you stop touching the screen</string>
@@ -385,7 +388,7 @@
   <string name="mobile_settings_sync">Sync</string>
   <string name="mobile_settings_title">Settings</string>
   <string name="mobile_settings_version">Version %1$s</string>
-  <string name="mobile_setup_scanHint">Hold the camera over the code on your computer. Mosaic reads it on this device only.</string>
+  <string name="mobile_setup_scanHint">On your computer, open Mosaic, go to Settings > Sync and choose “Set up a phone”. Hold the camera over the code.</string>
   <string name="mobile_setup_scanTitle">Scan your setup code</string>
   <string name="mobile_sync_acknowledge">I\'ve checked…</string>
   <string name="mobile_sync_acknowledgeBody">Only go on after you have checked the server yourself. This clears every warning, and syncing continues. If your data really was rolled back or changed, Mosaic can\'t tell afterwards. Do this on each of your devices.</string>
@@ -429,6 +432,7 @@
   <string name="mobile_unlock_quick">Use quick unlock</string>
   <string name="mobile_unlock_quickInvalidated">Your Face ID settings changed. Unlock with your master password to turn quick unlock on again.</string>
   <string name="mobile_unlock_quickOptionFaceId">Unlock with Face ID next time</string>
+  <string name="mobile_unlock_quickOptionTouchId">Unlock with Touch ID next time</string>
   <string name="mobile_unlock_rebootNote">Unlock once with your master password after a restart.</string>
   <string name="mobile_unlock_retry">Try again</string>
   <string name="mobile_unlock_secretKey">Secret Key</string>

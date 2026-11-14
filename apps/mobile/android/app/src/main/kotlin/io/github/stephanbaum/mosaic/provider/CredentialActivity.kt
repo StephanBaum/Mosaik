@@ -99,6 +99,7 @@ class CredentialActivity : SecureActivity(), ProviderActivity {
 
     @Composable
     private fun GetRunner(app: MosaicApp, mode: String) {
+        val resources = LocalContext.current.resources
         var failure by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(Unit) {
             try {
@@ -124,7 +125,7 @@ class CredentialActivity : SecureActivity(), ProviderActivity {
         }
         val code = failure
         if (code == null) {
-            ScreenFrame { }
+            ScreenFrame { Working(L10n.commonWorking(resources)) }
         } else {
             FailureScreen(code) {
                 val data = Intent()

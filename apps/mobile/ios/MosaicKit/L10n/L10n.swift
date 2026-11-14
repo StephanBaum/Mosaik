@@ -579,6 +579,10 @@ public enum L10n {
         NSLocalizedString("mobile.autofill.warning", bundle: .main, comment: "")
     }
 
+    public static func autofillWarningWithName(name: String) -> String {
+        String(format: NSLocalizedString("mobile.autofill.warningWithName", bundle: .main, comment: ""), locale: .current, arguments: [name])
+    }
+
     public static func captureHidden() -> String {
         NSLocalizedString("mobile.capture.hidden", bundle: .main, comment: "")
     }
@@ -715,12 +719,12 @@ public enum L10n {
         NSLocalizedString("mobile.detail.delete", bundle: .main, comment: "")
     }
 
-    public static func detailDeleteBody(title: String) -> String {
-        String(format: NSLocalizedString("mobile.detail.deleteBody", bundle: .main, comment: ""), locale: .current, arguments: [title])
+    public static func detailDeleteBody() -> String {
+        NSLocalizedString("mobile.detail.deleteBody", bundle: .main, comment: "")
     }
 
-    public static func detailDeleteTitle() -> String {
-        NSLocalizedString("mobile.detail.deleteTitle", bundle: .main, comment: "")
+    public static func detailDeleteTitle(title: String) -> String {
+        String(format: NSLocalizedString("mobile.detail.deleteTitle", bundle: .main, comment: ""), locale: .current, arguments: [title])
     }
 
     public static func detailFavoriteAdd() -> String {
@@ -729,6 +733,10 @@ public enum L10n {
 
     public static func detailFavoriteRemove() -> String {
         NSLocalizedString("mobile.detail.favoriteRemove", bundle: .main, comment: "")
+    }
+
+    public static func detailLabelValue(label: String, value: String) -> String {
+        String(format: NSLocalizedString("mobile.detail.labelValue", bundle: .main, comment: ""), locale: .current, arguments: [label, value])
     }
 
     public static func detailLinkApp() -> String {
@@ -749,6 +757,10 @@ public enum L10n {
 
     public static func detailPasskey(site: String) -> String {
         String(format: NSLocalizedString("mobile.detail.passkey", bundle: .main, comment: ""), locale: .current, arguments: [site])
+    }
+
+    public static func detailReadCode() -> String {
+        NSLocalizedString("mobile.detail.readCode", bundle: .main, comment: "")
     }
 
     public static func deviceLockRequiredAction() -> String {
@@ -1661,6 +1673,10 @@ public enum L10n {
 
     public static func unlockQuickOptionFaceId() -> String {
         NSLocalizedString("mobile.unlock.quickOptionFaceId", bundle: .main, comment: "")
+    }
+
+    public static func unlockQuickOptionTouchId() -> String {
+        NSLocalizedString("mobile.unlock.quickOptionTouchId", bundle: .main, comment: "")
     }
 
     public static func unlockRebootNote() -> String {
