@@ -3277,6 +3277,8 @@ dependencies = [
  "getrandom 0.4.3",
  "hkdf 0.13.0",
  "hmac 0.13.0",
+ "hyper",
+ "hyper-util",
  "mosaic-core",
  "mosaic-generator",
  "mosaic-passkey",
