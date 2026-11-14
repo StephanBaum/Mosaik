@@ -67,6 +67,23 @@ Use tokens only. Never use raw values in components.
 - Extension popup: 360 × 600 maximum. It shows the matching items for the
   current site first.
 - Lists use virtual scrolling past 200 rows.
+- Mobile (M10, `docs/MOBILE.md`):
+  - **Navigation.** Bottom navigation with Vault, Search and Settings. One primary action per screen. Item
+    detail is a full screen, not a pane.
+  - **Touch targets.** At least 48 × 48 dp on Android and 44 × 44 pt on iOS, including the reveal and copy
+    buttons.
+  - **Text size.** Dynamic Type on iOS and font scaling on Android, up to 200 %. Layouts reflow; nothing is cut
+    off or overlaps.
+  - **Screen readers.** TalkBack and VoiceOver labels on every control. Reveal and copy are icon buttons with
+    text labels ("Show password", "Copy password"). A copy is announced through a live region ("Copied. Clears
+    in 30 seconds."). A one-time code is not announced until it is copied.
+  - **Keyboards.** Basic hardware-keyboard support: focus order, Enter submits, Escape or Back closes dialogs.
+  - **The foil.** The holographic foil uses its static fallback; there is no WebGL on mobile.
+  - **Colors, spacing, type and motion** come from the exported tokens (`packages/design-tokens`
+    `export:mobile`), in light and dark. Strings come from `packages/i18n` (`export:mobile`), German with "du".
+  - **Secrets on screen.** They are hidden by default, hide again after 60 s, on background and on lock, and are
+    hidden while the screen is recorded (iOS). Copy and error text follow §5 and §8: what happened, then what to
+    do.
 
 ## 4. Keyboard
 
@@ -137,7 +154,12 @@ shortcut. Global shortcuts can be remapped, and the app detects conflicts.
   `data-mask` with its masked text); the snapshot code of the lock animation
   never paints it (ADR-0032).
 - **Re-authentication** before export, master password change, viewing the
-  Secret Key, adding a quick-unlock method, or turning off auto-lock.
+  Secret Key, adding a quick-unlock method, or turning off auto-lock or making
+  it (or the clipboard clearing) later. The
+  password typed for one of these pays for that action only (ADR-0151): the
+  two-minute window that "Confirm" opens is tied to the action that asked for
+  it, so a password typed for the Emergency Kit never pays for a passkey
+  export.
 - **Emergency Kit:** generated during onboarding. The user must download or
   print it, then confirm by typing the last group of the Secret Key.
 - **Warnings** (HTTP site, lookalike domain, reused password): one sentence

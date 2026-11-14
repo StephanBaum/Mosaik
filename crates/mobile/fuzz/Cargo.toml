@@ -1,0 +1,39 @@
+[package]
+name = "mosaic-mobile-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz target for the passkey request JSON of Android Credential Manager: arbitrary bytes through the strict parser (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace (nightly-only, libFuzzer).
+# To check without cargo-fuzz: cargo check --manifest-path
+# crates/mobile/fuzz/Cargo.toml --bins
+[workspace]
+members = ["."]
+
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+mosaic-mobile = { path = ".." }
+
+[[bin]]
+name = "passkey_request_json"
+path = "fuzz_targets/passkey_request_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "quick_unlock_params"
+path = "fuzz_targets/quick_unlock_params.rs"
+test = false
+doc = false
+bench = false

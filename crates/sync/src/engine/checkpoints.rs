@@ -57,6 +57,19 @@ struct Seen<'a> {
     kind: TransportKind,
     cursors: &'a BTreeMap<VaultId, Option<Vec<u8>>>,
     known: &'a BTreeSet<VaultId>,
+    /// The key generation this device holds per vault.
+    generations: &'a BTreeMap<VaultId, KeyGeneration>,
+}
+
+/// Whether a peer announces a vault key generation newer than the one this
+/// device holds. A checkpoint is authenticated, so this is evidence of a key
+/// (and re-sealed records) this device has not received: a rotation that is
+/// withheld, or one this device has not caught up with yet. It counts as lag
+/// with the same grace as unread records (CRYPTO_SPEC §10, SYNC-2, R155): the
+/// view digests are compared only at equal generations, so without this a
+/// device left on a revoked key would wait for the 48 hour rule.
+fn generation_behind(held: Option<KeyGeneration>, announced: KeyGeneration) -> bool {
+    held.is_some_and(|held| announced > held)
 }
 
 /// Whether `device`'s entry for a vault shows data this device has not read.
@@ -70,12 +83,13 @@ fn entry_lags(
     entry: &PeerEntry,
 ) -> Result<bool, Error> {
     if let Some(cursor) = seen.cursors.get(&entry.vault_id) {
-        return Ok(is_lagging(
-            seen.kind,
-            cursor.as_deref(),
-            device,
-            entry.high_seq,
-        ));
+        return Ok(
+            is_lagging(seen.kind, cursor.as_deref(), device, entry.high_seq)
+                || generation_behind(
+                    seen.generations.get(&entry.vault_id).copied(),
+                    entry.generation,
+                ),
+        );
     }
     if seen.known.contains(&entry.vault_id) || s.vault_deleted_locally(entry.vault_id)? {
         return Ok(false);
@@ -94,10 +108,16 @@ fn lagging_pairs(
         cursors.insert(vault, s.sync_cursor(vault)?);
     }
     let known: BTreeSet<VaultId> = s.all_vault_ids()?.into_iter().collect();
+    let generations: BTreeMap<VaultId, KeyGeneration> = s
+        .vaults()
+        .into_iter()
+        .map(|v| (v.vault_id, v.key_generation))
+        .collect();
     let seen = Seen {
         kind,
         cursors: &cursors,
         known: &known,
+        generations: &generations,
     };
     let mut lagging = BTreeSet::new();
     for cp in s.peer_checkpoints()? {
@@ -183,12 +203,20 @@ fn compare_view(s: &mut UnlockedSession, entry: &PeerEntry) -> Result<bool, Erro
     Ok(true)
 }
 
+/// The runs of this device that must have seen the failure, after the one
+/// that first saw it, before it is reported (G5b-3): the 48 hours are read
+/// off the device's wall clock, so a clock that jumped forward between two
+/// runs must not raise the finding alone.
+const NO_COMMON_VIEW_MIN_RUNS: u64 = 3;
+
 /// The bookkeeping of one peer entry: a comparison ends the count; the
-/// first run that cannot compare starts it (with the peer counter then); a
-/// peer whose counter has risen since, with failures spanning the grace
-/// *across runs*, is reported (`NoCommonView`, persisted). A single run after
-/// a long pause (or a clock jump) that finds no peer at its head does not
-/// raise it: the runs that follow normally meet.
+/// first run that cannot compare starts it (with the peer counter and this
+/// device's run counter then); a peer whose counter has risen since, with
+/// failures spanning the grace *across runs* and at least
+/// [`NO_COMMON_VIEW_MIN_RUNS`] further runs of this device, is reported
+/// (`NoCommonView`, persisted). A single run after a long pause (or a clock
+/// jump) that finds no peer at its head does not raise it: the runs that
+/// follow normally meet.
 fn track_comparison(
     s: &mut UnlockedSession,
     cp: &PeerCheckpoint,
@@ -198,18 +226,22 @@ fn track_comparison(
 ) -> Result<(), Error> {
     let (device, vault) = (cp.device_id, entry.vault_id);
     if compared {
-        return s.put_view_compare(device, vault, None, cp.counter);
+        return s.put_view_compare(device, vault, None, cp.counter, 0);
     }
+    let own = s.checkpoint_counter()?;
     match s.view_compare(device, vault)? {
-        Some((Some(since), counter)) if since <= now => {
-            if cp.counter > counter && now - since > NO_COMMON_VIEW_GRACE_MS {
+        Some((Some(since), peer_then, own_then)) if since <= now => {
+            if cp.counter > peer_then
+                && now - since > NO_COMMON_VIEW_GRACE_MS
+                && own.saturating_sub(own_then) >= NO_COMMON_VIEW_MIN_RUNS
+            {
                 s.set_no_common_view(device, vault, since)?;
             }
             Ok(())
         }
         // First failure, or a count started in the future (the clock was set
         // back): it starts now.
-        _ => s.put_view_compare(device, vault, Some(now), cp.counter),
+        _ => s.put_view_compare(device, vault, Some(now), cp.counter, own),
     }
 }
 

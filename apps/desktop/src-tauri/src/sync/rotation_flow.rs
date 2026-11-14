@@ -11,8 +11,8 @@
 //! - Every step that talks to a backend runs with the sync thread stopped, a
 //!   lock epoch recorded first and the session slot held for single closures
 //!   only (the engine and the transports never hold it across the network).
-//!   A lock waits for the running step ([`SyncService::begin_change`], three
-//!   minutes at most); the job journal resumes what a lock or a crash cut off.
+//!   A lock never waits for the running step (ADR-0155): the local commit is
+//!   one slot step, and the job journal resumes what a lock or a crash cut off.
 //! - The webview never sees a key: it types passwords, the last kit group and
 //!   second-factor codes ([`SecretIn`]).
 
@@ -222,6 +222,9 @@ impl Backend {
         if matches!(kind, VaultKind::Profile) {
             return Ok(());
         }
+        // Every caller checked the master password just now: the pending kit
+        // may be saved without it until the next lock (KEY-1).
+        *guard(&self.pending_kit_window)? = Some(account);
         if fresh || self.pending_secret_keys.load(account)?.is_none() {
             let key = SecretKey::generate()?;
             if let Err(error) = self.pending_secret_keys.save(account, &key) {
@@ -257,6 +260,7 @@ impl Backend {
         self.secret_keys.save(account, key)?;
         let _ = self.pending_secret_keys.delete(account);
         *guard(&self.pending_kit_verified)? = None;
+        *guard(&self.pending_kit_window)? = None;
         Ok(())
     }
 
@@ -985,6 +989,7 @@ impl Backend {
         };
         self.pending_secret_keys.delete(account)?;
         *guard(&self.pending_kit_verified)? = None;
+        *guard(&self.pending_kit_window)? = None;
         self.emit_rotation_progress();
         Ok(())
     }

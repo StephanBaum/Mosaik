@@ -63,7 +63,7 @@ mod transport;
 pub mod wire;
 
 pub use approval::{
-    ApprovalEvent, ApprovalPrompts, ApprovalRequest, Approver, ClientInfo, CloseReason,
+    ApprovalEvent, ApprovalPrompts, ApprovalRequest, Approver, ClientInfo, CloseReason, ConnOrigin,
     DEFAULT_GRANT, Decision, InvalidRequestId, RequestId, RespondError, SignFailed,
 };
 pub use core::{AgentConfig, AgentCore};

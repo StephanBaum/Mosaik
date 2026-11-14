@@ -264,6 +264,7 @@ export const errors = {
     "Dein Master-Passwort wurde auf dem Server oder im Ordner geändert. Gib unten das neue ein.",
   "error.sharingNotHosted":
     "Zum Teilen brauchst du einen Mosaic-Server. Verbinde zuerst in den Sync-Einstellungen einen.",
+  "error.setupCodeNeedsServer": "Ein Handy kann nur einem Konto auf einem Mosaic-Server beitreten.",
   "error.sharingContactUnverified":
     "Vergleiche zuerst den Sicherheitscode dieser Person. Mosaic teilt nur mit Personen, die du geprüft hast.",
   "error.sharingKeyChanged":

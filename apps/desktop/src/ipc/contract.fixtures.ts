@@ -63,6 +63,7 @@ export const fixtures = {
     "import_commit",
     "import_cancel",
     "export_passkeys_cxf",
+    "setup_code_show",
     "ssh_agent_status",
     "ssh_agent_set_enabled",
     "ssh_respond",
@@ -365,6 +366,7 @@ export const fixtures = {
       "shortcutUnavailable",
       "shortcutUnsupported",
       "sharingNotHosted",
+      "setupCodeNeedsServer",
       "sharingContactUnverified",
       "sharingKeyChanged",
       "sharingRoleForbidden",
@@ -440,6 +442,7 @@ export const fixtures = {
     "importEntryWarning": [
       "unmappedFields",
       "otpUnreadable",
+      "otpWeak",
       "attachmentTooLarge",
       "attachmentMissing",
       "tagsDropped",
@@ -452,7 +455,8 @@ export const fixtures = {
       "titleCleaned",
       "passkeyUnreadable",
       "passkeyUnsupported",
-      "passkeysLimit"
+      "passkeysLimit",
+      "notesTruncated"
     ],
     "importFormat": [
       "enpass",
@@ -472,6 +476,7 @@ export const fixtures = {
       "attachmentsSkipped",
       "entriesSkipped",
       "otpUnreadable",
+      "otpWeak",
       "passkeysNotImported",
       "passkeyUnreadable",
       "passkeyUnsupported",
@@ -579,6 +584,13 @@ export const fixtures = {
       "biometric",
       "hardwareKey"
     ],
+    "reauthPurpose": [
+      "quickUnlockEnroll",
+      "hardwareVaultKey",
+      "leaveHardwareVault",
+      "passkeyExport",
+      "vaultKeyRotation"
+    ],
     "registrationMode": [
       "open",
       "invite",
@@ -659,6 +671,11 @@ export const fixtures = {
       "allowOnce",
       "allowFor15Minutes",
       "deny"
+    ],
+    "sshOrigin": [
+      "local",
+      "forwarded",
+      "bindFailed"
     ],
     "sshSignFailReason": [
       "passphraseRequired",
@@ -1069,6 +1086,9 @@ export const fixtures = {
       "code": "sharingNotHosted"
     },
     {
+      "code": "setupCodeNeedsServer"
+    },
+    {
       "code": "sharingContactUnverified"
     },
     {
@@ -1229,6 +1249,7 @@ export const fixtures = {
         "fingerprint": "SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s",
         "itemId": "019a2b3c-4d5e-7020-8000-000000000003",
         "keyTitle": "Deploy key",
+        "origin": "local",
         "requestId": "ssh-1",
         "requestedAt": 1761480035000,
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
@@ -2230,7 +2251,24 @@ export const fixtures = {
     ],
     "reauthenticate": [
       {
-        "password": "correct horse battery staple"
+        "password": "correct horse battery staple",
+        "purpose": "quickUnlockEnroll"
+      },
+      {
+        "password": "correct horse battery staple",
+        "purpose": "hardwareVaultKey"
+      },
+      {
+        "password": "correct horse battery staple",
+        "purpose": "leaveHardwareVault"
+      },
+      {
+        "password": "correct horse battery staple",
+        "purpose": "passkeyExport"
+      },
+      {
+        "password": "correct horse battery staple",
+        "purpose": "vaultKeyRotation"
       }
     ],
     "rekey_commit": [
@@ -2478,6 +2516,11 @@ export const fixtures = {
         "favorite": true,
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "setup_code_show": [
+      {
+        "password": "correct horse battery staple"
       }
     ],
     "sharing_accept_key_change": [
@@ -4114,6 +4157,7 @@ export const fixtures = {
             "warnings": [
               "unmappedFields",
               "otpUnreadable",
+              "otpWeak",
               "attachmentTooLarge",
               "attachmentMissing",
               "tagsDropped",
@@ -4126,7 +4170,8 @@ export const fixtures = {
               "titleCleaned",
               "passkeyUnreadable",
               "passkeyUnsupported",
-              "passkeysLimit"
+              "passkeysLimit",
+              "notesTruncated"
             ]
           },
           {
@@ -4161,6 +4206,7 @@ export const fixtures = {
           "attachmentsSkipped",
           "entriesSkipped",
           "otpUnreadable",
+          "otpWeak",
           "passkeysNotImported",
           "passkeyUnreadable",
           "passkeyUnsupported",
@@ -5060,6 +5106,22 @@ export const fixtures = {
         "title": "GitHub",
         "trashedAt": null,
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "setup_code_show": [
+      {
+        "expiresAt": 1762689660000,
+        "modules": [
+          [
+            true,
+            false
+          ],
+          [
+            false,
+            true
+          ]
+        ],
+        "size": 2
       }
     ],
     "sharing_accept_key_change": [
@@ -6662,18 +6724,21 @@ export const fixtures = {
         "accounts": [
           "019a2b3c-4d5e-7030-8000-000000000001"
         ],
+        "accountsTruncated": false,
         "choiceId": "choice-1",
         "contents": "mosaic",
         "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic"
       },
       {
         "accounts": [],
+        "accountsTruncated": false,
         "choiceId": "choice-2",
         "contents": "empty",
         "displayPath": "D:\\Sync"
       },
       {
         "accounts": [],
+        "accountsTruncated": false,
         "choiceId": "choice-3",
         "contents": "other",
         "displayPath": "D:\\Documents"

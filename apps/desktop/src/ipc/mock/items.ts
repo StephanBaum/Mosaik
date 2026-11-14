@@ -365,7 +365,7 @@ export const itemHandlers: MockHandlers = {
     }
     const item = findItem(state, request);
     if (hardwareVaultOf(state, request.vaultId) !== undefined) {
-      requireFreshReauth(state, false);
+      requireFreshReauth(state, false, "leaveHardwareVault");
     }
     const itemId = state.nextId();
     item.detail.summary = { ...item.detail.summary, vaultId: request.targetVaultId, itemId };

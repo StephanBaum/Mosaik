@@ -1445,6 +1445,22 @@ impl UnlockedSession {
         Ok(())
     }
 
+    /// Forgets a loss mark on a vault this account owns. An older version
+    /// marked the owner's own vault lost when the server answered 403 or
+    /// 404, which an honest server never does to the owner (SYNC-1); the
+    /// mark would stop the vault syncing and its revocations for good.
+    /// Returns whether a mark was cleared. A vault of another owner keeps its
+    /// mark.
+    ///
+    /// # Errors
+    /// [`Error::UnknownVault`], [`Error::Core`], [`Error::Store`].
+    pub fn clear_owner_access_lost(&mut self, vault: VaultId) -> Result<bool> {
+        if !self.owns_vault(vault)? {
+            return Ok(false);
+        }
+        Ok(self.store.clear_access_lost(&vault)?)
+    }
+
     // ---- invites -----------------------------------------------------------
 
     /// Prepares an invite of `recipient` to the vault (CRYPTO_SPEC §8.2):

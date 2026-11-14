@@ -50,9 +50,19 @@ export interface KitVerification {
   matches: boolean;
 }
 
-/** `reauthenticate`: the master password again; opens a two-minute window for the commands that answer `reauthRequired`. */
+export const reauthPurposes = [
+  "quickUnlockEnroll",
+  "hardwareVaultKey",
+  "leaveHardwareVault",
+  "passkeyExport",
+  "vaultKeyRotation",
+] as const;
+export type ReauthPurpose = (typeof reauthPurposes)[number];
+
+/** `reauthenticate`: the master password again; opens a two-minute window for the one command `purpose` names. */
 export interface ReauthenticateRequest {
   password: string;
+  purpose: ReauthPurpose;
 }
 
 export interface UnlockRequest {

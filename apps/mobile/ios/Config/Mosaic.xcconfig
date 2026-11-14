@@ -1,0 +1,6 @@
+// Identifiers that cannot change after the first store upload (OD-M10-1). Override on the xcodebuild
+// command line (MOSAIC_BUNDLE_ID=... MOSAIC_TEAM_ID=...) for another owner.
+MOSAIC_BUNDLE_ID = io.github.stephanbaum.mosaic
+// The Apple Developer team (OD-M10-2). Empty: CI builds are unsigned simulator builds and a device compile check.
+MOSAIC_TEAM_ID =
+DEVELOPMENT_TEAM = $(MOSAIC_TEAM_ID)

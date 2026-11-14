@@ -22,6 +22,7 @@ use mosaic_vault::session::{
     Error, InviteId, PulledShareView, RevocationReason, RotationPlan, SharingFinding,
     UnlockedSession,
 };
+use mosaic_vault::storage::VaultFlag;
 
 use super::consts::ATTACHMENT_DOWNLOAD_BUDGET;
 use super::pull::RunStats;
@@ -120,6 +121,64 @@ impl<T: Transport> SyncEngine<T> {
         Ok(access
             .with(|s| s.sharing_findings())??
             .contains(&SharingFinding::IdentityMismatch))
+    }
+
+    /// The server answered 403 or 404 for a shared vault. A member loses the
+    /// vault (it is no longer served; CRYPTO_SPEC §8.3). The owner never is:
+    /// an honest server cannot refuse the owner, who cannot be removed or
+    /// leave, so a refusal is the server lying. It is recorded as a finding
+    /// against the server (persisted until acknowledged) and the vault stays
+    /// in the normal retry path, so a revocation is never dropped (SYNC-1,
+    /// R154). One closure: the ownership check and the write cannot race.
+    ///
+    /// Returns whether the vault is one this account owns.
+    pub(super) fn refused_vault(
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+    ) -> Result<bool, SyncError> {
+        Ok(access.with(|s| -> Result<bool, Error> {
+            if !s.vault_shared(vault)? {
+                return Ok(false);
+            }
+            if s.owns_vault(vault)? {
+                s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
+                Ok(true)
+            } else {
+                s.mark_access_lost(vault)?;
+                Ok(false)
+            }
+        })??)
+    }
+
+    /// The rotation of an owned vault cannot go on because the server
+    /// refused a call (403, 404 or `role_forbidden`, none of which an honest
+    /// server answers the owner). Never silent: a finding against the server
+    /// and [`SyncWarning::RotationBlocked`]; the revocations stay queued and
+    /// the next run tries again. A vault this account does not own just
+    /// returns (only the owner's device rotates).
+    fn rotation_refused(
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        report: &mut SyncReport,
+    ) -> Result<(), SyncError> {
+        let owned = access.with(|s| -> Result<bool, Error> {
+            if !s.vault_shared(vault)? || !s.owns_vault(vault)? {
+                return Ok(false);
+            }
+            s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
+            Ok(true)
+        })??;
+        if owned {
+            Self::warn_rotation_blocked(report, vault);
+        }
+        Ok(())
+    }
+
+    fn warn_rotation_blocked(report: &mut SyncReport, vault: VaultId) {
+        let warning = SyncWarning::RotationBlocked { vault };
+        if !report.warnings.contains(&warning) {
+            report.warnings.push(warning);
+        }
     }
 
     /// Records a finding unless the same one is stored.
@@ -335,12 +394,9 @@ impl<T: Transport> SyncEngine<T> {
         let members = match self.sharing_tx()?.members(vault) {
             Ok(m) => m,
             Err(e) if is_lost(&e) => {
-                access.with(|s| -> Result<(), Error> {
-                    if s.vault_shared(vault)? {
-                        s.mark_access_lost(vault)?;
-                    }
-                    Ok(())
-                })??;
+                if access.with(|s| s.vault_shared(vault))?? {
+                    Self::refused_vault(access, vault)?;
+                }
                 return Ok(());
             }
             Err(e) => return Err(e.into()),
@@ -555,12 +611,9 @@ impl<T: Transport> SyncEngine<T> {
         stats: &mut RunStats,
     ) -> Result<(), SyncError> {
         for vault in core::mem::take(&mut stats.rotation_requested) {
-            let owned =
-                access.with(|s| -> Result<bool, Error> {
-                    Ok(s.vault_shared(vault)?
-                        && !s.vault_access_lost(vault)?
-                        && s.owns_vault(vault)?)
-                })??;
+            let owned = access.with(|s| -> Result<bool, Error> {
+                Ok(s.vault_shared(vault)? && s.owns_vault(vault)?)
+            })??;
             if !owned || report.rotated_vaults.contains(&vault) {
                 continue;
             }
@@ -642,8 +695,14 @@ impl<T: Transport> SyncEngine<T> {
                     }
                     // Not allowed to write it (a role change on the server
                     // side): it stays queued.
-                    Err(TransportError::Rejected(Rejection::RoleForbidden)) => break,
-                    Err(e) if is_lost(&e) => break,
+                    Err(TransportError::Rejected(Rejection::RoleForbidden)) => {
+                        Self::rotation_refused(access, vault, report)?;
+                        break;
+                    }
+                    Err(e) if is_lost(&e) => {
+                        Self::rotation_refused(access, vault, report)?;
+                        break;
+                    }
                     Err(e) => return Err(e.into()),
                 }
             }
@@ -694,7 +753,7 @@ impl<T: Transport> SyncEngine<T> {
 
     /// Rotates the vaults this account owns whose revocations are queued or
     /// whose roster lists a member the server no longer has.
-    fn process_revocations(
+    pub(super) fn process_revocations(
         &mut self,
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
@@ -706,7 +765,7 @@ impl<T: Transport> SyncEngine<T> {
             let pending = s.pending_revocations()?;
             let mut owned = Vec::new();
             for v in s.synced_vaults() {
-                if s.vault_shared(v)? && !s.vault_access_lost(v)? && s.owns_vault(v)? {
+                if s.vault_shared(v)? && s.owns_vault(v)? {
                     owned.push(v);
                 }
             }
@@ -722,7 +781,12 @@ impl<T: Transport> SyncEngine<T> {
                 Some(m) => m.clone(),
                 None => match self.sharing_tx()?.members(vault) {
                     Ok(m) => m,
-                    Err(e) if is_lost(&e) => continue,
+                    // A revocation is waiting and the server refuses the
+                    // member list: never skipped silently (SYNC-1).
+                    Err(e) if is_lost(&e) => {
+                        Self::rotation_refused(access, vault, report)?;
+                        continue;
+                    }
                     Err(e) => return Err(e.into()),
                 },
             };
@@ -746,7 +810,14 @@ impl<T: Transport> SyncEngine<T> {
             if explicit.is_empty() && left.is_empty() {
                 continue;
             }
-            self.rotate_shared(access, vault, &explicit, false, report, stats)?;
+            // A rotation that did not happen leaves the revocation queued:
+            // that is visible, never a silent skip (SYNC-1).
+            if self
+                .rotate_shared(access, vault, &explicit, false, report, stats)?
+                .is_none()
+            {
+                Self::warn_rotation_blocked(report, vault);
+            }
         }
         Ok(())
     }
@@ -1008,7 +1079,10 @@ impl<T: Transport> SyncEngine<T> {
             self.pull_vault(access, vault, report, stats)?;
             let members = match self.sharing_tx()?.members(vault) {
                 Ok(m) => m,
-                Err(e) if is_lost(&e) => return Ok(None),
+                Err(e) if is_lost(&e) => {
+                    Self::rotation_refused(access, vault, report)?;
+                    return Ok(None);
+                }
                 Err(e) => return Err(e.into()),
             };
             self.fetch_vault_attachments(access, vault)?;
@@ -1072,8 +1146,14 @@ impl<T: Transport> SyncEngine<T> {
                 Ok(RotateResult::HeadMoved { .. } | RotateResult::MembersMismatch { .. }) => {
                     continue;
                 }
-                Err(TransportError::Rejected(Rejection::RoleForbidden)) => return Ok(None),
-                Err(e) if is_lost(&e) => return Ok(None),
+                Err(TransportError::Rejected(Rejection::RoleForbidden)) => {
+                    Self::rotation_refused(access, vault, report)?;
+                    return Ok(None);
+                }
+                Err(e) if is_lost(&e) => {
+                    Self::rotation_refused(access, vault, report)?;
+                    return Ok(None);
+                }
                 Err(e) => return Err(e.into()),
             }
             let outcome = match access.with(|s| s.commit_shared_rotation(prepared))? {

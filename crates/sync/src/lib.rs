@@ -36,6 +36,7 @@ pub mod engine;
 pub mod folder;
 #[cfg(feature = "http")]
 pub mod http;
+pub mod setup_code;
 pub mod sharing;
 #[cfg(feature = "test-util")]
 pub mod testutil;

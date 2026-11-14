@@ -76,6 +76,10 @@ use crate::quick_unlock::QuickUnlockService;
 use crate::screen_capture::NativeScreenCapture;
 use crate::state::{AppState, Backend, Slot, guard};
 
+/// The window title of a preview build (ADR-0153): the English and German word for "preview".
+#[cfg(feature = "preview")]
+const PREVIEW_WINDOW_TITLE: &str = "Mosaic (Preview / Vorschau)";
+
 /// The store's file name in the app data directory.
 pub const STORE_FILE: &str = "vault.sqlite3";
 
@@ -84,6 +88,14 @@ pub const STORE_FILE: &str = "vault.sqlite3";
 pub fn open_store(dir: &std::path::Path) -> Slot {
     if std::fs::create_dir_all(dir).is_err() {
         return Slot::Unavailable(ErrorCode::StoreUnavailable);
+    }
+    // Owner-only on Unix, whatever the umask says (RT-desktop-2).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).is_err() {
+            return Slot::Unavailable(ErrorCode::StoreUnavailable);
+        }
     }
     match Store::open(dir.join(STORE_FILE)) {
         Ok(store) => Slot::Locked(LockedSession::open(store)),
@@ -177,6 +189,13 @@ pub fn run() -> tauri::Result<()> {
             backend.sweep_cli_sessions();
             // macOS: the per-user manifests point into the signed bundle.
             connector::refresh_at_start();
+            // A preview build marks its native window (ADR-0153). The native title cannot reach
+            // the i18n catalog (the webview has no window permission, ADR-0019), so it names
+            // both languages.
+            #[cfg(feature = "preview")]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title(PREVIEW_WINDOW_TITLE);
+            }
             let state = AppState::new(backend);
 
             let weak = state.downgrade();
@@ -268,6 +287,8 @@ mod otp_tests;
 #[cfg(test)]
 mod quick_unlock_tests;
 #[cfg(test)]
+mod redteam_desktop_tests;
+#[cfg(test)]
 mod redteam_surface_tests;
 #[cfg(test)]
 mod redteam_tests;
@@ -277,6 +298,8 @@ mod release_overlay_tests;
 mod rotation_handler_tests;
 #[cfg(test)]
 mod settings_integrity_tests;
+#[cfg(test)]
+mod setup_code_tests;
 #[cfg(test)]
 mod sharing_tests;
 #[cfg(test)]

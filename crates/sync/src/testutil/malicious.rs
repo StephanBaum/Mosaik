@@ -35,6 +35,14 @@ pub struct MaliciousTransport<T: Transport> {
     pub tamper_pull: Option<PageTamper>,
     /// Like `tamper_pull`, and told which vault the page is of.
     pub tamper_pull_of: Option<VaultPageTamper>,
+    /// Pulls, uploads of records and uploads of metadata fail with this
+    /// (a server that refuses the vault, whoever asks).
+    pub refuse_vault_calls: Option<TransportError>,
+    /// Answers for this kind instead of the wrapped transport's (a folder
+    /// transport standing in for the hosted backend in engine unit tests).
+    pub kind_override: Option<TransportKind>,
+    /// Serves the sharing calls in place of the wrapped transport's.
+    pub sharing_stub: Option<crate::testutil::RefusedSharing>,
 }
 
 impl<T: Transport> MaliciousTransport<T> {
@@ -47,6 +55,9 @@ impl<T: Transport> MaliciousTransport<T> {
             withhold_pulls: false,
             tamper_pull: None,
             tamper_pull_of: None,
+            refuse_vault_calls: None,
+            kind_override: None,
+            sharing_stub: None,
         }
     }
 
@@ -58,7 +69,7 @@ impl<T: Transport> MaliciousTransport<T> {
 
 impl<T: Transport> Transport for MaliciousTransport<T> {
     fn kind(&self) -> TransportKind {
-        self.inner.kind()
+        self.kind_override.unwrap_or_else(|| self.inner.kind())
     }
 
     fn list_vaults(&mut self) -> Result<Vec<RemoteVault>, TransportError> {
@@ -83,6 +94,9 @@ impl<T: Transport> Transport for MaliciousTransport<T> {
         cursor: &Cursor,
         limit: usize,
     ) -> Result<PullPage, TransportError> {
+        if let Some(refusal) = self.refuse_vault_calls {
+            return Err(refusal);
+        }
         if self.withhold_pulls {
             return Ok(PullPage {
                 next: cursor.clone(),
@@ -105,6 +119,9 @@ impl<T: Transport> Transport for MaliciousTransport<T> {
         generation: KeyGeneration,
         records: &[PushRecord<'_>],
     ) -> Result<Vec<PushResult>, TransportError> {
+        if let Some(refusal) = self.refuse_vault_calls {
+            return Err(refusal);
+        }
         self.inner.push_records(vault, generation, records)
     }
 
@@ -114,6 +131,9 @@ impl<T: Transport> Transport for MaliciousTransport<T> {
         meta: &VaultMetaCiphertext,
         base_seq: Option<u64>,
     ) -> Result<PushResult, TransportError> {
+        if let Some(refusal) = self.refuse_vault_calls {
+            return Err(refusal);
+        }
         self.inner.push_meta(vault, meta, base_seq)
     }
 
@@ -249,6 +269,9 @@ impl<T: Transport> Transport for MaliciousTransport<T> {
     }
 
     fn sharing(&mut self) -> Option<&mut dyn crate::sharing::SharingTransport> {
+        if let Some(stub) = &mut self.sharing_stub {
+            return Some(stub);
+        }
         self.inner.sharing()
     }
 }

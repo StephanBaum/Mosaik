@@ -1,0 +1,407 @@
+/** German UI strings: the Android and iOS apps (M10). Informal "du". Same keys as English (checked by the type). */
+import type { mobile as en } from "../en/mobile.ts";
+
+export const mobile = {
+  "mobile.app.name": "Mosaic",
+  "mobile.nav.vault": "Tresor",
+  "mobile.nav.search": "Suche",
+  "mobile.nav.settings": "Einstellungen",
+  "mobile.common.cancel": "Abbrechen",
+  "mobile.common.done": "Fertig",
+  "mobile.common.close": "Schließen",
+  "mobile.common.continue": "Weiter",
+  "mobile.unlock.title": "Mosaic entsperren",
+  "mobile.unlock.passwordLabel": "Master-Passwort",
+  "mobile.unlock.action": "Entsperren",
+  "mobile.unlock.quick": "Schnellentsperrung verwenden",
+  "mobile.unlock.failed":
+    "{attempts, plural, one {Das hat # Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue.} other {Das hat # Mal nicht geklappt. Mosaic kann dein Master-Passwort nicht zurücksetzen. Hast du es auf einem anderen Gerät geändert, nimm das neue.}}",
+  "mobile.lock.now": "Jetzt sperren",
+  "mobile.vault.title": "Dein Tresor",
+  "mobile.vault.count": "{count, plural, one {# Eintrag} other {# Einträge}}",
+  "mobile.vault.emptyTitle": "Noch keine Einträge",
+  "mobile.vault.emptyBody":
+    "Zieh nach unten, um mit deinen anderen Geräten zu synchronisieren, oder füge deinen ersten Login hinzu.",
+  "mobile.search.placeholder": "Tresor durchsuchen",
+  "mobile.copy.done":
+    "Kopiert. Die Zwischenablage wird in {seconds, plural, one {# Sekunde} other {# Sekunden}} geleert.",
+  "mobile.setup.scanTitle": "Einrichtungscode scannen",
+  "mobile.setup.scanHint":
+    "Öffne auf deinem Computer Mosaic, geh in den Einstellungen zu Sync und wähle „Handy einrichten“. Halte die Kamera auf den Code.",
+  "mobile.autofill.title": "Mit Mosaic ausfüllen",
+  "mobile.autofill.target": "{app} ausfüllen?",
+  "mobile.settings.title": "Einstellungen",
+  "mobile.settings.about": "Über Mosaic",
+  "mobile.settings.version": "Version {version}",
+  "mobile.common.back": "Zurück",
+  "mobile.common.notNow": "Jetzt nicht",
+  "mobile.onboarding.step": "Schritt {current} von {total}",
+  "mobile.onboarding.welcome.title": "Mosaic auf diesem Handy einrichten",
+  "mobile.onboarding.welcome.body":
+    "Melde dich bei deinem Mosaic-Konto an, um deine Passwörter hierher zu holen. Alles bleibt auf diesem Handy verschlüsselt.",
+  "mobile.onboarding.welcome.start": "Los geht's",
+  "mobile.onboarding.details.title": "Dein Konto",
+  "mobile.onboarding.details.server": "Serveradresse",
+  "mobile.onboarding.details.serverHint": "https://sync.example.com",
+  "mobile.onboarding.details.email": "E-Mail",
+  "mobile.onboarding.details.secretKey": "Secret Key",
+  "mobile.onboarding.details.secretKeyHelp":
+    "Aus deinem Emergency Kit: Buchstaben und Ziffern in Gruppen, beginnend mit M1.",
+  "mobile.onboarding.details.deviceName": "Name dieses Handys",
+  "mobile.onboarding.details.deviceNameDefault": "Android-Handy",
+  "mobile.onboarding.details.checking": "Server wird geprüft",
+  "mobile.onboarding.password.title": "Dein Master-Passwort",
+  "mobile.onboarding.password.body":
+    "Mosaic sendet es nirgendwohin. Es entsperrt deinen Tresor auf diesem Handy.",
+  "mobile.onboarding.password.action": "Anmelden",
+  "mobile.onboarding.password.working": "Anmeldung läuft. Das kann ein paar Sekunden dauern.",
+  "mobile.onboarding.second.title": "Noch ein Schritt",
+  "mobile.onboarding.second.totpLabel": "6-stelliger Code",
+  "mobile.onboarding.second.totpAction": "Bestätigen",
+  "mobile.onboarding.second.keyAction": "Sicherheitsschlüssel verwenden",
+  "mobile.onboarding.second.keyWaiting":
+    "Warte auf deinen Sicherheitsschlüssel. Schließe den Vorgang im Browser ab und komm dann zurück. Der Code dort sollte {code} lauten.",
+  "mobile.onboarding.quick.title": "Schnellentsperrung",
+  "mobile.onboarding.quick.body":
+    "Entsperre Mosaic beim nächsten Mal mit deinem Fingerabdruck. Nach einem Neustart des Handys brauchst du einmal dein Master-Passwort.",
+  "mobile.onboarding.quick.enable": "Schnellentsperrung einschalten",
+  "mobile.onboarding.quick.unavailable":
+    "Füge in den Einstellungen deines Handys einen Fingerabdruck hinzu, um die Schnellentsperrung zu nutzen.",
+  "mobile.onboarding.autofill.title": "Logins automatisch ausfüllen",
+  "mobile.onboarding.autofill.body":
+    "Lass Mosaic deine Logins in anderen Apps und im Browser anbieten. Das kannst du später in den Systemeinstellungen ändern.",
+  "mobile.onboarding.autofill.open": "Autofill-Einstellungen öffnen",
+  "mobile.onboarding.done.title": "Alles bereit",
+  "mobile.onboarding.done.body": "Dein Tresor ist auf diesem Handy und entsperrt.",
+  "mobile.onboarding.done.action": "Tresor öffnen",
+  "mobile.unlock.account": "{email} wird entsperrt",
+  "mobile.unlock.secretKey": "Secret Key",
+  "mobile.unlock.secretKeyHelp":
+    "Auf diesem Handy ist dein Secret Key nicht gespeichert. Tippe ihn aus deinem Emergency Kit ein.",
+  "mobile.unlock.enrollNext":
+    "Nächstes Mal mit meinem Fingerabdruck entsperren",
+  "mobile.unlock.working": "Entsperren läuft. Das kann ein paar Sekunden dauern.",
+  "mobile.unlock.biometricTitle": "Mosaic entsperren",
+  "mobile.unlock.biometricSubtitle": "Bestätige, dass du es bist",
+  "mobile.unlock.usePassword": "Master-Passwort verwenden",
+  "mobile.unlock.busyTitle": "Mosaic ist beschäftigt",
+  "mobile.unlock.retry": "Noch einmal versuchen",
+  "mobile.home.unlockedAs": "Entsperrt als {email}",
+  "error.notFound":
+    "Diesen Eintrag gibt es nicht mehr. Vielleicht wurde er auf einem anderen Gerät gelöscht.",
+  "error.syncFailed":
+    "Mosaic konnte nicht synchronisieren. Prüfe deine Verbindung und versuche es noch einmal.",
+  "error.passwordInApp":
+    "Hier ist Entsperren mit dem Master-Passwort nicht möglich. Öffne die Mosaic-App und entsperre sie dort.",
+  "error.folderAccountUnsupported":
+    "Dieses Konto synchronisiert über einen Cloud-Ordner, den Mosaic auf Smartphones noch nicht unterstützt. Nutze einen Desktop oder ein Konto auf einem Sync-Server.",
+  "error.setupCodeInvalid":
+    "Dieser Einrichtungscode ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal.",
+  "error.notEnoughMemory":
+    "Auf diesem Gerät ist nicht genug freier Speicher, um deinen Tresor zu entsperren. Schließe andere Apps und versuche es noch einmal.",
+  "error.noMatch":
+    "Mosaic hat keinen Login für diese App oder Website. Öffne Mosaic, um einen hinzuzufügen.",
+  "error.insecureOrigin":
+    "Diese Seite nutzt keine sichere Verbindung, deshalb füllt Mosaic sie nicht aus. Öffne die https-Version der Seite.",
+  "error.appNotLinked":
+    "Diese App ist mit keiner gespeicherten Website verknüpft. Verknüpfe sie zuerst in Mosaic und versuche es dann noch einmal.",
+  "error.foreignFrame":
+    "Dieses Feld gehört zu einer anderen, in die Seite eingebetteten Website. Mosaic füllt es deshalb nicht aus.",
+  "error.assetLinksUnavailable":
+    "Mosaic konnte nicht prüfen, ob diese App zur Website gehört. Prüfe deine Verbindung und versuche es noch einmal.",
+  "error.appNotVerified":
+    "Diese App ist für die Website nicht bestätigt, deshalb nutzt Mosaic ihre Passkeys nicht. Öffne die Website stattdessen im Browser.",
+  "error.rpIdInvalid":
+    "Der Website-Name in dieser Anfrage ist nicht gültig. Brich ab und starte neu.",
+  "error.passkeyNotFound":
+    "Mosaic hat keinen Passkey für diese Website. Melde dich auf anderem Weg an.",
+  "error.passkeyExcluded":
+    "Du hast für dieses Konto schon einen Passkey in Mosaic. Melde dich stattdessen damit an.",
+  "error.passkeyUnsupportedAlgorithm":
+    "Diese Website braucht einen Passkey-Typ, den Mosaic noch nicht erstellen kann. Wähle einen anderen Weg zur Anmeldung.",
+  "error.passkeySessionExpired":
+    "Diese Passkey-Anfrage ist abgelaufen. Starte sie noch einmal in der App.",
+  "error.qrNotFound":
+    "Mosaic hat in diesem Bild keinen QR-Code gefunden. Versuche es mit einem schärferen Bild noch einmal.",
+  "error.storageUnavailable":
+    "Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Handy neu und versuche es noch einmal.",
+  // iOS (T10)
+  "mobile.common.tryAgain": "Noch einmal versuchen",
+  "mobile.onboarding.preAudit": "Pre-Audit: Mosaic wurde noch nicht von außen geprüft.",
+  "mobile.onboarding.start": "Los geht's",
+  "mobile.onboarding.server": "Serveradresse",
+  "mobile.onboarding.serverPlaceholder": "https://",
+  "mobile.onboarding.email": "E-Mail",
+  "mobile.onboarding.secretKey": "Secret Key",
+  "mobile.onboarding.secretKeyHint":
+    "Du findest ihn in deinem Emergency Kit oder in den Einstellungen auf deinem Computer. Groß- und Kleinschreibung und Bindestriche spielen keine Rolle.",
+  "mobile.onboarding.deviceName": "Name dieses Handys",
+  "mobile.onboarding.passwordHint":
+    "Mosaic prüft es auf diesem Handy. Es wird nie an den Server gesendet.",
+  "mobile.onboarding.signIn": "Anmelden",
+  "mobile.onboarding.working": "Anmeldung läuft. Das kann ein paar Sekunden dauern.",
+  "mobile.onboarding.secondFactorTitle": "Noch ein Schritt",
+  "mobile.onboarding.totpLabel": "Code aus deiner Authenticator-App",
+  "mobile.onboarding.verify": "Bestätigen",
+  "mobile.onboarding.securityKey": "Sicherheitsschlüssel verwenden",
+  "mobile.onboarding.securityKeyWaiting":
+    "Schließe die Anmeldung in deinem Browser ab. Prüfe, dass dort der Code {code} steht, und komm dann hierher zurück.",
+  "mobile.onboarding.autofillSteps":
+    "Öffne die Einstellungen-App, tippe auf „Passwörter“, dann auf „Passwortoptionen“, und schalte Mosaic ein.",
+  "mobile.onboarding.openSettings": "Einstellungen öffnen",
+  "mobile.onboarding.notNow": "Nicht jetzt",
+  "mobile.unlock.secretKeyNeeded":
+    "Dieses Handy kennt deinen Secret Key nicht. Gib ihn einmal ein, um zu entsperren.",
+  "mobile.unlock.quickOptionFaceId": "Nächstes Mal mit Face ID entsperren",
+  "mobile.unlock.biometricReason": "Deinen Mosaic-Tresor entsperren",
+  "mobile.unlock.faceIdReason":
+    "Mosaic nutzt Face ID, um deinen Tresor schnell zu entsperren. Dein Master-Passwort funktioniert immer auch.",
+  "mobile.unlock.quickInvalidated":
+    "Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um die Schnellentsperrung wieder einzuschalten.",
+  "mobile.unlock.storeBusy": "Mosaic ist beschäftigt. Versuche es gleich noch einmal.",
+  "mobile.unlock.rebootNote": "Entsperre nach einem Neustart einmal mit deinem Master-Passwort.",
+  "mobile.capture.hidden": "Ausgeblendet, solange dein Bildschirm aufgezeichnet wird",
+  // Android (T8): Tresor, Editor, App verknüpfen, Einstellungen, Gerätesperre.
+  "mobile.deviceLock.required.title": "Richte zuerst eine Bildschirmsperre ein",
+  "mobile.deviceLock.required.body":
+    "Mosaic schützt deine Schlüssel mit der Bildschirmsperre deines Handys. Lege in den Systemeinstellungen eine PIN, ein Muster oder ein Passwort fest und komm dann zurück.",
+  "mobile.deviceLock.required.action": "Sicherheitseinstellungen öffnen",
+  "mobile.common.show": "Anzeigen",
+  "mobile.common.hide": "Verbergen",
+  "mobile.common.copy": "Kopieren",
+  "mobile.common.save": "Speichern",
+  "mobile.common.remove": "Entfernen",
+  "mobile.common.edit": "Bearbeiten",
+  "mobile.common.working": "Einen Moment",
+  "mobile.vault.add": "Eintrag hinzufügen",
+  "mobile.vault.addLogin": "Zugangsdaten",
+  "mobile.vault.addNote": "Sichere Notiz",
+  "mobile.vault.untitled": "Ohne Titel",
+  "mobile.vault.favorite": "Favorit",
+  "mobile.sync.never": "Noch nicht synchronisiert",
+  "mobile.sync.last": "Synchronisiert {time}",
+  "mobile.sync.localOnly":
+    "Dieser Tresor liegt nur auf diesem Handy. Die Synchronisierung ist nicht eingerichtet.",
+  "mobile.sync.pending":
+    "{count, plural, one {# Änderung wartet aufs Hochladen} other {# Änderungen warten aufs Hochladen}}",
+  "mobile.sync.now": "Jetzt synchronisieren",
+  "mobile.sync.working": "Synchronisiere",
+  "mobile.sync.warnings": "Sync-Warnungen",
+  "mobile.sync.warning.freezeSuspected":
+    "Änderungen von einem anderen Gerät sind seit einer Weile nicht angekommen. Prüfe, ob das andere Gerät an und online ist.",
+  "mobile.sync.warning.noCommonView":
+    "Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen. Synchronisiere dein anderes Gerät und dann dieses.",
+  "mobile.sync.warning.rollbackDetected":
+    "Deine Sync-Daten wirken älter als dieses Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.identityDuplicated":
+    "Eine andere Kopie von Mosaic schreibt unter der Identität dieses Handys, zum Beispiel nach dem Wiederherstellen einer Sicherung. Die Synchronisierung ist pausiert. Stelle sicher, dass nur eine Kopie benutzt wird, und wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.serverInconsistent":
+    "Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.serverRollback":
+    "Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.sharingAttention":
+    "Bei einem geteilten Tresor ist etwas offen: Ein Schlüsselwechsel wartet, oder ein Mitglied konnte nicht geprüft werden. Öffne Mosaic auf deinem Computer, um zu sehen, was es ist. Wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.undecryptable":
+    "{count, plural, one {# empfangener Eintrag konnte} other {# empfangene Einträge konnten}} auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.",
+  "mobile.sync.warning.accountRollback":
+    "Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.acknowledge": "Ich habe es geprüft…",
+  "mobile.sync.acknowledgeTitle": "Sync-Warnungen löschen?",
+  "mobile.sync.acknowledgeBody":
+    "Mach nur weiter, wenn du den Server selbst geprüft hast. Das löscht alle Warnungen, und die Synchronisierung läuft weiter. Wurden deine Daten wirklich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen. Mach das auf jedem deiner Geräte.",
+  "mobile.sync.acknowledgeConfirm": "Ich habe es geprüft",
+  "mobile.search.hint": "Suche nach Titel, Benutzername, Website oder Tag.",
+  "mobile.search.none": "Kein Eintrag passt zu {query}.",
+  "mobile.detail.favoriteAdd": "Zu Favoriten hinzufügen",
+  "mobile.detail.favoriteRemove": "Aus Favoriten entfernen",
+  "mobile.detail.delete": "In den Papierkorb",
+  "mobile.detail.deleteTitle": "„{title}“ in den Papierkorb legen?",
+  "mobile.detail.deleteBody":
+    "Die Änderung wird mit deinen anderen Geräten synchronisiert.",
+  "mobile.detail.otpLeft": "{seconds, plural, one {# Sekunde übrig} other {# Sekunden übrig}}",
+  "mobile.detail.passkey": "Passkey für {site}",
+  "mobile.detail.attachments":
+    "{count, plural, one {# Datei ist angehängt. Öffne sie auf deinem Computer.} other {# Dateien sind angehängt. Öffne sie auf deinem Computer.}}",
+  "mobile.detail.linkedApp": "App: {name}",
+  "mobile.detail.needsLinking": "Muss verknüpft werden, bevor es ausfüllen kann",
+  "mobile.detail.linkApp": "App verknüpfen",
+  "mobile.editor.newLogin": "Neue Zugangsdaten",
+  "mobile.editor.editLogin": "Zugangsdaten bearbeiten",
+  "mobile.editor.newNote": "Neue Notiz",
+  "mobile.editor.editNote": "Notiz bearbeiten",
+  "mobile.editor.title": "Titel",
+  "mobile.editor.username": "Benutzername oder E-Mail",
+  "mobile.editor.password": "Passwort",
+  "mobile.editor.passwordKeep": "Leer lassen, um das aktuelle Passwort zu behalten.",
+  "mobile.editor.websites": "Websites",
+  "mobile.editor.websiteHint": "https://beispiel.de",
+  "mobile.editor.websiteAdd": "Website hinzufügen",
+  "mobile.editor.websiteRemove": "Website {number} entfernen",
+  "mobile.editor.notes": "Notizen",
+  "mobile.editor.favorite": "Als Favorit markieren",
+  "mobile.editor.saving": "Speichere",
+  "mobile.editor.otpTitle": "Einmalcode",
+  "mobile.editor.otpHave": "Diese Zugangsdaten haben einen Einmalcode.",
+  "mobile.editor.otpInput": "Einrichtungsschlüssel oder otpauth-Link",
+  "mobile.editor.otpAdd": "Code hinzufügen",
+  "mobile.editor.otpReady": "Bereit: {name}. Er wird mit den Zugangsdaten gespeichert.",
+  "mobile.editor.otpRemove": "Code entfernen",
+  "mobile.editor.otpRemoved": "Der Code wird beim Speichern entfernt.",
+  "mobile.editor.generate": "Passwort erzeugen",
+  "mobile.generator.title": "Passwort-Generator",
+  "mobile.generator.password": "Zeichen",
+  "mobile.generator.passphrase": "Wörter",
+  "mobile.generator.length": "Länge: {length}",
+  "mobile.generator.lowercase": "Kleinbuchstaben",
+  "mobile.generator.uppercase": "Großbuchstaben",
+  "mobile.generator.digits": "Ziffern",
+  "mobile.generator.symbols": "Sonderzeichen",
+  "mobile.generator.ambiguous": "Verwechselbare Zeichen auslassen",
+  "mobile.generator.wordCount": "Wörter: {count}",
+  "mobile.generator.separator": "Trennzeichen",
+  "mobile.generator.capitalize": "Wörter großschreiben",
+  "mobile.generator.appendDigit": "Eine Ziffer anhängen",
+  "mobile.generator.run": "Erzeugen",
+  "mobile.generator.use": "Dieses Passwort verwenden",
+  "mobile.generator.strength": "Etwa {bits} Bit Stärke",
+  "mobile.link.title": "App verknüpfen",
+  "mobile.link.choose": "Wähle die App, die du mit {login} verknüpfen willst.",
+  "mobile.link.filter": "App suchen",
+  "mobile.link.app": "App",
+  "mobile.link.package": "App-ID",
+  "mobile.link.installer": "Installiert über",
+  "mobile.link.installerUnknown": "Unbekannte Quelle",
+  "mobile.link.certificate": "Signatur des Entwicklers (Anfang)",
+  "mobile.link.verified": "Bestätigt durch {host}",
+  "mobile.link.notVerified": "Nicht bestätigt",
+  "mobile.link.unavailable": "Konnte nicht geprüft werden",
+  "mobile.link.checking": "Prüfe die Website",
+  "mobile.link.warning":
+    "Verknüpfe nur Apps, denen du vertraust. Mosaic kann nicht bestätigen, dass diese App zu {host} gehört.",
+  "mobile.link.warningNoHost":
+    "Verknüpfe nur Apps, denen du vertraust. Diese Zugangsdaten haben keine Website, die Mosaic prüfen könnte.",
+  "mobile.link.confirm": "{login} ab jetzt in dieser App ausfüllen",
+  "mobile.link.done": "Verknüpft. Mosaic füllt {login} in dieser App aus.",
+  "mobile.link.noApps": "Keine weiteren Apps gefunden.",
+  "mobile.settings.security": "Sicherheit",
+  "mobile.settings.autoLock": "Sperren, wenn du die App verlässt",
+  "mobile.settings.autoLock.now": "Sofort",
+  "mobile.settings.autoLock.s30": "Nach 30 Sekunden",
+  "mobile.settings.autoLock.s60": "Nach 1 Minute",
+  "mobile.settings.autoLock.s300": "Nach 5 Minuten",
+  "mobile.settings.idle": "Sperren, wenn du den Bildschirm nicht berührst",
+  "mobile.settings.idleOption": "{minutes, plural, one {Nach # Minute} other {Nach # Minuten}}",
+  "mobile.settings.clipboard": "Kopierte Werte löschen",
+  "mobile.settings.clipboardOption":
+    "{seconds, plural, one {Nach # Sekunde} other {Nach # Sekunden}}",
+  "mobile.settings.quick": "Schnellentsperrung",
+  "mobile.settings.quickOn": "Die Schnellentsperrung ist an.",
+  "mobile.settings.quickOff": "Die Schnellentsperrung ist aus.",
+  "mobile.settings.quickEnable": "Einschalten",
+  "mobile.settings.quickDisable": "Ausschalten",
+  "mobile.settings.quickPassword":
+    "Gib dein Master-Passwort ein, um die Schnellentsperrung einzuschalten.",
+  "mobile.settings.sync": "Synchronisierung",
+  "mobile.about.preAudit":
+    "Mosaic ist Pre-Audit-Software. Ein unabhängiges Sicherheitsaudit hat noch nicht stattgefunden.",
+  "mobile.about.privacy":
+    "Keine Analysen, kein Tracking und keine Absturzberichte verlassen dieses Handy.",
+  "mobile.about.licences": "Open-Source-Lizenzen",
+  "mobile.licences.title": "Open-Source-Lizenzen",
+  "mobile.licences.intro": "Mosaic für Android besteht auch aus diesen Open-Source-Teilen.",
+  "mobile.licences.rust":
+    "Der Rust-Kern nutzt Open-Source-Crates. Ihre Lizenzen stehen im Quellcode-Repository des Projekts.",
+  // Android (T9): Autofill-Dienst und Credential-Manager-Anbieter.
+  "mobile.autofill.unlockEntry": "Mosaic entsperren",
+  "mobile.autofill.noLogin": "Kein Login für {app}",
+  "mobile.autofill.noLoginHint": "Tippe, um einen Login zu verknüpfen",
+  "mobile.autofill.cannotCheck": "Diese App konnte nicht geprüft werden",
+  "mobile.autofill.warning": "Prüfe zuerst die Adresse",
+  "mobile.autofill.noUsername": "Kein Benutzername",
+  "mobile.autofill.otpEntry": "Einmalcode",
+  "mobile.link.pickLogin": "Wähle den Login, den Mosaic in {app} ausfüllen soll.",
+  "mobile.credential.unlockEntry": "Mosaic entsperren",
+  "mobile.credential.passwordEntry": "Passwort",
+  "mobile.credential.passkeyEntry": "Passkey",
+  "mobile.credential.createEntry": "Passkey in Mosaic speichern",
+  "mobile.credential.createTitle": "Passkey speichern?",
+  "mobile.credential.createBody": "Mosaic speichert einen Passkey für {site} ({user}).",
+  "mobile.credential.createVault": "Speichern in",
+  "mobile.credential.vaultDefault": "Persönlicher Tresor",
+  "mobile.credential.createConfirm": "Passkey speichern",
+  "mobile.credential.verifyTitle": "Bestätige, dass du es bist",
+  "mobile.credential.verifySignIn": "Bei {site} anmelden",
+  "mobile.credential.verifyCreate": "Passkey für {site} speichern",
+  "mobile.credential.verifyFailed":
+    "Mosaic konnte nicht bestätigen, dass du es bist. Versuche es noch einmal.",
+  "mobile.credential.unsupported": "Mosaic kann diese Anmeldeanfrage nicht beantworten. Brich ab und wähle einen anderen Weg zur Anmeldung.",
+  "mobile.settings.fill": "In anderen Apps ausfüllen",
+  "mobile.settings.autofillOn": "Mosaic ist dein Autofill-Dienst.",
+  "mobile.settings.autofillOff": "Mosaic ist noch nicht dein Autofill-Dienst.",
+  "mobile.settings.autofillEnable": "Mosaic für Autofill verwenden",
+  "mobile.settings.credentialHint":
+    "Android kann deine Passkeys und Passwörter aus Mosaic auch anbieten, wenn eine App nach einer Anmeldung fragt.",
+  "mobile.settings.credentialEnable": "Mosaic für Passkeys und Passwörter verwenden",
+  // Android (T13): Scanner für Einrichtungscode und Einmalcode (CameraX, keine Play-Dienste).
+  "mobile.scan.setupAction": "Einrichtungscode scannen",
+  "mobile.scan.otpAction": "QR-Code scannen",
+  "mobile.scan.otpTitle": "Einmalcode scannen",
+  "mobile.scan.otpHint":
+    "Halte die Kamera auf den QR-Code der Website. Mosaic liest ihn nur auf diesem Handy.",
+  "mobile.scan.preview": "Kamerabild",
+  "mobile.scan.looking": "Suche nach einem QR-Code",
+  "mobile.scan.notSetupCode": "Kein Mosaic-Einrichtungscode",
+  "mobile.scan.notSetupCodeHelp":
+    "Halte die Kamera auf den Code, den Mosaic auf deinem Computer in den Einstellungen unter Sync zeigt.",
+  "mobile.scan.rationale":
+    "Mosaic nutzt die Kamera nur, um diesen QR-Code zu lesen. Es wird nichts gespeichert oder gesendet.",
+  "mobile.scan.allow": "Kamera erlauben",
+  "mobile.scan.denied":
+    "Mosaic darf die Kamera nicht nutzen. Erlaube sie in den Einstellungen dieses Handys, oder gib die Angaben von Hand ein.",
+  "mobile.scan.openSettings": "Einstellungen öffnen",
+  "mobile.scan.unavailable":
+    "Mosaic konnte die Kamera nicht starten. Gib die Angaben von Hand ein.",
+  "mobile.onboarding.details.scanned":
+    "Server, E-Mail und Secret Key sind aus dem Einrichtungscode übernommen. Prüfe sie und fahre dann fort.",
+  "mobile.onboarding.details.scanOr": "Oder gib die Angaben von Hand ein",
+  "mobile.onboarding.details.keyFromCode": "Secret Key aus dem Einrichtungscode",
+  // iOS (T11): identity store settings and the licences intro.
+  "mobile.settings.passkeyIdentities": "Mosaic für Passkeys verwenden",
+  "mobile.settings.passkeyIdentitiesHint":
+    "Mosaic teilt dem System Website und Benutzernamen jedes Passkeys mit, damit es ihn anbieten kann. Die Schlüssel verlassen Mosaic nie.",
+  "mobile.settings.passwordIdentities": "Logins über der Tastatur vorschlagen",
+  "mobile.settings.passwordIdentitiesHint":
+    "Mosaic teilt dem System Website und Benutzernamen jedes Logins mit. Das System speichert diese Liste auf dem Handy, außerhalb der Verschlüsselung von Mosaic.",
+  "mobile.settings.identitiesPassword": "Gib dein Master-Passwort ein, um das einzuschalten.",
+  "mobile.licences.introIos": "Mosaic für das iPhone besteht aus diesen Open-Source-Teilen.",
+  // iOS (T12): the AutoFill extension (password, passkey and one-time-code pickers, configuration).
+  "mobile.ext.openApp": "Öffne Mosaic und entsperre es einmal mit deinem Master-Passwort.",
+  "mobile.ext.noAccount":
+    "Auf diesem iPhone ist noch kein Mosaic-Konto eingerichtet. Öffne Mosaic, um es einzurichten.",
+  "mobile.ext.loading": "Dein Tresor wird geöffnet",
+  "mobile.ext.thisSite": "diese Website",
+  "mobile.ext.matches": "Logins für {site}",
+  "mobile.ext.noMatches": "Kein Login für {site}",
+  "mobile.ext.noMatchesHint":
+    "Mosaic füllt nur Logins aus, die für diese Website gespeichert sind. Öffne Mosaic, um diese Website bei einem Login einzutragen.",
+  "mobile.ext.searchAll": "Alle Logins durchsuchen",
+  "mobile.ext.hideAll": "Andere Logins ausblenden",
+  "mobile.ext.notSavedFor": "Nicht für {site} gespeichert",
+  "mobile.ext.fillHint": "Füllt diesen Login aus",
+  "mobile.ext.warnPunycode":
+    "Diese Adresse enthält Sonderzeichen: {unicode}. Prüfe, ob es die Website ist, die du meinst.",
+  "mobile.ext.warnLookalike":
+    "Diese Adresse sieht aus wie {site}, die du in Mosaic gespeichert hast. Prüfe, ob es die Website ist, die du meinst.",
+  "mobile.ext.otpTitle": "Einmalcode auswählen",
+  "mobile.ext.passkeyTitle": "Passkey auswählen",
+  "mobile.ext.configTitle": "Mosaic AutoFill",
+  "mobile.ext.configBody":
+    "Mosaic bietet deine Logins, Passkeys und Einmalcodes an, wenn du ein Feld oder eine Anmelde-Schaltfläche antippst. Was Mosaic anbietet, änderst du in den Einstellungen der Mosaic-App.",
+  // iOS (G2): a QuickType suggestion asks first (M3), and the settings text names the limit.
+  "mobile.ext.confirmFillTitle": "Login für {site} ausfüllen?",
+  "mobile.ext.confirmFillBody":
+    "iOS teilt Mosaic nicht mit, auf welcher Seite du bist, deshalb kann Mosaic das nicht prüfen. Fülle nur aus, wenn das die Website ist, die du meinst. Danach fragt Mosaic nach Face ID oder Touch ID.",
+  "mobile.ext.confirmFillButton": "Diesen Login ausfüllen",
+  "mobile.settings.passwordIdentitiesLimit":
+    "Wenn du einen Vorschlag antippst, teilt iOS Mosaic nicht mit, auf welcher Seite du bist. Deshalb zeigt Mosaic die gespeicherte Website und füllt erst aus, nachdem du sie bestätigt und mit Face ID oder Touch ID entsperrt hast.",
+} satisfies Record<keyof typeof en, string>;

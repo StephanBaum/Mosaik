@@ -78,6 +78,65 @@ pub enum WireError {
     UnexpectedMessage,
 }
 
+/// The extension name of `session-bind@openssh.com` (OpenSSH PROTOCOL.agent
+/// §3.3).
+pub const SESSION_BIND: &[u8] = b"session-bind@openssh.com";
+
+/// The fields of a `session-bind@openssh.com` extension request: the host
+/// the client authenticated, the session identifier it signed, and whether
+/// the connection is a forwarded one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SessionBind<'a> {
+    /// The host key blob.
+    pub host_key: &'a [u8],
+    /// The session identifier the host signed.
+    pub session_id: &'a [u8],
+    /// The signature blob (string algorithm, string signature).
+    pub signature: &'a [u8],
+    /// Whether the agent connection is forwarded to another host.
+    pub forwarding: bool,
+}
+
+impl<'a> SessionBind<'a> {
+    /// Parses one extension message body (without its length prefix).
+    ///
+    /// # Errors
+    /// [`WireError::UnexpectedMessage`] if it is not a `session-bind`
+    /// extension, [`WireError::Truncated`] or [`WireError::TrailingData`]
+    /// if its fields do not fill the body exactly.
+    pub fn parse(payload: &'a [u8]) -> Result<Self, WireError> {
+        if payload.len() > MAX_MESSAGE_LEN {
+            return Err(WireError::TooLong);
+        }
+        let mut r = Reader::new(payload);
+        if r.u8().map_err(|_| WireError::Empty)? != msg::EXTENSION || r.string()? != SESSION_BIND {
+            return Err(WireError::UnexpectedMessage);
+        }
+        Self::parse_body(r.rest())
+    }
+
+    /// Parses the fields that follow the extension name: the bytes in
+    /// [`Request::Extension::body`] of a `session-bind@openssh.com` request.
+    ///
+    /// # Errors
+    /// [`WireError::Truncated`] or [`WireError::TrailingData`] if the fields
+    /// do not fill `body` exactly.
+    pub fn parse_body(body: &'a [u8]) -> Result<Self, WireError> {
+        let mut r = Reader::new(body);
+        let host_key = r.string()?;
+        let session_id = r.string()?;
+        let signature = r.string()?;
+        let forwarding = r.u8()? != 0;
+        r.finish()?;
+        Ok(Self {
+            host_key,
+            session_id,
+            signature,
+            forwarding,
+        })
+    }
+}
+
 /// A request that changes the agent's keys or lock state. The agent refuses
 /// all of them: its keys come from the vault only (brief §5).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -147,11 +206,14 @@ pub enum Request<'a> {
     Sign(SignRequest<'a>),
     /// A key or lock management request; its body is not parsed.
     Refused(RefusedRequest),
-    /// `SSH_AGENTC_EXTENSION` with its extension name; the contents after
-    /// the name are not parsed.
+    /// `SSH_AGENTC_EXTENSION` with its extension name. The bytes after the
+    /// name are kept as they are; the caller parses them for the extensions
+    /// it supports (see [`SessionBind::parse_body`]).
     Extension {
         /// The extension name, for example `session-bind@openssh.com`.
         name: &'a [u8],
+        /// The bytes after the name, unparsed.
+        body: &'a [u8],
     },
     /// Any other message number.
     Unknown(u8),
@@ -188,14 +250,21 @@ impl<'a> Request<'a> {
                     flags,
                 }))
             }
-            msg::EXTENSION => Ok(Self::Extension { name: r.string()? }),
+            msg::EXTENSION => {
+                let name = r.string()?;
+                Ok(Self::Extension {
+                    name,
+                    body: r.rest(),
+                })
+            }
             n => Ok(RefusedRequest::from_number(n).map_or(Self::Unknown(n), Self::Refused)),
         }
     }
 
     /// Encodes the message body, as a client sends it. Refused requests are
-    /// encoded with an empty body (the agent never reads it), extensions
-    /// with the name only.
+    /// encoded with an empty body (the agent never reads it); extensions are
+    /// encoded as their name followed by their `body`, byte for byte, so a
+    /// parsed extension re-encodes to the bytes it came from.
     ///
     /// # Errors
     /// [`WireError::TooLong`] if the body would exceed [`MAX_MESSAGE_LEN`].
@@ -210,9 +279,10 @@ impl<'a> Request<'a> {
                 w.u32(s.flags);
             }
             Self::Refused(r) => w.u8(r.number()),
-            Self::Extension { name } => {
+            Self::Extension { name, body } => {
                 w.u8(msg::EXTENSION);
                 w.string(name)?;
+                w.raw(body);
             }
             Self::Unknown(n) => w.u8(n),
         }
@@ -354,6 +424,11 @@ impl<'a> Reader<'a> {
         Self { buf }
     }
 
+    /// The bytes not read yet.
+    const fn rest(&self) -> &'a [u8] {
+        self.buf
+    }
+
     const fn remaining(&self) -> usize {
         self.buf.len()
     }
@@ -415,6 +490,12 @@ impl Writer {
         self.u32(u32::try_from(s.len()).map_err(|_| WireError::TooLong)?);
         self.buf.extend_from_slice(s);
         Ok(())
+    }
+
+    /// Appends bytes as they are, without a length prefix. `finish` still
+    /// enforces [`MAX_MESSAGE_LEN`] on the whole body.
+    fn raw(&mut self, b: &[u8]) {
+        self.buf.extend_from_slice(b);
     }
 
     fn finish(self) -> Result<Vec<u8>, WireError> {
@@ -537,9 +618,12 @@ mod tests {
         assert_eq!(
             Request::parse(&body).unwrap(),
             Request::Extension {
-                name: b"session-bind@openssh.com"
+                name: b"session-bind@openssh.com",
+                body: &[1, 2, 3],
             }
         );
+        // The body survives a round trip byte for byte (the fuzz target's property).
+        assert_eq!(Request::parse(&body).unwrap().encode().unwrap(), body);
         assert_eq!(Request::parse(&[27]), Err(WireError::Truncated));
         assert_eq!(Request::parse(&[1]).unwrap(), Request::Unknown(1));
         assert_eq!(Request::parse(&[255, 1]).unwrap(), Request::Unknown(255));

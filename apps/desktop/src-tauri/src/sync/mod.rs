@@ -20,8 +20,8 @@
 //! Besides the generation, the service has a **lock epoch**: it counts the
 //! locks (and disconnects, [`SyncService::reset`]). A flow that talks to the
 //! network records it first and drops its result, writing nothing, if it
-//! changed (C-L2). A master password change in flight defers a lock for up to
-//! three minutes ([`SyncService::begin_change`]).
+//! changed (C-L2). A lock never waits for a master password change in flight
+//! (ADR-0155): the change either commits in one slot step or is recovered.
 
 pub mod access;
 mod errors;
@@ -38,7 +38,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender, SyncSender};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use mosaic_core::{AccountId, InstallId, VaultId};
@@ -66,10 +66,6 @@ pub const CHOICE_TTL: Duration = Duration::from_mins(5);
 const MAX_CHOICES: usize = 8;
 /// How long "Sync now" waits for the run to end before it answers.
 const SYNC_NOW_WAIT: Duration = Duration::from_secs(120);
-/// The longest a lock waits for a master password change in flight; then
-/// the lock goes ahead and the change is recovered later
-/// ([`Backend::sync_recover_password`]).
-pub const LOCK_DEFER_CAP: Duration = Duration::from_mins(3);
 /// How long the mark of a fresh login lasts (the server allows five minutes).
 const FRESH_TTL: Duration = Duration::from_secs(240);
 
@@ -170,11 +166,8 @@ pub struct SyncService {
     skew: Mutex<Duration>,
     /// Counts the locks and resets (see the module documentation).
     epoch: AtomicU64,
-    /// How long a lock waits for a master password change (tests shorten it).
-    defer_cap: Mutex<Duration>,
     /// Whether a master password change is in flight.
     change: Mutex<bool>,
-    change_done: Condvar,
     /// Serializes saving and compare-and-deleting the session token.
     token_lock: Mutex<()>,
     /// The invites and emergency requests the last event told the webview about.
@@ -198,9 +191,7 @@ impl Default for SyncService {
             fresh_at: Mutex::new(None),
             skew: Mutex::new(Duration::ZERO),
             epoch: AtomicU64::new(0),
-            defer_cap: Mutex::new(LOCK_DEFER_CAP),
             change: Mutex::new(false),
-            change_done: Condvar::new(),
             token_lock: Mutex::new(()),
             sharing_counts: Mutex::new((0, 0)),
             unprotected: Mutex::new(BTreeMap::new()),
@@ -208,8 +199,8 @@ impl Default for SyncService {
     }
 }
 
-/// A master password change in flight ([`SyncService::begin_change`]); a lock
-/// waits for it to drop.
+/// A master password change in flight ([`SyncService::begin_change`]); only
+/// one runs at a time. A lock does not wait for it.
 pub(crate) struct ChangeGuard<'a>(&'a SyncService);
 
 impl Drop for ChangeGuard<'_> {
@@ -217,7 +208,6 @@ impl Drop for ChangeGuard<'_> {
         if let Ok(mut busy) = self.0.change.lock() {
             *busy = false;
         }
-        self.0.change_done.notify_all();
     }
 }
 
@@ -383,8 +373,7 @@ impl SyncService {
         }
     }
 
-    /// Marks a master password change in flight until the guard drops. A
-    /// lock ([`Self::wait_for_change`]) waits for it.
+    /// Marks a master password change in flight until the guard drops.
     ///
     /// # Errors
     /// `busy` if another change is in flight.
@@ -401,26 +390,6 @@ impl SyncService {
     #[cfg(test)]
     pub(crate) fn generation(&self) -> u64 {
         self.generation.load(Ordering::SeqCst)
-    }
-
-    /// Shortens the wait of a lock (tests).
-    #[cfg(test)]
-    pub(crate) fn set_defer_cap(&self, cap: Duration) {
-        if let Ok(mut current) = self.defer_cap.lock() {
-            *current = cap;
-        }
-    }
-
-    /// Waits until no master password change is in flight, for at most
-    /// [`LOCK_DEFER_CAP`]; `true` if it ended (a lock goes ahead either way).
-    pub(crate) fn wait_for_change(&self) -> bool {
-        let cap = self.defer_cap.lock().map_or(LOCK_DEFER_CAP, |c| *c);
-        let Ok(busy) = self.change.lock() else {
-            return true;
-        };
-        self.change_done
-            .wait_timeout_while(busy, cap, |busy| *busy)
-            .is_ok_and(|(_, timeout)| !timeout.timed_out())
     }
 
     /// Sets whether the backend holds a master password this device does not

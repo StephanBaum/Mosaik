@@ -37,11 +37,19 @@ function hasLockTrigger(s: Settings): boolean {
   return s.autoLockMinutes !== null || s.lockOnSleep || (s.lockOnScreenLock && SCREEN_LOCK_DETECTION);
 }
 
-/** Like Rust `weakens`: turning a protection off needs the master password. */
+/** A timeout went from set to off or to a later one (Rust `later`). */
+function later(old: number | null, next: number | null): boolean {
+  if (old === null) {
+    return false;
+  }
+  return next === null || next > old;
+}
+
+/** Like Rust `weakens`: turning a protection off, or making it later, needs the master password. */
 function weakens(old: Settings, next: Settings): boolean {
   return (
-    (next.autoLockMinutes === null && old.autoLockMinutes !== null) ||
-    (next.clipboardClearSeconds === null && old.clipboardClearSeconds !== null) ||
+    later(old.autoLockMinutes, next.autoLockMinutes) ||
+    later(old.clipboardClearSeconds, next.clipboardClearSeconds) ||
     (!next.lockOnSleep && old.lockOnSleep) ||
     (!next.lockOnScreenLock && old.lockOnScreenLock) ||
     next.quickUnlockMaxAgeDays > old.quickUnlockMaxAgeDays

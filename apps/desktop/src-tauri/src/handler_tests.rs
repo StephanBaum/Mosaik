@@ -856,7 +856,7 @@ fn settings_persist_clamp_and_need_reauth_to_weaken() {
         code(
             b.update_settings(UpdateSettingsRequest {
                 settings: Settings {
-                    auto_lock_minutes: Some(100_000),
+                    auto_lock_minutes: Some(5),
                     ..themed.clone()
                 },
                 password: None,
@@ -905,15 +905,27 @@ fn settings_persist_clamp_and_need_reauth_to_weaken() {
         "weakening needs an unlocked vault"
     );
 
-    // Harmless protection changes work unlocked, clamped, without a password.
+    // A later idle lock needs the password too (KEY-3); a clamped one then works.
     create(b);
+    let later = Settings {
+        auto_lock_minutes: Some(100_000),
+        ..themed
+    };
+    assert_eq!(
+        code(
+            b.update_settings(UpdateSettingsRequest {
+                settings: later.clone(),
+                password: None,
+            })
+            .unwrap_err()
+        ),
+        ErrorCode::ReauthRequired,
+        "a later idle lock weakens"
+    );
     let stored_dark = b
         .update_settings(UpdateSettingsRequest {
-            settings: Settings {
-                auto_lock_minutes: Some(100_000),
-                ..themed
-            },
-            password: None,
+            settings: later,
+            password: Some(SecretIn::test(PASSWORD)),
         })
         .unwrap();
     assert_eq!(
@@ -1798,7 +1810,13 @@ fn no_secret_leaks_into_errors_events_or_debug_output() {
         })
         .unwrap_err(),
     );
-    record_error(b.reauthenticate(SecretIn::test(ITEM_PASSWORD)).unwrap_err());
+    record_error(
+        b.reauthenticate(
+            SecretIn::test(ITEM_PASSWORD),
+            crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+        )
+        .unwrap_err(),
+    );
     record_error(
         b.update_item(req(with_item(&detail, json!({ "draft": {
             "text": [], "secrets": [{ "field": "password", "value": ITEM_PASSWORD }], "urls": [],

@@ -300,7 +300,9 @@ fn hostile_ipc_bodies_are_refused_without_a_panic_an_unlock_or_a_secret() {
     let run = |round: &str, skip: &[&str]| {
         let mut calls = 0usize;
         for &cmd in COMMANDS {
-            if skip.contains(&cmd) {
+            // The connector commands start `reg.exe` and touch the registry
+            // of the machine the test runs on: never in a test.
+            if skip.contains(&cmd) || cmd.starts_with("browser_connector_") {
                 continue;
             }
             let samples = fixtures["requests"][cmd]
@@ -637,7 +639,11 @@ fn the_reauth_grant_dies_with_its_session_even_during_a_prompt() {
         ))
         .unwrap();
     let plain = plain_vault(&b, &vault);
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::HardwareVaultKey,
+    )
+    .unwrap();
     b.lock(LockReason::Manual).unwrap();
     unlock_with_password(&b);
     b.open_hardware_vault(&mut typed(json!({ "vaultId": vault, "pin": null })))
@@ -718,7 +724,13 @@ fn wrong_passwords_from_every_command_share_one_limit_and_disable_quick_unlock()
         }),
         Box::new(|b| enroll_bio(b, Some(WRONG)).unwrap_err()),
         Box::new(|b| enroll_key(b, Some(WRONG)).unwrap_err()),
-        Box::new(|b| b.reauthenticate(SecretIn::test(WRONG)).unwrap_err()),
+        Box::new(|b| {
+            b.reauthenticate(
+                SecretIn::test(WRONG),
+                crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+            )
+            .unwrap_err()
+        }),
     ];
     let (prompts, calls) = (r.bio.prompts(), r.key.calls());
     for (n, attempt) in attempts.iter().enumerate() {
@@ -765,7 +777,11 @@ fn hardware_vault_commands_refuse_other_vaults_before_the_device() {
     let vault = hw_vault(b);
     let plain = plain_vault(b, &vault);
     let unknown = unknown_vault();
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::HardwareVaultKey,
+    )
+    .unwrap();
     let calls = r.key.calls();
     let method = "00112233445566778899aabbccddeeff";
 
@@ -856,7 +872,11 @@ fn a_hardware_vault_that_closes_during_the_touch_gets_no_key_and_eight_is_the_ca
     let r = rig(1);
     let b = Arc::new(r.backend);
     let vault = hw_vault(&b);
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::HardwareVaultKey,
+    )
+    .unwrap();
     let cell: Arc<OnceLock<Weak<Backend>>> = Arc::default();
     cell.set(Arc::downgrade(&b)).ok();
 
@@ -891,7 +911,11 @@ fn a_hardware_vault_that_closes_during_the_touch_gets_no_key_and_eight_is_the_ca
         let mut result =
             b.add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })));
         if matches!(&result, Err(e) if e.code == ErrorCode::ReauthRequired) {
-            b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+            b.reauthenticate(
+                SecretIn::test(PASSWORD),
+                crate::contract::session::ReauthPurpose::HardwareVaultKey,
+            )
+            .unwrap();
             result = b.add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })));
         }
         result
@@ -982,12 +1006,20 @@ fn a_reauth_grant_pays_for_one_key_or_one_exit_and_failures_keep_it() {
     };
 
     // Adding a key uses the grant up.
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::HardwareVaultKey,
+    )
+    .unwrap();
     assert_eq!(add_key().unwrap().keys.len(), 2);
     assert_eq!(code(add_key().unwrap_err()), ErrorCode::ReauthRequired);
 
     // Moving out of the vault uses it up too; a move that fails keeps it.
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::LeaveHardwareVault,
+    )
+    .unwrap();
     assert_eq!(
         code(move_out(0, &vault).unwrap_err()),
         ErrorCode::SameVault,
@@ -999,7 +1031,11 @@ fn a_reauth_grant_pays_for_one_key_or_one_exit_and_failures_keep_it() {
         ErrorCode::ReauthRequired,
         "the grant went with the first move"
     );
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::LeaveHardwareVault,
+    )
+    .unwrap();
     move_out(1, &plain).unwrap();
 
     // Moving between ordinary vaults neither needs nor uses the grant.
@@ -1008,14 +1044,22 @@ fn a_reauth_grant_pays_for_one_key_or_one_exit_and_failures_keep_it() {
             json!({ "vaultId": plain, "kind": "totp", "draft": totp_draft() }),
         ))
         .unwrap();
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::LeaveHardwareVault,
+    )
+    .unwrap();
     b.move_item(typed(json!({
         "vaultId": plain,
         "itemId": note.summary.item_id.0.to_string(),
         "targetVaultId": vault,
     })))
     .unwrap();
-    assert!(b.quick_unlock.reauth_granted(), "still held");
+    assert!(
+        b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::LeaveHardwareVault),
+        "still held"
+    );
 }
 
 #[test]
@@ -1338,7 +1382,11 @@ fn one_reauth_grant_lets_only_one_of_two_parallel_moves_out_of_a_hardware_vault(
             .unwrap()
         })
         .collect();
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::LeaveHardwareVault,
+    )
+    .unwrap();
     let barrier = std::sync::Barrier::new(2);
     let results: Vec<Result<(), ErrorCode>> = std::thread::scope(|scope| {
         let handles: Vec<_> = items
@@ -1373,7 +1421,11 @@ fn one_reauth_grant_lets_only_one_of_two_parallel_moves_out_of_a_hardware_vault(
         1,
         "{results:?}"
     );
-    assert!(!b.quick_unlock.reauth_granted(), "the grant was spent");
+    assert!(
+        !b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::LeaveHardwareVault),
+        "the grant was spent"
+    );
 }
 
 #[test]
@@ -1381,21 +1433,43 @@ fn a_reauth_grant_taken_out_before_a_lock_is_not_put_back_after_it() {
     let _kdf = crate::test_support::kdf_permit();
     let r = rig(0);
     let b = &r.backend;
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
-    let grant = b.quick_unlock.take_reauth().expect("granted");
-    assert!(!b.quick_unlock.reauth_granted(), "taken out");
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::LeaveHardwareVault,
+    )
+    .unwrap();
+    let grant = b
+        .quick_unlock
+        .take_reauth(crate::contract::session::ReauthPurpose::LeaveHardwareVault)
+        .expect("granted");
+    assert!(
+        !b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::LeaveHardwareVault),
+        "taken out"
+    );
     b.lock(LockReason::Manual).unwrap();
     unlock_with_password(b);
     b.quick_unlock.restore_reauth(grant);
     assert!(
-        !b.quick_unlock.reauth_granted(),
+        !b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::LeaveHardwareVault),
         "a failed command of the old session cannot revive its grant"
     );
     // Within the same session a failed command does hand it back.
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
-    let grant = b.quick_unlock.take_reauth().expect("granted");
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::LeaveHardwareVault,
+    )
+    .unwrap();
+    let grant = b
+        .quick_unlock
+        .take_reauth(crate::contract::session::ReauthPurpose::LeaveHardwareVault)
+        .expect("granted");
     b.quick_unlock.restore_reauth(grant);
-    assert!(b.quick_unlock.reauth_granted());
+    assert!(
+        b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::LeaveHardwareVault)
+    );
 }
 
 #[test]

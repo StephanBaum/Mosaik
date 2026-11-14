@@ -1,0 +1,279 @@
+name: Mobile
+
+# Native mobile builds and tests (docs/MOBILE.md, ADR-0095). CI is the build: the development PC
+# has no Gradle, NDK or Xcode. The host Rust tests of mosaic-mobile and mosaic-mobile-ffi run in ci.yml.
+
+on:
+  pull_request:
+    paths:
+      - "apps/mobile/**"
+      - "crates/**"
+      - "packages/**"
+      - "scripts/mobile/**"
+      - ".github/workflows/mobile.yml"
+      - "Cargo.lock"
+  push:
+    # feat/m10-mobile and feat/m10-ios: workflow_dispatch only works for workflows on the default branch, so until M10 is
+    # merged the branch itself triggers the run. Remove that entry at the merge.
+    branches: [main, feat/m10-mobile, feat/m10-ios]
+    paths:
+      - "apps/mobile/**"
+      - "crates/**"
+      - "packages/**"
+      - "scripts/mobile/**"
+      - ".github/workflows/mobile.yml"
+      - "Cargo.lock"
+  workflow_dispatch:
+    inputs:
+      write_metadata:
+        description: "Also write gradle/verification-metadata.xml and dependency-allowlist.txt (uploaded as an artifact)"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned tool versions (bump deliberately). NDK r29 is the current LTS.
+  ANDROID_NDK_VERSION: "29.0.14206865"
+  ANDROID_COMPILE_SDK: "36"
+  ANDROID_BUILD_TOOLS: "36.0.0"
+  CARGO_NDK_VERSION: "4.1.2"
+
+jobs:
+  android:
+    name: Android build and JVM tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Add the Android Rust targets (CI only)
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with: { key: android }
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with: { distribution: temurin, java-version: "21" }
+      - name: Install the Android SDK parts and the NDK
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "ndk;${ANDROID_NDK_VERSION}" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+      - name: Install cargo-ndk
+        run: command -v cargo-ndk || cargo install cargo-ndk --version "=${CARGO_NDK_VERSION}" --locked
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with: { cache-read-only: false }
+      - run: bash scripts/mobile/check-ffi-crate.sh
+      - name: Build the native libraries (arm64-v8a and x86_64, with test hooks)
+        run: bash scripts/mobile/build-android-native.sh debug --features test-hooks
+      - name: Generate the Kotlin bindings (from the test-hooks library, so the tests can use MosaicTestHooks)
+        run: bash scripts/mobile/bindgen.sh --features test-hooks --out apps/mobile/android/core/build/generated/uniffi kotlin
+      - name: Build the host library for the JVM tests (JNA)
+        run: cargo build -p mosaic-mobile-ffi --features test-hooks --locked
+      - name: Gradle unit tests, lint and debug APKs
+        working-directory: apps/mobile/android
+        run: >
+          ./gradlew --no-daemon --stacktrace
+          :core:testDebugUnitTest :app:testDebugUnitTest :app:lintDebug
+          :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Dependency allowlist
+        if: ${{ !cancelled() }}
+        run: bash scripts/mobile/check-android-deps.sh
+      - name: No logging in app code
+        if: ${{ !cancelled() }}
+        run: bash scripts/mobile/check-no-logging.sh
+      - name: Dialogs and menus drop obscured touches
+        if: ${{ !cancelled() }}
+        run: bash scripts/mobile/check-secure-windows.sh
+      # Manual, reviewed step to (re)generate the dependency pins: a dispatch with write_metadata, or a push
+      # whose head commit message contains [mobile-metadata]. It resolves everything the jobs use, release
+      # (R8) included, and uploads the files for review and commit.
+      - name: Write verification metadata and the allowlist
+        if: ${{ !cancelled() && (inputs.write_metadata || contains(github.event.head_commit.message, '[mobile-metadata]')) }}
+        working-directory: apps/mobile/android
+        run: |
+          ./gradlew --no-daemon --stacktrace --rerun-tasks --write-verification-metadata sha256             :core:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease
+          cd ../../..
+          bash scripts/mobile/check-android-deps.sh --write
+      - name: Stage the APKs
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p staging
+          cp apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk staging/
+          cp apps/mobile/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk staging/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: android-apks
+          path: staging/*.apk
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: android-reports
+          path: |
+            apps/mobile/android/app/build/reports/lint-results-debug.*
+            apps/mobile/android/*/build/reports/tests
+            apps/mobile/android/*/build/test-results
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && (inputs.write_metadata || contains(github.event.head_commit.message, '[mobile-metadata]')) }}
+        with:
+          name: android-dependency-metadata
+          path: |
+            apps/mobile/android/gradle/verification-metadata.xml
+            apps/mobile/android/dependency-allowlist.txt
+
+  android-release-check:
+    name: Android release check
+    # Manual runs, the nightly schedule and pushes to main; never on pull requests.
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Add the Android Rust targets (CI only)
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with: { key: android-release }
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with: { distribution: temurin, java-version: "21" }
+      - name: Install the Android SDK parts and the NDK
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "ndk;${ANDROID_NDK_VERSION}" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+      - name: Install cargo-ndk
+        run: command -v cargo-ndk || cargo install cargo-ndk --version "=${CARGO_NDK_VERSION}" --locked
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with: { cache-read-only: false }
+      - name: Build the release libraries (no features)
+        run: bash scripts/mobile/build-android-native.sh release
+      - name: No test hooks in the release libraries
+        run: |
+          for lib in apps/mobile/android/core/src/main/jniLibs/*/libmosaic_mobile_ffi.so; do
+            bash scripts/mobile/check-no-test-hooks.sh "$lib"
+          done
+      - name: Generate the Kotlin bindings (no features, so no MosaicTestHooks)
+        run: bash scripts/mobile/bindgen.sh --out apps/mobile/android/core/build/generated/uniffi kotlin
+      - name: Unsigned release APK (proves the R8 keep rules)
+        working-directory: apps/mobile/android
+        run: ./gradlew --no-daemon --stacktrace :app:assembleRelease
+
+  android-instrumented:
+    name: Android instrumented (API 34 emulator)
+    needs: android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: android-apks, path: apk }
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
+          script: |
+            adb install -r apk/app-debug.apk
+            adb install -r apk/app-debug-androidTest.apk
+            adb shell am instrument -w io.github.stephanbaum.mosaic.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt
+            grep -q '^OK (' instrument.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: android-instrumented-output
+          path: instrument.txt
+          if-no-files-found: warn
+
+  ios:
+    name: iOS build and simulator smoke test
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      # XcodeGen is a CI build tool, not a dependency of the app. The zip is checked against the digest
+      # GitHub published for the release asset (bump both together).
+      XCODEGEN_VERSION: "2.45.4"
+      XCODEGEN_SHA256: "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef"
+      IOS_SIMULATOR: "iPhone 16"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Newer bash (the scripts use set -u with arrays; macOS ships bash 3.2)
+        run: |
+          command -v /opt/homebrew/bin/bash >/dev/null || brew install bash
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Add the iOS Rust targets (CI only)
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with: { key: ios }
+      - name: Show the tool versions
+        run: |
+          bash --version | head -n 1
+          xcodebuild -version
+          xcrun simctl list devices available | grep -F "$IOS_SIMULATOR" || true
+      - name: Install XcodeGen (pinned, SHA-256 verified)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          bin="$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen | head -n 1)"
+          chmod +x "$bin"
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+      - run: bash scripts/mobile/check-ffi-crate.sh
+      - name: Static libraries, Swift bindings and the XCFramework (debug, with test hooks)
+        run: bash scripts/mobile/build-ios-xcframework.sh debug --features test-hooks
+      - name: Show the generated Swift API the app code uses (names, labels, cases)
+        run: >
+          grep -hnE '^public (protocol|enum|struct|final class) |^    (case|public func|public static func|public init|public convenience init) |^    public (var|let) ' apps/mobile/ios/Generated/Bindings/*.swift | head -1500 || true
+      - name: Generate the Xcode project
+        run: xcodegen generate --spec apps/mobile/ios/project.yml
+      - run: bash scripts/mobile/check-ios-deps.sh
+      - run: bash scripts/mobile/check-no-logging.sh
+      - name: Build the app and the extension, run the smoke tests (simulator)
+        run: >
+          xcodebuild -project apps/mobile/ios/Mosaic.xcodeproj -scheme Mosaic
+          -destination "platform=iOS Simulator,name=${IOS_SIMULATOR}"
+          -derivedDataPath apps/mobile/ios/build/DerivedData
+          -resultBundlePath apps/mobile/ios/build/Tests.xcresult
+          CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
+          test
+      - name: Release libraries (no features) and the device compile check
+        run: |
+          bash scripts/mobile/build-ios-xcframework.sh release
+          xcodegen generate --spec apps/mobile/ios/project.yml
+          xcodebuild -project apps/mobile/ios/Mosaic.xcodeproj -scheme Mosaic -configuration Release             -sdk iphoneos -derivedDataPath apps/mobile/ios/build/DerivedDataRelease             CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: ios-test-results
+          path: apps/mobile/ios/build/Tests.xcresult
+          if-no-files-found: warn

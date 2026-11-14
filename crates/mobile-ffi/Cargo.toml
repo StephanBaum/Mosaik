@@ -1,0 +1,42 @@
+[package]
+name = "mosaic-mobile-ffi"
+description = "Mosaic mobile bindings: the UniFFI shell of mosaic-mobile for Kotlin and Swift (M10, ADR-0089); no logic of its own"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# The workspace lints, unchanged: the crate keeps `#![forbid(unsafe_code)]` (ADR-0089, probe a:
+# UniFFI 0.32.2 compiles under forbid). The `unsafe_code = "allow"` table is the pre-approved
+# fallback if a UniFFI update ever needs it; `scripts/mobile/check-ffi-crate.sh` guards the crate.
+[lints]
+workspace = true
+
+[lib]
+name = "mosaic_mobile_ffi"
+# `lib` for the host tests, `cdylib` for the Android `.so`. iOS builds the static library with
+# `cargo rustc -p mosaic-mobile-ffi --lib --crate-type staticlib`.
+crate-type = ["lib", "cdylib"]
+
+[features]
+default = []
+# `uniffi-bindgen` (Kotlin and Swift generation): bindgen only, never in a library build.
+# `cargo-metadata` lets library mode find this crate's uniffi.toml.
+bindgen = ["uniffi/cli", "uniffi/cargo-metadata"]
+# `TestHooks` for the JVM unit tests, the instrumented tests and the XCTest builds.
+test-hooks = ["mosaic-mobile/test-hooks"]
+
+[dependencies]
+mosaic-mobile = { path = "../mobile" }
+# The scaffolding and derives (MPL-2.0, ADR-0089).
+uniffi.workspace = true
+# The global allocator that wipes every freed heap block (ADR-0089, R125).
+zeroizing-alloc.workspace = true
+# Secret bytes that cross from the platform are wrapped at once.
+zeroize.workspace = true
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]

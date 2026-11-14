@@ -57,6 +57,7 @@ use super::session::{
     self, KitVerification, QuickUnlockKind, QuickUnlockRequest, ShortcutState, VerifyKitRequest,
 };
 use super::settings::{self, BreachMode, Language, Theme, UpdateSettingsRequest};
+use super::setup_code;
 use super::sharing::{
     self, ContactCodeRequest, ContactStatus, EmergencyClaimRequest, EmergencyDecision,
     EmergencyGrantRequest, EmergencyRequestRequest, EmergencyRespondRequest,
@@ -65,8 +66,8 @@ use super::sharing::{
     MemberRowState, SetRoleRequest, ShareRole, ShareVaultRequest,
 };
 use super::ssh::{
-    self, SshCloseReason, SshDecision, SshRespondRequest, SshSetEnabledRequest, SshSignFailReason,
-    SshSkipReason,
+    self, SshCloseReason, SshDecision, SshOrigin, SshRespondRequest, SshSetEnabledRequest,
+    SshSignFailReason, SshSkipReason,
 };
 use super::sync::{
     self, AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
@@ -203,9 +204,13 @@ fn session_commands(f: &mut Fixtures) {
     f.command("lock", vec![()], session::samples::states());
     f.command(
         "reauthenticate",
-        vec![session::ReauthenticateRequest {
-            password: SecretIn::test("correct horse battery staple"),
-        }],
+        session::ReauthPurpose::ALL
+            .iter()
+            .map(|&purpose| session::ReauthenticateRequest {
+                password: SecretIn::test("correct horse battery staple"),
+                purpose,
+            })
+            .collect(),
         vec![()],
     );
     f.command("app_status", vec![()], vec![session::samples::app_status()]);
@@ -551,6 +556,15 @@ fn export_commands(f: &mut Fixtures) {
         "export_passkeys_cxf",
         export::samples::requests(),
         export::samples::results(),
+    );
+}
+
+/// The setup code command.
+fn setup_code_commands(f: &mut Fixtures) {
+    f.command(
+        "setup_code_show",
+        setup_code::samples::requests(),
+        setup_code::samples::results(),
     );
 }
 
@@ -1348,6 +1362,7 @@ fn enums() -> Map<String, Value> {
     for (name, all) in [
         ("errorCode", values(ErrorCode::ALL)),
         ("quickUnlockKind", values(QuickUnlockKind::ALL)),
+        ("reauthPurpose", values(session::ReauthPurpose::ALL)),
         ("vaultProtection", values(vaults::VaultProtection::ALL)),
         ("biometricPlatformKind", values(BiometricPlatformKind::ALL)),
         ("itemKind", values(ItemKind::ALL)),
@@ -1386,6 +1401,7 @@ fn enums() -> Map<String, Value> {
         ("sshSignFailReason", values(SshSignFailReason::ALL)),
         ("sshDecision", values(SshDecision::ALL)),
         ("sshCloseReason", values(SshCloseReason::ALL)),
+        ("sshOrigin", values(SshOrigin::ALL)),
         ("browserEndpointState", values(BrowserEndpointState::ALL)),
         ("browserRegistryState", values(BrowserRegistryState::ALL)),
         ("browserFamily", values(BrowserFamily::ALL)),
@@ -1439,6 +1455,7 @@ pub(crate) fn build() -> Value {
     tool_commands(&mut f, item_request);
     import_commands(&mut f);
     export_commands(&mut f);
+    setup_code_commands(&mut f);
     ssh_commands(&mut f);
     browser_commands(&mut f);
     sync_commands(&mut f);

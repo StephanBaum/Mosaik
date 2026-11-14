@@ -103,6 +103,7 @@ import {
 } from "./mock/data.ts";
 import { generatorHandlers } from "./mock/generator.ts";
 import { exportHandlers } from "./mock/export.ts";
+import { setupCodeHandlers } from "./mock/setupCode.ts";
 import { importHandlers } from "./mock/import.ts";
 import { insightHandlers } from "./mock/insights.ts";
 import { itemHandlers } from "./mock/items.ts";
@@ -199,6 +200,7 @@ const handlers: MockHandlers = {
   ...appHandlers,
   ...importHandlers,
   ...exportHandlers,
+  ...setupCodeHandlers,
   ...vaultHandlers,
   ...itemHandlers,
   ...attachmentHandlers,

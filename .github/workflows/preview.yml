@@ -1,0 +1,225 @@
+name: Preview
+
+# Unsigned PREVIEW builds for a first try-out (ADR-0153, docs/TRY_IT.md): the Windows desktop app, the
+# Chrome and Edge extension, and the Android app. Not a release: no secrets exist in this workflow, nothing
+# is signed with a real key (the Android key is made in the job and thrown away), nothing is published,
+# and the artifacts expire after 7 days. Releases use release.yml, which refuses the `preview` Cargo feature.
+#
+# Triggers: a push to a `preview/*` branch, or a manual run from such a branch.
+
+on:
+  push:
+    branches: ["preview/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Same pinned versions as mobile.yml.
+  ANDROID_NDK_VERSION: "29.0.14206865"
+  ANDROID_COMPILE_SDK: "36"
+  ANDROID_BUILD_TOOLS: "36.0.0"
+  CARGO_NDK_VERSION: "4.1.2"
+
+jobs:
+  windows-desktop:
+    name: Windows desktop (unsigned NSIS installer)
+    runs-on: windows-latest
+    timeout-minutes: 150
+    env:
+      TARGET: x86_64-pc-windows-msvc
+      # Read by the frontend build (beforeBuildCommand): the Settings note and the page title.
+      VITE_MOSAIC_PREVIEW: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Add the target
+        run: rustup target add x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: preview-desktop
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The CLI and the native host ship inside the app. The host is built WITH the preview feature: it
+      # then accepts the dev extension ID (ADR-0153). The CLI has no such feature.
+      - name: Build the sidecars
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target "$TARGET" -p mosaic-cli
+          cargo build --release --locked --target "$TARGET" -p mosaic-native-messaging --features preview
+          mkdir -p apps/desktop/src-tauri/binaries
+          cp "target/$TARGET/release/mosaic.exe" "apps/desktop/src-tauri/binaries/mosaic-$TARGET.exe"
+          cp "target/$TARGET/release/mosaic-native-host.exe" "apps/desktop/src-tauri/binaries/mosaic-native-host-$TARGET.exe"
+      - name: Build the installer (unsigned, preview feature)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @mosaic/desktop tauri build --target "$TARGET" --features preview \
+            --config src-tauri/tauri.preview.conf.json
+      - name: Collect the installer and the checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          short="$(git rev-parse --short=7 HEAD)"
+          mkdir -p out
+          n=0
+          for f in "target/$TARGET/release/bundle/nsis/"*-setup.exe; do
+            [ -f "$f" ] || continue
+            cp "$f" "out/Mosaic-PREVIEW-UNSIGNED-$short-x64-setup.exe"
+            n=$((n + 1))
+          done
+          test "$n" -eq 1 || { echo "::error::expected one NSIS installer, found $n"; exit 1; }
+          (cd out && sha256sum -- * > SHA256SUMS.tmp && mv SHA256SUMS.tmp SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mosaic-preview-windows
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  extension:
+    name: Chrome and Edge extension (dev key)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The same production build and checks as release.yml (no test code, the exact permissions).
+      - name: Build the extension and run the package checks
+        run: |
+          set -euo pipefail
+          pnpm --filter @mosaic/extension build
+          node apps/extension/scripts/check-dist.mjs
+      # The production manifest has no `key`. The copy gets the dev public key, so its ID is the dev
+      # ID that the preview native host trusts (checked against ids.rs). Chrome and Edge only.
+      - name: Add the dev key to a copy and zip it
+        run: |
+          set -euo pipefail
+          node scripts/preview/inject-dev-key.mjs apps/extension/dist/chromium stage/mosaic-preview-extension
+          command -v zip > /dev/null
+          mkdir -p out
+          (cd stage && find mosaic-preview-extension -type f | LC_ALL=C sort | zip -X -q -9 ../out/mosaic-preview-extension-chromium.zip -@)
+          (cd out && sha256sum -- * > SHA256SUMS.tmp && mv SHA256SUMS.tmp SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mosaic-preview-extension-chromium
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  android:
+    name: Android (release build, throwaway key)
+    # apps/mobile/android arrives with M10. A branch without it (main before M10) skips every step after the
+    # check below: hashFiles() is not available in a job-level `if`.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Check for the Android project
+        shell: bash
+        run: |
+          if [ -f apps/mobile/android/settings.gradle.kts ]; then echo HAS_ANDROID=true >> "$GITHUB_ENV"
+          else echo "::notice::No apps/mobile/android on this branch: the Android preview is skipped."; fi
+      - name: Install toolchain from rust-toolchain.toml
+        if: env.HAS_ANDROID == 'true'
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Add the Android Rust targets (CI only)
+        if: env.HAS_ANDROID == 'true'
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: env.HAS_ANDROID == 'true'
+        with: { key: preview-android }
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        if: env.HAS_ANDROID == 'true'
+        with: { distribution: temurin, java-version: "21" }
+      - name: Install the Android SDK parts and the NDK
+        if: env.HAS_ANDROID == 'true'
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "ndk;${ANDROID_NDK_VERSION}" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+      - name: Install cargo-ndk
+        if: env.HAS_ANDROID == 'true'
+        run: command -v cargo-ndk || cargo install cargo-ndk --version "=${CARGO_NDK_VERSION}" --locked
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        if: env.HAS_ANDROID == 'true'
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        if: env.HAS_ANDROID == 'true'
+        with: { cache-read-only: false }
+      # The same release build as mobile.yml's "Android release check": no Cargo features, no test hooks.
+      - name: Build the release libraries (no features)
+        if: env.HAS_ANDROID == 'true'
+        run: bash scripts/mobile/build-android-native.sh release
+      - name: No test hooks in the release libraries
+        if: env.HAS_ANDROID == 'true'
+        run: |
+          for lib in apps/mobile/android/core/src/main/jniLibs/*/libmosaic_mobile_ffi.so; do
+            bash scripts/mobile/check-no-test-hooks.sh "$lib"
+          done
+      - name: Generate the Kotlin bindings (no features, so no MosaicTestHooks)
+        if: env.HAS_ANDROID == 'true'
+        run: bash scripts/mobile/bindgen.sh --out apps/mobile/android/core/build/generated/uniffi kotlin
+      # A throwaway key made here: random password, never printed (masked as well), never uploaded.
+      # The keystore lives in RUNNER_TEMP, outside the artifact folder. A real release key comes later
+      # and needs an uninstall first (docs/TRY_IT.md).
+      - name: Make the throwaway keystore
+        if: env.HAS_ANDROID == 'true'
+        run: |
+          set -euo pipefail
+          pw="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
+          test "${#pw}" -ge 24
+          echo "::add-mask::$pw"
+          ks="$RUNNER_TEMP/preview-throwaway.jks"
+          export MOSAIC_ANDROID_KEYSTORE_PASSWORD="$pw"
+          keytool -genkeypair -keystore "$ks" -storetype PKCS12 -alias mosaic-preview \
+            -keyalg RSA -keysize 3072 -validity 30 -dname "CN=Mosaic preview (throwaway key)" \
+            -storepass:env MOSAIC_ANDROID_KEYSTORE_PASSWORD -keypass:env MOSAIC_ANDROID_KEYSTORE_PASSWORD > /dev/null
+          {
+            echo "MOSAIC_ANDROID_KEYSTORE=$ks"
+            echo "MOSAIC_ANDROID_KEYSTORE_ALIAS=mosaic-preview"
+            echo "MOSAIC_ANDROID_KEYSTORE_PASSWORD=$pw"
+          } >> "$GITHUB_ENV"
+      - name: Release APK signed with the throwaway key
+        if: env.HAS_ANDROID == 'true'
+        working-directory: apps/mobile/android
+        run: ./gradlew --no-daemon --stacktrace --init-script "$GITHUB_WORKSPACE/scripts/preview/android-signing.init.gradle" :app:assembleRelease
+      - name: Verify the signature, collect the APK and the checksums
+        if: env.HAS_ANDROID == 'true'
+        run: |
+          set -euo pipefail
+          apks=(apps/mobile/android/app/build/outputs/apk/release/*.apk)
+          test "${#apks[@]}" -eq 1 && test -f "${apks[0]}" || { echo "::error::expected one release APK"; exit 1; }
+          case "${apks[0]}" in *unsigned*) echo "::error::the APK is unsigned"; exit 1 ;; esac
+          apksigner="$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
+          "$apksigner" verify --verbose "${apks[0]}"
+          mkdir -p out
+          cp "${apks[0]}" "out/Mosaic-PREVIEW-android-$(git rev-parse --short=7 HEAD).apk"
+          (cd out && sha256sum -- * > SHA256SUMS.tmp && mv SHA256SUMS.tmp SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.HAS_ANDROID == 'true'
+        with:
+          name: mosaic-preview-android
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
