@@ -3,6 +3,7 @@ package io.github.stephanbaum.mosaic.provider
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.RequiresApi
@@ -28,6 +29,7 @@ import io.github.stephanbaum.mosaic.ffi.AndroidPasskeyRequest
 import io.github.stephanbaum.mosaic.ffi.ItemKey
 import io.github.stephanbaum.mosaic.ffi.PasskeyCreateSession
 import io.github.stephanbaum.mosaic.security.ErrorCodes
+import io.github.stephanbaum.mosaic.security.ProviderActivity
 import io.github.stephanbaum.mosaic.security.SecureActivity
 import io.github.stephanbaum.mosaic.ui.MosaicTheme
 import io.github.stephanbaum.mosaic.ui.components.BodyText
@@ -61,7 +63,7 @@ import kotlinx.coroutines.withContext
  * step between them for at most the provider grace (ADR-0094).
  */
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-class CredentialActivity : SecureActivity() {
+class CredentialActivity : SecureActivity(), ProviderActivity {
     private class Failure(val code: String) : Exception()
 
     private class VerifyFailed : Exception()
@@ -70,6 +72,14 @@ class CredentialActivity : SecureActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as MosaicApp
+        // Back abandons the ceremony, whatever screen is showing (a failure screen included): a flow left open
+        // would grant the provider grace for a step that never comes (RT-android-2).
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = closeWith(app, null)
+            },
+        )
         val mode = intent.getStringExtra(CredentialIntents.EXTRA_MODE)
         if (mode == null) {
             setResult(RESULT_CANCELED)

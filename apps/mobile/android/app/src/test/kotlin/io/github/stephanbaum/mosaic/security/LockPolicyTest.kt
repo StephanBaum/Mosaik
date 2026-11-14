@@ -51,7 +51,7 @@ class LockPolicyTest {
         val policy = policy()
         policy.onBackground()
         now += 45_000
-        policy.onForeground()
+        policy.onForeground(providerActivity = false)
         assertEquals(1, locks)
     }
 
@@ -135,7 +135,7 @@ class LockPolicyTest {
         assertEquals(1, locks)
         // The user unlocks again later and leaves again: no flow is open, so the background rule applies at once.
         unlocked = true
-        policy.onForeground()
+        policy.onForeground(providerActivity = false)
         policy.onBackground()
         assertEquals(2, locks)
     }
@@ -146,7 +146,7 @@ class LockPolicyTest {
         policy.openProviderFlow("fill")
         policy.onBackground()
         now += 5_000
-        policy.onForeground()
+        policy.onForeground(providerActivity = true)
         assertEquals(0, locks)
         policy.onBackground()
         assertEquals(1, locks)

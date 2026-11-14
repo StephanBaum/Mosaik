@@ -4,7 +4,6 @@ import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 import org.w3c.dom.Document
 import org.w3c.dom.Element
@@ -45,16 +44,12 @@ class RedTeamAndroidTest {
      * returned); only a provider activity keeps the grace.
      */
     @Test
-    @Ignore(
-        "RT-android-2: the provider grace covers the main activity too: a launcher start within 60 s of a provider " +
-            "unlock opens the vault without an unlock (LockPolicy.onForeground keeps the session while the grace runs)",
-    )
     fun theMainActivityReturningDuringAProviderGraceMeetsTheLockScreen() {
         val policy = policy()
         policy.openProviderFlow("autofill")
         policy.onBackground()
         now += 5_000
-        policy.onForeground()
+        policy.onForeground(providerActivity = false)
         assertEquals(1, locks)
     }
 
@@ -89,10 +84,6 @@ class RedTeamAndroidTest {
      * task).
      */
     @Test
-    @Ignore(
-        "RT-android-3: only MainActivity sets taskAffinity=\"\"; FillAuthActivity, LinkActivity (started with " +
-            "NEW_TASK|CLEAR_TASK) and CredentialActivity keep the package affinity",
-    )
     fun everyActivityOptsOutOfTheSharedTaskAffinity() {
         val doc = xml("src/main/AndroidManifest.xml")
         for (activity in elements(doc, "activity")) {

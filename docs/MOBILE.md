@@ -136,7 +136,8 @@ Limits that users notice:
   refuses to link a browser package to a login (M10-G2 H1). The core also picks the fields by target: an app (a
   browser that is not on the allowlist is an app) gets its native fields only, never the fields of a `WebView`
   or a page inside it, and a focus in one refuses the fill; a page starts at its first node with a `webDomain`
-  (M10-G2 round 2, N1).
+  (M10-G2 round 2, N1). A `webDomain` without a `webScheme` is refused as well: the scheme is never assumed
+  to be `https` (RT-android-1).
 - **Hosted accounts only.** A folder account gets: "This account syncs through a folder. The phone apps support
   Mosaic sync for now."
 - **Re-key or Secret Key change elsewhere.** It needs "Set up this phone again". Unsynced local edits are then

@@ -198,7 +198,7 @@ fn web_domain_from_allowlisted_browser_is_page_origin() {
         "com.android.chrome",
         &certs,
         Some("github.com"),
-        None,
+        Some("https"),
     ))
     .unwrap();
     let FillTarget::Web {
@@ -235,9 +235,19 @@ fn web_domain_from_allowlisted_browser_is_page_origin() {
             "com.android.chrome",
             &certs,
             Some("github.com/evil"),
-            None
+            Some("https")
         )),
         Err(TargetError::NotAnOrigin)
+    );
+    // No webScheme: refused, never read as https (RT-android-1).
+    assert_eq!(
+        android_fill_target(&caller(
+            "com.android.chrome",
+            &certs,
+            Some("github.com"),
+            None
+        )),
+        Err(TargetError::MissingScheme)
     );
 }
 

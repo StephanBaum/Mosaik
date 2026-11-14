@@ -64,7 +64,7 @@ fn g3_web_domain_tricks_from_a_trusted_browser_never_name_another_host() {
         "data:text/html,x",
     ] {
         assert!(
-            browser_target(refused, None).is_err(),
+            browser_target(refused, Some("https")).is_err(),
             "{refused:?} must not become a target"
         );
     }
@@ -75,11 +75,14 @@ fn g3_web_domain_tricks_from_a_trusted_browser_never_name_another_host() {
         ("127.0.0.1", "https://127.0.0.1"),
         ("bank.example.", "https://bank.example."),
     ] {
-        assert_eq!(web_origin(&browser_target(domain, None).unwrap()), origin);
+        assert_eq!(
+            web_origin(&browser_target(domain, Some("https")).unwrap()),
+            origin
+        );
     }
     // A trailing dot is another origin: it never matches the saved site, not
     // even with the eTLD+1 opt-in.
-    let dotted = browser_target("bank.example.", None).unwrap();
+    let dotted = browser_target("bank.example.", Some("https")).unwrap();
     let FillTarget::Web { origin, .. } = &dotted else {
         panic!("expected a web target");
     };
@@ -89,7 +92,7 @@ fn g3_web_domain_tricks_from_a_trusted_browser_never_name_another_host() {
     assert_eq!(fill_allowed(&saved, origin), Err(Refusal::NoMatch));
     // Punycode is accepted and carries the warning.
     let FillTarget::Web { idn_unicode, .. } =
-        browser_target("xn--bcher-kva.example", None).unwrap()
+        browser_target("xn--bcher-kva.example", Some("https")).unwrap()
     else {
         panic!("expected a web target");
     };

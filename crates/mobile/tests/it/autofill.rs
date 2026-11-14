@@ -849,7 +849,7 @@ fn targets_and_fields_are_pure() {
         package: package.to_owned(),
         current_signers: vec![cert.clone()],
         web_domain: Some("Example.COM".to_owned()),
-        web_scheme: None,
+        web_scheme: Some("https".to_owned()),
     };
     let target = phone.core.fill_target_android(browser).unwrap();
     assert_eq!(
@@ -859,6 +859,17 @@ fn targets_and_fields_are_pure() {
         }
     );
     assert_eq!(target.display, "example.com");
+    // A webDomain without a webScheme is never read as https (RT-android-1).
+    let no_scheme = AndroidCaller {
+        package: package.to_owned(),
+        current_signers: vec![cert.clone()],
+        web_domain: Some("example.com".to_owned()),
+        web_scheme: None,
+    };
+    assert_eq!(
+        phone.core.fill_target_android(no_scheme).err(),
+        Some(MobileError::NoMatch)
+    );
     // The same browser without a webDomain is no target at all (M10-G2 H1).
     let no_page = AndroidCaller {
         package: package.to_owned(),

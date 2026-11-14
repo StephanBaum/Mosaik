@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.service.autofill.FillResponse
 import android.view.autofill.AutofillManager
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
@@ -18,6 +19,7 @@ import io.github.stephanbaum.mosaic.ffi.ItemKey
 import io.github.stephanbaum.mosaic.provider.ProviderFlows
 import io.github.stephanbaum.mosaic.provider.ProviderGate
 import io.github.stephanbaum.mosaic.security.ErrorCodes
+import io.github.stephanbaum.mosaic.security.ProviderActivity
 import io.github.stephanbaum.mosaic.security.SecureActivity
 import io.github.stephanbaum.mosaic.ui.MosaicTheme
 import io.github.stephanbaum.mosaic.ui.components.ErrorText
@@ -40,11 +42,19 @@ import kotlinx.coroutines.CancellationException
  *
  * Everything is derived again from the caller's package and the core: the intent carries no value and no match.
  */
-class FillAuthActivity : SecureActivity() {
+class FillAuthActivity : SecureActivity(), ProviderActivity {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as MosaicApp
+        // Back abandons the flow, whatever screen is showing: a flow left open would grant the provider grace for
+        // a step that never comes (RT-android-2).
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = abandon(app)
+            },
+        )
         val mode = intent.getStringExtra(FillIntents.EXTRA_MODE)
         val info = FillRequestInfo.fromIntent(intent)
         if (mode == null || mode == FillIntents.MODE_DISMISS || info == null) {
@@ -84,7 +94,7 @@ class FillAuthActivity : SecureActivity() {
             ScreenFrame {
                 TitleText(L10n.appName(resources))
                 ErrorText(errorText(resources, code))
-                PrimaryButton(L10n.commonClose(resources), onClick = { finishWith(app, mode, null) })
+                PrimaryButton(L10n.commonClose(resources), onClick = { abandon(app) })
             }
         }
     }
@@ -162,6 +172,13 @@ class FillAuthActivity : SecureActivity() {
         if (data == null) setResult(RESULT_CANCELED) else setResult(RESULT_OK, data)
         // A tap ends the flow; the unlock step (list) leaves it open for the tap that follows.
         if (mode == FillIntents.MODE_FILL) app.lockPolicy.closeProviderFlow(ProviderFlows.AUTOFILL)
+        finish()
+    }
+
+    /** The user left without a result (Back, or Close on a failure screen): cancel and end the flow. */
+    private fun abandon(app: MosaicApp) {
+        setResult(RESULT_CANCELED)
+        app.lockPolicy.closeProviderFlow(ProviderFlows.AUTOFILL)
         finish()
     }
 

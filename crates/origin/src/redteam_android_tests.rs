@@ -39,12 +39,12 @@ fn web_origin(target: &FillTarget) -> Option<String> {
 /// cleartext page. Defense wanted: a missing scheme is refused (fail closed), or
 /// at most read as `http`, which only a login saved with `allow_http` matches.
 #[test]
-#[ignore = "RT-android-1: a trusted browser's webDomain without a webScheme is read as https (target.rs unwrap_or(\"https\")); a plain-http page in a browser that omits the scheme is offered the https login"]
 fn rt_android_1_a_missing_web_scheme_is_not_read_as_https() {
     let target = browser_target("bank.example", None);
     let upgraded =
         target.as_ref().ok().and_then(web_origin) == Some("https://bank.example".to_owned());
     assert!(!upgraded, "a missing scheme must not become https");
+    assert_eq!(target, Err(TargetError::MissingScheme));
 }
 
 /// Held: an explicit scheme is taken exactly as given. `http` stays `http` (the

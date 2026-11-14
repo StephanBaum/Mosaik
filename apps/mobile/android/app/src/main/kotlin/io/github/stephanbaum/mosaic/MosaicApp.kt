@@ -30,6 +30,7 @@ import io.github.stephanbaum.mosaic.security.LockPolicy
 import io.github.stephanbaum.mosaic.security.LockSettings
 import io.github.stephanbaum.mosaic.security.MainLooperScheduler
 import io.github.stephanbaum.mosaic.security.MemoryCheck
+import io.github.stephanbaum.mosaic.security.ProviderActivity
 import io.github.stephanbaum.mosaic.security.QuickUnlockKeys
 import io.github.stephanbaum.mosaic.security.TrustAnchors
 import io.github.stephanbaum.mosaic.security.sessionNeedsLock
@@ -140,7 +141,7 @@ class MosaicApp : Application() {
                     startedActivities += 1
                     if (startedActivities == 1) {
                         foregroundState.value = true
-                        lockPolicy.onForeground()
+                        lockPolicy.onForeground(activity is ProviderActivity)
                         clipboard.onForeground()
                         handler.removeCallbacks(ticker)
                         handler.postDelayed(ticker, TICK_MS)

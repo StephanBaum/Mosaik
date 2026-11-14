@@ -31,6 +31,10 @@ pub enum TargetError {
     /// fill, neither as a browser nor as an app (M10-G3-5).
     #[error("browser with an unknown signer")]
     UntrustedBrowser,
+    /// A trusted browser sent a `webDomain` without a `webScheme`: the page may
+    /// be plain `http`, so no scheme is guessed (RT-android-1).
+    #[error("web domain without a scheme")]
+    MissingScheme,
 }
 
 /// What a fill is for.
@@ -62,7 +66,7 @@ pub struct AndroidCaller<'a> {
     pub certs: &'a [[u8; 32]],
     /// The `webDomain` of the root view node, if any.
     pub web_domain: Option<&'a str>,
-    /// The `webScheme` of the root view node, if any (`https` when absent).
+    /// The `webScheme` of the root view node, if any (absent is refused, never read as `https`).
     pub web_scheme: Option<&'a str>,
 }
 
@@ -87,7 +91,10 @@ pub fn android_fill_target(caller: &AndroidCaller<'_>) -> Result<FillTarget, Tar
     if let Some(domain) = caller.web_domain
         && is_trusted_browser(caller.package, caller.certs)
     {
-        let scheme = caller.web_scheme.unwrap_or("https");
+        // Fail closed: a missing scheme is never read as `https`.
+        let Some(scheme) = caller.web_scheme else {
+            return Err(TargetError::MissingScheme);
+        };
         if scheme != "http" && scheme != "https" {
             return Err(TargetError::Scheme);
         }

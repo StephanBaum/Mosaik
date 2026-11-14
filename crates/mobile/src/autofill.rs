@@ -382,7 +382,9 @@ fn target_error(e: TargetError) -> MobileError {
     match e {
         TargetError::Scheme => MobileError::InsecureOrigin,
         // A browser screen without a page (the address bar): nothing to fill.
-        TargetError::BrowserWithoutDomain | TargetError::UntrustedBrowser => MobileError::NoMatch,
+        TargetError::BrowserWithoutDomain
+        | TargetError::UntrustedBrowser
+        | TargetError::MissingScheme => MobileError::NoMatch,
         _ => MobileError::InvalidInput,
     }
 }
@@ -603,7 +605,7 @@ impl Core {
     /// # Errors
     /// `invalidInput` (a bad package, certificate or domain), `insecureOrigin`
     /// (a scheme that is neither `http` nor `https`), `noMatch` (an allowlisted
-    /// browser that sent no `webDomain`: the browser app is never a target).
+    /// browser that sent no `webDomain` or no `webScheme`: nothing is guessed).
     pub fn fill_target_android(&self, caller: AndroidCaller) -> Result<FillTarget> {
         self.require_platform(Platform::Android)?;
         let certs = certs_of(&caller.current_signers)?;

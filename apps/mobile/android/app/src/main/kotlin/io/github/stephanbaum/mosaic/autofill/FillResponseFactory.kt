@@ -115,11 +115,11 @@ class FillResponseFactory(private val context: Context, private val linkTokens: 
     }
 
     private fun noLoginDataset(info: FillRequestInfo, label: String): Dataset {
-        // A non-exported activity and a one-time token, never the exported main activity (M10-G2 M3).
+        // A non-exported activity and a one-time token, never the exported main activity (M10-G2 M3). No task flags:
+        // the activity has an empty task affinity, so it never joins or clears a task another app can name (RT-android-3).
         val link =
             Intent(context, LinkActivity::class.java)
                 .putExtra(FillIntents.EXTRA_LINK_TOKEN, linkTokens.issue(info.callerPackage))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         val builder =
             Dataset.Builder(presentation(L10n.autofillNoLogin(resources, label), L10n.autofillNoLoginHint(resources)))
         for (id in info.fields.all) builder.setValue(id, null)

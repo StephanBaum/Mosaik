@@ -9,6 +9,9 @@ import io.github.stephanbaum.mosaic.ffi.SessionState
  */
 fun sessionNeedsLock(state: SessionState?): Boolean = state is SessionState.Unlocked || state is SessionState.Busy
 
+/** Marks the activities of a provider flow (autofill authentication, credential ceremony): only they keep a grace. */
+interface ProviderActivity
+
 /** The settings the lock policy reads (from `MobileSettings`; the defaults apply until they are loaded). */
 class LockSettings(
     val backgroundSeconds: Int = DEFAULT_BACKGROUND_SECONDS,
@@ -62,9 +65,15 @@ class LockPolicy(
         evaluate(now)
     }
 
-    /** An activity started. The ticker may not have run while the app was away, so the policy checks first. */
-    fun onForeground() {
+    /**
+     * An activity started. The ticker may not have run while the app was away, so the policy checks first.
+     * [providerActivity] is true only for an activity of a provider flow ([ProviderActivity]): any other activity
+     * (the launcher's main activity, the link screen) ends a running grace with a lock, because the grace is for the
+     * step between two provider activities and never for the app itself (RT-android-2).
+     */
+    fun onForeground(providerActivity: Boolean) {
         val now = clock()
+        if (!providerActivity && graceDeadline != null) lockNow()
         evaluate(now)
         backgroundedAt = null
         graceDeadline = null

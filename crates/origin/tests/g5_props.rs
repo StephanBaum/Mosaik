@@ -416,7 +416,7 @@ proptest! {
             Ok(FillTarget::AndroidApp { .. }) => prop_assert!(false, "browser as app"),
             Err(e) => prop_assert!(matches!(
                 e,
-                TargetError::Scheme | TargetError::NotAnOrigin
+                TargetError::Scheme | TargetError::NotAnOrigin | TargetError::MissingScheme
             )),
         }
     }

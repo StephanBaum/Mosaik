@@ -54,6 +54,7 @@
             android:name=".autofill.FillAuthActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale|locale|layoutDirection|density"
             android:exported="false"
+            android:taskAffinity=""
             android:windowSoftInputMode="adjustResize" />
 
         <!-- The "No login for this app" screen of the Autofill service. Not exported: only the service's pending
@@ -62,6 +63,7 @@
             android:name=".autofill.LinkActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale|locale|layoutDirection|density"
             android:exported="false"
+            android:taskAffinity=""
             android:windowSoftInputMode="adjustResize" />
 
         <!-- The ceremony step of the Credential Manager provider; started only by the provider's entries. -->
@@ -69,6 +71,7 @@
             android:name=".provider.CredentialActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale|locale|layoutDirection|density"
             android:exported="false"
+            android:taskAffinity=""
             android:windowSoftInputMode="adjustResize"
             tools:targetApi="upside_down_cake" />
 

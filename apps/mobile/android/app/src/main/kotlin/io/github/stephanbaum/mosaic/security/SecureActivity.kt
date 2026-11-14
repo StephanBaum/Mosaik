@@ -19,6 +19,10 @@ abstract class SecureActivity : ComponentActivity() {
         // API 31+: other apps' overlay windows are hidden while this window is in front (needs the
         // HIDE_OVERLAY_WINDOWS permission of the manifest), so nothing can draw over a secret.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) window.setHideOverlayWindows(true)
+        // Touches that reach this window while another app's window covers it are dropped. This is the defense on
+        // API 28-30, which have no setHideOverlayWindows, and it holds on newer versions too (RT-android-4). It
+        // covers this activity's window only: a Compose dialog or menu is a window of its own.
+        window.decorView.filterTouchesWhenObscured = true
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
