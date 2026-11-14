@@ -254,6 +254,14 @@ Design: `docs/MOBILE.md`, CRYPTO_SPEC §6.9, ADR-0088 to ADR-0096. Until OD-M10-
 | The mobile build chain (Gradle and AndroidX, JNA's prebuilt native library, XcodeGen, UniFFI) | Gradle dependency verification (SHA-256) and wrapper validation; a release classpath allowlist that also greps for Firebase, Play services, analytics and crash reporting; no remote Swift packages; XcodeGen checked against a pinned SHA-256; UniFFI pinned exactly, with `cargo deny` over all features (ADR-0089, ADR-0095), M10. `cargo deny` does not cover the JVM tree; mobile SBOMs are a follow-up if the owner wants store releases |
 | Wrapper crates and `mosaic-winshim` run `unsafe` Windows calls inside the vault process (program fill) | ADR-0157 vetting; exact pins; `unsafe` only in `crates/winshim`, each block with a `// SAFETY:` reading; Fable red-team review before the first merge and on every change; a re-vetting on every version bump |
 
+### 4.10 Desktop program fill (Windows)
+
+| Threat | Mitigation |
+|---|---|
+| A look-alike program (`dlscord.exe`, a Cyrillic `о` in the name) is taken for a linked one | the identity is the signer's subject hash plus the folded exe name, or the package family, never a title or caption; a homoglyph name is a different name and never matches; a one-edit look-alike of an already linked exe name is a warning when linking (ADR-0158, `mosaic_origin::program`) |
+| An unsigned program at a user-writable path is replaced by another file | an unsigned program binds path plus file hash; a changed hash no longer matches and asks to link again; a signed image never matches a path binding (ADR-0158) |
+| A browser, script or interpreter host, credential or UAC broker or remote-desktop client poses as a program, or is made one by a stolen signature | excluded by file name (and package family) for any signer: never bindable, never match (ADR-0158) |
+
 ## 5. Residual risks register
 
 | ID | Risk | Status |

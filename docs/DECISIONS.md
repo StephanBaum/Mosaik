@@ -6034,3 +6034,72 @@ pin stays `=0.62.2`; the shim only adds features. A `windows` version bump re-ru
 |---|---|---|---|
 | — | crypto-reviewer | every `unsafe` block of `crates/winshim` | pending (Task 6 hand-off) |
 | — | Fable red team | the whole of `crates/winshim` | pending (before the first merge) |
+
+## ADR-0158: Windows program identity and binding
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: autofill everywhere, part 1 (Windows program fill, phase 1)
+
+### Context
+ADR-0157 is GO. A login item can be linked to a Windows program the way it can be linked to an Android app
+(ADR-0092): the program has an identity the user cannot spoof with a window title, and only the right program
+matches. Spec `docs/superpowers/specs/2026-11-14-autofill-everywhere-design.md` §5.1.2, §5.1.3, §6.2 Part 1, §7 Q2
+and Q3. The rules are pure and live in `crates/origin/src/program.rs`; the capture and the policy live in
+`crates/program-fill`.
+
+### Decision
+- **Three canonical URL forms.** Only the canonical text is accepted; `parse` decodes and re-encodes and refuses
+  what does not round-trip. The scheme is `winapp://` in lowercase; there is no fragment; a form that has a query
+  has exactly one member.
+  - `winapp://package/<family>`: a package family name `<Name>_<PublisherId>`, ASCII lowercase. Name 3 to 50 of
+    `[a-z0-9.-]`; PublisherId exactly 13 of the lowercase Crockford base32 alphabet `0-9a-hjkmnp-tv-z`.
+  - `winapp://signed/<exe>?signer=<43 base64url>`: `<exe>` is the folded file name, percent-encoded (bytes in
+    `[a-z0-9-._~]` stay, every other byte is `%XX` with uppercase hex). The decoded name is 1 to 255 bytes of
+    UTF-8, equals its own fold, is not `.` or `..`, and has none of `\ / : * ? " < > |`, no control character and
+    no NUL. `signer` is the SHA-256 of the DER subject of the leaf signing certificate.
+  - `winapp://path/<base64url(UTF-8 path)>?sha256=<43 base64url>`: the decoded path is 1 to 4096 bytes of UTF-8,
+    starts with a drive (`X:\`) or UNC (`\server\share\`) prefix, never with `\?\` or `\.\`, and has no `/`,
+    NUL or control character. It is stored as captured, not folded. `sha256` is the hash of the image file.
+  - `signer` and `sha256` are 43 base64url characters without padding that decode to 32 bytes and re-encode to the
+    same text.
+- **Fold rule.** `fold_name` lowercases per `char` when the simple lowercase mapping is exactly one `char`, else
+  keeps the `char`. It is deterministic on every OS. It folds case, never script: a Cyrillic `о` in `discоrd.exe`
+  stays a different name and never matches. `paths_equal` is equality after `fold_name`.
+- **Exclusion classes, by file name for any signer.** `Browser`, `Host` (script and interpreter hosts, terminals,
+  `rundll32`, `dllhost`, WSL), `Mosaic` (its own executables), `Broker` (credential, consent, logon and lock
+  screens, `applicationframehost.exe`) and `Remote` (remote-desktop, VM and remote-control clients) never match
+  and are never bindable. Package families of Windows Terminal and Remote Desktop are excluded the same way. This
+  is stricter than "by signer and name": a stolen or genuine signature never turns a browser or a script host into
+  a bindable program. The lists are constants in `program.rs`; a program missing from them stays `Ordinary`.
+- **Matching.** `package/` matches an equal family. `signed/` matches an equal signer **and** an equal exe name.
+  `path/` matches only an image with no trusted signature, an equal path and an equal file hash. A signed image
+  never matches a `path/` binding, and the other way round. A match is `ExactOrigin`. A non-`winapp://` URL never
+  matches a program, and a `winapp://` URL never matches a page or an Android app (an older build keeps it as an
+  unknown URL that never matches).
+- **Binding states (ADR-0157 D4).** Only `Trusted` and `Unsigned` images are bindable. `Revoked` and `Untrusted`
+  are refused with their own reason.
+- **Q3: unsigned programs bind path plus hash.** The path alone would let a user-writable directory be filled
+  with a replacement; the hash alone would follow a copy anywhere. Linking such a program needs two separate
+  confirmations at least one second apart, with an "unsigned" warning (a double click is not a link).
+- **Q2: foreign process content is refused in phase 1.** If the focused element's process is not the window
+  owner's process, the target is refused (`ForeignContent`), WebView2 included. The one exception is a UWP window:
+  its owner is `ApplicationFrameHost.exe` and the element's process has a package family, so the package of the
+  element process is the identity.
+- **Display data is never matched.** The signer's common name and organization, the window title and the version
+  resource are for display only. They are not part of the URL and the matcher never reads them (the URL
+  element's `extra.program` may hold them for the picker).
+- **Look-alikes are a warning.** `program_lookalike_of` (one substitution, swap, insertion or deletion between the
+  stems of two exe names, both of at least 4 characters) produces a link-time warning, never a match.
+- **Integrity.** A target whose integrity level is above Mosaic's is refused (`Elevated`). Mosaic never asks for
+  `uiAccess` or elevation.
+
+### Alternatives considered
+- **Folding with full Unicode case folding or a per-OS rule:** not deterministic across OSes; the simple lowercase
+  mapping is.
+- **Bind unsigned programs by path only:** a replaced file would keep matching.
+- **Exclude browsers and hosts only when signed by their vendor:** an attacker's copy with a stolen or own
+  signature would pass, the name check is stricter.
+
+### Consequences
+THREAT_MODEL §4.10. `crates/program-fill` (identity, policy, re-verification) builds on these rules.
