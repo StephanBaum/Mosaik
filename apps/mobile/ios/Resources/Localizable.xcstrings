@@ -2092,6 +2092,23 @@
         }
       }
     },
+    "mobile.autofill.linkEntry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ verknüpfen und ausfüllen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Link %1$@ and fill"
+          }
+        }
+      }
+    },
     "mobile.autofill.noLogin" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4306,6 +4323,57 @@
         }
       }
     },
+    "mobile.link.confirmFallbackHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tippe nach dem Verknüpfen noch einmal auf das Feld, um es auszufüllen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After linking, tap the field again to fill it."
+          }
+        }
+      }
+    },
+    "mobile.link.confirmSubtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-ID %1$@ · Signatur %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App ID %1$@ · Signature %2$@"
+          }
+        }
+      }
+    },
+    "mobile.link.confirmTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ mit %2$@ verknüpfen?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Link %1$@ to %2$@?"
+          }
+        }
+      }
+    },
     "mobile.link.done" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4336,6 +4404,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Find an app"
+          }
+        }
+      }
+    },
+    "mobile.link.imported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für diese App importiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imported for this app"
           }
         }
       }
