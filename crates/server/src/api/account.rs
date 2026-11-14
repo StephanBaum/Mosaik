@@ -72,7 +72,7 @@ fn check_code(
     // Only the request that stored the step gives its attempt back.
     st.db.run_tx(|tx| {
         if accounts::set_last_step(tx, account_id, step)? {
-            accounts::refund_totp_slot(tx, account_id, claim)?;
+            accounts::refund_totp_slot(tx, claim)?;
             Ok(step)
         } else {
             Err(two_factor_invalid())

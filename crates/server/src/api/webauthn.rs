@@ -289,8 +289,7 @@ pub async fn options(
         .handoffs
         .verify_code(&id, req.code.expose_secret().as_bytes(), now)
         .map_err(refused)?;
-    st.db
-        .run(|c| accounts::refund_totp_slot(c, &account, claim))?;
+    st.db.run(|c| accounts::refund_totp_slot(c, claim))?;
     let (state, public_key) = build_options(&st, rp, &v)?;
     if !st.handoffs.set_state(&id, state, now) {
         return Err(handoff_expired());
@@ -419,7 +418,7 @@ fn finish_register(
             Ok(()) => {}
             Err(InsertError::Limit | InsertError::Duplicate) => return Err(two_factor_invalid()),
         }
-        accounts::refund_totp_slot(tx, &taken.account_id, claim)?;
+        accounts::refund_totp_slot(tx, claim)?;
         audit::record(
             tx,
             &taken.account_id,
@@ -500,7 +499,7 @@ fn finish_assert(
             }
             Purpose::Register => return Err(two_factor_invalid()),
         }
-        accounts::refund_totp_slot(tx, &taken.account_id, claim)?;
+        accounts::refund_totp_slot(tx, claim)?;
         Ok(Finished::Done)
     })
 }

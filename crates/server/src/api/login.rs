@@ -234,7 +234,7 @@ pub async fn totp(
             // The session ended meanwhile: no login, no audit row.
             return Err(two_factor_invalid());
         }
-        accounts::refund_totp_slot(tx, &session.account_id, claim)?;
+        accounts::refund_totp_slot(tx, claim)?;
         audit::record(
             tx,
             &session.account_id,

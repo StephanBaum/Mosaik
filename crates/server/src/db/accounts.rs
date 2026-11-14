@@ -198,14 +198,16 @@ pub const TOTP_FAIL_WINDOW_MS: u64 = 3_600_000;
 /// Wrong TOTP codes allowed per account and window, from any session.
 pub const TOTP_FAIL_BUDGET: u64 = 10;
 
-/// One claimed attempt of the per-account budget. It names the window the
-/// attempt was counted in and is spent by value: [`refund_totp_slot`] takes it,
-/// so one claim is refunded at most once, and only while its window is still
-/// the current one (a window that has rolled over already forgot the attempt,
+/// One claimed attempt of the per-account budget. It names the account and the
+/// window the attempt was counted in and is spent by value:
+/// [`refund_totp_slot`] takes it, so one claim is refunded at most once, only
+/// for the account it was made for, and only while its window is still the
+/// current one (a window that has rolled over already forgot the attempt,
 /// so a late refund would erase somebody else's failure).
 #[derive(Debug, PartialEq, Eq)]
 #[must_use = "a claimed attempt stays spent unless it is refunded after a right code"]
 pub struct SlotClaim {
+    account: [u8; 16],
     window: i64,
 }
 
@@ -239,7 +241,10 @@ pub fn claim_second_factor_slot(
         .optional()?
         .unwrap_or(0);
     if n == 1 {
-        return Ok(Ok(SlotClaim { window }));
+        return Ok(Ok(SlotClaim {
+            account: *id,
+            window,
+        }));
     }
     let end = u64::try_from(window)
         .unwrap_or(0)
@@ -249,21 +254,18 @@ pub fn claim_second_factor_slot(
         .max(1)))
 }
 
-/// Gives the claimed attempt back (the code was right). Spends the claim, and
-/// does nothing when the window of the claim is no longer the current one.
+/// Gives the claimed attempt back (the code was right) to the account the
+/// claim was made for. Spends the claim, and does nothing when the window of
+/// the claim is no longer the current one.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "by value on purpose: a claim is refunded once"
 )]
-pub fn refund_totp_slot(
-    conn: &Connection,
-    id: &[u8; 16],
-    claim: SlotClaim,
-) -> Result<(), ApiError> {
+pub fn refund_totp_slot(conn: &Connection, claim: SlotClaim) -> Result<(), ApiError> {
     conn.execute(
         "UPDATE accounts SET totp_fail_count = MAX(totp_fail_count - 1, 0) \
          WHERE account_id = ?1 AND totp_fail_window = ?2",
-        params![id.as_slice(), claim.window],
+        params![claim.account.as_slice(), claim.window],
     )?;
     Ok(())
 }
@@ -375,7 +377,7 @@ mod tests {
                 first = first.or(claim.ok());
             }
             assert_eq!(claim_second_factor_slot(c, &id, T + 61_000)?, Err(3_540));
-            refund_totp_slot(c, &id, first.expect("first claim"))?;
+            refund_totp_slot(c, first.expect("first claim"))?;
             assert!(claim_second_factor_slot(c, &id, T + 61_000)?.is_ok());
             assert!(claim_second_factor_slot(c, &id, T + 62_000)?.is_err());
             assert!(claim_second_factor_slot(c, &id, T + 1_000 + TOTP_FAIL_WINDOW_MS)?.is_ok());
@@ -403,14 +405,36 @@ mod tests {
             let old = claim_second_factor_slot(c, &id, T + 1_000)?.expect("claim");
             // A wrong guess in the next window: count 1.
             let _wrong = claim_second_factor_slot(c, &id, T + 1_000 + TOTP_FAIL_WINDOW_MS)?;
-            refund_totp_slot(c, &id, old)?;
+            refund_totp_slot(c, old)?;
             assert_eq!(fail_count(c, &id)?, 1);
             // A refund in its own window restores exactly the claimed attempt.
             let fresh =
                 claim_second_factor_slot(c, &id, T + 2_000 + TOTP_FAIL_WINDOW_MS)?.expect("claim");
             assert_eq!(fail_count(c, &id)?, 2);
-            refund_totp_slot(c, &id, fresh)?;
+            refund_totp_slot(c, fresh)?;
             assert_eq!(fail_count(c, &id)?, 1);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// A claim refunds only the account it was made for, whatever else is
+    /// passed around: there is no other account to name.
+    #[test]
+    fn a_refund_reaches_only_the_claimed_account() {
+        let db = db();
+        let (a, b) = ([0u8; 16], [1u8; 16]);
+        db.run(|c| {
+            c.execute(
+                "INSERT INTO accounts (account_id, email, salt, profile, opaque_record, wrapped_ak,                  account_version, created_at) VALUES (x'01010101010101010101010101010101', 'b@b.c',                  zeroblob(16), 1, x'00', zeroblob(74), 1, 0)",
+                [],
+            )?;
+            let _a1 = claim_second_factor_slot(c, &a, T + 1_000)?.expect("claim");
+            let claim_b = claim_second_factor_slot(c, &b, T + 1_000)?.expect("claim");
+            let _a2 = claim_second_factor_slot(c, &a, T + 1_000)?.expect("claim");
+            refund_totp_slot(c, claim_b)?;
+            assert_eq!(fail_count(c, &a)?, 2);
+            assert_eq!(fail_count(c, &b)?, 0);
             Ok(())
         })
         .unwrap();
