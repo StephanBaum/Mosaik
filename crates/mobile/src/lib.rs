@@ -86,7 +86,7 @@ pub use storage::{
     SECURE_STORE_VERSION, SETTINGS_KEY_HINT, SecureStorage, StorageError, secret_key_name,
     secure_store_aad, sync_token_name,
 };
-pub use sync::{ResetConfirm, ResetOutcome, SyncOverview};
+pub use sync::{ResetConfirm, ResetOutcome, SyncOverview, SyncWarning, SyncWarningKind};
 
 use state::{Inner, Pending, Phase, Slots, UnlockedInfo, UnlockedPhase};
 
@@ -235,6 +235,7 @@ impl Core {
                 settings,
                 last_sync_at_ms: None,
                 last_sync_error: None,
+                sync_warnings: Vec::new(),
                 secret_key_stored,
                 signed_in,
                 pending: Pending::default(),

@@ -11,6 +11,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +49,7 @@ import io.github.stephanbaum.mosaic.ui.errorText
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 import io.github.stephanbaum.mosaic.ui.theme.MosaicSpace
 import io.github.stephanbaum.mosaic.ui.vault.syncLine
+import io.github.stephanbaum.mosaic.ui.vault.syncWarningTexts
 import kotlinx.coroutines.launch
 
 private val AUTO_LOCK_OPTIONS = listOf(0, 30, 60, 300)
@@ -115,6 +119,7 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
     SettingsContent(
         settings = settings,
         syncText = syncLine(resources, overview, System.currentTimeMillis()),
+        syncWarnings = syncWarningTexts(resources, overview),
         pendingUploads = overview?.pendingUploads?.toInt() ?: 0,
         quickEnrolled = enrolled,
         biometricAvailable = biometricAvailable,
@@ -185,6 +190,26 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
                 busy = false
             }
         },
+        onAcknowledge = {
+            scope.launch {
+                busy = true
+                // Clears the findings (an unlocked session), then syncs again.
+                when (val cleared = app.vault.acknowledgeSyncFindings()) {
+                    is Outcome.Ok -> {
+                        overview = cleared.value
+                        errorCode = null
+                        when (val result = app.vault.syncNow()) {
+                            is Outcome.Ok -> overview = result.value
+                            is Outcome.Failed -> errorCode = result.code
+                            Outcome.Cancelled -> Unit
+                        }
+                    }
+                    is Outcome.Failed -> errorCode = cleared.code
+                    Outcome.Cancelled -> Unit
+                }
+                busy = false
+            }
+        },
         onLock = { app.lockNow() },
         onLicences = onLicences,
     )
@@ -215,8 +240,11 @@ fun SettingsContent(
     onSync: () -> Unit,
     onLock: () -> Unit,
     onLicences: () -> Unit,
+    syncWarnings: List<String> = emptyList(),
+    onAcknowledge: () -> Unit = {},
 ) {
     val resources = LocalContext.current.resources
+    var confirmAcknowledge by remember { mutableStateOf(false) }
     PageColumn {
         TopBar(title = L10n.settingsTitle(resources), onBack = null)
         if (error != null) ErrorText(error)
@@ -283,6 +311,15 @@ fun SettingsContent(
             if (pendingUploads > 0) HintText(L10n.syncPending(resources, pendingUploads))
             if (busy) Working(L10n.syncWorking(resources)) else SecondaryButton(L10n.syncNow(resources), onClick = onSync)
         }
+        if (syncWarnings.isNotEmpty()) {
+            Panel {
+                SectionTitle(L10n.syncWarnings(resources))
+                for (text in syncWarnings) ErrorText(text)
+                if (!busy) {
+                    SecondaryButton(L10n.syncAcknowledge(resources), onClick = { confirmAcknowledge = true })
+                }
+            }
+        }
         Panel {
             SectionTitle(L10n.settingsAbout(resources))
             Line(L10n.settingsVersion(resources, version))
@@ -293,6 +330,24 @@ fun SettingsContent(
         Column(verticalArrangement = Arrangement.spacedBy(MosaicSpace.s3)) {
             PrimaryButton(L10n.lockNow(resources), onClick = onLock)
         }
+    }
+    if (confirmAcknowledge) {
+        AlertDialog(
+            onDismissRequest = { confirmAcknowledge = false },
+            title = { Text(L10n.syncAcknowledgeTitle(resources)) },
+            text = { Text(L10n.syncAcknowledgeBody(resources)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmAcknowledge = false
+                        onAcknowledge()
+                    },
+                ) {
+                    Text(L10n.syncAcknowledgeConfirm(resources))
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmAcknowledge = false }) { Text(L10n.commonCancel(resources)) } },
+        )
     }
 }
 

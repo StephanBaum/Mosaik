@@ -1155,6 +1155,18 @@ object L10n {
     fun setupScanTitle(r: Resources): String =
         r.getString(R.string.mobile_setup_scanTitle)
 
+    fun syncAcknowledge(r: Resources): String =
+        r.getString(R.string.mobile_sync_acknowledge)
+
+    fun syncAcknowledgeBody(r: Resources): String =
+        r.getString(R.string.mobile_sync_acknowledgeBody)
+
+    fun syncAcknowledgeConfirm(r: Resources): String =
+        r.getString(R.string.mobile_sync_acknowledgeConfirm)
+
+    fun syncAcknowledgeTitle(r: Resources): String =
+        r.getString(R.string.mobile_sync_acknowledgeTitle)
+
     fun syncLast(r: Resources, time: String): String =
         r.getString(R.string.mobile_sync_last, time)
 
@@ -1169,6 +1181,33 @@ object L10n {
 
     fun syncPending(r: Resources, count: Int): String =
         r.getQuantityString(R.plurals.mobile_sync_pending, count, count)
+
+    fun syncWarningAccountRollback(r: Resources): String =
+        r.getString(R.string.mobile_sync_warning_accountRollback)
+
+    fun syncWarningFreezeSuspected(r: Resources): String =
+        r.getString(R.string.mobile_sync_warning_freezeSuspected)
+
+    fun syncWarningIdentityDuplicated(r: Resources): String =
+        r.getString(R.string.mobile_sync_warning_identityDuplicated)
+
+    fun syncWarningNoCommonView(r: Resources): String =
+        r.getString(R.string.mobile_sync_warning_noCommonView)
+
+    fun syncWarningRollbackDetected(r: Resources): String =
+        r.getString(R.string.mobile_sync_warning_rollbackDetected)
+
+    fun syncWarningServerInconsistent(r: Resources): String =
+        r.getString(R.string.mobile_sync_warning_serverInconsistent)
+
+    fun syncWarningServerRollback(r: Resources): String =
+        r.getString(R.string.mobile_sync_warning_serverRollback)
+
+    fun syncWarningUndecryptable(r: Resources, count: Int): String =
+        r.getQuantityString(R.plurals.mobile_sync_warning_undecryptable, count, count)
+
+    fun syncWarnings(r: Resources): String =
+        r.getString(R.string.mobile_sync_warnings)
 
     fun syncWorking(r: Resources): String =
         r.getString(R.string.mobile_sync_working)

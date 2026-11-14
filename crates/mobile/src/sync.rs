@@ -6,10 +6,10 @@
 use std::path::{Path, PathBuf};
 
 use mosaic_core::MasterPassword;
-use mosaic_sync::engine::{EngineConfig, SyncEngine, SyncError};
+use mosaic_sync::engine::{EngineConfig, SyncEngine, SyncError, SyncWarning as EngineWarning};
 use mosaic_sync::http::{HttpTransport, StoredToken, Token as _, hosted};
 use mosaic_sync::transport::{Rejection, TransportError, TransportKind};
-use mosaic_vault::storage::SyncKind;
+use mosaic_vault::storage::{SyncHalt, SyncKind, VaultFlag};
 use zeroize::Zeroizing;
 
 use crate::Core;
@@ -38,6 +38,113 @@ pub struct SyncOverview {
     /// The engine halted (a rollback or a duplicated identity) or a vault
     /// carries a finding: the apps tell the user.
     pub halted: bool,
+    /// What sync found wrong, for the status screen: the stored findings
+    /// plus the run warnings not yet acknowledged (empty while locked).
+    pub warnings: Vec<SyncWarning>,
+}
+
+/// The kind of a sync warning (the apps pick the text; `sync.warning.*`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncWarningKind {
+    /// A device's checkpoint is ahead of what the server shows of it.
+    FreezeSuspected,
+    /// The heads of this phone and a peer never met for a long time.
+    NoCommonView,
+    /// This device's own checkpoint went backwards.
+    RollbackDetected,
+    /// Another install writes under this install's ID.
+    IdentityDuplicated,
+    /// The server showed contradicting views of a vault.
+    ServerInconsistent,
+    /// The server's head for a vault is below what this phone read.
+    ServerRollback,
+    /// Records could not be read.
+    Undecryptable,
+    /// The account key epoch on the server is below this phone's.
+    AccountRollback,
+}
+
+/// One sync warning. It carries no secret and no name: a kind, since when
+/// (where the engine knows) and a count (where it counts).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncWarning {
+    /// What it is.
+    pub kind: SyncWarningKind,
+    /// Since when (Unix ms).
+    pub since_ms: Option<u64>,
+    /// How many (undecryptable records).
+    pub count: Option<u32>,
+}
+
+impl SyncWarning {
+    const fn plain(kind: SyncWarningKind) -> Self {
+        Self {
+            kind,
+            since_ms: None,
+            count: None,
+        }
+    }
+
+    /// The warnings of a run that the phone shows. Kinds the phone has no
+    /// screen for (folders, shared vaults, hardware vaults) are left out.
+    fn from_engine(warning: &EngineWarning) -> Option<Self> {
+        Some(match warning {
+            EngineWarning::FreezeSuspected { since_ms, .. } => Self {
+                since_ms: Some(*since_ms),
+                ..Self::plain(SyncWarningKind::FreezeSuspected)
+            },
+            EngineWarning::NoCommonView { since_ms, .. } => Self {
+                since_ms: Some(*since_ms),
+                ..Self::plain(SyncWarningKind::NoCommonView)
+            },
+            EngineWarning::RollbackDetected => Self::plain(SyncWarningKind::RollbackDetected),
+            EngineWarning::IdentityDuplicated => Self::plain(SyncWarningKind::IdentityDuplicated),
+            EngineWarning::ServerInconsistent { .. } => {
+                Self::plain(SyncWarningKind::ServerInconsistent)
+            }
+            EngineWarning::ServerRollback { .. } => Self::plain(SyncWarningKind::ServerRollback),
+            EngineWarning::Undecryptable { count } => Self {
+                count: Some(*count),
+                ..Self::plain(SyncWarningKind::Undecryptable)
+            },
+            EngineWarning::AccountRollback { .. } => Self::plain(SyncWarningKind::AccountRollback),
+            _ => return None,
+        })
+    }
+}
+
+/// Adds `new` to `into` without repeating one.
+fn merge_warnings(into: &mut Vec<SyncWarning>, new: impl IntoIterator<Item = SyncWarning>) {
+    for warning in new {
+        if !into.contains(&warning) {
+            into.push(warning);
+        }
+    }
+}
+
+/// The warnings the stored findings stand for.
+fn finding_warnings(findings: &mosaic_vault::session::SyncFindings) -> Vec<SyncWarning> {
+    let mut out = Vec::new();
+    match findings.halt {
+        Some(SyncHalt::Rollback) => out.push(SyncWarning::plain(SyncWarningKind::RollbackDetected)),
+        Some(SyncHalt::Identity) => {
+            out.push(SyncWarning::plain(SyncWarningKind::IdentityDuplicated));
+        }
+        None => {}
+    }
+    for (_, flag) in &findings.vault_flags {
+        out.push(SyncWarning::plain(match flag {
+            VaultFlag::ServerInconsistent => SyncWarningKind::ServerInconsistent,
+            VaultFlag::ServerRolledBack => SyncWarningKind::ServerRollback,
+        }));
+    }
+    for (_, _, since_ms) in &findings.no_common_view {
+        out.push(SyncWarning {
+            since_ms: Some(*since_ms),
+            ..SyncWarning::plain(SyncWarningKind::NoCommonView)
+        });
+    }
+    out
 }
 
 /// The confirmation of a device reset: the account email, typed.
@@ -116,11 +223,12 @@ impl Core {
             last_synced_at_ms: None,
             last_error: None,
             halted: false,
+            warnings: Vec::new(),
         };
         if self.account_id().is_err() {
             return overview;
         }
-        let (config, last_sync, last_error, unlocked, signed_in) = {
+        let (config, last_sync, last_error, unlocked, signed_in, run_warnings) = {
             let Ok(guard) = self.guard() else {
                 return overview;
             };
@@ -134,6 +242,7 @@ impl Core {
                 guard.last_sync_error,
                 matches!(guard.phase, Phase::Unlocked(_)),
                 guard.signed_in,
+                guard.sync_warnings.clone(),
             )
         };
         overview.last_synced_at_ms = last_sync;
@@ -143,11 +252,19 @@ impl Core {
             let facts = self.with_session(|s| {
                 let findings = s.sync_findings()?;
                 let pending = s.pending_uploads(1000)?.len();
-                Ok((s.sync_config()?, !findings.is_clear(), pending))
+                Ok((
+                    s.sync_config()?,
+                    !findings.is_clear(),
+                    pending,
+                    finding_warnings(&findings),
+                ))
             });
-            if let Ok((c, halted, pending)) = facts {
+            if let Ok((c, halted, pending, stored)) = facts {
                 config = c;
                 overview.halted = halted;
+                let mut warnings = stored;
+                merge_warnings(&mut warnings, run_warnings);
+                overview.warnings = warnings;
                 overview.pending_uploads = u32::try_from(pending).unwrap_or(u32::MAX);
             }
         }
@@ -173,9 +290,10 @@ impl Core {
         let result = self.sync_once();
         if let Ok(mut guard) = self.guard() {
             match &result {
-                Ok(()) => {
+                Ok(warnings) => {
                     guard.last_sync_at_ms = Some(self.now_ms());
                     guard.last_sync_error = None;
+                    merge_warnings(&mut guard.sync_warnings, warnings.iter().cloned());
                 }
                 Err(e) => guard.last_sync_error = Some(*e),
             }
@@ -184,7 +302,7 @@ impl Core {
         Ok(self.sync_overview())
     }
 
-    fn sync_once(&self) -> Result<()> {
+    fn sync_once(&self) -> Result<Vec<SyncWarning>> {
         use mosaic_sync::wire::SessionHandle as _;
         let owned = self.owned_session()?;
         let (config, install, account) = owned
@@ -216,7 +334,11 @@ impl Core {
         let mut access = owned.clone();
         self.work_pause();
         match engine.sync_once(&mut access, &self.clock) {
-            Ok(_) => Ok(()),
+            Ok(report) => Ok(report
+                .warnings
+                .iter()
+                .filter_map(SyncWarning::from_engine)
+                .collect()),
             Err(error) => {
                 if let SyncError::Transport(t) = &error
                     && token_ended(t)
@@ -226,6 +348,40 @@ impl Core {
                 Err(error.into())
             }
         }
+    }
+
+    /// Acknowledges the halt and the findings against the server, as the
+    /// desktop does (`sync_acknowledge`): the user has checked them. The halt
+    /// and the vault findings are cleared (the vaults are read again and what
+    /// the server lacks is queued again) and the remembered run warnings are
+    /// dropped. The app starts a sync afterwards.
+    ///
+    /// The session must be unlocked; like the desktop it asks for no
+    /// re-authentication (the app asks the user to confirm first).
+    ///
+    /// # Errors
+    /// `invalidInput` in the extension context, `locked`, `syncNotConfigured`,
+    /// or the store's code.
+    pub fn acknowledge_sync_findings(&self) -> Result<SyncOverview> {
+        self.require_app()?;
+        self.with_session(|s| {
+            if s.sync_config()?.is_none() {
+                return Err(MobileError::SyncNotConfigured);
+            }
+            let findings = s.sync_findings()?;
+            if findings.halt.is_some() {
+                s.clear_sync_halt()?;
+            }
+            let vaults = findings.vaults();
+            if !vaults.is_empty() {
+                s.clear_vault_findings(&vaults)?;
+            }
+            s.clear_sharing_findings()?;
+            Ok(())
+        })?;
+        // Dropped under the mutex, after the findings are cleared.
+        self.guard()?.sync_warnings.clear();
+        Ok(self.sync_overview())
     }
 
     /// Recovers from a master password changed on another device: the new
@@ -392,6 +548,7 @@ impl Core {
             };
             guard.last_sync_at_ms = None;
             guard.last_sync_error = None;
+            guard.sync_warnings.clear();
             guard.settings = crate::settings::SettingsGuard::load(self.config.settings_path());
             guard.settle_fresh_phase();
         }

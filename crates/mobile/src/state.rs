@@ -175,6 +175,10 @@ pub(crate) struct Inner {
     pub last_sync_at_ms: Option<u64>,
     /// How the last sync run failed, until one succeeds.
     pub last_sync_error: Option<MobileError>,
+    /// What the sync runs warned about, kept until the user acknowledges it
+    /// (a later run does not clear it; G5b-1). No secrets: kinds, counts and
+    /// times only.
+    pub sync_warnings: Vec<crate::SyncWarning>,
     /// The Secret Key of the account is in secure storage. Cached: asked of the
     /// platform (`contains`, never `get`) outside the mutex at open and set
     /// where the core stores or deletes it, so `state()` never calls the

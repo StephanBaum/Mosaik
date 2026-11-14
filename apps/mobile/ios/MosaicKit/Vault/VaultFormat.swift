@@ -89,6 +89,31 @@ public enum SyncLine {
     }
 }
 
+/// The sync warnings as texts: what sync found wrong, never a secret (kinds, counts and times only).
+public enum SyncWarnings {
+    public static func texts(for overview: SyncOverview?) -> [String] {
+        var seen: [String] = []
+        for warning in overview?.warnings ?? [] {
+            let line = text(for: warning)
+            if !seen.contains(line) { seen.append(line) }
+        }
+        return seen
+    }
+
+    public static func text(for warning: SyncWarning) -> String {
+        switch warning.kind {
+        case .freezeSuspected: return L10n.syncWarningFreezeSuspected()
+        case .noCommonView: return L10n.syncWarningNoCommonView()
+        case .rollbackDetected: return L10n.syncWarningRollbackDetected()
+        case .identityDuplicated: return L10n.syncWarningIdentityDuplicated()
+        case .serverInconsistent: return L10n.syncWarningServerInconsistent()
+        case .serverRollback: return L10n.syncWarningServerRollback()
+        case .undecryptable: return L10n.syncWarningUndecryptable(count: Int(warning.count ?? 1))
+        case .accountRollback: return L10n.syncWarningAccountRollback()
+        }
+    }
+}
+
 /// The label of a field of the generic detail: a custom field brings its own, a built-in one has a stable key.
 public enum FieldLabels {
     public static func label(for field: FieldView) -> String {

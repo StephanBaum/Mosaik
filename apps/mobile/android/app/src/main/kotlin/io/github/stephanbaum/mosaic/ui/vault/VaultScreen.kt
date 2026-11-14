@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import io.github.stephanbaum.mosaic.MosaicApp
 import io.github.stephanbaum.mosaic.ffi.ItemSummary
 import io.github.stephanbaum.mosaic.ffi.SyncOverview
+import io.github.stephanbaum.mosaic.ffi.SyncWarningKind
 import io.github.stephanbaum.mosaic.session.Outcome
 import io.github.stephanbaum.mosaic.ui.MosaicTheme
 import io.github.stephanbaum.mosaic.ui.components.ErrorText
@@ -67,6 +68,21 @@ fun syncLine(r: Resources, overview: SyncOverview?, nowMs: Long): String {
     val relative = DateUtils.getRelativeTimeSpanString(last.toLong(), nowMs, DateUtils.MINUTE_IN_MILLIS).toString()
     return L10n.syncLast(r, relative)
 }
+
+/** The sync warnings as texts: what sync found wrong, never a secret (kinds, counts and times only). */
+fun syncWarningTexts(r: Resources, overview: SyncOverview?): List<String> =
+    overview?.warnings.orEmpty().map { warning ->
+        when (warning.kind) {
+            SyncWarningKind.FREEZE_SUSPECTED -> L10n.syncWarningFreezeSuspected(r)
+            SyncWarningKind.NO_COMMON_VIEW -> L10n.syncWarningNoCommonView(r)
+            SyncWarningKind.ROLLBACK_DETECTED -> L10n.syncWarningRollbackDetected(r)
+            SyncWarningKind.IDENTITY_DUPLICATED -> L10n.syncWarningIdentityDuplicated(r)
+            SyncWarningKind.SERVER_INCONSISTENT -> L10n.syncWarningServerInconsistent(r)
+            SyncWarningKind.SERVER_ROLLBACK -> L10n.syncWarningServerRollback(r)
+            SyncWarningKind.UNDECRYPTABLE -> L10n.syncWarningUndecryptable(r, (warning.count ?: 1u).toInt())
+            SyncWarningKind.ACCOUNT_ROLLBACK -> L10n.syncWarningAccountRollback(r)
+        }
+    }.distinct()
 
 /** The vault tab: loads the items, shows the sync state, and syncs on a pull. */
 @Composable

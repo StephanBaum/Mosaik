@@ -185,6 +185,28 @@ export const mobile = {
     "{count, plural, one {# Änderung wartet aufs Hochladen} other {# Änderungen warten aufs Hochladen}}",
   "mobile.sync.now": "Jetzt synchronisieren",
   "mobile.sync.working": "Synchronisiere",
+  "mobile.sync.warnings": "Sync-Warnungen",
+  "mobile.sync.warning.freezeSuspected":
+    "Änderungen von einem anderen Gerät sind seit einer Weile nicht angekommen. Prüfe, ob das andere Gerät an und online ist.",
+  "mobile.sync.warning.noCommonView":
+    "Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen.",
+  "mobile.sync.warning.rollbackDetected":
+    "Deine Sync-Daten wirken älter als dieses Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.identityDuplicated":
+    "Eine andere Kopie von Mosaic schreibt unter der Identität dieses Handys, zum Beispiel nach dem Wiederherstellen einer Sicherung. Die Synchronisierung ist pausiert. Stelle sicher, dass nur eine Kopie benutzt wird, und wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.serverInconsistent":
+    "Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.serverRollback":
+    "Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.undecryptable":
+    "{count, plural, one {# empfangener Eintrag konnte} other {# empfangene Einträge konnten}} auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.",
+  "mobile.sync.warning.accountRollback":
+    "Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.acknowledge": "Ich habe es geprüft…",
+  "mobile.sync.acknowledgeTitle": "Sync-Warnungen löschen?",
+  "mobile.sync.acknowledgeBody":
+    "Mach nur weiter, wenn du den Server selbst geprüft hast. Das löscht alle Warnungen, und die Synchronisierung läuft weiter. Wurden deine Daten wirklich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen. Mach das auf jedem deiner Geräte.",
+  "mobile.sync.acknowledgeConfirm": "Ich habe es geprüft",
   "mobile.search.hint": "Suche nach Titel, Benutzername, Website oder Tag.",
   "mobile.search.none": "Kein Eintrag passt zu {query}.",
   "mobile.detail.favoriteAdd": "Zu Favoriten hinzufügen",

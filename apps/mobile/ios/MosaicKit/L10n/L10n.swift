@@ -1515,6 +1515,22 @@ public enum L10n {
         NSLocalizedString("mobile.setup.scanTitle", bundle: .main, comment: "")
     }
 
+    public static func syncAcknowledge() -> String {
+        NSLocalizedString("mobile.sync.acknowledge", bundle: .main, comment: "")
+    }
+
+    public static func syncAcknowledgeBody() -> String {
+        NSLocalizedString("mobile.sync.acknowledgeBody", bundle: .main, comment: "")
+    }
+
+    public static func syncAcknowledgeConfirm() -> String {
+        NSLocalizedString("mobile.sync.acknowledgeConfirm", bundle: .main, comment: "")
+    }
+
+    public static func syncAcknowledgeTitle() -> String {
+        NSLocalizedString("mobile.sync.acknowledgeTitle", bundle: .main, comment: "")
+    }
+
     public static func syncLast(time: String) -> String {
         String(format: NSLocalizedString("mobile.sync.last", bundle: .main, comment: ""), locale: .current, arguments: [time])
     }
@@ -1533,6 +1549,42 @@ public enum L10n {
 
     public static func syncPending(count: Int) -> String {
         String(format: NSLocalizedString("mobile.sync.pending", bundle: .main, comment: ""), locale: .current, arguments: [count])
+    }
+
+    public static func syncWarningAccountRollback() -> String {
+        NSLocalizedString("mobile.sync.warning.accountRollback", bundle: .main, comment: "")
+    }
+
+    public static func syncWarningFreezeSuspected() -> String {
+        NSLocalizedString("mobile.sync.warning.freezeSuspected", bundle: .main, comment: "")
+    }
+
+    public static func syncWarningIdentityDuplicated() -> String {
+        NSLocalizedString("mobile.sync.warning.identityDuplicated", bundle: .main, comment: "")
+    }
+
+    public static func syncWarningNoCommonView() -> String {
+        NSLocalizedString("mobile.sync.warning.noCommonView", bundle: .main, comment: "")
+    }
+
+    public static func syncWarningRollbackDetected() -> String {
+        NSLocalizedString("mobile.sync.warning.rollbackDetected", bundle: .main, comment: "")
+    }
+
+    public static func syncWarningServerInconsistent() -> String {
+        NSLocalizedString("mobile.sync.warning.serverInconsistent", bundle: .main, comment: "")
+    }
+
+    public static func syncWarningServerRollback() -> String {
+        NSLocalizedString("mobile.sync.warning.serverRollback", bundle: .main, comment: "")
+    }
+
+    public static func syncWarningUndecryptable(count: Int) -> String {
+        String(format: NSLocalizedString("mobile.sync.warning.undecryptable", bundle: .main, comment: ""), locale: .current, arguments: [count])
+    }
+
+    public static func syncWarnings() -> String {
+        NSLocalizedString("mobile.sync.warnings", bundle: .main, comment: "")
     }
 
     public static func syncWorking() -> String {

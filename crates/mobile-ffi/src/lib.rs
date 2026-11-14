@@ -296,6 +296,11 @@ impl MosaicCore {
     pub fn sync_now(&self) -> Result<SyncOverview, MobileError> {
         lift(self.inner.sync_now())
     }
+    /// The user checked the halt and the findings: they are cleared. The app
+    /// starts a sync afterwards.
+    pub fn acknowledge_sync_findings(&self) -> Result<SyncOverview, MobileError> {
+        lift(self.inner.acknowledge_sync_findings())
+    }
     pub fn recover_password(&self, new_password: Vec<u8>) -> Result<SyncOverview, MobileError> {
         lift(self.inner.recover_password(new_password))
     }

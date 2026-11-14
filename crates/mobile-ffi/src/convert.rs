@@ -732,6 +732,11 @@ mod tests {
             last_synced_at_ms: Some(1),
             last_error: Some(s("syncPasswordChanged")),
             halted: true,
+            warnings: vec![f::SyncWarning {
+                kind: f::SyncWarningKind::FreezeSuspected,
+                since_ms: Some(5),
+                count: Some(2),
+            }],
         });
         rt::<f::ResetConfirm, m::ResetConfirm>(f::ResetConfirm {
             typed_email: s("a@example.com"),

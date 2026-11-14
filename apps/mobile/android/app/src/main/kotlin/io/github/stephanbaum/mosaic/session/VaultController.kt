@@ -116,6 +116,10 @@ class VaultController(
 
     suspend fun syncNow(): Outcome<SyncOverview> = guarded { holder.call { it.syncNow() } }
 
+    /** The user checked the sync findings: clears them. The caller syncs afterwards. */
+    suspend fun acknowledgeSyncFindings(): Outcome<SyncOverview> =
+        guarded { holder.call { it.acknowledgeSyncFindings() } }
+
     suspend fun settings(): Outcome<MobileSettings> =
         guarded {
             val settings = holder.call { it.settings() }

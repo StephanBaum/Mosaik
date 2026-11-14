@@ -183,6 +183,7 @@ struct SettingsView: View {
     let app: AppModel
     let vault: VaultModel
     @State private var model: SettingsModel
+    @State private var confirmAcknowledge = false
 
     init(app: AppModel, vault: VaultModel) {
         self.app = app
@@ -203,6 +204,7 @@ struct SettingsView: View {
                     quickUnlockPanel
                     fillPanel
                     syncPanel
+                    syncWarningsPanel
                     aboutPanel
                     Button(L10n.lockNow()) { app.lock() }
                         .buttonStyle(PrimaryButtonStyle())
@@ -216,6 +218,12 @@ struct SettingsView: View {
         .navigationTitle(L10n.settingsTitle())
         .navigationBarTitleDisplayMode(.large)
         .task { await vault.load() }
+        .alert(L10n.syncAcknowledgeTitle(), isPresented: $confirmAcknowledge) {
+            Button(L10n.syncAcknowledgeConfirm()) { Task { await vault.acknowledgeSyncFindings() } }
+            Button(L10n.commonCancel(), role: .cancel) {}
+        } message: {
+            Text(L10n.syncAcknowledgeBody())
+        }
         .onAppear { model.adopt(vault.settings) }
         .onChange(of: vault.settings) { _, settings in model.adopt(settings) }
         .task(id: app.isSceneActive) {
@@ -378,6 +386,24 @@ struct SettingsView: View {
                 Button(L10n.syncNow()) { Task { await vault.refresh() } }
                     .buttonStyle(SecondaryButtonStyle())
                     .accessibilityIdentifier("sync-now")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var syncWarningsPanel: some View {
+        let warnings = SyncWarnings.texts(for: vault.overview)
+        if !warnings.isEmpty {
+            Panel {
+                SectionTitle(text: L10n.syncWarnings())
+                ForEach(warnings, id: \.self) { warning in
+                    BodyText(text: warning)
+                }
+                if !vault.isRefreshing {
+                    Button(L10n.syncAcknowledge()) { confirmAcknowledge = true }
+                        .buttonStyle(SecondaryButtonStyle())
+                        .accessibilityIdentifier("sync-acknowledge")
+                }
             }
         }
     }

@@ -383,6 +383,10 @@
   <string name="mobile_settings_version">Version %1$s</string>
   <string name="mobile_setup_scanHint">Halte die Kamera auf den Code auf deinem Computer. Mosaic liest ihn nur auf diesem Gerät.</string>
   <string name="mobile_setup_scanTitle">Setup-Code scannen</string>
+  <string name="mobile_sync_acknowledge">Ich habe es geprüft…</string>
+  <string name="mobile_sync_acknowledgeBody">Mach nur weiter, wenn du den Server selbst geprüft hast. Das löscht alle Warnungen, und die Synchronisierung läuft weiter. Wurden deine Daten wirklich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen. Mach das auf jedem deiner Geräte.</string>
+  <string name="mobile_sync_acknowledgeConfirm">Ich habe es geprüft</string>
+  <string name="mobile_sync_acknowledgeTitle">Sync-Warnungen löschen?</string>
   <string name="mobile_sync_last">Synchronisiert %1$s</string>
   <string name="mobile_sync_localOnly">Dieser Tresor liegt nur auf diesem Telefon. Die Synchronisierung ist nicht eingerichtet.</string>
   <string name="mobile_sync_never">Noch nicht synchronisiert</string>
@@ -391,6 +395,18 @@
     <item quantity="one">%1$d Änderung wartet aufs Hochladen</item>
     <item quantity="other">%1$d Änderungen warten aufs Hochladen</item>
   </plurals>
+  <string name="mobile_sync_warning_accountRollback">Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Prüfe den Server und wähle dann „Ich habe es geprüft“.</string>
+  <string name="mobile_sync_warning_freezeSuspected">Änderungen von einem anderen Gerät sind seit einer Weile nicht angekommen. Prüfe, ob das andere Gerät an und online ist.</string>
+  <string name="mobile_sync_warning_identityDuplicated">Eine andere Kopie von Mosaic schreibt unter der Identität dieses Handys, zum Beispiel nach dem Wiederherstellen einer Sicherung. Die Synchronisierung ist pausiert. Stelle sicher, dass nur eine Kopie benutzt wird, und wähle dann „Ich habe es geprüft“.</string>
+  <string name="mobile_sync_warning_noCommonView">Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen.</string>
+  <string name="mobile_sync_warning_rollbackDetected">Deine Sync-Daten wirken älter als dieses Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“.</string>
+  <string name="mobile_sync_warning_serverInconsistent">Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Prüfe den Server und wähle dann „Ich habe es geprüft“.</string>
+  <string name="mobile_sync_warning_serverRollback">Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“.</string>
+  <plurals name="mobile_sync_warning_undecryptable">
+    <item quantity="one">%1$d empfangener Eintrag konnte auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.</item>
+    <item quantity="other">%1$d empfangene Einträge konnten auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.</item>
+  </plurals>
+  <string name="mobile_sync_warnings">Sync-Warnungen</string>
   <string name="mobile_sync_working">Synchronisiere</string>
   <string name="mobile_unlock_account">%1$s wird entsperrt</string>
   <string name="mobile_unlock_action">Entsperren</string>

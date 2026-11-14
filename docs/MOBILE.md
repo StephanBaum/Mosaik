@@ -101,6 +101,13 @@ The binding surface is `crates/mobile-ffi/src/lib.rs`; its rustdoc is the refere
   - `crates/mobile-ffi/uniffi.toml`: Kotlin package `io.github.stephanbaum.mosaic.ffi`, cdylib name
     `mosaic_mobile_ffi`, Swift module `MosaicFFI`.
   - The bindings are generated in CI and never committed.
+- **Sync findings (M10-G5b).** `SyncOverview.warnings` lists the stored findings (halt, vault flags, no
+  common view) plus the run warnings not yet acknowledged: kinds, counts and times, never a name or a secret.
+  `acknowledge_sync_findings()` mirrors the desktop's `sync_acknowledge` (clears the halt and the vault
+  findings, drops the remembered warnings; the app syncs afterwards): it needs an unlocked session and, like
+  the desktop, asks for no password, only for the app's confirmation dialog.
+  **Known gap:** the phone does not show field conflicts or "deleted while you edited" flags; no data is lost,
+  the desktop shows them.
 
 ## 3. Security behaviour per platform
 

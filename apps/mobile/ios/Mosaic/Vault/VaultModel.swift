@@ -67,6 +67,21 @@ final class VaultModel {
         await syncIdentities()
     }
 
+    /// The user checked the sync findings: clears them (an unlocked session), then syncs again.
+    func acknowledgeSyncFindings() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        do {
+            overview = try await holder.call { core in try core.acknowledgeSyncFindings() }
+            overview = try await holder.call { core in try core.syncNow() }
+            failureCode = nil
+        } catch {
+            failureCode = ErrorText.code(of: error)
+        }
+        await load()
+    }
+
     /// An item was saved, trashed or marked: reload and tell the system.
     func changed() {
         version += 1

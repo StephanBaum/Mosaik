@@ -367,6 +367,22 @@ record!(SyncOverview <=> m::SyncOverview {
     last_synced_at_ms: Option<u64>,
     last_error: Option<String>,
     halted: bool,
+    warnings: Vec<SyncWarning>,
+});
+unit_enum!(SyncWarningKind <=> m::SyncWarningKind {
+    FreezeSuspected,
+    NoCommonView,
+    RollbackDetected,
+    IdentityDuplicated,
+    ServerInconsistent,
+    ServerRollback,
+    Undecryptable,
+    AccountRollback,
+});
+record!(SyncWarning <=> m::SyncWarning {
+    kind: SyncWarningKind,
+    since_ms: Option<u64>,
+    count: Option<u32>,
 });
 record!(ResetConfirm <=> m::ResetConfirm { typed_email: String });
 record_out!(ResetOutcome <=> m::ResetOutcome {

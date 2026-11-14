@@ -23,7 +23,7 @@ use mosaic_core::ItemId;
 use mosaic_core::model::{ItemType, SecretField};
 use mosaic_mobile::{
     CoreContext, ItemFilter, LoginDraft, MobileError, OtpEdit, Platform, SessionState,
-    SyncOverview, TrashMode, UrlDraft,
+    SyncOverview, SyncWarningKind, TrashMode, UrlDraft,
 };
 use mosaic_sync::clock::SystemClock;
 use mosaic_sync::transport::Transport as _;
@@ -582,7 +582,6 @@ fn g5b_rolled_back_own_checkpoint_halts_and_the_halt_survives_restart() {
 /// `sync_now` drops the run's report, and `SyncOverview` has no field for
 /// it, so the user is never told.
 #[test]
-#[ignore = "G5b-1: a freeze (FreezeSuspected) is detected by the engine but never surfaced by sync_now/SyncOverview"]
 fn g5b_freeze_is_surfaced_on_the_phone_after_the_grace() {
     let w = World::new("g5b-freeze@example.com");
     w.desktop
@@ -599,9 +598,23 @@ fn g5b_freeze_is_surfaced_on_the_phone_after_the_grace() {
     let facts = engine_facts(&w.phone, &w.desktop);
     assert!(facts.0 > 0, "the engine recorded no lag: {facts:?}");
     assert!(
-        overview.halted || overview.last_error.is_some(),
+        overview
+            .warnings
+            .iter()
+            .any(|w| w.kind == SyncWarningKind::FreezeSuspected),
         "a freeze past the grace must reach the user: {overview:?}; engine (lag, flags, no common view, halt) = {facts:?}"
     );
+    // The warning stays until it is acknowledged, a later overview shows it too.
+    assert!(
+        w.phone
+            .core
+            .sync_overview()
+            .warnings
+            .iter()
+            .any(|w| w.kind == SyncWarningKind::FreezeSuspected)
+    );
+    w.phone.core.acknowledge_sync_findings().unwrap();
+    assert!(w.phone.core.sync_overview().warnings.is_empty());
 }
 
 /// The server cuts a page short: the head moves past the desktop's new
@@ -633,7 +646,6 @@ fn g5b_page_cut_short_is_a_fork_finding() {
 /// such call: the vault stays flagged and the skipped login never arrives,
 /// short of a device reset.
 #[test]
-#[ignore = "G5b-2: no clear_vault_findings/clear_sync_halt on the phone core; a flagged vault never recovers"]
 fn g5b_a_finding_can_be_acknowledged_and_the_phone_recovers() {
     let w = World::new("g5b-ack@example.com");
     w.desktop
@@ -642,6 +654,26 @@ fn g5b_a_finding_can_be_acknowledged_and_the_phone_recovers() {
     w.server.set_tamper(cut_short);
     let _ = sync(&w.server, &w.phone);
     w.server.clear_tamper();
+    let shown = w.phone.core.sync_overview();
+    assert!(
+        shown
+            .warnings
+            .iter()
+            .any(|w| w.kind == SyncWarningKind::ServerInconsistent),
+        "{shown:?}"
+    );
+    // A locked phone cannot acknowledge (and shows no warnings).
+    w.phone.core.lock();
+    assert!(matches!(
+        w.phone.core.acknowledge_sync_findings(),
+        Err(mosaic_mobile::MobileError::Locked)
+    ));
+    assert!(w.phone.core.sync_overview().warnings.is_empty());
+    w.phone
+        .core
+        .unlock_password(PASSWORD.as_bytes().to_vec(), None)
+        .unwrap();
+    w.phone.core.acknowledge_sync_findings().unwrap();
     for _ in 0..3 {
         let _ = sync(&w.server, &w.phone);
     }
@@ -1411,7 +1443,6 @@ fn g5b_heads_apart_without_a_clock_jump_raise_no_finding() {
 /// records a no-common-view finding against the honest desktop: a false
 /// finding that sets `halted` (and, with G5b-2, never clears on the phone).
 #[test]
-#[ignore = "G5b-3: a forward clock jump of days raises a false NoCommonView finding between honest devices"]
 fn g5b_a_clock_jump_with_heads_apart_raises_no_false_finding() {
     heads_apart_rounds("g5b-jump@example.com", [0, 3 * DAY_MS, 6 * DAY_MS]);
 }

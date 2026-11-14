@@ -6326,6 +6326,74 @@
         }
       }
     },
+    "mobile.sync.acknowledge" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ich habe es geprüft…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I've checked…"
+          }
+        }
+      }
+    },
+    "mobile.sync.acknowledgeBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mach nur weiter, wenn du den Server selbst geprüft hast. Das löscht alle Warnungen, und die Synchronisierung läuft weiter. Wurden deine Daten wirklich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen. Mach das auf jedem deiner Geräte."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only go on after you have checked the server yourself. This clears every warning, and syncing continues. If your data really was rolled back or changed, Mosaic can't tell afterwards. Do this on each of your devices."
+          }
+        }
+      }
+    },
+    "mobile.sync.acknowledgeConfirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ich habe es geprüft"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I've checked"
+          }
+        }
+      }
+    },
+    "mobile.sync.acknowledgeTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync-Warnungen löschen?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear the sync warnings?"
+          }
+        }
+      }
+    },
     "mobile.sync.last" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6431,6 +6499,183 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "mobile.sync.warning.accountRollback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Prüfe den Server und wähle dann „Ich habe es geprüft“."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The server shows an older account key than this phone has. Nothing was changed. Check the server, then choose “I've checked”."
+          }
+        }
+      }
+    },
+    "mobile.sync.warning.freezeSuspected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Änderungen von einem anderen Gerät sind seit einer Weile nicht angekommen. Prüfe, ob das andere Gerät an und online ist."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes from another device have not arrived for a while. Check that the other device is on and online."
+          }
+        }
+      }
+    },
+    "mobile.sync.warning.identityDuplicated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine andere Kopie von Mosaic schreibt unter der Identität dieses Handys, zum Beispiel nach dem Wiederherstellen einer Sicherung. Die Synchronisierung ist pausiert. Stelle sicher, dass nur eine Kopie benutzt wird, und wähle dann „Ich habe es geprüft“."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Another copy of Mosaic is writing under this phone's identity, for example after a backup was restored. Syncing is paused. Make sure only one copy is in use, then choose “I've checked”."
+          }
+        }
+      }
+    },
+    "mobile.sync.warning.noCommonView" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This phone and another device haven't seen the same server data for two days. The server may be showing them different versions."
+          }
+        }
+      }
+    },
+    "mobile.sync.warning.rollbackDetected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Sync-Daten wirken älter als dieses Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your sync data looks older than this phone. Check the server, then choose “I've checked”."
+          }
+        }
+      }
+    },
+    "mobile.sync.warning.serverInconsistent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Prüfe den Server und wähle dann „Ich habe es geprüft“."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The server showed this phone different data than another device. Check the server, then choose “I've checked”."
+          }
+        }
+      }
+    },
+    "mobile.sync.warning.serverRollback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Prüfe den Server und wähle dann „Ich habe es geprüft“."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The server's copy of one of your vaults is older than this phone's. Check the server, then choose “I've checked”."
+          }
+        }
+      }
+    },
+    "mobile.sync.warning.undecryptable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld empfangener Eintrag konnte auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld empfangene Einträge konnten auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld received item couldn't be read on this phone. Update Mosaic on all your devices, then sync again."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld received items couldn't be read on this phone. Update Mosaic on all your devices, then sync again."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.sync.warnings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync-Warnungen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync warnings"
           }
         }
       }

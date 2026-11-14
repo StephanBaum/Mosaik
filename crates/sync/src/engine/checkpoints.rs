@@ -183,12 +183,33 @@ fn compare_view(s: &mut UnlockedSession, entry: &PeerEntry) -> Result<bool, Erro
     Ok(true)
 }
 
+/// The runs of this device that must have seen the failure, after the one
+/// that first saw it, before it is reported (G5b-3): the 48 hours are read
+/// off the device's wall clock, so a clock that jumped forward between two
+/// runs must not raise the finding alone.
+const NO_COMMON_VIEW_MIN_RUNS: u64 = 3;
+
+/// The stored `counter` of a view comparison packs the peer's checkpoint
+/// counter (low 32 bits) and this device's own checkpoint counter (high 32
+/// bits, one per run) at the first failure. Both saturate: a counter at the
+/// limit never counts as risen, so a saturated value cannot raise a finding.
+/// Rows written before the packing have a zero high half.
+fn pack_counters(peer: u64, own: u64) -> u64 {
+    (own.min(u64::from(u32::MAX)) << 32) | peer.min(u64::from(u32::MAX))
+}
+
+fn unpack_counters(stored: u64) -> (u64, u64) {
+    (stored & u64::from(u32::MAX), stored >> 32)
+}
+
 /// The bookkeeping of one peer entry: a comparison ends the count; the
-/// first run that cannot compare starts it (with the peer counter then); a
-/// peer whose counter has risen since, with failures spanning the grace
-/// *across runs*, is reported (`NoCommonView`, persisted). A single run after
-/// a long pause (or a clock jump) that finds no peer at its head does not
-/// raise it: the runs that follow normally meet.
+/// first run that cannot compare starts it (with the peer counter and this
+/// device's run counter then); a peer whose counter has risen since, with
+/// failures spanning the grace *across runs* and at least
+/// [`NO_COMMON_VIEW_MIN_RUNS`] further runs of this device, is reported
+/// (`NoCommonView`, persisted). A single run after a long pause (or a clock
+/// jump) that finds no peer at its head does not raise it: the runs that
+/// follow normally meet.
 fn track_comparison(
     s: &mut UnlockedSession,
     cp: &PeerCheckpoint,
@@ -200,16 +221,21 @@ fn track_comparison(
     if compared {
         return s.put_view_compare(device, vault, None, cp.counter);
     }
+    let own = s.checkpoint_counter()?;
     match s.view_compare(device, vault)? {
-        Some((Some(since), counter)) if since <= now => {
-            if cp.counter > counter && now - since > NO_COMMON_VIEW_GRACE_MS {
+        Some((Some(since), stored)) if since <= now => {
+            let (peer_then, own_then) = unpack_counters(stored);
+            if cp.counter > peer_then
+                && now - since > NO_COMMON_VIEW_GRACE_MS
+                && own.saturating_sub(own_then) >= NO_COMMON_VIEW_MIN_RUNS
+            {
                 s.set_no_common_view(device, vault, since)?;
             }
             Ok(())
         }
         // First failure, or a count started in the future (the clock was set
         // back): it starts now.
-        _ => s.put_view_compare(device, vault, Some(now), cp.counter),
+        _ => s.put_view_compare(device, vault, Some(now), pack_counters(cp.counter, own)),
     }
 }
 
