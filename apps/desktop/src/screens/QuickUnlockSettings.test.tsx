@@ -94,12 +94,13 @@ describe("settings, quick unlock", () => {
 
   it("shows one \"Settings saved.\" toast for repeated saves", async () => {
     const { user } = await openSettings();
-    const select = await screen.findByLabelText("Clear the clipboard after");
-    await user.selectOptions(select, "60");
+    // Two stricter auto-lock values (from 10 minutes): a later one would ask for the password (KEY-3).
+    const select = await screen.findByLabelText("Lock after inactivity");
+    await user.selectOptions(select, "5");
     await screen.findByText("Settings saved.");
-    await user.selectOptions(select, "120");
+    await user.selectOptions(select, "1");
     await waitFor(() => {
-      expect(select).toHaveProperty("value", "120");
+      expect(select).toHaveProperty("value", "1");
     });
     expect(screen.getAllByText("Settings saved.")).toHaveLength(1);
   });
