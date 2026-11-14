@@ -3200,7 +3200,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "ctrlc",
@@ -3227,7 +3227,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aead-stream",
  "argon2",
@@ -3250,7 +3250,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-desktop"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "getrandom 0.4.3",
@@ -3296,7 +3296,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-generator"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "proptest",
@@ -3308,7 +3308,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-import"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aes",
  "argon2",
@@ -3337,7 +3337,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-insights"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac 0.13.0",
  "mosaic-core",
@@ -3355,7 +3355,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-mobile"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "mosaic-core",
@@ -3382,7 +3382,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-mobile-ffi"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "mosaic-mobile",
  "uniffi",
@@ -3392,7 +3392,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-native-messaging"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "mosaic-core",
@@ -3408,7 +3408,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-origin"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "idna",
@@ -3422,7 +3422,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-passkey"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "hex-literal",
@@ -3436,7 +3436,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-platform"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arboard",
  "base64ct",
@@ -3450,7 +3450,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-qr"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "image",
  "mosaic-totp",
@@ -3465,7 +3465,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-server"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "base64ct",
@@ -3504,7 +3504,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-ssh-agent"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "bcrypt-pbkdf",
@@ -3523,7 +3523,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-sync"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "base64ct",
@@ -3552,7 +3552,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-totp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hex-literal",
  "hmac 0.13.0",
@@ -3566,7 +3566,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-vault"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "mosaic-core",

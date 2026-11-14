@@ -3,12 +3,14 @@
 //
 // It reads MOSAIC_ANDROID_KEYSTORE (a path), MOSAIC_ANDROID_KEYSTORE_PASSWORD and
 // MOSAIC_ANDROID_KEYSTORE_ALIAS from the environment and signs the release build with that key
-// only when all three are set (the key password is the keystore password). Without them the build
-// stays unsigned. The owner's real release key can use the same three variables later.
+// only when all three are set. The key password is MOSAIC_ANDROID_KEY_PASSWORD when that is set
+// (the real release key, release.yml), else the keystore password (the throwaway preview key).
+// Without the three the build stays unsigned.
 // The password is read, never printed.
 def keystorePath = System.getenv('MOSAIC_ANDROID_KEYSTORE')
 def keystorePassword = System.getenv('MOSAIC_ANDROID_KEYSTORE_PASSWORD')
 def keystoreAlias = System.getenv('MOSAIC_ANDROID_KEYSTORE_ALIAS')
+def keyPasswordEnv = System.getenv('MOSAIC_ANDROID_KEY_PASSWORD') ?: keystorePassword
 
 if (keystorePath && keystorePassword && keystoreAlias) {
     allprojects {
@@ -19,7 +21,7 @@ if (keystorePath && keystorePassword && keystoreAlias) {
                         storeFile = file(keystorePath)
                         storePassword = keystorePassword
                         keyAlias = keystoreAlias
-                        keyPassword = keystorePassword
+                        keyPassword = keyPasswordEnv
                     }
                 }
                 buildTypes.configureEach { buildType ->

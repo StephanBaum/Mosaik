@@ -82,6 +82,15 @@ The full terms are in [`docs/BUG_BOUNTY.md`](docs/BUG_BOUNTY.md).
 - Floods of traffic, social engineering, physical access and services we do
   not run.
 
+## Release signing keys
+
+Releases are signed with a minisign key (`release/minisign.pub`) and the
+Android app with an Android signing key. Check a download as
+[`docs/VERIFY.md`](docs/VERIFY.md) describes. The Android signer's SHA-256
+fingerprint is published there and in `release/android-signer.sha256` with the
+first release that ships an APK. Take keys and fingerprints from the
+repository, never from a release page or a message.
+
 ## More reading
 
 - [Threat model](docs/THREAT_MODEL.md) and [cryptography spec](docs/CRYPTO_SPEC.md)

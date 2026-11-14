@@ -29,7 +29,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed.
   call them. An app that needs one asks for a session-level method instead.
 - **Internal** items (`pub(crate)`, `#[doc(hidden)]`, `cfg(fuzzing)`
   helpers, anything not listed here) may change at any time.
-- The crates are unpublished (`version = "0.0.0"`, `publish = false`); this
+- The crates are unpublished (`version = "0.1.0"`, `publish = false`); this
   document, not semver, is the contract. Gate for every change: CLAUDE.md.
 
 ## Layers
