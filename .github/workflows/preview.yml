@@ -128,46 +128,63 @@ jobs:
 
   android:
     name: Android (release build, throwaway key)
-    # apps/mobile/android arrives with M10; the preview/* branch that carries it runs this job.
-    if: ${{ hashFiles('apps/mobile/android/settings.gradle.kts') != '' }}
+    # apps/mobile/android arrives with M10. A branch without it (main before M10) skips every step after the
+    # check below: hashFiles() is not available in a job-level `if`.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
+      - name: Check for the Android project
+        shell: bash
+        run: |
+          if [ -f apps/mobile/android/settings.gradle.kts ]; then echo HAS_ANDROID=true >> "$GITHUB_ENV"
+          else echo "::notice::No apps/mobile/android on this branch: the Android preview is skipped."; fi
       - name: Install toolchain from rust-toolchain.toml
+        if: env.HAS_ANDROID == 'true'
         run: rustup show active-toolchain || rustup toolchain install
       - name: Add the Android Rust targets (CI only)
+        if: env.HAS_ANDROID == 'true'
         run: rustup target add aarch64-linux-android x86_64-linux-android
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: env.HAS_ANDROID == 'true'
         with: { key: preview-android }
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        if: env.HAS_ANDROID == 'true'
         with: { distribution: temurin, java-version: "21" }
       - name: Install the Android SDK parts and the NDK
+        if: env.HAS_ANDROID == 'true'
         run: |
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null || true
           "$sdkmanager" --install "ndk;${ANDROID_NDK_VERSION}" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
       - name: Install cargo-ndk
+        if: env.HAS_ANDROID == 'true'
         run: command -v cargo-ndk || cargo install cargo-ndk --version "=${CARGO_NDK_VERSION}" --locked
       - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        if: env.HAS_ANDROID == 'true'
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        if: env.HAS_ANDROID == 'true'
         with: { cache-read-only: false }
       # The same release build as mobile.yml's "Android release check": no Cargo features, no test hooks.
       - name: Build the release libraries (no features)
+        if: env.HAS_ANDROID == 'true'
         run: bash scripts/mobile/build-android-native.sh release
       - name: No test hooks in the release libraries
+        if: env.HAS_ANDROID == 'true'
         run: |
           for lib in apps/mobile/android/core/src/main/jniLibs/*/libmosaic_mobile_ffi.so; do
             bash scripts/mobile/check-no-test-hooks.sh "$lib"
           done
       - name: Generate the Kotlin bindings (no features, so no MosaicTestHooks)
+        if: env.HAS_ANDROID == 'true'
         run: bash scripts/mobile/bindgen.sh --out apps/mobile/android/core/build/generated/uniffi kotlin
       # A throwaway key made here: random password, never printed (masked as well), never uploaded.
       # The keystore lives in RUNNER_TEMP, outside the artifact folder. A real release key comes later
       # and needs an uninstall first (docs/TRY_IT.md).
       - name: Make the throwaway keystore
+        if: env.HAS_ANDROID == 'true'
         run: |
           set -euo pipefail
           pw="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
@@ -184,9 +201,11 @@ jobs:
             echo "MOSAIC_ANDROID_KEYSTORE_PASSWORD=$pw"
           } >> "$GITHUB_ENV"
       - name: Release APK signed with the throwaway key
+        if: env.HAS_ANDROID == 'true'
         working-directory: apps/mobile/android
         run: ./gradlew --no-daemon --stacktrace --init-script "$GITHUB_WORKSPACE/scripts/preview/android-signing.init.gradle" :app:assembleRelease
       - name: Verify the signature, collect the APK and the checksums
+        if: env.HAS_ANDROID == 'true'
         run: |
           set -euo pipefail
           apks=(apps/mobile/android/app/build/outputs/apk/release/*.apk)
@@ -198,6 +217,7 @@ jobs:
           cp "${apks[0]}" "out/Mosaic-PREVIEW-android-$(git rev-parse --short=7 HEAD).apk"
           (cd out && sha256sum -- * > SHA256SUMS.tmp && mv SHA256SUMS.tmp SHA256SUMS && cat SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.HAS_ANDROID == 'true'
         with:
           name: mosaic-preview-android
           path: out/
