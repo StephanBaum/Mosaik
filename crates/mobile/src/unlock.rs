@@ -504,4 +504,95 @@ mod tests {
         assert!(!core.lock_strict.load(Ordering::SeqCst));
         assert!(!core.lock_requested.load(Ordering::SeqCst));
     }
+
+    const RT_PASSWORD: &str = "correct horse battery staple";
+
+    /// An opened core with a local account, unlocked; the Secret Key's
+    /// display form comes with it.
+    fn core_with_account(dir: &std::path::Path) -> (Core, Zeroizing<String>) {
+        let core = Core::open(
+            CoreConfig {
+                store_dir: dir.join("mosaic"),
+                platform: Platform::Ios,
+                context: CoreContext::App,
+                boot_id: vec![0, 0, 0, 7],
+                trust_anchors_der: Vec::new(),
+            },
+            Arc::new(Mem::default()),
+        )
+        .unwrap();
+        let (_, key) = core
+            .test_hooks()
+            .create_local_account("user@example.com", RT_PASSWORD)
+            .unwrap();
+        (core, key)
+    }
+
+    /// RT-verify-ios-1 (red team verify 2026-11-14, G3i-1 follow-up).
+    /// `close_store()` decides in two critical sections: `lock_with` takes
+    /// the mutex, locks an `Unlocked` phase (no lock is requested, the phase
+    /// was there to lock), releases the mutex for `finish_lock`, and only
+    /// then takes the mutex again to close. Between the two an unlock can
+    /// take the locked store (`take_locked`, phase `Unlocking`): the close
+    /// section then sets only `close_requested`. The unlock's success path
+    /// (`finish_unlocked`) honours `lock_requested` alone, so it ends
+    /// `Unlocked` with the store open and its file lock held, after a
+    /// `close_store()` that returned. The flag stays set and closes the
+    /// store at the next settled lock instead (a surprise `StoreClosed`).
+    /// Defense wanted: every path that settles a phase treats
+    /// `close_requested` like `lock_requested` (lock, then close), and
+    /// `close_store()` sets the flag in the same critical section that
+    /// decides the lock. This test puts the core into the state the window
+    /// leaves (`Unlocking`, no lock requested, a close requested) and lets
+    /// the unlock finish.
+    #[test]
+    #[ignore = "RT-verify-ios-1: finish_unlocked ends Unlocked with close_requested set when no lock is requested"]
+    fn rt_verify_ios_1_close_requested_without_a_lock_requested_does_not_end_unlocked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (core, key) = core_with_account(dir.path());
+        core.lock();
+        // The unlock took the store out.
+        let taken = core.take_locked().unwrap();
+        // The app goes to the background: `close_store()` finds `Unlocking`.
+        core.close_store();
+        assert!(core.close_requested.load(Ordering::SeqCst));
+        // The window of `close_store()`: its lock section ran before this
+        // unlock took the store, so no lock is requested.
+        core.lock_requested.store(false, Ordering::SeqCst);
+        let Taken::Locked(locked) = taken else {
+            panic!("no account");
+        };
+        let secret_key = SecretKey::parse(&key).unwrap();
+        let Ok(mut session) =
+            locked.unlock(&MasterPassword::new(RT_PASSWORD.to_owned()), &secret_key)
+        else {
+            panic!("the password unlock failed");
+        };
+        core.record_boot(&mut session);
+        let state = core.finish_unlocked(session, UnlockKind::Password).unwrap();
+        assert_eq!(
+            state,
+            SessionState::StoreClosed,
+            "a close during the unlock must end closed, not {state:?}"
+        );
+        assert!(!core.close_requested.load(Ordering::SeqCst));
+    }
+
+    /// RT-verify-ios-2: the same window with a long call. `restore_unlocked`
+    /// honours `lock_requested` alone; with only `close_requested` set it puts
+    /// the unlocked phase back and the flag stays armed.
+    #[test]
+    #[ignore = "RT-verify-ios-2: restore_unlocked ends Unlocked with close_requested set when no lock is requested"]
+    fn rt_verify_ios_2_restore_unlocked_honours_a_close_requested_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (core, _) = core_with_account(dir.path());
+        let unlocked = core.take_unlocked().unwrap();
+        core.close_store();
+        assert!(core.close_requested.load(Ordering::SeqCst));
+        core.lock_requested.store(false, Ordering::SeqCst);
+        let restored = core.restore_unlocked(unlocked);
+        assert_eq!(restored, Err(MobileError::Locked), "the close must win");
+        assert_eq!(core.state(), SessionState::StoreClosed);
+        assert!(!core.close_requested.load(Ordering::SeqCst));
+    }
 }
