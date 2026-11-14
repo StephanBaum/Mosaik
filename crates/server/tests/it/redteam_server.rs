@@ -57,7 +57,12 @@ async fn totp_account(app: &TestApp) -> ([u8; 32], String) {
             &CodeRequest { code: code.into() },
         )
         .await;
-    assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+    assert_eq!(
+        r.status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&r.body)
+    );
     let _ = u;
     (token, secret)
 }
@@ -68,7 +73,6 @@ async fn totp_account(app: &TestApp) -> ([u8; 32], String) {
 /// not claim the budget, so a fresh full session can submit far more than ten
 /// wrong codes an hour. This asserts the spec's limit and so fails today.
 #[tokio::test(start_paused = true)]
-#[ignore = "RT-server-1: per-account 2FA failure budget (CRYPTO_SPEC §9.3) is not enforced on require_second_factor; a fresh session brute-forces codes up to the 600/min session limit"]
 async fn second_factor_budget_covers_the_account_routes() {
     let app = open_app();
     let (token, _secret) = totp_account(&app).await;
