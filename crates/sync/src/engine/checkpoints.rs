@@ -552,3 +552,25 @@ impl<T: Transport> SyncEngine<T> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::pack_counters;
+
+    /// RT-final-2: the packed view-comparison counter goes through
+    /// `seq_to_sql` (`i64::try_from`), so the own half may use 31 bits, not
+    /// 32: the saturation at `u32::MAX` the doc comment calls safe makes
+    /// `put_view_compare` fail with `SeqOutOfRange` instead, and from then on
+    /// every run that cannot compare a view ends in an error. Unreachable
+    /// today (2^31 runs), but the bound is wrong. Fix: saturate the own half
+    /// at `i32::MAX`, or store the own counter in its own column.
+    #[test]
+    #[ignore = "RT-final-2: pack_counters saturates own at u32::MAX, which seq_to_sql refuses"]
+    fn a_saturated_own_counter_still_fits_the_store() {
+        let packed = pack_counters(7, u64::from(u32::MAX) + 5);
+        assert!(
+            i64::try_from(packed).is_ok(),
+            "{packed:#x} does not fit an SQLite INTEGER"
+        );
+    }
+}
