@@ -3,7 +3,10 @@ updates:
   - package-ecosystem: cargo
     directory: /
     schedule: { interval: weekly }
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
   # Each fuzz crate is its own workspace with its own lockfile; keep them
   # on the same versions as the main lockfile.
   - package-ecosystem: cargo
@@ -24,11 +27,21 @@ updates:
       - /crates/vault/fuzz
       - /apps/desktop/src-tauri/fuzz
     schedule: { interval: weekly }
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      fuzz-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: npm
     directory: /
     schedule: { interval: weekly }
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 4
+    groups:
+      npm-dev-minor-patch:
+        dependency-type: development
+        update-types: ["minor", "patch"]
+      npm-prod-minor-patch:
+        dependency-type: production
+        update-types: ["minor", "patch"]
     ignore:
       # Typings track the supported Node line (engines: >=22), not the newest Node.
       - dependency-name: "@types/node"
@@ -39,3 +52,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    open-pull-requests-limit: 2
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]

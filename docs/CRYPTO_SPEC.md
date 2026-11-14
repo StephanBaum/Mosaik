@@ -2928,7 +2928,7 @@ in M9 T9).
 **Keys and custody.** Two minisign keys, one for releases and one for the
 updater, each encrypted with its own password. The secret keys and passwords
 are secrets of the GitHub environment `release`, which needs the owner's
-approval and runs only for protected `v*` tags. They are never on a developer
+approval and runs only for protected `v*` tags on commits that are on `main` (the `prepare` job checks that). They are never on a developer
 machine after generation, never in the repository and never printed (no
 `set -x` around them). The public release key is published in
 `release/minisign.pub`, `SECURITY.md` and `docs/VERIFY.md` once the owner has

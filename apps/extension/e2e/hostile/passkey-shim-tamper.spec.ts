@@ -150,7 +150,21 @@ test("forged aborts and answers from another tab change nothing, and a forged an
 
   // Tab B's own call ends with the answer it forged for itself; that is its right.
   await other.bringToFront();
+  // The page's call registers id 1 in the shim only once its own steps are done, and a forged answer
+  // that arrives earlier is dropped (the call would then wait for the desktop for good). The bridge's
+  // ack for id 1 proves the shim has registered it, so forge only after that.
+  await other.evaluate(() => {
+    (window as unknown as { acked: Promise<void> }).acked = new Promise<void>((resolve) => {
+      window.addEventListener("message", (event) => {
+        const data = event.data as { type?: string; id?: number } | null;
+        if (data?.type === "mosaic-passkey-ack" && data.id === 1) {
+          resolve();
+        }
+      });
+    });
+  });
   await rpStart(other, "get", { noVerify: true });
+  await other.evaluate(() => (window as unknown as { acked: Promise<void> }).acked);
   await other.evaluate(() => {
     window.postMessage({ type: "mosaic-passkey-res", id: 1, result: { kind: "error", name: "NotAllowedError" } }, "*");
   });

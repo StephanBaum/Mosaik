@@ -4,7 +4,7 @@
  * Text the user selected, or a text box, keeps its own copy and Enter. Esc is handled by the
  * menus and dialogs themselves (the top layer closes first).
  */
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useAnnounce } from "./components/Announcer.tsx";
 import { useI18n } from "./i18n.tsx";
 import type { Actions, ItemKey } from "./useActions.ts";
@@ -69,35 +69,43 @@ export function useShortcuts({
 }): void {
   const announce = useAnnounce();
   const { errorText } = useI18n();
+  // The listener is added once and reads the latest props through a ref, committed together with
+  // the render: re-adding it after every render left a window in which a key pressed right after
+  // the logins appeared still saw the previous, empty list and did nothing.
+  const latest = useRef({ items, fill, copy, enabled, announce, errorText });
+  useLayoutEffect(() => {
+    latest.current = { items, fill, copy, enabled, announce, errorText };
+  });
   useEffect(() => {
-    if (!enabled) {
-      return undefined;
-    }
     const onKeyDown = (event: KeyboardEvent) => {
+      const { items: current, fill: doFill, copy: doCopy, enabled: on, announce: say, errorText: text } = latest.current;
+      if (!on) {
+        return;
+      }
       const target = event.target instanceof Element ? event.target : null;
-      const item = itemAt(target, items);
+      const item = itemAt(target, current);
       if (item === undefined || event.defaultPrevented) {
         return;
       }
       if (isFillKey(event, target)) {
         if (item.fillable) {
           event.preventDefault();
-          fill(item);
+          doFill(item);
         }
         return;
       }
       const field = copyFieldFor(event, target);
       if (field === "totp" && !item.hasOtp) {
         event.preventDefault();
-        announce(errorText("noOtp"));
+        say(text("noOtp"));
       } else if (field !== null) {
         event.preventDefault();
-        void copy({ kind: "item", vaultId: item.vaultId, itemId: item.itemId, field });
+        void doCopy({ kind: "item", vaultId: item.vaultId, itemId: item.itemId, field });
       }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [items, fill, copy, enabled, announce, errorText]);
+  }, []);
 }

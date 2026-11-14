@@ -179,7 +179,10 @@ and design tokens. The owner's tooling standard is pnpm.
 A pnpm workspace (`apps/*`, `packages/*`) with `packages/design-tokens`
 (tokens and a WCAG contrast test) and `packages/i18n` (DE/EN ICU catalogs and
 a parity test). The ICU formatter library is chosen in M3. Dependency
-lifecycle scripts are disabled by default (`onlyBuiltDependencies: []`).
+lifecycle scripts are disabled by default (`onlyBuiltDependencies: []`, set in the
+root `package.json` `pnpm` field, which the pinned pnpm 9.15.4 reads, and in
+`pnpm-workspace.yaml` for pnpm 10; RT-release-3 found that the workspace file
+alone does nothing on pnpm 9, and a CI test now guards it).
 
 TypeScript is pinned to 6.0.x because typescript-eslint 8.x does not support
 TypeScript 7 yet. Revisit when it does.
@@ -1863,7 +1866,7 @@ Brief §5 asks for an SSH agent with approval for every use. CRYPTO_SPEC §2
 had no SSH row.
 
 ### Decision
-1. **Crate:** `ssh-key =0.7.0-rc.11` (RustCrypto), with `std`, `ed25519`,
+1. **Crate:** `ssh-key =0.7.0-rc.12` (rc.11 until 2026-11-12; rc.11 to rc.12 only added CA-key certificate checks and renamed `rsa` types, none used here) (RustCrypto), with `std`, `ed25519`,
    `p256` and `encryption`. Move to 0.7.0 when it is released; the stable
    0.6.7 is blocked by RUSTSEC-2026-0387 (crypto-bigint 0.5). Feature
    unification turns on `zeroize` in `ed25519-dalek =3.0.0` and

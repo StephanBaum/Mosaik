@@ -662,6 +662,60 @@ fn canonical_rp_ids() {
     assert_eq!(rp("https://login.example.com", Some(&rp_id)), Ok(rp_id));
 }
 
+/// RT-EXT red team: the spellings of the loopback address a saved URL or a
+/// page origin may carry. The URL parser normalizes a saved URL; a page
+/// origin is accepted only as the browser serializes it; an IPv4-mapped IPv6
+/// loopback and `localhost` look-alikes are not loopback, so the http
+/// override stays required there (conservative).
+#[test]
+fn redteam_loopback_spellings() {
+    for url in [
+        "http://127.1",
+        "http://2130706433",
+        "http://0x7f.0.0.1",
+        "http://0177.0.0.1",
+    ] {
+        assert_eq!(
+            saved_origin(url).unwrap().serialize(),
+            "http://127.0.0.1",
+            "{url}"
+        );
+    }
+    for bad in ["http://127.1", "http://2130706433", "http://0x7f.0.0.1"] {
+        assert_eq!(
+            PageOrigin::parse(bad),
+            Err(OriginError::NotCanonical),
+            "{bad}"
+        );
+    }
+    let mapped = Url::parse("http://[::ffff:127.0.0.1]")
+        .unwrap()
+        .origin()
+        .ascii_serialization();
+    let mapped_page = PageOrigin::parse(&mapped).unwrap();
+    assert!(!mapped_page.is_loopback(), "{mapped}");
+    assert_eq!(
+        fill_allowed(&saved(&mapped, UrlMatch::ExactOrigin, false), &mapped_page),
+        Err(Refusal::Insecure)
+    );
+    for host in [
+        "localhost.evil.example",
+        "127.0.0.1.nip.example",
+        "localhost-evil.example",
+        "evil.example.localhost.evil.example",
+    ] {
+        let origin = format!("http://{host}");
+        assert_eq!(
+            fill_allowed(
+                &saved(&origin, UrlMatch::ExactOrigin, false),
+                &page(&origin)
+            ),
+            Err(Refusal::Insecure),
+            "{host}"
+        );
+    }
+}
+
 mod props {
     use super::*;
     use proptest::prelude::*;
