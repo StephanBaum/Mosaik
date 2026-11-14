@@ -12,6 +12,6 @@
     "export:webauthn": "node --experimental-strip-types --no-warnings scripts/export-webauthn.mjs"
   },
   "dependencies": {
-    "intl-messageformat": "12.1.4"
+    "intl-messageformat": "12.1.5"
   }
 }
