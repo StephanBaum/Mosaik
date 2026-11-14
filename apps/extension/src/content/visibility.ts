@@ -148,37 +148,72 @@ export function isElementVisible(el: Element, env: VisibilityEnv = domEnv): bool
   return box.width >= MIN_SIZE && box.height >= MIN_SIZE && opacityProduct(el, env) >= MIN_OPACITY;
 }
 
+/**
+ * The part of the box on screen, or null when under `MIN_SIZE` of it is (as `intersect`): a 1 to 2 px
+ * sliver is not hit-tested with the centre point alone, it counts as off screen.
+ */
 function intersectViewport(box: Box, view: ViewportInfo): Box | null {
   const left = Math.max(box.left, 0);
   const top = Math.max(box.top, 0);
   const right = Math.min(box.right, view.width);
   const bottom = Math.min(box.bottom, view.height);
-  if (right <= left || bottom <= top) {
+  if (right - left < MIN_SIZE || bottom - top < MIN_SIZE) {
     return null;
   }
   return { left, top, right, bottom, width: right - left, height: bottom - top };
 }
 
-/** The centre and four points inset by a quarter of the width and height. */
-function samplePoints(box: Box): [number, number][] {
-  const dx = box.width / 4;
-  const dy = box.height / 4;
-  const cx = box.left + box.width / 2;
-  const cy = box.top + box.height / 2;
-  return [
-    [cx, cy],
-    [box.left + dx, box.top + dy],
-    [box.right - dx, box.top + dy],
-    [box.left + dx, box.bottom - dy],
-    [box.right - dx, box.bottom - dy],
-  ];
+/** A random number in [0, 1) from the platform's CSPRNG: the page can neither predict nor bias it. */
+export function secureRandom(): number {
+  const word = new Uint32Array(1);
+  crypto.getRandomValues(word);
+  return (word[0] ?? 0) / 2 ** 32;
 }
 
-function isTarget(hit: Element | null, el: Element): boolean {
-  if (hit === null) {
-    return false;
+/** The sample grid of a normal field: 4 columns by 3 rows, one drawn point per cell. */
+const GRID_COLS = 4;
+const GRID_ROWS = 3;
+/** A visible rect smaller than this (12 x 6 px) cannot hold the full grid: see `SamplePlan`. */
+const MIN_CELL_W = 3;
+const MIN_CELL_H = 2;
+/** Cell points that may miss the field in a full grid (a show-password eye, a small icon). */
+const MAX_CELL_MISSES = 2;
+/** The inset of the sampled area from the visible rect. */
+const INSET = 2;
+
+/** `strict` (tiny field: every point must hit) or `tolerant` (full grid: a few cell points may miss). */
+type SamplePlan = { readonly points: [number, number][]; readonly mode: "strict" | "tolerant" };
+
+/**
+ * The exact centre first, then one point drawn with `random` uniformly inside each cell of a 4 x 3
+ * grid over the visible rect after a 2 px inset, so a page cannot know where the test looks and
+ * cannot cover a part of the field without a cell noticing. The rect is never empty
+ * (`intersectViewport`). Under 12 x 6 px the grid shrinks to the cells of at least 3 x 2 px that
+ * fit (possibly none: the centre alone) and `strict` applies. All draws happen here, up front.
+ */
+function samplePoints(box: Box, random: () => number): SamplePlan {
+  const mx = Math.min(INSET, box.width / 4);
+  const my = Math.min(INSET, box.height / 4);
+  const tiny = box.width < GRID_COLS * MIN_CELL_W || box.height < GRID_ROWS * MIN_CELL_H;
+  const cols = tiny ? Math.min(GRID_COLS, Math.floor(box.width / MIN_CELL_W)) : GRID_COLS;
+  const rows = tiny ? Math.min(GRID_ROWS, Math.floor(box.height / MIN_CELL_H)) : GRID_ROWS;
+  const areaW = box.width - 2 * mx;
+  const areaH = box.height - 2 * my;
+  const points: [number, number][] = [[box.left + box.width / 2, box.top + box.height / 2]];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      points.push([
+        box.left + mx + ((col + random()) / cols) * areaW,
+        box.top + my + ((row + random()) / rows) * areaH,
+      ]);
+    }
   }
-  return hit === el || el.contains(hit) || (hit.localName === "label" && (hit as HTMLLabelElement).control === el);
+  return { points, mode: tiny ? "strict" : "tolerant" };
+}
+
+/** Only the field itself or something inside it counts as on top: a label or any other element does not. */
+function isTarget(hit: Element | null, el: Element): boolean {
+  return hit !== null && (hit === el || el.contains(hit));
 }
 
 function intersect(a: Box, b: Box): Box | null {
@@ -224,13 +259,30 @@ export function isClippedAway(el: Element, box: Box, env: VisibilityEnv): boolea
   return false;
 }
 
+/** The stratified hit test on the on-screen part of the field; fails closed without a random source. */
+function passesHitTest(el: Element, onScreen: Box, env: VisibilityEnv, random: () => number): boolean {
+  let plan: SamplePlan;
+  try {
+    plan = samplePoints(onScreen, random);
+  } catch {
+    // No randomness, no trust: the fixed centre alone would be what the page can aim at.
+    return false;
+  }
+  // Every point is evaluated (no early exit), so the time taken does not reveal the count.
+  const hits = plan.points.map(([x, y]) => isTarget(env.elementAt(el, x, y), el));
+  const misses = hits.filter((hit) => !hit).length;
+  return hits[0] === true && misses <= (plan.mode === "strict" ? 0 : MAX_CELL_MISSES);
+}
+
 /**
  * Whether the user could see and click `el`: displayed, at least 4 x 4 px, combined opacity at
- * least 0.2, inside the document, and on top at one of five sample points. Off screen there is
+ * least 0.2, inside the document, and on top at the centre and at all but at most two of twelve
+ * stratified random points (one per cell of a 4 x 3 grid, drawn per check with `random`; a field
+ * under 12 x 6 px must hit at every point). Off screen there is
  * no hit test, so there it must be in the top document (in a frame the viewport is all the user
  * sees) and not clipped away by an ancestor.
  */
-export function isFillable(el: Element, env: VisibilityEnv = domEnv): boolean {
+export function isFillable(el: Element, env: VisibilityEnv = domEnv, random: () => number = secureRandom): boolean {
   if (!isElementVisible(el, env)) {
     return false;
   }
@@ -246,5 +298,5 @@ export function isFillable(el: Element, env: VisibilityEnv = domEnv): boolean {
   if (onScreen === null) {
     return view.framed !== true && !isClippedAway(el, box, env);
   }
-  return samplePoints(onScreen).some(([x, y]) => isTarget(env.elementAt(el, x, y), el));
+  return passesHitTest(el, onScreen, env, random);
 }

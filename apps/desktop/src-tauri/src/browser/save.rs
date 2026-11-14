@@ -154,13 +154,24 @@ pub(super) fn check_sizes(body: &SaveBody) -> Result<(), WireError> {
     }
 }
 
+/// The page a captured login is from. A save is only ever for the top-level page: a frame
+/// (`origin != topOrigin`) is refused, as a fill into one is, so a hidden frame cannot make the
+/// user save or update a login for an origin they are not looking at.
+fn save_page(body: &SaveBody) -> Result<PageOrigin, WireError> {
+    let page = parse_origin(&body.origin)?;
+    let top = parse_origin(&body.top_origin)?;
+    if page != top {
+        return Err(WireError::CrossOriginFrame);
+    }
+    Ok(page)
+}
+
 impl Backend {
     /// `checkSave`: would this captured login be new, an update, or
     /// unchanged.
     pub(crate) fn browser_check_save(&self, body: &SaveBody) -> Result<CheckSaveResult, WireError> {
         check_sizes(body)?;
-        let page = parse_origin(&body.origin)?;
-        parse_origin(&body.top_origin)?;
+        let page = save_page(body)?;
         let slot = self.slot().map_err(wire)?;
         let session = slot.unlocked().map_err(wire)?;
         let found = analyze(
@@ -179,8 +190,7 @@ impl Backend {
     /// change.
     pub(crate) fn browser_plan_save(&self, body: &SaveBody) -> Result<Option<SavePlan>, WireError> {
         check_sizes(body)?;
-        let page = parse_origin(&body.origin)?;
-        parse_origin(&body.top_origin)?;
+        let page = save_page(body)?;
         let slot = self.slot().map_err(wire)?;
         let session = slot.unlocked().map_err(wire)?;
         let found = analyze(

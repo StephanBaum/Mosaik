@@ -1,0 +1,26 @@
+<!-- attempts (RT-EXT red team): pass the hit test of `isFillable` with a `<label>`. The field test
+     accepts the topmost element at a sample point when it is a label whose `control` is the field.
+     So an opaque label `for="decoy"`, styled as a cookie banner and laid over a decoy password field,
+     hides the field from the user while every sample point "hits" it. The visible username and
+     password above are the real form; the decoy is in the same form and asks for the current
+     password too. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Label overlay</title>
+<script src="/_leaks.js"></script>
+<style>
+  body { margin: 8px; }
+  .row { margin: 4px 0; }
+  #decoy { position: absolute; left: 8px; top: 200px; width: 300px; height: 40px; }
+  #banner {
+    position: absolute; left: 0; top: 180px; width: 400px; height: 80px;
+    background: #1d4ed8; color: #fff; font: 16px sans-serif; text-align: center; line-height: 80px;
+    z-index: 10;
+  }
+</style>
+<form id="login" onsubmit="return false">
+  <div class="row"><input id="user" name="username" type="text" autocomplete="username"></div>
+  <div class="row"><input id="pass" name="password" type="password" autocomplete="current-password"></div>
+  <input id="decoy" name="d0" type="password" autocomplete="current-password">
+</form>
+<label id="banner" for="decoy">We use cookies. OK</label>
