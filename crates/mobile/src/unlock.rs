@@ -632,4 +632,84 @@ mod tests {
         };
         assert!(locked.password_required(QuickMethod::Biometric));
     }
+
+    /// A fresh core without an account, as a phone before a join.
+    #[expect(clippy::unwrap_used, reason = "a test helper")]
+    fn core_without_account(dir: &std::path::Path) -> Core {
+        Core::open(
+            CoreConfig {
+                store_dir: dir.join("mosaic"),
+                platform: Platform::Ios,
+                context: CoreContext::App,
+                boot_id: vec![0, 0, 0, 7],
+                trust_anchors_der: Vec::new(),
+            },
+            Arc::new(Mem::default()),
+        )
+        .unwrap()
+    }
+
+    /// RT-verify2-ios-1 (red team verify 2 of 2026-11-14). `put_back_keeping_lock`
+    /// settles a phase and keeps `pending.lock` and `pending.strict` armed
+    /// for the `finish_join` that is meant to follow (N3). When no
+    /// `finish_join` follows (the user cancels the join, or it expires), the
+    /// requests outlive the phase they were made against: the `NoAccount`
+    /// phase is settled, `join_cancel` does not clear them, and neither does a
+    /// later `lock()` on the settled phase (`lock_with`'s `other` arm). The
+    /// next phase settled through `finish_unlocked`, here the account the user
+    /// creates instead (a second join behaves the same), is locked at once,
+    /// with the password required because the stale lock was strict.
+    /// Fail-safe, but stale state applied to a later request. Defense wanted:
+    /// `join_cancel` and the join's expiry settle the requests they kept, or
+    /// `lock_with` on a settled phase clears `pending.lock`/`strict` (a lock
+    /// on a locked phase is met).
+    #[test]
+    #[ignore = "RT-verify2-ios-1: a lock kept for a join that never finishes locks the account created next"]
+    fn rt_verify2_ios_1_a_lock_kept_for_an_abandoned_join_outlives_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_without_account(dir.path());
+        // `join_start`: the store is out during the network call...
+        let taken = core.take_locked().unwrap();
+        // ...and the re-authentication limit (or the app's background hook) locks meanwhile.
+        core.lock_requiring_password();
+        // The login succeeded: the lock is kept for `finish_join` (N3).
+        core.put_back_keeping_lock(taken);
+        // The user never finishes the join.
+        core.join_cancel();
+        core.lock();
+        assert_eq!(core.state(), SessionState::NoAccount);
+        let (state, _) = core
+            .test_hooks()
+            .create_local_account("user@example.com", RT_PASSWORD)
+            .unwrap();
+        assert!(
+            matches!(state, SessionState::Unlocked { .. }),
+            "the account created after an abandoned join must end unlocked, not {state:?}"
+        );
+    }
+
+    /// RT-verify2-ios-2: the same window with `close_store()`. The rewrite
+    /// says whoever settles a held-out phase locks and then closes it, but
+    /// `put_back_keeping_lock` is a settling path that leaves `pending.close`
+    /// to a `finish_join` that may never come. After `close_store()` returned
+    /// (iOS: the app went to the background during the join's network call),
+    /// the store is open again with its file lock held, and stays so through
+    /// `join_cancel` until the next phase that is settled. Defense wanted: as
+    /// RT-verify2-ios-1, or `put_back_keeping_lock` honours `pending.close`
+    /// (a close ends the join: it needs the store).
+    #[test]
+    #[ignore = "RT-verify2-ios-2: close_store() during a join start leaves the store open when the join is abandoned"]
+    fn rt_verify2_ios_2_a_close_kept_for_an_abandoned_join_leaves_the_store_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_without_account(dir.path());
+        let taken = core.take_locked().unwrap();
+        core.close_store();
+        core.put_back_keeping_lock(taken);
+        core.join_cancel();
+        assert_eq!(
+            core.state(),
+            SessionState::StoreClosed,
+            "a close_store() that returned must leave the store closed"
+        );
+    }
 }
