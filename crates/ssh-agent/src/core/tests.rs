@@ -243,6 +243,7 @@ fn denied_unknown_and_refused_requests_fail() {
         }
         let ext = Request::Extension {
             name: b"session-bind@openssh.com",
+            body: &[],
         }
         .encode()
         .unwrap();

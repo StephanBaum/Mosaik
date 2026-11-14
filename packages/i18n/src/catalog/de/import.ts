@@ -24,6 +24,8 @@ export const importMessages = {
     "Manche Einträge konnten nicht gelesen werden und werden ausgelassen. Prüfe sie in deinem alten Passwortmanager.",
   "import.warning.otpUnreadable":
     "Manche Einstellungen für Einmalcodes wurden nicht erkannt. Sie wurden als verborgene Felder übernommen; richte den Code damit neu ein.",
+  "import.warning.otpWeak":
+    "Bei manchen Einmalcodes ist das Geheimnis kürzer als 80 Bit, die Codes lassen sich also leichter erraten. Sie wurden trotzdem übernommen; richte sie bei Gelegenheit mit einem neuen Geheimnis ein.",
   "import.warning.passkeysNotImported":
     "Dieses Exportformat enthält die privaten Schlüssel der Passkeys nicht, deshalb lassen sie sich nicht importieren. Der Rest dieser Einträge wird importiert.",
   "import.warning.passkeyUnreadable":
@@ -37,6 +39,8 @@ export const importMessages = {
     "Manche Felder haben kein passendes Feld in Mosaic. Sie wurden als eigene Felder übernommen.",
   "import.entry.otpUnreadable":
     "Die Einstellung für den Einmalcode wurde nicht erkannt. Sie wurde als verborgenes Feld übernommen; richte den Code damit neu ein.",
+  "import.entry.otpWeak":
+    "Das Geheimnis des Einmalcodes ist kürzer als 80 Bit, der Code lässt sich also leichter erraten. Er wurde trotzdem übernommen; richte ihn bei Gelegenheit mit einem neuen Geheimnis ein.",
   "import.entry.attachmentTooLarge":
     "Ein Anhang ist größer als 50 MiB und wurde ausgelassen. Füge ihn nach dem Import von Hand hinzu.",
   "import.entry.attachmentMissing":
@@ -60,6 +64,8 @@ export const importMessages = {
     "Dieser Eintrag hat mehr Passkeys, als ein Import übernimmt (100 pro Eintrag, 10.000 pro Datei). Die überzähligen Passkeys wurden ausgelassen. Behalte deine alte App, bis du sie umgezogen hast.",
   "import.entry.fieldsDropped":
     "Dieser Eintrag hat mehr Felder, als Mosaic speichert. Die übrigen Felder werden ausgelassen.",
+  "import.entry.notesTruncated":
+    "Die Notizen dieses Eintrags sind länger, als ein Eintrag fassen kann. Der Teil, der nicht mehr hineinpasst, wurde ausgelassen.",
   "import.skip.malformed": "Dieser Eintrag ist beschädigt und lässt sich nicht lesen.",
   "import.skip.empty": "Dieser Eintrag ist leer.",
   "import.skip.tooLarge": "Dieser Eintrag ist größer als 1 MiB, das Maximum für einen Eintrag.",

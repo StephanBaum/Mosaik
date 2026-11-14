@@ -58,17 +58,18 @@ use crate::error::{Error, Result};
 
 pub(crate) use payload::parse_payload;
 
-/// Most Argon2 memory a file may ask for: 1 GiB (in KiB).
+/// Most Argon2 memory a file may ask for: 256 MiB (in KiB); `KeePassXC`'s
+/// default is 64 MiB, and a phone must fit it.
 #[cfg(not(fuzzing))]
-pub const MAX_ARGON2_MEMORY_KIB: u32 = 1024 * 1024;
+pub const MAX_ARGON2_MEMORY_KIB: u32 = 256 * 1024;
 /// Most Argon2 memory a file may ask for (fuzzing builds: 64 KiB).
 #[cfg(fuzzing)]
 pub const MAX_ARGON2_MEMORY_KIB: u32 = 64;
-/// Most Argon2 work, memory in KiB times passes: 64 GiB of memory filled
-/// in total (about a minute on a current CPU, single-threaded). `KeePassXC`'s
-/// defaults (64 MiB, a second's worth of passes) are far below.
+/// Most Argon2 work, memory in KiB times passes: 16 GiB of memory filled
+/// in total (about 15 seconds, single-threaded). `KeePassXC`'s defaults
+/// (64 MiB, a second's worth of passes) are far below.
 #[cfg(not(fuzzing))]
-pub const MAX_ARGON2_WORK: u64 = 64 * 1024 * 1024;
+pub const MAX_ARGON2_WORK: u64 = 16 * 1024 * 1024;
 /// Most Argon2 work (fuzzing builds).
 #[cfg(fuzzing)]
 pub const MAX_ARGON2_WORK: u64 = 256;

@@ -7,6 +7,9 @@ export type SshDecision = (typeof sshDecisions)[number];
 export const sshCloseReasons = ["answered", "expired", "locked"] as const;
 export type SshCloseReason = (typeof sshCloseReasons)[number];
 
+export const sshOrigins = ["local", "forwarded", "bindFailed"] as const;
+export type SshOrigin = (typeof sshOrigins)[number];
+
 export const sshSkipReasons = ["unsupported", "malformed", "duplicate"] as const;
 export type SshSkipReason = (typeof sshSkipReasons)[number];
 
@@ -55,6 +58,8 @@ export interface SshApprovalRequest {
   client: SshClient;
   requestedAt: UnixMillis;
   expiresAt: UnixMillis;
+  /** Where the request comes from; anything but `local` is shown as a warning. */
+  origin: SshOrigin;
   /** Whether "Allow for 15 minutes" is offered. */
   canRemember: boolean;
 }

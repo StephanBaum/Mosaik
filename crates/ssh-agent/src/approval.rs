@@ -94,6 +94,52 @@ impl ClientInfo {
     }
 }
 
+/// Where a connection's requests come from, as far as its
+/// `session-bind@openssh.com` message shows. A connection starts `Local`; a
+/// bind can only move it to a later variant (the order is the severity, set
+/// by [`ConnOrigin::rank`], not by the declaration order), never back. Only
+/// `Local` may use or create a remembered grant.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum ConnOrigin {
+    /// No bind, or only verified binds that are not forwarded: the request
+    /// comes from the client process on this machine.
+    #[default]
+    Local,
+    /// A verified bind says the agent connection is forwarded: the request
+    /// comes from a server the user is connected to.
+    Forwarded,
+    /// A bind was malformed or its signature did not verify (this includes
+    /// host keys of a type the agent cannot verify, such as RSA, P-384 and
+    /// P-521): where the request comes from is unknown.
+    BindFailed,
+}
+
+impl ConnOrigin {
+    /// The severity: a higher rank is a worse origin, and a connection's
+    /// origin only moves to a higher rank. The match is exhaustive, so a new
+    /// variant cannot be added without ranking it.
+    #[must_use]
+    pub const fn rank(self) -> u8 {
+        match self {
+            Self::Local => 0,
+            Self::Forwarded => 1,
+            Self::BindFailed => 2,
+        }
+    }
+}
+
+impl Ord for ConnOrigin {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.rank().cmp(&other.rank())
+    }
+}
+
+impl PartialOrd for ConnOrigin {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// A sign request waiting for the user.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ApprovalRequest {
@@ -115,6 +161,8 @@ pub struct ApprovalRequest {
     pub requested_at: SystemTime,
     /// When it is refused without an answer.
     pub expires_at: SystemTime,
+    /// Where the request comes from; show it to the user unless `Local`.
+    pub origin: ConnOrigin,
     /// Whether `Decision::AllowFor` is remembered; if `false` it counts as
     /// `AllowOnce`. Hide "Allow for 15 minutes" when `false`.
     pub can_remember: bool,
@@ -382,12 +430,37 @@ mod tests {
             client: client(None),
             requested_at: SystemTime::now(),
             expires_at: SystemTime::now() + Duration::from_mins(1),
+            origin: ConnOrigin::Local,
             can_remember: false,
         }
     }
 
     /// An allow in the first second is refused and leaves the request open;
     /// a deny is always taken.
+    /// The origin order is the severity: `escalate()` takes the maximum, so
+    /// it must stay `Local < Forwarded < BindFailed`.
+    #[test]
+    fn the_origin_order_is_local_then_forwarded_then_bind_failed() {
+        assert!(ConnOrigin::Local < ConnOrigin::Forwarded);
+        assert!(ConnOrigin::Forwarded < ConnOrigin::BindFailed);
+        assert_eq!(
+            [
+                ConnOrigin::Local.rank(),
+                ConnOrigin::Forwarded.rank(),
+                ConnOrigin::BindFailed.rank()
+            ],
+            [0, 1, 2]
+        );
+        assert_eq!(
+            ConnOrigin::Forwarded.max(ConnOrigin::BindFailed),
+            ConnOrigin::BindFailed
+        );
+        assert_eq!(
+            ConnOrigin::BindFailed.max(ConnOrigin::Local),
+            ConnOrigin::BindFailed
+        );
+    }
+
     #[test]
     fn an_allow_before_the_minimum_delay_is_refused() {
         for allow in [Decision::AllowOnce, Decision::AllowFor(DEFAULT_GRANT)] {

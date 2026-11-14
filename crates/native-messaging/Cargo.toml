@@ -18,6 +18,11 @@ path = "src/lib.rs"
 name = "mosaic-native-host"
 path = "src/main.rs"
 
+[features]
+# PREVIEW builds only (ADR-0153): `allowed_chromium_origins` also lists the dev extension ID in a
+# release build. Never enabled by default or by a release (scripts/release/check-features.sh).
+preview = []
+
 [dependencies]
 mosaic-core = { path = "../core" }
 # Derive for the wire types (the desktop crate enables the same feature).

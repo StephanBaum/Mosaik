@@ -8,8 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mosaic_ssh_agent::{
-    AgentConfig, AgentHandle, ApprovalEvent, ApprovalPrompts, CloseReason, DEFAULT_GRANT, Decision,
-    Endpoint, KeyError, KeySet, RequestId, RespondError, SignFailure, SkipReason,
+    AgentConfig, AgentHandle, ApprovalEvent, ApprovalPrompts, CloseReason, ConnOrigin,
+    DEFAULT_GRANT, Decision, Endpoint, KeyError, KeySet, RequestId, RespondError, SignFailure,
+    SkipReason,
 };
 use mosaic_vault::session::{ItemFilter, UnlockedSession};
 
@@ -18,8 +19,8 @@ use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::events::AppEvent;
 use crate::contract::ids::UnixMillis;
 use crate::contract::ssh::{
-    SshAgentStatus, SshApprovalRequest, SshClient, SshCloseReason, SshDecision, SshRespondRequest,
-    SshSignFailReason, SshSkipReason, SshSkippedKey,
+    SshAgentStatus, SshApprovalRequest, SshClient, SshCloseReason, SshDecision, SshOrigin,
+    SshRespondRequest, SshSignFailReason, SshSkipReason, SshSkippedKey,
 };
 use crate::state::guard;
 
@@ -258,6 +259,14 @@ const fn fail_reason(failure: SignFailure) -> SshSignFailReason {
     }
 }
 
+const fn origin(origin: ConnOrigin) -> SshOrigin {
+    match origin {
+        ConnOrigin::Local => SshOrigin::Local,
+        ConnOrigin::Forwarded => SshOrigin::Forwarded,
+        ConnOrigin::BindFailed => SshOrigin::BindFailed,
+    }
+}
+
 const fn close_reason(reason: CloseReason) -> SshCloseReason {
     match reason {
         CloseReason::Answered => SshCloseReason::Answered,
@@ -281,6 +290,7 @@ fn to_app_event(event: ApprovalEvent) -> AppEvent {
                 },
                 requested_at: millis(r.requested_at),
                 expires_at: millis(r.expires_at),
+                origin: origin(r.origin),
                 can_remember: r.can_remember,
             },
         },
@@ -401,7 +411,8 @@ mod tests {
             },
             requested_at: UNIX_EPOCH + std::time::Duration::from_millis(1_500),
             expires_at: UNIX_EPOCH + std::time::Duration::from_millis(31_500),
-            can_remember: true,
+            origin: ConnOrigin::Forwarded,
+            can_remember: false,
         };
         let json = json_of(to_app_event(ApprovalEvent::Requested(request)));
         let request = &json["request"];
@@ -412,7 +423,8 @@ mod tests {
         assert_eq!(request["client"]["pid"], 4242);
         assert_eq!(request["requestedAt"], 1_500);
         assert_eq!(request["expiresAt"], 31_500);
-        assert_eq!(request["canRemember"], true);
+        assert_eq!(request["canRemember"], false);
+        assert_eq!(request["origin"], "forwarded");
         // The executable path is for grants inside the agent; it never
         // reaches the webview.
         assert!(!json.to_string().contains("/usr/bin/ssh"));

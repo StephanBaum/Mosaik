@@ -1,0 +1,33 @@
+// Preview signing for the Android release build (ADR-0153). A Gradle init script
+// (gradle --init-script), so the app's own build file stays unchanged.
+//
+// It reads MOSAIC_ANDROID_KEYSTORE (a path), MOSAIC_ANDROID_KEYSTORE_PASSWORD and
+// MOSAIC_ANDROID_KEYSTORE_ALIAS from the environment and signs the release build with that key
+// only when all three are set (the key password is the keystore password). Without them the build
+// stays unsigned. The owner's real release key can use the same three variables later.
+// The password is read, never printed.
+def keystorePath = System.getenv('MOSAIC_ANDROID_KEYSTORE')
+def keystorePassword = System.getenv('MOSAIC_ANDROID_KEYSTORE_PASSWORD')
+def keystoreAlias = System.getenv('MOSAIC_ANDROID_KEYSTORE_ALIAS')
+
+if (keystorePath && keystorePassword && keystoreAlias) {
+    allprojects {
+        pluginManager.withPlugin('com.android.application') {
+            android {
+                signingConfigs {
+                    create('mosaicPreview') {
+                        storeFile = file(keystorePath)
+                        storePassword = keystorePassword
+                        keyAlias = keystoreAlias
+                        keyPassword = keystorePassword
+                    }
+                }
+                buildTypes.configureEach { buildType ->
+                    if (buildType.name == 'release') {
+                        buildType.signingConfig = signingConfigs.getByName('mosaicPreview')
+                    }
+                }
+            }
+        }
+    }
+}

@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useEvents } from "../app/EventsProvider.tsx";
 import { Button } from "../components/Button.tsx";
+import { Callout } from "../components/Callout.tsx";
 import { CountdownRing } from "../components/CountdownRing.tsx";
 import { Dialog } from "../components/Dialog.tsx";
 import { ErrorAlert } from "../components/ErrorAlert.tsx";
@@ -85,6 +86,12 @@ function Expiry({ seconds, total }: { seconds: number; total: number }) {
   );
 }
 
+/** The warning line for each origin that is not the user's own machine. */
+const ORIGIN_WARNING = {
+  forwarded: "ssh.origin.forwarded",
+  bindFailed: "ssh.origin.bindFailed",
+} as const;
+
 function Prompt({ request, waiting }: { request: SshApprovalRequest; waiting: number }) {
   const { t } = useI18n();
   const ipc = useIpc();
@@ -122,6 +129,9 @@ function Prompt({ request, waiting }: { request: SshApprovalRequest; waiting: nu
         <div className="ssh-prompt__head">
           <p className="lede">{t("ssh.description")}</p>
         </div>
+        {request.origin !== "local" && (
+          <Callout tone="warning">{t(ORIGIN_WARNING[request.origin])}</Callout>
+        )}
         <Details request={request} client={client} />
         <Expiry seconds={seconds} total={total} />
         <p role="status" className="visually-hidden">

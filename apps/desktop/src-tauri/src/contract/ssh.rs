@@ -34,6 +34,20 @@ wire_enum!(
 );
 
 wire_enum!(
+    /// Where a sign request comes from, as the agent could tell. Anything but
+    /// `Local` is shown to the user as a warning in the prompt.
+    pub enum SshOrigin {
+        /// The client process on this machine.
+        Local,
+        /// A server the user is connected to, through agent forwarding.
+        Forwarded,
+        /// The connection's host binding was malformed or did not verify, so
+        /// the origin is unknown.
+        BindFailed,
+    }
+);
+
+wire_enum!(
     /// Why an SSH key item is not served.
     pub enum SshSkipReason {
         /// The algorithm is not supported (RSA, P-384, ...).
@@ -135,8 +149,10 @@ pub struct SshApprovalRequest {
     pub requested_at: UnixMillis,
     /// When it is refused without an answer.
     pub expires_at: UnixMillis,
+    /// Where the request comes from.
+    pub origin: SshOrigin,
     /// Whether "Allow for 15 minutes" is offered (the client's executable is
-    /// known).
+    /// known and the origin is `local`).
     pub can_remember: bool,
 }
 
@@ -194,6 +210,7 @@ pub(crate) mod samples {
             },
             requested_at: 1_761_480_035_000,
             expires_at: 1_761_480_060_000,
+            origin: SshOrigin::Local,
             can_remember: true,
         }
     }

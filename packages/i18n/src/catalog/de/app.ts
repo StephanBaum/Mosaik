@@ -5,6 +5,9 @@ export const app = {
   "app.name": "Mosaic",
   "app.preAudit":
     "Software vor dem Audit: noch nicht von einem externen Sicherheitsprüfer begutachtet.",
+  "app.previewTag": "Vorschau",
+  "app.previewBuild":
+    "Vorschau-Build, kein Release. Nicht signiert, nicht geprüft, nur zum Ausprobieren.",
   "action.cancel": "Abbrechen",
   "action.continue": "Weiter",
   "action.retry": "Erneut versuchen",

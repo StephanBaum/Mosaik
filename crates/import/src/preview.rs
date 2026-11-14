@@ -38,6 +38,9 @@ pub enum ImportWarning {
     /// Some one-time-password values were not understood (kept as hidden
     /// fields).
     OtpUnreadable,
+    /// Some one-time-password secrets are shorter than 80 bits (kept as they
+    /// are).
+    OtpWeak,
     /// Passkeys were left out: the format holds none of their private keys
     /// (1PUX).
     PasskeysNotImported,
@@ -196,6 +199,7 @@ const fn summary_warning(w: EntryWarning) -> Option<ImportWarning> {
         | EntryWarning::AttachmentMissing
         | EntryWarning::AttachmentQuota => Some(ImportWarning::AttachmentsSkipped),
         EntryWarning::OtpUnreadable => Some(ImportWarning::OtpUnreadable),
+        EntryWarning::OtpWeak => Some(ImportWarning::OtpWeak),
         EntryWarning::PasskeysNotImported => Some(ImportWarning::PasskeysNotImported),
         EntryWarning::PasskeyUnreadable => Some(ImportWarning::PasskeyUnreadable),
         EntryWarning::PasskeyUnsupported => Some(ImportWarning::PasskeyUnsupported),

@@ -41,6 +41,7 @@ export function startAgent(state: MockState): void {
         client: { processName: "git", pid: 4242 },
         requestedAt,
         expiresAt: requestedAt + APPROVAL_TTL_MS,
+        origin: "local",
         canRemember: true,
       },
     });

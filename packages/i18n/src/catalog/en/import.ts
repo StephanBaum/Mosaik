@@ -21,6 +21,8 @@ export const importMessages = {
     "Some entries couldn't be read and will be left out. Check them in your old password manager.",
   "import.warning.otpUnreadable":
     "Some one-time code settings weren't recognized. They were kept as hidden fields, so set up the code again from them.",
+  "import.warning.otpWeak":
+    "Some one-time codes have a secret shorter than 80 bits, so the codes are easier to guess. They were imported anyway; set them up again with a new secret when you can.",
   "import.warning.passkeysNotImported":
     "This export format doesn't contain the private keys of passkeys, so they can't be imported. The rest of those items is imported.",
   "import.warning.passkeyUnreadable":
@@ -34,6 +36,8 @@ export const importMessages = {
     "Some fields have no matching field in Mosaic. They were kept as custom fields.",
   "import.entry.otpUnreadable":
     "The one-time code setting wasn't recognized. It was kept as a hidden field, so set up the code again from it.",
+  "import.entry.otpWeak":
+    "The one-time code secret is shorter than 80 bits, so the code is easier to guess. It was imported anyway; set it up again with a new secret when you can.",
   "import.entry.attachmentTooLarge":
     "An attachment is larger than 50 MiB and was left out. Add it by hand after the import.",
   "import.entry.attachmentMissing":
@@ -56,6 +60,8 @@ export const importMessages = {
     "This item has more passkeys than one import takes (100 per item, 10,000 per file). The extra passkeys were left out. Keep your old app until you've moved them.",
   "import.entry.fieldsDropped":
     "This item has more fields than Mosaic keeps. The extra fields are left out.",
+  "import.entry.notesTruncated":
+    "This item's notes are longer than one item can hold. The part that didn't fit was left out.",
   "import.skip.malformed": "This entry is damaged and can't be read.",
   "import.skip.empty": "This entry is empty.",
   "import.skip.tooLarge": "This entry is larger than 1 MiB, the most one item can hold.",
