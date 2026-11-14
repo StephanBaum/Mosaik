@@ -109,6 +109,14 @@ fn read_member(zip: &mut ZipArchive<Cursor<&[u8]>>, index: usize, limit: usize) 
         }
         _ => Error::Malformed,
     })?;
+    // zip 9.5 instantiates the decompressor lazily, so an unsupported method
+    // would otherwise only surface as a read error: check it up front.
+    if !matches!(
+        file.compression(),
+        zip::CompressionMethod::Stored | zip::CompressionMethod::Deflated
+    ) {
+        return Err(Error::Unsupported);
+    }
     let hint = usize::try_from(file.size()).unwrap_or(limit);
     // Read one byte past the limit so an oversized member is detected
     // whatever size its header declares.

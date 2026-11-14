@@ -1841,6 +1841,19 @@ fn check_save_tells_new_update_and_unchanged() {
                 "invalidRequest"
             );
         }
+        // A frame is no top-level page: neither check nor proposal for it (RT-EXT-3).
+        let mut framed = save_body(o, Some("alex@example.com"), "new-pw");
+        framed["topOrigin"] = json!("https://evil.example");
+        assert_eq!(
+            check_save(&mut peer, &env, framed.clone())
+                .await
+                .unwrap_err(),
+            "crossOriginFrame"
+        );
+        assert_eq!(
+            peer.call("proposeSave", framed).await.unwrap_err(),
+            "crossOriginFrame"
+        );
     });
 }
 

@@ -1,0 +1,32 @@
+<!-- attempts (RT-EXT red team): make the content script believe it runs on another site. The page
+     replaces, in its own world, every global the script reads to decide where it is and whether
+     it may fill: `window.origin` ([Replaceable]) says the bank's origin, `window.top`, `parent` and
+     `frameElement` say "top frame", `document.visibilityState` and `document.hasFocus` say
+     "visible". Opened on evil.test, the fill must still be matched against evil.test (no match);
+     opened on bank.test, the replacements must not stop the fill either. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Origin clobber</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
+<script>
+  const claimed = location.origin.replace("evil.test", "bank.test");
+  const define = (target, name, value) => {
+    try {
+      Object.defineProperty(target, name, { value, configurable: true });
+    } catch {
+      /* unforgeable: left as is */
+    }
+  };
+  define(window, "origin", claimed);
+  define(window, "top", window);
+  define(window, "parent", window);
+  define(window, "frameElement", null);
+  define(document, "visibilityState", "visible");
+  define(document, "hasFocus", () => true);
+  define(document, "hidden", false);
+  window.__clobbered = { origin: window.origin, top: window.top === window, parent: window.parent === window };
+</script>
