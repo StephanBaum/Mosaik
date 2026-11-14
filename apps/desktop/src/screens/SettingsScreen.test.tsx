@@ -72,6 +72,22 @@ describe("settings", () => {
     expect(screen.getByLabelText<HTMLSelectElement>("Lock after inactivity").value).toBe("never");
   });
 
+  it("asks for the master password to make auto-lock later, not to make it stricter", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
+    await screen.findByText("GitHub");
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    const autoLock = await screen.findByLabelText<HTMLSelectElement>("Lock after inactivity");
+    await user.selectOptions(autoLock, "60");
+    expect(await screen.findByRole("dialog", { name: "Confirm with your master password" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.selectOptions(autoLock, "5");
+    expect(await screen.findByText("Settings saved.")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("switches the SSH agent on and shows the endpoint", async () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);

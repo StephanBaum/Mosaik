@@ -213,6 +213,11 @@ pub struct Backend {
     /// The account whose *new* Emergency Kit (a rotation's pending Secret
     /// Key) was saved and verified in this process; every lock clears it.
     pub(crate) pending_kit_verified: Mutex<Option<AccountId>>,
+    /// The account whose rotation or re-key was staged with the master
+    /// password in this process: while it matches, the pending kit saves
+    /// without the password. Only a prepare (which checks the password) sets
+    /// it, every lock clears it, and a quick unlock never reopens it (KEY-1).
+    pub(crate) pending_kit_window: Mutex<Option<AccountId>>,
     lock_hooks: Mutex<Vec<LockHook>>,
     unlock_hooks: Mutex<Vec<UnlockHook>>,
 }
@@ -270,6 +275,7 @@ impl Backend {
             os_sources: Mutex::new(Vec::new()),
             kit_pending: Mutex::new(None),
             pending_kit_verified: Mutex::new(None),
+            pending_kit_window: Mutex::new(None),
             lock_hooks: Mutex::new(Vec::new()),
             unlock_hooks: Mutex::new(Vec::new()),
         }

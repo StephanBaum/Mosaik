@@ -188,6 +188,41 @@ EOF
 }
 known RT-release-3 "a dependency postinstall runs under the repository's pnpm settings" rt3
 
+# RT2-CHAIN-2: check-features.sh also reads the desktop's Tauri configs and its feature lists.
+chain2() {
+  local base="$work/chain2" case_
+  mkdir -p "$base/scripts/release" "$base/apps/desktop/src-tauri" "$base/crates/cli"     "$base/crates/server" "$base/crates/native-messaging" "$base/deploy" "$base/.github/workflows"
+  cp "$here/check-features.sh" "$base/scripts/release/"
+  for c in cli server native-messaging; do printf '[features]
+' > "$base/crates/$c/Cargo.toml"; done
+  : > "$base/deploy/Dockerfile"
+  : > "$base/.github/workflows/release.yml"
+  printf '[features]
+custom-protocol = ["tauri/custom-protocol"]
+preview = ["mosaic-native-messaging/preview"]
+'     > "$base/apps/desktop/src-tauri/Cargo.toml"
+  printf '{"build": {"beforeBuildCommand": "pnpm build"}}
+' > "$base/apps/desktop/src-tauri/tauri.conf.json"
+  printf '{}
+' > "$base/apps/desktop/src-tauri/tauri.release.conf.json"
+  bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1 || return 1
+  for case_ in features before custom; do
+    cp "$base/apps/desktop/src-tauri/Cargo.toml" "$base/Cargo.keep"
+    cp "$base/apps/desktop/src-tauri/tauri.conf.json" "$base/tauri.keep"
+    case "$case_" in
+      features) printf '{"build": {"features": ["preview"]}}
+' > "$base/apps/desktop/src-tauri/tauri.conf.json" ;;
+      before) printf '{"build": {"beforeBuildCommand": "pnpm build && pnpm build:preview"}}
+' > "$base/apps/desktop/src-tauri/tauri.conf.json" ;;
+      custom) sed -i 's|^custom-protocol = \[|custom-protocol = ["preview", |' "$base/apps/desktop/src-tauri/Cargo.toml" ;;
+    esac
+    if bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1; then return 1; fi
+    cp "$base/Cargo.keep" "$base/apps/desktop/src-tauri/Cargo.toml"
+    cp "$base/tauri.keep" "$base/apps/desktop/src-tauri/tauri.conf.json"
+  done
+}
+known RT2-CHAIN-2 "the release guard catches preview in tauri.conf.json and in the desktop feature lists" chain2
+
 echo
 echo "redteam-selftest: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

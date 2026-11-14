@@ -432,14 +432,11 @@ impl Backend {
     /// wrong passwords would otherwise let the next Hello prompt reopen the
     /// guessing.
     fn lock_with(&self, reason: LockReason, require_password: bool) -> IpcResult<SessionState> {
-        // A master password change in flight finishes first (at most three
-        // minutes): locking between the server's answer and the local commit
-        // would leave the device with the old password.
-        // Sleep locks at once: a change cut off by it is recovered with the
-        // new password.
-        if reason != LockReason::Sleep {
-            self.sync.wait_for_change();
-        }
+        // Every lock goes ahead at once (ADR-0155), a master password change
+        // in flight included: its local commit is a single step under the
+        // slot lock, so it lands before the lock or finds the vault locked,
+        // and a change the server already took is recovered with the new
+        // password. A deferred lock would be a window the server controls.
         // Pending logins and joins (with their keys and Secret Key) end with
         // every lock, also in the onboarding where no vault is unlocked.
         self.sync.drop_pending();
@@ -483,6 +480,9 @@ impl Backend {
         }
         if let Ok(mut verified) = self.pending_kit_verified.lock() {
             *verified = None;
+        }
+        if let Ok(mut window) = self.pending_kit_window.lock() {
+            *window = None;
         }
         if let Ok(mut generated) = self.last_generated.lock() {
             *generated = None;
@@ -644,7 +644,16 @@ impl Backend {
     pub fn save_emergency_kit(&self, request: SaveKitRequest) -> IpcResult<KitSaved> {
         request.labels.validate()?;
         let account = self.slot()?.unlocked()?.account_id();
-        if !request.pending && *guard(&self.kit_pending)? != Some(account) {
+        // The kit of the current key opens without the password only in the
+        // onboarding window, the pending kit of a rotation only in the window
+        // its prepare (which checked the password) opened; both end with every
+        // lock, so a quick unlock never reaches either (KEY-1).
+        let window = if request.pending {
+            &self.pending_kit_window
+        } else {
+            &self.kit_pending
+        };
+        if *guard(window)? != Some(account) {
             let password = request
                 .password
                 .ok_or(IpcError::new(ErrorCode::ReauthRequired))?;

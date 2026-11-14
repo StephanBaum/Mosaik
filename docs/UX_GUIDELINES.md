@@ -154,7 +154,8 @@ shortcut. Global shortcuts can be remapped, and the app detects conflicts.
   `data-mask` with its masked text); the snapshot code of the lock animation
   never paints it (ADR-0032).
 - **Re-authentication** before export, master password change, viewing the
-  Secret Key, adding a quick-unlock method, or turning off auto-lock. The
+  Secret Key, adding a quick-unlock method, or turning off auto-lock or making
+  it (or the clipboard clearing) later. The
   password typed for one of these pays for that action only (ADR-0151): the
   two-minute window that "Confirm" opens is tied to the action that asked for
   it, so a password typed for the Emergency Kit never pays for a passkey

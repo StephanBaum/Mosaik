@@ -5833,3 +5833,58 @@ waited for the 48 hour `NoCommonView` rule. The phone's acknowledgement cleared 
 A server can no longer make an owner device forget a revocation by one answer. It can still refuse the rotation request itself: that is visible on
 every run. A server that withholds all peer checkpoints from a device hides the generation evidence (R56, R68). Tests: `refusal_tests` in
 `crates/sync` and `acknowledge_keeps_sharing_findings_the_phone_never_showed` in `crates/mobile`. THREAT_MODEL R154, R155, R156.
+
+## ADR-0155: A lock never waits for a password or key change
+
+- Status: accepted
+- Date: 2026-11-14
+- Milestone: M9 (hardening), red-team round 2 (KEY-2)
+
+### Context
+`lock_with` waited up to three minutes (`LOCK_DEFER_CAP`) for a master password or key change in flight, for every reason but the sleep lock, so a
+slow or hostile server could stretch the unlocked window past an explicit lock, an idle lock or the reauth-limit lock (`count_wrong_master`, the fifth
+wrong kit group). The wait existed to avoid locking between the server's answer and the local commit. The sleep lock already proves that cut-off is
+recoverable.
+
+### Decision
+Every lock reason goes ahead at once; the wait, its cap and its condition variable are removed. The `begin_change` guard stays only as "one change at
+a time" (`busy`). Why this is safe and never half state:
+- The local commit of a change is one step under the slot lock (`with_unlocked`), and the lock takes the same slot lock. So the commit lands before
+  the lock, or the change finds the vault locked and fails with `locked`.
+- A change the backend already took but the device did not commit is the C-M1 case: the vault stays locked, `sync_recover_password` brings the device
+  back with the new password. A rotation or re-key resumes from its journal row (`rotation_resume`), whose phase says how far it got.
+- A change that fails with the vault locked is never retried on its own: the request needs the master password again.
+Alternatives rejected: a fence that aborts the change (the server may already have taken it, so an abort would be the half state), and a shorter
+wait (still a window the server controls).
+
+### Consequences
+A lock that cuts a hosted password change off asks for the new password on the next unlock. The sleep-lock test is replaced by
+`a_lock_during_a_password_change_goes_ahead_at_once` for all reasons. THREAT_MODEL R158.
+
+## ADR-0156: The pending kit window, later timeouts, and preview residue on a release install
+
+- Status: accepted
+- Date: 2026-11-14
+- Milestone: M9 (hardening), red-team round 2 (KEY-1, KEY-3, CHAIN-1)
+
+### Context
+`save_emergency_kit { pending: true }` skipped the password check that the kit of the current key has, so the next Secret Key of a staged rotation
+could be printed from any unlocked session. The settings rule counted only "off" as weakening, although an 8 hour idle lock is off for a workday. A
+release install did not remove the per-user browser entries of the Windows preview, which win over the MSI's.
+
+### Decision
+- **KEY-1.** The pending kit saves without the password only while `pending_kit_window` holds the account. Only the prepare of a Secret Key rotation
+  or a re-key sets it (in `stage_rotation`, right after its password check); every lock, a commit and an abandon clear it. A quick unlock
+  never sets it. Outside the window `save_emergency_kit` demands `verify_master_only_in(password)`, as for the current kit. The wizard calls it only
+  after its prepare in the same unlocked session, so it keeps working; a resumed job starts after the kit step.
+- **KEY-3.** `weakens()` is true when the idle lock or the clipboard clearing goes from set to off or to a larger value. A shorter value, or turning
+  one on, needs no password. The settings screen already opens the re-authentication dialog on `reauthRequired`.
+- **CHAIN-1.** `remove_foreign_user_entries` (`mosaic-native-messaging`, Windows only) deletes a Mosaic-owned per-user key (its value is exactly the
+  manifest path Mosaic writes) and the manifest file when the manifest is unreadable, names another host or lists other extensions, and only when the
+  MSI's `HKLM` entry for that browser names the installed host (a fallback exists). The release desktop runs it at start and in Repair before the
+  rewrite; the preview build does not. Entries that name the installed host stay, so a Repair of a broken machine-wide entry still works.
+
+### Consequences
+Tests: `the_pending_kit_needs_the_password_outside_the_prepare_window`, `only_turning_a_protection_off_weakens`,
+`foreign_user_entries_are_removed_once_the_machine_entry_is_the_fallback`. THREAT_MODEL R157, R159, R160. The NSIS uninstall hook of the preview
+bundle that the finding also suggests is not added: the release desktop clears the residue itself.

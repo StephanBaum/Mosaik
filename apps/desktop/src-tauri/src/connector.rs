@@ -91,6 +91,29 @@ pub(crate) fn refresh_with(
     Some(())
 }
 
+/// Removes the per-user entries of Mosaic that name another host than `host`
+/// (the residue of a Windows preview build, CHAIN-1) once the MSI's machine
+/// entry is the fallback, so the browser reads that one. Returns how many keys
+/// and files went.
+pub(crate) fn clear_foreign_with(
+    layout: &Layout,
+    host: &Path,
+    user: &mut dyn Registry,
+    machine: &mut dyn Registry,
+) -> Option<usize> {
+    install::remove_foreign_user_entries(layout, host, user, machine).ok()
+}
+
+/// [`clear_foreign_with`] for this machine (Windows only; nothing to do
+/// elsewhere). The preview build itself owns its entries and keeps them.
+fn clear_preview_residue() -> Option<usize> {
+    if !cfg!(windows) || cfg!(feature = "preview") {
+        return Some(0);
+    }
+    let (host, layout) = (installed_host()?, Layout::current().ok()?);
+    clear_foreign_with(&layout, &host, &mut RegExe, &mut RegExeMachine)
+}
+
 /// The audit of this machine: the per-user entries, and on Windows the
 /// machine-wide ones of the MSI (M9-F3: a host that is not where the system
 /// manifests say is reported too). Empty without an installed host.
@@ -133,6 +156,9 @@ pub enum RepairError {
 pub fn repair() -> Result<BrowserConnectorAudit, RepairError> {
     let host = installed_host().ok_or(RepairError::HostMissing)?;
     let layout = Layout::current().map_err(|_| RepairError::WriteFailed)?;
+    // The preview's leftovers go first: deleted, not rewritten, so the
+    // browser falls back to the machine-wide entry (CHAIN-1).
+    clear_preview_residue().ok_or(RepairError::WriteFailed)?;
     repair_with(&layout, &host, &mut RegExe).ok_or(RepairError::WriteFailed)?;
     let machine = install::audit_machine(&layout, &host, &mut RegExe, &mut RegExeMachine);
     if !machine.is_empty() {
@@ -144,10 +170,16 @@ pub fn repair() -> Result<BrowserConnectorAudit, RepairError> {
 
 /// At start on macOS: points the per-user manifests into the signed bundle.
 /// Best effort; on other systems it does nothing (the installers own the
-/// manifests there and the audit reports overrides). A Windows preview build
+/// manifests there and the audit reports overrides), except that a Windows
+/// release removes the per-user entries a preview build left (CHAIN-1). A Windows preview build
 /// (ADR-0153) has no MSI that writes the system manifests, so it writes the
 /// per-user ones like the macOS app does.
 pub fn refresh_at_start() {
+    if cfg!(all(windows, not(feature = "preview"))) {
+        // A release install does not keep what a preview build left behind.
+        let _ = clear_preview_residue();
+        return;
+    }
     if !cfg!(target_os = "macos") && !cfg!(all(windows, feature = "preview")) {
         return;
     }
@@ -265,5 +297,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let layout = layout(dir.path());
         assert!(refresh_with(&layout, Path::new("relative-host"), &mut NoRegistry).is_none());
+    }
+
+    /// CHAIN-1: the residue removal fails closed on a relative host and does
+    /// nothing off Windows (the crate tests the removal itself).
+    #[test]
+    fn preview_residue_removal_fails_closed_and_skips_other_systems() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = layout(dir.path());
+        let host = dir.path().join("bin").join("mosaic-native-host");
+        assert_eq!(
+            clear_foreign_with(&layout, &host, &mut NoRegistry, &mut NoRegistry),
+            Some(0)
+        );
+        assert_eq!(
+            clear_foreign_with(
+                &layout,
+                Path::new("relative-host"),
+                &mut NoRegistry,
+                &mut NoRegistry
+            ),
+            None
+        );
     }
 }
