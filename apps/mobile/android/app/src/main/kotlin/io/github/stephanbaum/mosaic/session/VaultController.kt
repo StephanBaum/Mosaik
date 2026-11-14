@@ -136,6 +136,9 @@ class VaultController(
         try {
             val state = guarded { holder.call { it.state() } }
             if (state !is Outcome.Ok || state.value !is SessionState.Unlocked) return null
+            // Nothing to sync without a configured, signed-in account: no request and no reload.
+            val overview = guarded { holder.call { it.syncOverview() } }
+            if (overview !is Outcome.Ok || !overview.value.configured || !overview.value.signedIn) return null
             lastAutoSyncMs = now
             return guarded { holder.call { it.syncNow() } }
         } finally {

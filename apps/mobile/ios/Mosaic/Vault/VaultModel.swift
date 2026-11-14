@@ -44,6 +44,10 @@ final class VaultModel {
     func autoSync(force: Bool = false) async {
         guard !isRefreshing else { return }
         guard case .unlocked = app.session else { return }
+        // Nothing to sync without a configured, signed-in account: no request and no reload (which would also
+        // redraw the list for nothing).
+        let current = try? await holder.call { core in core.syncOverview() }
+        guard let current, current.configured, current.signedIn else { return }
         let now = ContinuousClock.now
         if !force, let last = lastAutoSync, now - last < .seconds(20) { return }
         lastAutoSync = now

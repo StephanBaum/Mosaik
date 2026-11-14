@@ -432,6 +432,10 @@ private fun OtpBlock(otp: OtpDisplay?, onCopy: () -> Unit) {
                             customActions =
                                 listOf(
                                     CustomAccessibilityAction(readCode) {
+                                        // A one-off announcement on request. The suggested replacement (a live
+                                        // region) would keep the code in the semantics tree, which is worse for a
+                                        // secret, so the deprecated call stays, suppressed at this one line.
+                                        @Suppress("DEPRECATION")
                                         view.announceForAccessibility(otp.code.toList().joinToString(" "))
                                         true
                                     },
