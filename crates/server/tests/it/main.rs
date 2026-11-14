@@ -37,5 +37,6 @@ mod sharing_world;
 mod sim_hosted;
 mod sim_rekey;
 mod sim_sharing;
+mod slowloris;
 mod webauthn;
 mod webauthn_m9;

@@ -213,10 +213,11 @@ again from a device that holds the vault.
 
 ## Slow clients
 
-The server limits request time, body size and concurrent requests, but has no
-header read timeout of its own. The reverse proxy is the defence against
-slow-header clients (slowloris): keep its read timeouts and per-IP connection
-limits on (Caddy and nginx do by default).
+The server limits request time, body size and concurrent requests, and closes
+a connection that takes longer than 10 s to send a request head or sits idle
+that long between requests (R64). It does not cap the number of open
+connections: keep the reverse proxy's per-IP connection limits on (Caddy and
+nginx do by default).
 
 ## Upgrades
 

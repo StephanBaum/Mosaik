@@ -13,6 +13,7 @@
 //!   `account delete`.
 #![forbid(unsafe_code)]
 
+pub mod accept;
 mod api;
 mod auth;
 mod blobs;
@@ -25,7 +26,6 @@ mod fsperm;
 mod polls;
 mod ratelimit;
 
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -219,11 +219,12 @@ pub async fn serve(config: Config) -> Result<(), StartError> {
         }
     });
     tracing::info!("listening");
-    axum::serve(
+    accept::serve_listener(
         listener,
-        app(state).into_make_service_with_connect_info::<SocketAddr>(),
+        app(state),
+        shutdown(),
+        accept::HEADER_READ_TIMEOUT,
     )
-    .with_graceful_shutdown(shutdown())
     .await?;
     Ok(())
 }
