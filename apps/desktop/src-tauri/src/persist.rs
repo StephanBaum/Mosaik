@@ -497,10 +497,15 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 fn write_tmp_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(tmp)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // Owner-only from the first byte (RT-desktop-2), like the store.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
     }

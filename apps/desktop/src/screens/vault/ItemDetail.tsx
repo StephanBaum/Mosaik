@@ -179,7 +179,7 @@ export function ItemDetail({
   const toast = useToast();
   const { detail, setDetail, error, setError } = useDetail(item, reloadKey);
   // Moving an item out of a hardware vault needs a fresh master password.
-  const { guard, dialog: reauthDialog } = useReauth("reauth.bodyMove");
+  const { guard, dialog: reauthDialog } = useReauth("leaveHardwareVault");
   useCopyShortcuts(item, detail, !trash);
 
   const messages = commandMessages(t);

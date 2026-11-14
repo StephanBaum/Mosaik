@@ -579,6 +579,13 @@ export const fixtures = {
       "biometric",
       "hardwareKey"
     ],
+    "reauthPurpose": [
+      "quickUnlockEnroll",
+      "hardwareVaultKey",
+      "leaveHardwareVault",
+      "passkeyExport",
+      "vaultKeyRotation"
+    ],
     "registrationMode": [
       "open",
       "invite",
@@ -2230,7 +2237,24 @@ export const fixtures = {
     ],
     "reauthenticate": [
       {
-        "password": "correct horse battery staple"
+        "password": "correct horse battery staple",
+        "purpose": "quickUnlockEnroll"
+      },
+      {
+        "password": "correct horse battery staple",
+        "purpose": "hardwareVaultKey"
+      },
+      {
+        "password": "correct horse battery staple",
+        "purpose": "leaveHardwareVault"
+      },
+      {
+        "password": "correct horse battery staple",
+        "purpose": "passkeyExport"
+      },
+      {
+        "password": "correct horse battery staple",
+        "purpose": "vaultKeyRotation"
       }
     ],
     "rekey_commit": [
@@ -6662,18 +6686,21 @@ export const fixtures = {
         "accounts": [
           "019a2b3c-4d5e-7030-8000-000000000001"
         ],
+        "accountsTruncated": false,
         "choiceId": "choice-1",
         "contents": "mosaic",
         "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic"
       },
       {
         "accounts": [],
+        "accountsTruncated": false,
         "choiceId": "choice-2",
         "contents": "empty",
         "displayPath": "D:\\Sync"
       },
       {
         "accounts": [],
+        "accountsTruncated": false,
         "choiceId": "choice-3",
         "contents": "other",
         "displayPath": "D:\\Documents"

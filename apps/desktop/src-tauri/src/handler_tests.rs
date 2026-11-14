@@ -1798,7 +1798,13 @@ fn no_secret_leaks_into_errors_events_or_debug_output() {
         })
         .unwrap_err(),
     );
-    record_error(b.reauthenticate(SecretIn::test(ITEM_PASSWORD)).unwrap_err());
+    record_error(
+        b.reauthenticate(
+            SecretIn::test(ITEM_PASSWORD),
+            crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+        )
+        .unwrap_err(),
+    );
     record_error(
         b.update_item(req(with_item(&detail, json!({ "draft": {
             "text": [], "secrets": [{ "field": "password", "value": ITEM_PASSWORD }], "urls": [],

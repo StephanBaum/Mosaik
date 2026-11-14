@@ -48,6 +48,11 @@ impl Layout {
         }
     }
 
+    /// The account's directory.
+    pub(crate) fn dir(&self) -> PathBuf {
+        self.account_dir.clone()
+    }
+
     pub(crate) fn account_files(&self) -> PathBuf {
         self.account_dir.join("account")
     }

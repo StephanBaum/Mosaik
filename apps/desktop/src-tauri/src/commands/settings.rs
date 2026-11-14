@@ -105,7 +105,7 @@ impl Backend {
             if password.expose_secret().is_empty() {
                 return Err(IpcError::new(ErrorCode::ReauthRequired));
             }
-            self.reauthenticate(password)?;
+            self.verify_master_only_in(password)?;
         }
 
         if new.global_shortcut != old.global_shortcut {

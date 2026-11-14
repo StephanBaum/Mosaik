@@ -61,11 +61,14 @@ impl Backend {
         let Some(path) = self.dialogs.pick_folder()? else {
             return Ok(None);
         };
-        let (contents, accounts) = match inspect(&path) {
-            FolderContents::Empty => (FolderState::Empty, Vec::new()),
-            FolderContents::Mosaic { accounts } => (FolderState::Mosaic, accounts),
+        let (contents, accounts, truncated) = match inspect(&path) {
+            FolderContents::Empty => (FolderState::Empty, Vec::new(), false),
+            FolderContents::Mosaic {
+                accounts,
+                truncated,
+            } => (FolderState::Mosaic, accounts, truncated),
             FolderContents::Missing | FolderContents::OtherVersion | FolderContents::Foreign => {
-                (FolderState::Other, Vec::new())
+                (FolderState::Other, Vec::new(), false)
             }
         };
         let choice_id = self.sync.remember_choice(path.clone())?;
@@ -74,6 +77,7 @@ impl Backend {
             display_path: path.display().to_string(),
             contents,
             accounts: accounts.into_iter().map(Into::into).collect(),
+            accounts_truncated: truncated,
         }))
     }
 
