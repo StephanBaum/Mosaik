@@ -53,11 +53,26 @@ impl Caller {
     }
 }
 
+/// Whether the dev extension ID is allowed: in debug builds, and in a release build only with the
+/// `preview` feature (ADR-0153). A pure function of the two flags, so a test can cover the
+/// release case without a release build.
+#[must_use]
+const fn dev_id_allowed(debug: bool, preview: bool) -> bool {
+    debug || preview
+}
+
 /// The allowed Chromium origins, `chrome-extension://<id>/`: the store IDs,
-/// plus the dev ID in debug builds only.
+/// plus the dev ID in debug builds and in preview builds (ADR-0153) only.
 #[must_use]
 pub fn allowed_chromium_origins() -> Vec<String> {
-    let dev = cfg!(debug_assertions).then_some(DEV_CHROMIUM_EXTENSION_ID);
+    allowed_origins_for(dev_id_allowed(
+        cfg!(debug_assertions),
+        cfg!(feature = "preview"),
+    ))
+}
+
+fn allowed_origins_for(dev_allowed: bool) -> Vec<String> {
+    let dev = dev_allowed.then_some(DEV_CHROMIUM_EXTENSION_ID);
     STORE_CHROMIUM_EXTENSION_IDS
         .iter()
         .copied()
@@ -137,7 +152,7 @@ mod tests {
     fn chromium_callers() {
         let origin = format!("chrome-extension://{DEV_CHROMIUM_EXTENSION_ID}/");
         let ok = caller_from_args(&args(&["host", &origin]));
-        if cfg!(debug_assertions) {
+        if cfg!(debug_assertions) || cfg!(feature = "preview") {
             assert_eq!(
                 ok,
                 Ok(Caller::Chromium {
@@ -147,7 +162,11 @@ mod tests {
             // Windows adds the parent window handle.
             assert!(caller_from_args(&args(&["host", &origin, "--parent-window=123"])).is_ok());
         } else {
-            assert_eq!(ok, Err(Error::CallerNotAllowed), "dev ID is debug only");
+            assert_eq!(
+                ok,
+                Err(Error::CallerNotAllowed),
+                "dev ID is debug or preview only"
+            );
         }
         for bad in [
             "chrome-extension://abcdefghijklmnopabcdefghijklmnop/",
@@ -252,11 +271,30 @@ mod tests {
         );
         assert_eq!(
             origins.contains(&format!("chrome-extension://{DEV_CHROMIUM_EXTENSION_ID}/")),
-            cfg!(debug_assertions)
+            cfg!(debug_assertions) || cfg!(feature = "preview")
         );
         assert_eq!(
             origins.len(),
-            STORE_CHROMIUM_EXTENSION_IDS.len() + usize::from(cfg!(debug_assertions))
+            STORE_CHROMIUM_EXTENSION_IDS.len()
+                + usize::from(cfg!(debug_assertions) || cfg!(feature = "preview"))
+        );
+    }
+
+    #[test]
+    fn the_dev_id_needs_a_debug_or_preview_build() {
+        let dev = format!("chrome-extension://{DEV_CHROMIUM_EXTENSION_ID}/");
+        // The release case: no debug assertions, no preview feature. The dev ID is absent.
+        assert!(!dev_id_allowed(false, false));
+        assert!(!allowed_origins_for(dev_id_allowed(false, false)).contains(&dev));
+        // Debug builds and preview builds (ADR-0153) accept it.
+        for (debug, preview) in [(true, false), (false, true), (true, true)] {
+            assert!(dev_id_allowed(debug, preview));
+            assert!(allowed_origins_for(dev_id_allowed(debug, preview)).contains(&dev));
+        }
+        // Only the dev ID differs.
+        assert_eq!(
+            allowed_origins_for(true).len(),
+            allowed_origins_for(false).len() + 1
         );
     }
 }
