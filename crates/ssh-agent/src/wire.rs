@@ -262,8 +262,9 @@ impl<'a> Request<'a> {
     }
 
     /// Encodes the message body, as a client sends it. Refused requests are
-    /// encoded with an empty body (the agent never reads it), extensions
-    /// with the name only (their `body` is not encoded).
+    /// encoded with an empty body (the agent never reads it); extensions are
+    /// encoded as their name followed by their `body`, byte for byte, so a
+    /// parsed extension re-encodes to the bytes it came from.
     ///
     /// # Errors
     /// [`WireError::TooLong`] if the body would exceed [`MAX_MESSAGE_LEN`].
@@ -278,9 +279,10 @@ impl<'a> Request<'a> {
                 w.u32(s.flags);
             }
             Self::Refused(r) => w.u8(r.number()),
-            Self::Extension { name, .. } => {
+            Self::Extension { name, body } => {
                 w.u8(msg::EXTENSION);
                 w.string(name)?;
+                w.raw(body);
             }
             Self::Unknown(n) => w.u8(n),
         }
@@ -490,6 +492,12 @@ impl Writer {
         Ok(())
     }
 
+    /// Appends bytes as they are, without a length prefix. `finish` still
+    /// enforces [`MAX_MESSAGE_LEN`] on the whole body.
+    fn raw(&mut self, b: &[u8]) {
+        self.buf.extend_from_slice(b);
+    }
+
     fn finish(self) -> Result<Vec<u8>, WireError> {
         if self.buf.len() > MAX_MESSAGE_LEN {
             Err(WireError::TooLong)
@@ -614,6 +622,8 @@ mod tests {
                 body: &[1, 2, 3],
             }
         );
+        // The body survives a round trip byte for byte (the fuzz target's property).
+        assert_eq!(Request::parse(&body).unwrap().encode().unwrap(), body);
         assert_eq!(Request::parse(&[27]), Err(WireError::Truncated));
         assert_eq!(Request::parse(&[1]).unwrap(), Request::Unknown(1));
         assert_eq!(Request::parse(&[255, 1]).unwrap(), Request::Unknown(255));

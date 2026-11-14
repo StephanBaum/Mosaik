@@ -2,7 +2,7 @@
 //! extreme geometry and hostile image files, over the public API. Every
 //! attack here held; these are regression tests.
 
-#![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "tests")]
+#![expect(clippy::unwrap_used, reason = "tests")]
 
 /// The high byte of a xorshift step: cheap noise without a dependency.
 fn noise_byte(x: &mut u64) -> u8 {
