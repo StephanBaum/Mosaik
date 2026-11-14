@@ -148,12 +148,16 @@ export function isElementVisible(el: Element, env: VisibilityEnv = domEnv): bool
   return box.width >= MIN_SIZE && box.height >= MIN_SIZE && opacityProduct(el, env) >= MIN_OPACITY;
 }
 
+/**
+ * The part of the box on screen, or null when under `MIN_SIZE` of it is (as `intersect`): a 1 to 2 px
+ * sliver is not hit-tested with the centre point alone, it counts as off screen.
+ */
 function intersectViewport(box: Box, view: ViewportInfo): Box | null {
   const left = Math.max(box.left, 0);
   const top = Math.max(box.top, 0);
   const right = Math.min(box.right, view.width);
   const bottom = Math.min(box.bottom, view.height);
-  if (right <= left || bottom <= top) {
+  if (right - left < MIN_SIZE || bottom - top < MIN_SIZE) {
     return null;
   }
   return { left, top, right, bottom, width: right - left, height: bottom - top };

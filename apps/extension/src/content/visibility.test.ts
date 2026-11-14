@@ -253,6 +253,27 @@ describe("isFillable", () => {
     expect(points.every(([x]) => x >= 0 && x <= 100)).toBe(true);
   });
 
+  it("treats a sliver under 4 px on screen as off screen, never hit-tested at its centre alone", () => {
+    for (const sliver of [box(-198, 100, 200, 30), box(100, -28, 200, 30), box(-197, 100, 200, 30)]) {
+      const elementAt = vi.fn(() => null);
+      const env = makeEnv({ box: () => sliver, elementAt });
+      // Top document: the off-screen rule (nothing clips it) decides; no hit test runs.
+      expect(isFillable(field(), env)).toBe(true);
+      expect(elementAt).not.toHaveBeenCalled();
+      // A frame never fills a field that is off screen.
+      const framed = makeEnv({
+        box: () => sliver,
+        elementAt,
+        viewport: () => ({ width: 1000, height: 800, scrollX: 0, scrollY: 0, docWidth: 1000, docHeight: 2000, framed: true }),
+      });
+      expect(isFillable(field(), framed)).toBe(false);
+    }
+    // 4 px visible is hit-tested (the grid shrinks, every point must hit).
+    const covered = vi.fn(() => null);
+    expect(isFillable(field(), makeEnv({ box: () => box(-196, 100, 200, 30), elementAt: covered }))).toBe(false);
+    expect(covered).toHaveBeenCalled();
+  });
+
   it("refuses a label whose control is the field (RT-EXT-1)", () => {
     document.body.innerHTML = '<label id="l" for="f">Name</label><input id="f">';
     const el = document.querySelector<HTMLInputElement>("#f") as HTMLInputElement;
