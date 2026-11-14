@@ -12,11 +12,7 @@
 //! (no `#[ignore]`). They would start failing if a label were reused or an
 //! ID dropped from an AAD.
 
-#![expect(
-    clippy::unwrap_used,
-    clippy::indexing_slicing,
-    reason = "test helpers"
-)]
+#![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "test helpers")]
 
 use mosaic_core::{
     AccountId, AccountKey, AttachmentId, AttachmentKey, ContactsCiphertext, Error, ItemId,
@@ -78,7 +74,10 @@ fn roster_is_bound_to_vault_and_generation() {
     let decoded = VaultRosterCiphertext::from_bytes(roster.as_bytes()).unwrap();
 
     // Another vault: the vault ID is in the AAD.
-    assert_eq!(decoded.open(&key, &vault(8)).unwrap_err(), Error::Decryption);
+    assert_eq!(
+        decoded.open(&key, &vault(8)).unwrap_err(),
+        Error::Decryption
+    );
     // A key of another generation: the generation is in the header and the
     // AAD, and `check_generation` rejects it before any crypto (so a fresh
     // gen-3 key suffices).
@@ -87,7 +86,10 @@ fn roster_is_bound_to_vault_and_generation() {
         Error::KeyGenerationMismatch
     );
     // The right context opens.
-    assert_eq!(decoded.open(&key, &vault(7)).unwrap().expose_secret(), &body[..]);
+    assert_eq!(
+        decoded.open(&key, &vault(7)).unwrap().expose_secret(),
+        &body[..]
+    );
 }
 
 /// The contact book is bound to its account (`aad("contacts", account_id)`):
@@ -119,12 +121,21 @@ fn contacts_are_bound_to_account() {
 #[test]
 fn attachment_is_bound_to_its_context() {
     let fk = AttachmentKey::from_secret(SecretBytes::from_slice(&[0x9c; 32]).unwrap());
-    let (v, it, at) = (vault(1), item(2), AttachmentId::from_bytes([3; 16]).unwrap());
+    let (v, it, at) = (
+        vault(1),
+        item(2),
+        AttachmentId::from_bytes([3; 16]).unwrap(),
+    );
     // Two chunks so chunk indexing and the final-block flag both participate.
     let pt = vec![0x42u8; 70_000];
     let ct = seal_attachment(&fk, &v, &it, &at, &pt).unwrap();
 
-    assert_eq!(open_attachment(&fk, &v, &it, &at, &ct).unwrap().expose_secret(), &pt[..]);
+    assert_eq!(
+        open_attachment(&fk, &v, &it, &at, &ct)
+            .unwrap()
+            .expose_secret(),
+        &pt[..]
+    );
 
     let other_v = vault(9);
     let other_it = item(9);
@@ -134,7 +145,11 @@ fn attachment_is_bound_to_its_context() {
         (v, other_it, at),
         (v, it, other_at),
         // vault and item swapped.
-        (VaultId::from_bytes([2; 16]).unwrap(), ItemId::from_bytes([1; 16]).unwrap(), at),
+        (
+            VaultId::from_bytes([2; 16]).unwrap(),
+            ItemId::from_bytes([1; 16]).unwrap(),
+            at,
+        ),
     ] {
         assert_eq!(
             open_attachment(&fk, &vv, &ii, &aa, &ct).unwrap_err(),
