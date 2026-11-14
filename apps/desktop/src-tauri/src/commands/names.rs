@@ -73,6 +73,8 @@ pub const COMMANDS: &[&str] = &[
     "import_cancel",
     // Export
     "export_passkeys_cxf",
+    // Setup code for a phone
+    "setup_code_show",
     // SSH agent
     "ssh_agent_status",
     "ssh_agent_set_enabled",

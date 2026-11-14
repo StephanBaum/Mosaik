@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One suggestion of the Autofill popup. The system draws these RemoteViews in its own popup, so the text takes
+     the popup's colours, which follow the system light and dark theme. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="@dimen/mosaic_size_input_xl"
+    android:gravity="center_vertical"
+    android:orientation="vertical"
+    android:paddingStart="@dimen/mosaic_space_s5"
+    android:paddingTop="@dimen/mosaic_space_s3"
+    android:paddingEnd="@dimen/mosaic_space_s5"
+    android:paddingBottom="@dimen/mosaic_space_s3">
+
+    <TextView
+        android:id="@+id/autofill_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="@dimen/mosaic_font_size_md"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/autofill_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="?android:attr/textColorSecondary"
+        android:textSize="@dimen/mosaic_font_size_sm" />
+</LinearLayout>

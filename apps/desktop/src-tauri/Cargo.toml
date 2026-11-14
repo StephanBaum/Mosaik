@@ -45,6 +45,9 @@ mosaic-vault = { path = "../../../crates/vault" }
 # in the tree, and the surface test keeps it out. Called from one place, with a URL Rust builds.
 open = "=5.3.2"
 pdf-writer.workspace = true
+# The setup code QR for a phone (ADR-0096): Rust renders the module matrix, the webview draws it.
+# Pinned by the workspace (ADR-0031), no new crate in the tree.
+qrcodegen.workspace = true
 rfd.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

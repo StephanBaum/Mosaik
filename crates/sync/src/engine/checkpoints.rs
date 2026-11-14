@@ -183,12 +183,20 @@ fn compare_view(s: &mut UnlockedSession, entry: &PeerEntry) -> Result<bool, Erro
     Ok(true)
 }
 
+/// The runs of this device that must have seen the failure, after the one
+/// that first saw it, before it is reported (G5b-3): the 48 hours are read
+/// off the device's wall clock, so a clock that jumped forward between two
+/// runs must not raise the finding alone.
+const NO_COMMON_VIEW_MIN_RUNS: u64 = 3;
+
 /// The bookkeeping of one peer entry: a comparison ends the count; the
-/// first run that cannot compare starts it (with the peer counter then); a
-/// peer whose counter has risen since, with failures spanning the grace
-/// *across runs*, is reported (`NoCommonView`, persisted). A single run after
-/// a long pause (or a clock jump) that finds no peer at its head does not
-/// raise it: the runs that follow normally meet.
+/// first run that cannot compare starts it (with the peer counter and this
+/// device's run counter then); a peer whose counter has risen since, with
+/// failures spanning the grace *across runs* and at least
+/// [`NO_COMMON_VIEW_MIN_RUNS`] further runs of this device, is reported
+/// (`NoCommonView`, persisted). A single run after a long pause (or a clock
+/// jump) that finds no peer at its head does not raise it: the runs that
+/// follow normally meet.
 fn track_comparison(
     s: &mut UnlockedSession,
     cp: &PeerCheckpoint,
@@ -198,18 +206,22 @@ fn track_comparison(
 ) -> Result<(), Error> {
     let (device, vault) = (cp.device_id, entry.vault_id);
     if compared {
-        return s.put_view_compare(device, vault, None, cp.counter);
+        return s.put_view_compare(device, vault, None, cp.counter, 0);
     }
+    let own = s.checkpoint_counter()?;
     match s.view_compare(device, vault)? {
-        Some((Some(since), counter)) if since <= now => {
-            if cp.counter > counter && now - since > NO_COMMON_VIEW_GRACE_MS {
+        Some((Some(since), peer_then, own_then)) if since <= now => {
+            if cp.counter > peer_then
+                && now - since > NO_COMMON_VIEW_GRACE_MS
+                && own.saturating_sub(own_then) >= NO_COMMON_VIEW_MIN_RUNS
+            {
                 s.set_no_common_view(device, vault, since)?;
             }
             Ok(())
         }
         // First failure, or a count started in the future (the clock was set
         // back): it starts now.
-        _ => s.put_view_compare(device, vault, Some(now), cp.counter),
+        _ => s.put_view_compare(device, vault, Some(now), cp.counter, own),
     }
 }
 

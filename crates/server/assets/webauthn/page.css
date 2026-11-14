@@ -31,6 +31,8 @@
   --size-input: 36px;
   --size-control-lg: 40px;
   --size-input-xl: 56px;
+  --size-touch-min: 44px;
+  --size-touch: 48px;
   --size-avatar: 32px;
   --size-avatar-lg: 52px;
   --size-rail: 64px;

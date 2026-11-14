@@ -137,6 +137,11 @@ pub enum Error {
     #[error("master password re-authentication required")]
     ReauthenticationRequired,
 
+    /// An input is outside its allowed range (a boot ID that is not 1 to 32
+    /// bytes).
+    #[error("invalid input")]
+    InvalidInput,
+
     /// The credential is not registered (for unlock, or for this vault).
     #[error("unknown hardware key")]
     UnknownHardwareKey,

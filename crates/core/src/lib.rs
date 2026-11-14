@@ -63,6 +63,7 @@ mod rng;
 mod secret;
 mod secret_key;
 mod settings_mac;
+pub mod setup_code;
 pub mod share;
 mod spoofing;
 pub mod sync_auth;
@@ -96,6 +97,7 @@ pub use model::{
     Causality, Contact, ContactBook, ContactState, Item, ItemEdit, ItemType, MergeOutcome, Stamp,
     Timestamp, Tombstone, VaultMeta, VersionVector,
 };
+pub use rng::random_public_bytes;
 pub use secret::{
     AccountKey, AttachmentKey, CheckpointKey, ContactsKey, DeviceInfoKey, FolderMacKey, Kek,
     MasterPassword, OpaquePassword, SecretBytes, SecretKey, SecretString, SecretVec, SessionToken,

@@ -184,6 +184,12 @@ pub mod label {
     /// The HKDF info of the export key `K_x` (§11.2).
     pub(crate) const EXPORT_KEY: Label = Label::new("export-key");
 
+    /// The AAD label of an Android secure-store file (§6.9.1, M10). Only used
+    /// inside an AAD by the platform's AES-256-GCM, followed by `0x00`.
+    pub const MOBILE_SECURE_STORE: Label = Label::new("mobile/secure-store");
+    /// The AAD label of the Android quick-unlock body (§6.2, M10).
+    pub const QUICK_UNLOCK_ANDROID: Label = Label::new("quick-unlock/android");
+
     /// Input of the pre-login fake salt (§9.2); raw, like the others.
     pub const PRELOGIN_SALT: Label = Label::new("prelogin/salt");
     /// Input of the pre-login fake profile (§9.2); raw, like the others.
@@ -191,7 +197,7 @@ pub mod label {
 
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 56] = [
+    pub(crate) const ALL: [Label; 58] = [
         SERVER_PRELOGIN_KEY,
         SERVER_TOTP_KEY,
         SERVER_TOTP_AT_REST,
@@ -248,6 +254,8 @@ pub mod label {
         CLI_SESSION,
         EXPORT,
         EXPORT_KEY,
+        MOBILE_SECURE_STORE,
+        QUICK_UNLOCK_ANDROID,
     ];
 }
 

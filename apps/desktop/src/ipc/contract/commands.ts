@@ -17,6 +17,7 @@ import type {
 import type { CopyReceipt, CopyRequest } from "./clipboard.ts";
 import type { CredentialRotationCommands } from "./credentialRotation.ts";
 import type { ExportPasskeysRequest, PasskeysExported } from "./export.ts";
+import type { SetupCodeShowRequest, SetupCodeShown } from "./setupCode.ts";
 import type { Generated, GenerateRequest } from "./generator.ts";
 import type {
   ImportCancelRequest,
@@ -213,6 +214,8 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   import_cancel: Command<ImportCancelRequest, null>;
   // Export
   export_passkeys_cxf: Command<ExportPasskeysRequest, PasskeysExported>;
+  // Setup code for a phone
+  setup_code_show: Command<SetupCodeShowRequest, SetupCodeShown>;
   // SSH agent
   ssh_agent_status: Command<null, SshAgentStatus>;
   ssh_agent_set_enabled: Command<SshSetEnabledRequest, SshAgentStatus>;
@@ -357,6 +360,7 @@ const commandSet = {
   import_commit: true,
   import_cancel: true,
   export_passkeys_cxf: true,
+  setup_code_show: true,
   ssh_agent_status: true,
   ssh_agent_set_enabled: true,
   ssh_respond: true,

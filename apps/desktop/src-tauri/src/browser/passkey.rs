@@ -563,7 +563,9 @@ impl Backend {
         drop(credential);
         let response = if let Some(count) = pending.count_to_persist() {
             session.update_item(vault, item, |edit| edit.set_passkey_sign_count(count))?;
-            pending.into_response(CountPersisted::after_store_write())
+            pending
+                .into_json_response(CountPersisted::after_store_write())
+                .map_err(|_| IpcError::INTERNAL)?
         } else {
             pending
                 .into_response_without_count()

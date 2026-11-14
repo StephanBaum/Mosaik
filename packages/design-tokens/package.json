@@ -7,6 +7,8 @@
     "./css": "./src/css.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "export:mobile": "node --experimental-strip-types --no-warnings scripts/export-mobile.mjs"
   }
 }

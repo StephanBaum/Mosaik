@@ -19,6 +19,7 @@ ignore = [
     { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
     { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 timing variability: reached only through elliptic-curve 0.13 (opaque-ke 4.0.1 and voprf 0.5.0, the OPAQUE login of the sync server and client, ADR-0046); the ristretto255 suite does every secret group and scalar operation in curve25519-dalek and never calls crypto-bigint arithmetic; opaque-ke 4.1 pre-releases still use elliptic-curve 0.13; revisit when opaque-ke moves to elliptic-curve 0.14. Also reached through passkey-auth 0.1.3 (p256 0.13, the sync server's WebAuthn relying party, ADR-0078): crypto-bigint runs inside ECDSA verification, whose inputs (public key, signature, message) are all public, so timing variability reveals nothing secret" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
+    { id = "RUSTSEC-2026-0374", reason = "basic-toml unmaintained: reached only through uniffi_bindgen -> askama, the Kotlin and Swift generator tool (feature `bindgen` of mosaic-mobile-ffi, built in CI to generate the bindings and never linked into a library or an app); revisit when uniffi_bindgen moves off askama's basic-toml; ADR-0089, M10 T1 probe (b)" },
 ]
 
 [licenses]
@@ -61,6 +62,18 @@ exceptions = [
     # Windows clipboard backend of arboard (M3 shell, clipboard written from Rust).
     { crate = "clipboard-win", allow = ["BSL-1.0"] },
     { crate = "error-code", allow = ["BSL-1.0"] },
+    # MPL-2.0 (file-level copyleft; the crates are used unmodified, and the licence puts no
+    # obligation on Mosaic's own code): UniFFI, the binding shell of the mobile apps
+    # (crates/mobile-ffi only; uniffi_bindgen is the generator tool and not linked into the
+    # libraries). `weedle2` is MIT. ADR-0089, M10 T1 probe (b).
+    { crate = "uniffi", allow = ["MPL-2.0"] },
+    { crate = "uniffi_bindgen", allow = ["MPL-2.0"] },
+    { crate = "uniffi_core", allow = ["MPL-2.0"] },
+    { crate = "uniffi_internal_macros", allow = ["MPL-2.0"] },
+    { crate = "uniffi_macros", allow = ["MPL-2.0"] },
+    { crate = "uniffi_meta", allow = ["MPL-2.0"] },
+    { crate = "uniffi_pipeline", allow = ["MPL-2.0"] },
+    { crate = "uniffi_udl", allow = ["MPL-2.0"] },
 ]
 
 [licenses.private]

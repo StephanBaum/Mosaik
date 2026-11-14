@@ -59,6 +59,42 @@ the bans.
 | `win-screenshot`, `x11rb` | "Scan screen" for QR codes | ADR-0031 |
 | `open` | Opens the browser for the WebAuthn handoff | ADR-0077 |
 
+## Mobile (M10; planned, added by the tracks named)
+
+Rust, in `crates/mobile-ffi` only (`mosaic-mobile` adds no new crate; it uses the workspace crates):
+
+| Crate | Reason | ADR |
+|---|---|---|
+| `uniffi` `=0.32.2` (default features off; `cli` only behind the `bindgen` feature of the `uniffi-bindgen` binary) | Generates the Kotlin and Swift bindings and the FFI scaffolding of the mobile library. Not a crypto dependency. MPL-2.0, with per-crate exceptions in `deny.toml` for its eight crates; the bindgen-only `basic-toml` advisory (RUSTSEC-2026-0374) is ignored with a reason (T3b) | ADR-0089 |
+| `zeroizing-alloc` `=0.1.1` | Global allocator of the mobile library: wipes every freed Rust heap block, including UniFFI's argument and return buffers. About 100 lines, `no_std`, no dependencies, MIT OR Apache-2.0 (T3b) | ADR-0089 |
+
+`rustls-platform-verifier` moves to a `cfg(not(target_os = "android"))` dependency of `mosaic-sync`; Android uses
+`rustls`'s own `WebPkiServerVerifier` (no new crate, ADR-0091). `qrcodegen` moves from a dev-dependency to a
+desktop dependency for the setup code (T13, ADR-0096).
+
+Android (`apps/mobile/android`, T5 and later). Every artifact is pinned in the Gradle version catalog and
+checked by Gradle dependency verification. The release classpath must match
+`apps/mobile/android/dependency-allowlist.txt`.
+
+| Dependency | Reason |
+|---|---|
+| `net.java.dev.jna:jna` (`@aar`; the plain jar for JVM tests) | UniFFI's Kotlin bindings call the native library through JNA |
+| `androidx.core:core-ktx`, `androidx.activity:activity-compose` | The activity host for Compose |
+| Compose BOM: `ui`, `foundation`, `material3`; `ui-tooling` in debug only | The UI toolkit (ADR-0088) |
+| `androidx.lifecycle:lifecycle-{runtime-compose,viewmodel-compose,process}` | View models; `ProcessLifecycleOwner` for the lock on background |
+| `androidx.biometric:biometric` | `BiometricPrompt` with `CryptoObject` and `BIOMETRIC_STRONG`, also on API 28 and 29 |
+| `androidx.credentials:credentials` | Provider request and response types (`PendingIntentHandler`, `CallingAppInfo`) on API 34+ |
+| `androidx.camera:camera-{core,camera2,lifecycle,view}` | The QR scanner preview and luma frames; decoding stays in Rust |
+| `org.jetbrains.kotlinx:kotlinx-coroutines-android` | The serial core dispatcher |
+| Tests only: `junit:junit`, `kotlinx-coroutines-test`, `androidx.test:{runner,rules,ext-junit}`, `androidx.test.uiautomator:uiautomator`, `androidx.compose.ui:ui-test-junit4` | Unit, instrumented and UI tests |
+
+There is no Firebase, no Google Play services, no ML Kit, no OkHttp, no analytics and no crash reporting
+(`scripts/mobile/check-android-deps.sh`).
+
+iOS (`apps/mobile/ios`): no third-party dependency. There are no Swift packages from outside the repo and no
+CocoaPods (`scripts/mobile/check-ios-deps.sh`). XcodeGen is a CI build tool, pinned by a SHA-256 of its release
+zip.
+
 ## JS production dependencies
 
 | Package | Used by | Reason | ADR |

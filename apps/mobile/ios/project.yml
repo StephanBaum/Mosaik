@@ -1,0 +1,131 @@
+# XcodeGen spec (docs/MOBILE.md, spec 3.16). The .xcodeproj is generated in CI and not committed:
+#   bash scripts/mobile/build-ios-xcframework.sh debug --features test-hooks   (bindings and MosaicFFI.xcframework)
+#   xcodegen generate --spec apps/mobile/ios/project.yml
+# No remote Swift packages and no CocoaPods (scripts/mobile/check-ios-deps.sh).
+name: Mosaic
+options:
+  bundleIdPrefix: io.github.stephanbaum
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+configFiles:
+  Debug: Config/Mosaic.xcconfig
+  Release: Config/Mosaic.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  MosaicKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: MosaicKit
+      - path: Resources/PrivacyInfo.xcprivacy
+      # UniFFI output (git-ignored), written by build-ios-xcframework.sh.
+      - path: Generated/Bindings
+        optional: true
+    dependencies:
+      - framework: MosaicFFI/MosaicFFI.xcframework
+        embed: false
+        link: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOSAIC_BUNDLE_ID).kit
+        GENERATE_INFOPLIST_FILE: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+  Mosaic:
+    type: application
+    platform: iOS
+    sources:
+      - path: Mosaic
+        excludes: ["Info.plist", "*.entitlements"]
+      # L10n looks strings up in Bundle.main, so the catalog is a resource of the app and the extension.
+      - path: Resources/Localizable.xcstrings
+      # The localized Info.plist strings (Face ID, camera) are a String Catalog named InfoPlist: Xcode writes
+      # en.lproj/InfoPlist.strings and de.lproj/InfoPlist.strings into the app from it. (A bare lproj folder as a
+      # source did not put the InfoPlist table into the built app.)
+      - path: Resources/InfoPlist.xcstrings
+      - path: Resources/PrivacyInfo.xcprivacy
+      # DM Sans and IBM Plex Mono (SIL OFL), registered at launch by MosaicFonts.
+      - path: ../shared/fonts
+        includes: ["*.ttf"]
+        buildPhase: resources
+    dependencies:
+      - target: MosaicKit
+        embed: true
+      - target: MosaicAutoFill
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOSAIC_BUNDLE_ID)
+        INFOPLIST_FILE: Mosaic/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Mosaic/Mosaic.entitlements
+  MosaicAutoFill:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MosaicAutoFill
+        excludes: ["Info.plist", "*.entitlements"]
+      - path: Resources/Localizable.xcstrings
+      # The Face ID text of the extension (quick unlock runs in it) comes from the same InfoPlist catalog as
+      # the app's, so both bundles ship it in English and German.
+      - path: Resources/InfoPlist.xcstrings
+      - path: Resources/PrivacyInfo.xcprivacy
+      - path: ../shared/fonts
+        includes: ["*.ttf"]
+        buildPhase: resources
+    dependencies:
+      - target: MosaicKit
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOSAIC_BUNDLE_ID).autofill
+        INFOPLIST_FILE: MosaicAutoFill/Info.plist
+        CODE_SIGN_ENTITLEMENTS: MosaicAutoFill/MosaicAutoFill.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+  MosaicKitTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: MosaicKitTests
+    dependencies:
+      - target: Mosaic
+      - target: MosaicKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOSAIC_BUNDLE_ID).kit-tests
+        GENERATE_INFOPLIST_FILE: YES
+  MosaicUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: MosaicUITests
+    dependencies:
+      - target: Mosaic
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOSAIC_BUNDLE_ID).ui-tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Mosaic:
+    build:
+      targets:
+        Mosaic: all
+        MosaicAutoFill: all
+        MosaicKit: all
+    test:
+      config: Debug
+      targets:
+        - MosaicKitTests
+        - MosaicUITests

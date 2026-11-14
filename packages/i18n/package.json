@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "export:cli": "node --experimental-strip-types --no-warnings scripts/export-cli.mjs",
-    "export:webauthn": "node --experimental-strip-types --no-warnings scripts/export-webauthn.mjs"
+    "export:webauthn": "node --experimental-strip-types --no-warnings scripts/export-webauthn.mjs",
+    "export:mobile": "node --experimental-strip-types --no-warnings scripts/export-mobile.mjs"
   },
   "dependencies": {
     "intl-messageformat": "12.1.4"

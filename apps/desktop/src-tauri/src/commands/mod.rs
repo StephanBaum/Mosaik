@@ -28,6 +28,7 @@ pub mod quick_unlock;
 pub mod rotation;
 pub mod session;
 pub mod settings;
+pub mod setup_code;
 pub mod sharing;
 pub mod ssh;
 pub mod sync;
@@ -107,6 +108,7 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         import::import_commit,
         import::import_cancel,
         export::export_passkeys_cxf,
+        setup_code::setup_code_show,
         ssh::ssh_agent_status,
         ssh::ssh_agent_set_enabled,
         ssh::ssh_respond,

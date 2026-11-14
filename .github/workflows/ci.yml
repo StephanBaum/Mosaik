@@ -46,7 +46,9 @@ jobs:
           if (-not (Test-Path 'C:\Windows\System32\OpenSSH\ssh-keygen.exe')) {
             Write-Error 'The Windows OpenSSH client is missing'; exit 1
           }
-      - run: cargo test --release --locked --workspace --exclude mosaic-desktop -- --ignored
+      # The mobile crates are left out: their tests enable the `test-hooks` feature, which refuses to
+      # compile in a release build by design (crates/mobile/src/lib.rs), and they have no ignored tests.
+      - run: cargo test --release --locked --workspace --exclude mosaic-desktop --exclude mosaic-mobile --exclude mosaic-mobile-ffi -- --ignored
 
   cli:
     name: CLI (${{ matrix.os }})
@@ -104,8 +106,8 @@ jobs:
         # input; insights rates vault passwords; origin decides which site gets a
         # fill and native-messaging frames the extension channel; sync holds the
         # wire formats of both sync backends and server is the sync server (M6).
-        # All are held to the same bar.
-        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging, mosaic-passkey, mosaic-sync, mosaic-server]
+        # mobile is the phone core (M10). All are held to the same bar.
+        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging, mosaic-passkey, mosaic-sync, mosaic-server, mosaic-mobile]
         include:
           # The folder, engine, HTTP and chaos tests of the sync crate need the
           # test utilities. The hosted engine paths are exercised by the server
@@ -143,11 +145,12 @@ jobs:
           - crates/import/fuzz
           - crates/ssh-agent/fuzz
           - crates/native-messaging/fuzz
+          - crates/origin/fuzz
           - crates/passkey/fuzz
           - crates/sync/fuzz
           - crates/server/fuzz
           - crates/cli/fuzz
-          - crates/origin/fuzz
+          - crates/mobile/fuzz
           # Includes the shell's contract, persist, draft and Emergency Kit modules by
           # path; no tauri, so no WebKitGTK is needed.
           - apps/desktop/src-tauri/fuzz
@@ -289,6 +292,10 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
+          manifest-path: crates/origin/fuzz/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
           manifest-path: crates/passkey/fuzz/Cargo.toml
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
@@ -305,7 +312,7 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
-          manifest-path: crates/origin/fuzz/Cargo.toml
+          manifest-path: crates/mobile/fuzz/Cargo.toml
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
@@ -318,7 +325,7 @@ jobs:
         run: |
           set -euo pipefail
           for d in crates/core/fuzz crates/vault/fuzz crates/totp/fuzz crates/qr/fuzz crates/generator/fuzz \
-                   crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz crates/native-messaging/fuzz crates/passkey/fuzz crates/sync/fuzz crates/server/fuzz crates/cli/fuzz crates/origin/fuzz apps/desktop/src-tauri/fuzz; do
+                   crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz crates/native-messaging/fuzz crates/passkey/fuzz crates/sync/fuzz crates/server/fuzz crates/cli/fuzz crates/origin/fuzz crates/mobile/fuzz apps/desktop/src-tauri/fuzz; do
             cargo audit --deny warnings -f "$d/Cargo.lock"
           done
 
@@ -343,6 +350,14 @@ jobs:
       - run: node scripts/release/wording-check.mjs
       - run: pnpm typecheck
       - run: pnpm test
+      # The mobile strings, tokens and generated sources must match the catalogs and tokens (M10).
+      # One OS is enough: the output is byte-identical (.gitattributes pins LF).
+      - name: Mobile export drift check
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          pnpm --filter @mosaic/i18n export:mobile
+          pnpm --filter @mosaic/design-tokens export:mobile
+          git diff --exit-code -- apps/mobile
       - run: pnpm audit --audit-level low
 
   # The release scripts (checksums, minisign signing and verification) run against fixtures with

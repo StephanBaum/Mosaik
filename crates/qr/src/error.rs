@@ -14,7 +14,10 @@ pub enum ScanError {
     /// A Google Authenticator export code.
     #[error("Google Authenticator export")]
     Migration,
-    /// Several different `otpauth://` codes.
+    /// QR codes, but none of them a Mosaic setup code (M10).
+    #[error("QR code is not a Mosaic setup code")]
+    NotSetupCode,
+    /// Several different `otpauth://` codes (or setup codes).
     #[error("several different otpauth codes")]
     Multiple,
     /// An `otpauth://` URI that `mosaic-totp` refuses.
