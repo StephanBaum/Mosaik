@@ -5133,3 +5133,51 @@ The two-minute grant a right master password leaves (CRYPTO_SPEC §6.2) was not 
 
 ### Consequences
 CRYPTO_SPEC §6.2, UX_GUIDELINES §8 and DESKTOP_IPC updated. No new cryptography. THREAT_MODEL: R151.
+## ADR-0153: Preview builds trust the dev extension ID (the `preview` Cargo feature)
+
+- Status: accepted
+- Date: 2026-11-14
+- Milestone: M9 (hardening)
+
+### Context
+The owner wants to install Mosaic once, before any store listing or signing certificate exists. A Chromium extension that is
+loaded unpacked has no store ID. The native host accepts only IDs from `allowed_chromium_origins()`: the store IDs (none yet) and,
+in debug builds only, the dev ID `DEV_CHROMIUM_EXTENSION_ID`, which comes from `apps/extension/keys/dev-public-key.b64`. A release
+host therefore accepts no extension at all, so a release-profile desktop could not be tried with a browser.
+
+### Decision
+- A Cargo feature `preview` in `crates/native-messaging` (forwarded by `apps/desktop/src-tauri`) makes `allowed_chromium_origins()`
+  also list the dev ID in a build without debug assertions. The rule is one pure function of two flags (`dev_id_allowed(debug, preview)`),
+  so a unit test covers the release case without a release build. The feature does nothing else; `MOSAIC_BROWSER_ENDPOINT` stays debug only.
+- Only `.github/workflows/preview.yml` turns it on: for the native host sidecar and for the desktop build of the Windows preview.
+  The workflow runs on `preview/*` branches and by hand, has `contents: read` and no secrets, publishes nothing and keeps its artifacts 7 days.
+- The preview extension is the production build plus the dev public key in a copy of the manifest (`scripts/preview/inject-dev-key.mjs`,
+  which also checks that the key gives the ID the host expects). The production build never carries a key (`check-dist.mjs`).
+- A preview marks itself: the window title says "Preview / Vorschau" (the native title cannot reach the i18n catalog, because the webview has
+  no window permission, ADR-0019), the page title and Settings say it through i18n (`app.previewTag`, `app.previewBuild`).
+- A Windows preview is an NSIS per-user installer, not the MSI, so there are no HKLM manifests. With `preview` the desktop writes the per-user
+  manifests at start, as it does on macOS.
+- Release guard: `release.yml` fails in its prepare job if the `preview` feature appears in a features list of the release workflow, the
+  release scripts, `deploy/Dockerfile` or the release overlay, or in a `default` list or a `mosaic-native-messaging` dependency line
+  (`check-features.sh` already refuses every feature flag and any default feature of the shipped crates).
+- Android: the release variant, no test hooks, signed through a Gradle init script (`scripts/preview/android-signing.init.gradle`) that reads
+  `MOSAIC_ANDROID_KEYSTORE`, `_PASSWORD` and `_ALIAS` from the environment, only when all are set. The job makes a 30-day keystore with a random
+  password (masked, never printed, never in the artifact) and verifies the APK with `apksigner verify`. The real key can use the same variables.
+
+### The tradeoff, stated plainly
+A preview host trusts the dev ID. That ID is not secret: anyone can copy the public key from this repository into an unpacked extension and get
+the same ID. So a preview desktop trusts **any locally loaded unpacked extension that carries that key**. The channel is still authenticated
+(pairing is approved in the desktop with a code, then a mutual proof over `K_pair`), so such an extension has to be paired like any other,
+and an attacker needs to be able to load extensions in developer mode on the user's machine, which is the same-user position of THREAT_MODEL
+P5 and R38. It is still weaker than a release (a store ID cannot be forged by loading a file). It is accepted for a preview only: never in a release,
+never from a tag, and the artifacts expire after 7 days. It also removes the "debug build only" wall around the dev ID, so the feature must stay
+out of every release path; the guard above is the check, and a human reading the release workflow is the second.
+
+### Alternatives considered
+- **Wait for a store listing:** blocks the first try-out for weeks.
+- **A debug-profile desktop build:** a different binary than the release one (and its dev endpoint override), a worse picture of the real app.
+- **A new random preview key and a second ID:** the same trust (any extension that carries the key), one more constant to keep in sync with the extension.
+- **Firefox:** not part of the preview (the add-on ID is already allowed in every build).
+
+### Consequences
+THREAT_MODEL R153.

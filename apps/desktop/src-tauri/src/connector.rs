@@ -144,9 +144,11 @@ pub fn repair() -> Result<BrowserConnectorAudit, RepairError> {
 
 /// At start on macOS: points the per-user manifests into the signed bundle.
 /// Best effort; on other systems it does nothing (the installers own the
-/// manifests there and the audit reports overrides).
+/// manifests there and the audit reports overrides). A Windows preview build
+/// (ADR-0153) has no MSI that writes the system manifests, so it writes the
+/// per-user ones like the macOS app does.
 pub fn refresh_at_start() {
-    if !cfg!(target_os = "macos") {
+    if !cfg!(target_os = "macos") && !cfg!(all(windows, feature = "preview")) {
         return;
     }
     if let (Some(host), Ok(layout)) = (installed_host(), Layout::current()) {
