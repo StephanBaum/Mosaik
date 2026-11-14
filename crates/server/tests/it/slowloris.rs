@@ -262,3 +262,61 @@ async fn shutdown_completes_with_the_cap_reached() {
     read_to_close(&mut a, Duration::from_secs(1)).await;
     read_to_close(&mut b, Duration::from_secs(1)).await;
 }
+
+/// RT-final-1: the header read timeout covers the request head only. A client
+/// that sends a complete head and then trickles the BODY one byte at a time is
+/// never cut off by the accept loop: hyper's `header_read_timeout` is disarmed
+/// once the head is parsed, and there is no body inactivity timeout. In the
+/// production stack only the per-route `TimeoutLayer` (60 s JSON, 600 s
+/// attachments) ends such a request, and it holds a `ConcurrencyLimitLayer`
+/// permit for all of that time (512 slow bodies stall every other request).
+/// Fix: a body inactivity timeout (`tower_http::timeout::RequestBodyTimeoutLayer`
+/// or hyper's per-frame deadline) of a few seconds, and the gates before the
+/// concurrency permit.
+#[tokio::test]
+#[ignore = "RT-final-1: a trickled body is not cut by any inactivity timeout, only by the 60 s request timeout"]
+async fn a_trickled_body_is_cut_off_like_a_trickled_head() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (_stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let router = Router::new().route(
+        "/upload",
+        axum::routing::post(|body: axum::body::Bytes| async move { body.len().to_string() }),
+    );
+    tokio::spawn(async move {
+        serve_listener(
+            listener,
+            router,
+            async {
+                let _ = stopped.await;
+            },
+            TIMEOUT,
+            1024,
+        )
+        .await
+        .unwrap();
+    });
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    stream
+        .write_all(b"POST /upload HTTP/1.1\r\nHost: x\r\nContent-Length: 40\r\n\r\n")
+        .await
+        .unwrap();
+    // One body byte per 2x the timeout: each byte arrives long after a head
+    // read would have been cut off, and the body never completes in time.
+    let (mut reader, mut writer) = stream.into_split();
+    let trickle = tokio::spawn(async move {
+        for _ in 0..40 {
+            tokio::time::sleep(TIMEOUT * 2).await;
+            if writer.write_all(b"x").await.is_err() {
+                return;
+            }
+        }
+    });
+    let mut buf = [0_u8; 512];
+    let closed = tokio::time::timeout(TIMEOUT * 6, reader.read(&mut buf)).await;
+    trickle.abort();
+    assert!(
+        matches!(closed, Ok(Ok(0) | Err(_))),
+        "the connection should be closed within a few header timeouts, not held for the whole body: {closed:?}"
+    );
+}
