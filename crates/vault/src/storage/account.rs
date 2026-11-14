@@ -335,6 +335,8 @@ impl Store {
             "UPDATE rotation_job SET phase = 5 WHERE kind IN (1, 3) AND phase < 5",
             [],
         )?;
+        // CRYPTO_SPEC §6.9.2: the boot marker goes with the quick-unlock wrapping.
+        super::boot_marker::delete_in(&tx)?;
         let mut removed = Vec::new();
         for method in remove {
             let key = (method.id(), method.method_id(&stored.account_id));
@@ -388,6 +390,8 @@ impl Store {
         check_params(&rekey.params, &stored)?;
         update_account(&tx, &rekey.params)?;
         tx.execute("DELETE FROM unlock_methods", [])?;
+        // CRYPTO_SPEC §6.9.2: the boot marker goes with the quick-unlock wrapping.
+        super::boot_marker::delete_in(&tx)?;
         let account_id = &rekey.params.account_id;
         upsert_unlock(
             &tx,
@@ -567,6 +571,10 @@ impl Store {
             "DELETE FROM unlock_methods WHERE method = ?1 AND method_id = ?2",
             params![method.id(), method.method_id(&account.account_id)],
         )?;
+        // CRYPTO_SPEC §6.9.2: the boot marker goes with the quick-unlock wrapping.
+        if matches!(method, UnlockMethod::QuickUnlock(_)) {
+            super::boot_marker::delete_in(&tx)?;
+        }
         tx.commit()?;
         // §6.2: expiry deletes the wrapping, including its WAL frames.
         self.scrub_wal()?;

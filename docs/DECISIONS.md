@@ -5181,3 +5181,621 @@ out of every release path; the guard above is the check, and a human reading the
 
 ### Consequences
 THREAT_MODEL R153.
+## ADR-0088: M10 scope, UI toolkits and minimum OS versions
+
+- Status: accepted
+- Date: 2026-11-11
+- Milestone: M10
+
+### Context
+M10 brings Mosaic to Android and iOS (brief §2 and §10: "native autofill and passkey providers on the shared core via UniFFI"). The autofill and passkey providers must be native OS components whatever the UI toolkit is (`AutofillService`, `CredentialProviderService`, `ASCredentialProviderViewController`). The iOS Credential Provider extension has a memory limit of roughly 120 MiB and must hold a decrypted vault. During the milestone nothing can be tested on a real device or a Mac: native builds run in CI simulators and emulators only (OD-M10-2). The design is in `docs/MOBILE.md`.
+
+### Decision
+- **Toolkits.** Kotlin with Jetpack Compose on Android, Swift with SwiftUI on iOS, both native. All logic lives in Rust (`mosaic-mobile`, ADR-0089); the screens render Rust records ("thin UI").
+- **Minimum OS.** Android API 28 (`minSdk 28`); iOS 17 (the passkey provider APIs). API 28 and 29 need their own quick-unlock key branch (ADR-0090). Raising Android to API 30 is OD-M10-5.
+- **In scope**, on both platforms:
+  - Join an existing **hosted** account: server URL, email, the Secret Key (typed, or scanned from a desktop setup code), master password and device name, then TOTP or the WebAuthn handoff in the system browser.
+  - Unlock with the master password. Quick unlock with Class 3 biometrics (Android Keystore) or Face ID / Touch ID (Secure Enclave).
+  - Every vault and item, read-only for every kind (a generic field list), with reveal, copy and TOTP codes.
+  - Create and edit **logins and secure notes**; trash; the generator; TOTP setup by QR or typed key; linking an Android app to a login.
+  - Foreground sync: on unlock, after an edit, on pull-to-refresh, and every 60 s while unlocked. Adopting a master password changed elsewhere.
+  - Autofill: the Android Autofill Service; the Credential Manager provider for passwords (API 34+); the iOS Credential Provider extension for passwords, and for one-time codes on iOS 18+.
+  - Passkeys, get and create: the Credential Manager provider (API 34+) and the iOS Credential Provider (17+).
+  - Lock, clipboard and screen protection (ADR-0094).
+  - The desktop "Set up a phone" setup code (ADR-0096).
+- **Out of scope**, each with its reason:
+  - *Account creation on mobile.* It needs Argon2 calibration on the phone, the Emergency Kit PDF and its verification step. The app says "Create your account on a computer, then set up this phone." The `test-hooks` feature creates local accounts for tests only.
+  - *Folder sync.* Android has no path-based access to cloud folders (Storage Access Framework URIs, no atomic rename, no file locks). On iOS, iCloud Drive and File Provider folders need `NSFileCoordinator` downloads, which need a signed-in Apple ID on a device; CI has neither. Deferred to M10b (OD-M10-11). The app says "This account syncs through a folder. The phone apps support Mosaic sync for now."
+  - *Features that stay on the computer:*
+    - sharing management and emergency access;
+    - key or credential rotation, and re-key adoption (the fallback is "Set up this phone again", ADR-0091);
+    - import and export;
+    - the security dashboard and the breach check;
+    - attachments (listed with name and size, plus "Open on a computer");
+    - SSH;
+    - hardware-key unlock (CRYPTO_SPEC §6.3 needs a real RP ID);
+    - hardware-protected vaults ("Open on a computer");
+    - editing other item kinds.
+  - *The Android autofill save prompt* (`SaveInfo`). iOS has no save hook for third-party providers that we can rely on.
+  - *Background sync.* The vault is locked in the background, so there is nothing to sync with.
+  - *Android compatibility mode.* URL bars read through accessibility can be spoofed, and Chrome dropped compatibility mode at version 137.
+  - *Inline (keyboard) suggestions* (OD-M10-8).
+  - *Contact verification by QR* (`mosaic-contact:1:…`, CRYPTO_SPEC §8.5): sharing is out of scope.
+- No third-party analytics, no crash reporting, no Firebase, no Google Play services and no ML Kit on either platform.
+
+### Alternatives considered
+- **Tauri v2 mobile:** it would reuse the React UI. But secrets would live in JS strings, and the iOS extension would need a WebView next to a decrypted vault.
+- **Compose Multiplatform for iOS:** less mature, and the extension would still be SwiftUI.
+- **Flutter or React Native:** an extra runtime (engine or JS VM) in the memory-limited extension, more dependencies, and bridges that copy secrets.
+- **Android API 30 as minimum:** drops the API 28–29 key branch and Android versions without security updates, but excludes more phones. The owner decides (OD-M10-5).
+
+### Consequences
+The UI is written twice. The thin-UI rule and the shared error codes and strings (`packages/i18n`) limit drift. Device-only behaviour stays untested until OD-M10-2 and OD-M10-3: the Secure Enclave, Face ID, StrongBox, real providers in Safari and Chrome, and memory use on real phones. The manual check list in `docs/MOBILE.md` §7 and PROGRESS track it. Folder-sync users get no mobile app in M10.
+
+## ADR-0089: FFI architecture: `mosaic-mobile` and `mosaic-mobile-ffi`
+
+- Status: accepted
+- Date: 2026-11-11
+- Milestone: M10
+
+### Context
+The apps call the Rust core through UniFFI (brief §2). UniFFI's macros (`uniffi::setup_scaffolding!`, `#[uniffi::export]`, the derives) expand to:
+- `#[unsafe(no_mangle)] pub unsafe extern "C"` functions;
+- `unsafe impl FfiConverter` blocks;
+- `unsafe { … }` blocks.
+
+The source is `uniffi_macros` 0.32.2, among others `src/export/scaffolding.rs`. Every Mosaic crate carries `#![forbid(unsafe_code)]` (CLAUDE.md), and the workspace sets `unsafe_code = "forbid"`. UniFFI also passes a `Vec<u8>` argument through a `RustBuffer`, which is freed without being wiped. The M10 spec planned a binding crate with `unsafe_code = "allow"`. It asked T1 to probe the `forbid` question, the licences, and a zero-on-free allocator.
+
+### Probes (2026-11-11)
+All probes ran in a scratch workspace in the system temp directory:
+- edition 2024, toolchain 1.99.1 from `rust-toolchain.toml`;
+- workspace lints `unsafe_code = "forbid"`;
+- the repo's `deny.toml` copied in;
+- `CARGO_BUILD_JOBS=1`.
+
+Release data come from the crates.io API on 2026-11-11.
+
+**(a) UniFFI under `#![forbid(unsafe_code)]`.** `uniffi = "=0.32.2"` (default features off) is the newest release: 0.32.0 on 2026-06-30, 0.32.1 on 2026-09-09, 0.32.2 on 2026-09-23. The probe crate had `crate-type = ["lib", "cdylib", "staticlib"]`, `[lints] workspace = true` and `#![forbid(unsafe_code)]`. It used every macro kind of the M10 surface:
+- `setup_scaffolding!`;
+- `uniffi::Record`, `uniffi::Enum` (unit and data variants) and `uniffi::Error` (unit variants);
+- `uniffi::Object` with an exported `impl`, a constructor, and methods that take and return `Vec<u8>`, `Arc<Object>` and `Result`;
+- a `#[uniffi::export(with_foreign)]` trait taken as `Arc<dyn Trait>`;
+- a free exported function;
+- a `#[global_allocator]` static.
+
+Result: **it compiles.**
+- `cargo build`: `Finished`, no warning.
+- `cargo clippy --all-targets -- -D warnings`: clean.
+- `llvm-readobj --coff-exports` on the DLL lists 96 exports: `uniffi_<crate>_fn_*`, `uniffi_<crate>_checksum_*`, `UNIFFI_META_*`, the `rustbuffer_*` functions and `ffi_<crate>_uniffi_contract_version`.
+- Control: a hand-written `unsafe { … }` block in the same crate fails as expected, with `error: usage of an unsafe block … note: the lint level is defined here: #![forbid(unsafe_code)]`.
+
+So the lint is active, and rustc does not report it for the `unsafe` inside UniFFI's macro expansions. As far as we can tell, the `unsafe_code` lint is not reported in expansions of macros that another crate defines. This is compiler behaviour, not a promise.
+
+**(b) Licences and `cargo deny`.** The tree was resolved with `all-features = true` (the repo setting) and a `bindgen = ["uniffi/cli"]` feature. It has 79 crates.
+- MPL-2.0: `uniffi`, `uniffi_bindgen`, `uniffi_core`, `uniffi_internal_macros`, `uniffi_macros`, `uniffi_meta`, `uniffi_pipeline` and `uniffi_udl` (all 0.32.2).
+- Every other crate is in the allow list. `weedle2` 5.0.0 is MIT; `r-efi` offers MIT OR Apache-2.0.
+
+`cargo deny check` gave `advisories FAILED, bans ok, licenses FAILED, sources ok`:
+- `licenses`: `rejected` for the eight MPL-2.0 crates.
+- `advisories`: `RUSTSEC-2026-0374`, "`basic-toml` is unmaintained" (the repository is archived; "No safe upgrade is available"). Path: `basic-toml 0.1.10 → askama_derive 0.16.1 → askama 0.16.1 → uniffi_bindgen 0.32.2 → uniffi`. It comes only with the `cli`/`bindgen` feature.
+
+`cargo audit` on the probe lockfile reports the same advisory as a warning, so `--deny warnings` fails.
+
+Without the `bindgen` feature, these crates are linked into the library:
+- `uniffi`, `uniffi_core`, `uniffi_pipeline`;
+- `anyhow`, `bytes`, `once_cell`, `static_assertions`;
+- `indexmap`, `hashbrown`, `equivalent`, `heck`;
+- `tempfile`, `fastrand`, `getrandom`, `cfg-if`;
+- `windows-sys` and `windows-link` (Windows only).
+
+The proc macros run at build time only.
+
+**(c) Zero-on-free allocator.** Candidates from crates.io:
+
+| Crate | Last release | Licence | Size | Fit | Result |
+|---|---|---|---|---|---|
+| **`zeroizing-alloc` 0.1.1** (1Password, `github.com/1Password/zeroizing-alloc`) | 2026-09-17 (0.1.0: 2024-11-23); about 3.7 million downloads, 0.69 million recent | MIT OR Apache-2.0 | crate file 10 321 bytes; `src/lib.rs` about 100 lines, `#![no_std]`, no dependencies | `ZeroAlloc<A: GlobalAlloc>(pub A)` wraps the system allocator. `dealloc` wipes `layout.size()` bytes through a volatile-loaded function pointer, then frees. `realloc` is not overridden, so the default always allocates, copies, then frees and wipes the old block | **passes** |
+| `zeroize_alloc` 0.1.2 | 2019-10-01 | Apache-2.0 | 1.8 KB | no release in 7 years | fails (maintenance) |
+| `secmem-alloc` 0.4.0 | 2025-03-23 | MIT OR Apache-2.0 | 26 KB | `allocator-api2` custom allocators, not a global allocator, so it cannot cover UniFFI's buffers | fails (fit) |
+
+`zeroizing-alloc` in the probe:
+- `cargo deny check` raises nothing new for it.
+- `cargo audit` shows no advisory for it.
+- It builds as `#[global_allocator]` under `#![forbid(unsafe_code)]`, because the `unsafe impl GlobalAlloc` lives in the dependency.
+- It does not replace `std`.
+
+### Decision
+1. **Two crates.**
+   - `crates/mobile` (`mosaic-mobile`) holds all logic in plain Rust types. It has no UniFFI dependency and is tested on the host.
+   - `crates/mobile-ffi` (`mosaic-mobile-ffi`) is the binding shell only. It holds:
+     - the mirror records and enums with the UniFFI derives, and the `From` conversions;
+     - one `#[uniffi::export] impl MosaicCore` that delegates each method in one line;
+     - the `SecureStorage` foreign trait;
+     - the global allocator;
+     - `src/bin/uniffi-bindgen.rs`.
+   - A unit test `ffi_crate_has_no_logic` keeps `src/lib.rs` under 700 lines.
+2. **`forbid` everywhere.** This is stricter than the M10 spec. Probe (a) shows that the shell compiles under `#![forbid(unsafe_code)]`, so `mosaic-mobile-ffi` keeps `[lints] workspace = true` and `#![forbid(unsafe_code)]` like every other crate.
+   - Lints that the generated code triggers are suppressed with `#![expect(clippy::…, reason = "UniFFI scaffolding")]`. T3b lists them.
+   - The generated `unsafe` still ships in the library (THREAT_MODEL R138).
+   - **Fallback.** A UniFFI or toolchain update may make rustc reject the expansion. Then the crate gets the spec's lint table: the workspace table copied verbatim, except `rust.unsafe_code = "allow"`, with the comment "generated UniFFI scaffolding only (ADR-0089); no hand-written unsafe". It never gets an inner `allow`. The switch is pre-approved, but must be recorded here as an amendment.
+   - `scripts/mobile/check-ffi-crate.sh` runs in CI and locally. It fails if:
+     - (a) the word `unsafe` (`grep -rnw unsafe`) appears in `crates/mobile-ffi/src`;
+     - (b) a file other than `lib.rs`, `types.rs`, `convert.rs` or `bin/uniffi-bindgen.rs` exists there;
+     - (c) any workspace crate lacks `#![forbid(unsafe_code)]` in its `lib.rs`, or for binaries in `main.rs` and `src/bin/*.rs`. This includes `mosaic-mobile-ffi` while the fallback is not in use.
+3. **UniFFI pin.** `uniffi = { version = "=0.32.2", default-features = false }`.
+   - The feature `bindgen = ["uniffi/cli"]` is used only by the `uniffi-bindgen` binary (`required-features = ["bindgen"]`).
+   - A version bump repeats probes (a) and (b) and a read of the macro output.
+   - `deny.toml` gets per-crate `MPL-2.0` exceptions for the eight `uniffi*` crates above, with a comment that names this ADR. MPL-2.0 is file-level copyleft, and we use the crates unmodified, as with the MPL exceptions of ADR-0019.
+   - `deny.toml` `[advisories].ignore` and `.cargo/audit.toml` both get `RUSTSEC-2026-0374` (`basic-toml` unmaintained). The reason: "build-time `uniffi-bindgen` tool only (UniFFI's own askama templates); never linked into a shipped library; ADR-0089; revisit when UniFFI or askama drops `basic-toml`".
+   - `cargo deny` keeps `all-features = true`, so the bindgen tree is still checked for licences and advisories.
+4. **Library shape.**
+   - `crate-type = ["lib", "cdylib"]`. iOS builds the static library with `cargo rustc -p mosaic-mobile-ffi --lib --crate-type staticlib`.
+   - Release builds keep `panic = "abort"`. UniFFI's `catch_unwind` is moot there, and a panic kills the app or extension (fail closed). Library code has no panics (clippy denies them).
+5. **Zero-on-free allocator: adopted.** `mosaic-mobile-ffi` declares `#[global_allocator] static ALLOC: zeroizing_alloc::ZeroAlloc<std::alloc::System>`, with `zeroizing-alloc = "=0.1.1"`.
+   - Every Rust heap block of the mobile library is wiped when it is freed.
+   - This covers the `RustBuffer`s that carry `Vec<u8>` arguments and return values. UniFFI allocates them through the library's own `rustbuffer_alloc` and `rustbuffer_from_bytes`, and frees them through `rustbuffer_free`.
+   - It does not cover:
+     - memory that is still allocated;
+     - copies on the stack or in registers;
+     - memory that C code allocates with its own `malloc` (the bundled SQLite holds only ciphertext and cleartext metadata);
+     - anything on the Kotlin, JNA or Swift side (R126).
+   - Cost: every `realloc` moves, and every free writes zeros. The iOS `MemoryTests` measures it.
+   - The crate is not a cryptographic primitive. It is a secret-memory measure next to `zeroize` (CRYPTO_SPEC §2, "Secret memory"). The crypto-reviewer reads all of it at G1, and again on every version bump.
+6. **Blocking API, no UniFFI async.** Argon2id, OPAQUE and HTTP are blocking in the existing crates, and a UniFFI future that blocks would starve the foreign executor.
+   - Kotlin runs every call on one serial dispatcher (`Dispatchers.IO.limitedParallelism(1)`).
+   - Swift uses a `CoreHolder` actor over a serial `DispatchQueue`.
+   - `lock()` and `state()` bypass the queue.
+   - Inside Rust, `mosaic_mobile::Core` keeps its state in a `Mutex`. The mutex is **never held** across Argon2id, the network, a `SecureStorage` callback or another core call.
+   - A concurrent call during an unlock answers `busy`. A `lock()` during an unlock ends locked.
+7. **Secrets across the FFI** (CRYPTO_SPEC §6.9.5).
+   - Secret inputs are `Vec<u8>` UTF-8, wrapped in `Zeroizing` at once.
+   - Secret outputs are only `Arc<SecretValue>` (`expose_bytes`, `len`, `wipe`; drop zeroizes).
+   - Lists, details, events and errors carry no secret value.
+8. **Errors.** `MobileError` has unit variants only. Each variant's `code()` is a camelCase string; the codes reuse the desktop codes where they mean the same thing (`docs/MOBILE.md` §2). Errors carry no message, ID or value.
+9. **Test hooks.** The feature `test-hooks` (`mosaic-mobile/test-hooks`) exposes local account creation (the `Baseline` profile) and a settable clock offset.
+   - It is built only for JVM unit tests, instrumented tests and XCTest builds.
+   - `scripts/mobile/check-no-test-hooks.sh` fails if a `testhooks` symbol is in a release `.so` or `.a`.
+
+### Alternatives considered
+- **One crate with `unsafe_code = "allow"` and the logic in it:** all logic would lose the compile-time guarantee.
+- **The spec's shell with `unsafe_code = "allow"`:** not needed while probe (a) holds. It stays the fallback.
+- **Hand-written JNI and C FFI:** hand-written `unsafe` in every function.
+- **The bindgen tool outside the workspace**, with its own manifest and lockfile like the fuzz crates. It would keep `askama` and `basic-toml` out of the main `Cargo.lock`. But it would need a second pinned copy of UniFFI that must match the library exactly, and its licences would drop out of the `all-features` `cargo deny` run. Rejected for now. It is the way out if more advisories that only affect bindgen appear.
+- **No allocator** (R125 at full width): rejected, because a maintained candidate passed.
+
+### Consequences
+- R125 narrows to what the allocator cannot reach. R138 records the generated `unsafe`.
+- Track T3b writes `deny.toml` **and `.cargo/audit.toml`**: the ignore must be in both (the rule of ADR-0019).
+- The T3b commit carries the dependency justifications for `uniffi` and `zeroizing-alloc`. `docs/DEPENDENCIES.md` lists both.
+
+## ADR-0090: Mobile key storage, quick unlock and the boot rule
+
+- Status: accepted
+- Date: 2026-11-11
+- Milestone: M10
+
+### Context
+A phone must keep the Secret Key and the hosted session token across app starts, and quick unlock must work in practice. Android and iOS kill processes at will. The iOS extension is a new process for every request and must never run Argon2id (CRYPTO_SPEC §5.3). The desktop rule allows quick unlock only after one password unlock since the store was opened; under it, quick unlock would almost never apply on a phone. CRYPTO_SPEC §6.2 names an Android mechanism, but no platform byte for Android or iOS.
+
+### Decision
+1. **`SecureStorage`** (CRYPTO_SPEC §6.9.1). Rust decides names and lifetimes; the platform implements only `get`, `put` and `delete`. The names:
+   - `secret-key/<account_id hex32>`: the 16-byte Secret Key;
+   - `sync-token/<account_id hex32>`: the 32-byte stored session token;
+   - `settings-key-hint`: reserved, not used in M10.
+
+   **Android** uses one Keystore key, `mosaic-secure-store`:
+   - AES-256-GCM, no user authentication, `setUnlockedDeviceRequired(true)`, randomized encryption, StrongBox when available.
+   - One file per value: `noBackupFilesDir/secure/<sha256-hex(name)>.bin` = `0x01 ‖ iv[12] ‖ ct ‖ tag[16]`.
+   - GCM AAD = `0x01 ‖ aad("mobile/secure-store", u32(len(name)) ‖ name)`, supplied by Rust.
+   - Writes are atomic.
+
+   **iOS** uses a Keychain generic password:
+   - service `<bundle id>.secure-store`, account = the name;
+   - `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly`, not synchronizable;
+   - the app-private access group. The extension never needs the Secret Key or the token.
+2. **Platform bytes** in the quick-unlock parameters `0x02 ‖ platform ‖ key_nonce[16] ‖ body` (CRYPTO_SPEC §6.2). The decoder is strict: exact lengths, version `0x02`, and a known platform byte that matches the running platform.
+   - `0x03`, **iOS Secure Enclave.** The body is the 113-byte ECIES ciphertext of `W` (`eciesEncryptionCofactorX963SHA256AESGCM`), as for Touch ID on the desktop (ADR-0028).
+     - The key: `kSecAttrTokenIDSecureEnclave`, P-256, `kSecAttrIsPermanent`, tag `<bundle id>.quick-unlock.` ‖ hex(key_nonce).
+     - It lives in the **shared** keychain group `<prefix><bundle id>.shared`, so the extension can use it.
+     - Access control: `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` with `.privateKeyUsage` and `.biometryCurrentSet`.
+     - Decryption only after an `LAContext` biometric evaluation.
+   - `0x04`, **Android Keystore.** The body is `flags:u8 (bit 0 = StrongBox) ‖ iv[12] ‖ ct[32] ‖ tag[16]`, 61 bytes.
+     - Alias `mosaic-quick-unlock-<hex key_nonce>`.
+     - The key: AES-256-GCM, randomized, `setUserAuthenticationRequired(true)`.
+       - API 30+: `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)`.
+       - API 28–29: `setUserAuthenticationValidityDurationSeconds(-1)` (per use, usable only through a biometric `CryptoObject`).
+       - Also `setInvalidatedByBiometricEnrollment(true)` and `setUnlockedDeviceRequired(true)`.
+       - StrongBox when available; on `StrongBoxUnavailableException`, retry without it.
+     - Encryption and decryption each run through `BiometricPrompt` with `CryptoObject(cipher)` and `BIOMETRIC_STRONG`.
+     - GCM AAD = `0x02 ‖ 0x04 ‖ aad("quick-unlock/android", key_nonce)`.
+     - The `flags` byte is not authenticated. No decision depends on it: it is only shown in settings.
+     - On `KeyPermanentlyInvalidatedException`, Rust deletes the wrapping (`quick_unlock_platform_failed`) and the platform deletes the key.
+3. **Enrolment.**
+   1. `quick_unlock_enroll_begin(password)` runs `verify_master_password` (`Reauthenticated`, 120 s). It draws `W = random(32)` and `key_nonce = random(16)` and holds them in a pending slot (120 s, dropped on lock).
+   2. The platform creates the key and encrypts `W`.
+   3. `quick_unlock_enroll_finish` builds the parameters and calls `enroll_quick_unlock`. That replaces the old enrolment in one transaction and returns the old alias for deletion.
+4. **The boot rule** (CRYPTO_SPEC §6.9.2). On mobile, "once per app start" becomes "once per device boot".
+   - Store schema **v11** adds `boot_marker (id = 1, boot_id BLOB of 1 to 32 bytes, recorded_at_ms)`.
+   - `UnlockedSession::record_boot_marker` is allowed only right after a master-password unlock of the same session. After a quick unlock it fails with `ReauthenticationRequired`.
+   - `LockedSession::adopt_boot_marker` sets the app-start flag if the stored marker equals the current boot ID. It never resets the failed-attempt counter.
+   - The boot ID comes from the platform:
+     - Android: `Settings.Global.BOOT_COUNT` as a big-endian `u32`;
+     - iOS: `kern.boottime` as big-endian `u64 sec ‖ u64 usec`.
+   - A read failure gives an empty value. Rust refuses it, so the password is required.
+   - The marker is deleted:
+     - in the same transaction as every quick-unlock wrapping deletion;
+     - by `lock_requiring_password`;
+     - when the failed-quick limit is reached.
+   - The desktop and the CLI never write a marker. Their rule is unchanged.
+5. **The extension context** (CRYPTO_SPEC §6.9.3). `CoreContext::IosAutofillExtension` refuses these calls before any work:
+   - the password unlock, with `passwordInApp`;
+   - joining, sync, password recovery, device reset, enrolment and settings changes, with `invalidInput`.
+
+   The extension never runs Argon2id and never uses the network. On Android the providers run in the app process with `CoreContext::App`.
+6. **Memory preflight** (CRYPTO_SPEC §6.9.4). Before a password unlock or an enrolment, the platform compares `required_unlock_memory_bytes()` (the stored profile's Argon2 `m` plus 64 MiB) with the free memory: `ActivityManager.MemoryInfo.availMem` on Android, `os_proc_available_memory()` on iOS. A shortfall gives `notEnoughMemory`. A failed Argon2 allocation would abort the process, so the check runs first.
+
+### Alternatives considered
+- **The desktop rule on mobile:** quick unlock would rarely work, and users would type the master password into the extension. That is forbidden (Argon2id in 120 MiB), and it pushes users toward weaker passwords.
+- **A boot marker with its own shorter lifetime:** the wrapping's maximum age (default 14 days, at most 30) already bounds it. A second timer adds state without a clear gain.
+- **Android `EncryptedSharedPreferences` (Jetpack Security):** deprecated, and its key handling would not be ours to specify.
+- **The M10 spec's AAD without the header:** CRYPTO_SPEC §3 binds every AEAD header into the AAD. When Rust builds the AAD, it knows the secure-store version byte and the parameter version and platform bytes, so binding them costs nothing. This tightens the M10 spec.
+
+### Consequences
+THREAT_MODEL R127 (per boot, not per app start), R128 (TEE without StrongBox; the API 28–29 branch) and R137 (the cleartext marker). CRYPTO_SPEC changes:
+- §3 gets the labels `mobile/secure-store` and `quick-unlock/android`;
+- §6.2 gets the platform byte table;
+- §6.9 is new;
+- §11 gets v11.
+
+### Amendments
+
+#### M10 G1 review
+- **G1-3, re-authentication limit.** Five wrong master passwords in a row at a re-authentication (`quick_unlock_enroll_begin`, `update_settings`) end the session with `lock_requiring_password` (the boot marker goes too). A right password and a password unlock reset the count. Same limit as the desktop. Superseded in where the count lives by N2 below.
+- **G1-10, the age travels with the enrolment.** The platform parameters are `0x02 ‖ platform ‖ key_nonce ‖ body ‖ max_age_days:u8` (1 to 30); the age is the verified setting at enrolment. Expiry is decided against that age, shortened by the settings once they were checked in this process, and capped at 30 days. Before that check a locked phone after a restart no longer applies the strict stand-in values (14 days) to an enrolment made with a longer verified age. The Android GCM AAD is unchanged. Refined by N1 below.
+- **G1-13, boot marker deletion.** A delete that fails is retried by overwriting the marker with an ID no platform produces (32 bytes); if that fails too, quick unlock stays refused in this process (the counter), the hardware-key path returns the store error, and the phone core retries whenever it reports the locked state (`LockedSession::enforce_boot_marker_limit`).
+
+#### M10 G1 verification follow-ups
+- **N1, the age byte is not authenticated.** The trailing byte of the platform parameters is outside the GCM AAD, so a store write can raise it. Before the settings MAC is checked the age is `min(byte, the unverified file's value, 30)` (the unverified file may only shorten, so lowering the setting works in a new process). After a quick unlock and the MAC check, expiry is decided again against `min(byte, verified setting, 30)`; an expired enrolment is removed, the vault is locked and the call answers `quickUnlockExpired`. The decision is authenticated through the settings MAC; no new cryptography. Where no verified value exists the enrolment expires instead of using a stand-in (round 3, F1 and F2): settings that could not be checked in this run (the key or the settings nonce cannot be read), a settings file that was missing or unusable at the start, and a file whose MAC fails (the strict default of at most 14 days may exceed a lowered verified setting). The check runs for a quick unlock (`quickUnlockExpired`) and for a password unlock that finds an enrolment (the enrolment is removed and its key alias reported). A failed read of the enrolment counts as expired, like a decode error (F4). When `update_settings` lowers the age, the enrolment's age byte is rewritten down to the new value (format and AAD unchanged), so a later loss of `settings.json` cannot lengthen it (F2). A strict lock that finds the store out for an unlock (a plain lock won the race, the unlock then took the store) is kept when the unlock fails and the store is put back (F3).
+- **N2, the re-authentication count is stored.** The count of wrong master passwords moves from the core's memory into the store (`reauth_failures`, one local-only row, part of the unreleased v11 schema). It is incremented before `wrongCredentials` is returned and reset only by a correct master password. The desktop keeps its in-memory count because its process is not killed and restarted at will; a phone process is, and a guesser could otherwise reset the limit by ending the process after four tries. At five the session ends with `lock_requiring_password`, and a stored count of five also refuses the boot marker in a new process.
+- **N4, a strict lock that finds the phone locked.** `lock_requiring_password` on a locked session (a plain `lock()` won the race) calls `LockedSession::require_password`: counter to the limit, boot marker deleted. The limit's strict lock also runs when the plain lock took the session first.
+- **N6, a store that cannot be written.** `adopt_boot_marker` adopts only after a successful write transaction (the marker is rewritten unchanged), so a store that cannot be written means the master password is required. This agrees with the rule that a failed marker delete must not leave an adoptable marker.
+- **N7, a reset that fails half way.** `reset_device` removes the quick-unlock enrolment and the boot marker before it deletes the secrets or the files, and keeps the key alias in the state when the reset fails.
+- **N8.** `enforce_boot_marker_limit` writes nothing when the marker is absent or already overwritten.
+- **N3.** `SecureStorage` has a fourth operation, `contains` (CRYPTO_SPEC §6.9.1).
+
+#### Device lock required (M10 T7, 2026-11-12)
+- On an Android device without a secure lock screen the Keystore refuses `setUnlockedDeviceRequired(true)`. The
+  conservative choice is taken: Mosaic stores no secret on such a device. Join and unlock are refused with a request
+  to set a screen lock; the secure-store key is never created without the flag. iOS uses
+  `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` for the same rule. Alternative rejected: dropping the flag when
+  no lock screen exists (a phone without a lock screen would keep the Secret Key and the token readable by anyone
+  holding the unlocked-at-boot device). Emulator tests set a PIN through the shell first.
+
+## ADR-0091: TLS trust on Android and the asset-links fetch
+
+- Status: accepted
+- Date: 2026-11-11
+- Milestone: M10
+
+### Context
+`mosaic-sync` verifies the server with `rustls-platform-verifier` (ADR-0046). On Android that crate needs JNI initialisation (`init_with_env` with a `JavaVM`), which means hand-written `unsafe` and a `jni` dependency. Android passkeys for non-browser apps need a fetch of `https://<rpId>/.well-known/assetlinks.json` (ADR-0093). The M10 spec asked T1 to check how Android's `AndroidCAStore` and its default trust manager differ.
+
+### Probe (d), 2026-11-11
+We read the Android framework sources at `android.googlesource.com/platform/frameworks/base`, branch `main`, directory `core/java/android/security/net/config/`:
+- `NetworkSecurityConfigProvider.install` inserts a provider at position 1. It maps `TrustManagerFactory.PKIX` (and the alias `X509`) to `RootTrustManagerFactorySpi`, and makes the app's manifest config the default `ApplicationConfig`. On Android, `TrustManagerFactory.getDefaultAlgorithm()` is `PKIX`.
+- `RootTrustManagerFactorySpi.engineInit(KeyStore ks)`: with `ks == null` it uses `ApplicationConfig.getDefaultInstance()`, which is the app's network security config. A non-null key store becomes the only trust source.
+- `RootTrustManager.getAcceptedIssuers()` returns the trust anchors of the base config (`getConfigForHostname("")`). `NetworkSecurityTrustManager.getAcceptedIssuers()` builds them from `NetworkSecurityConfig.getTrustAnchors()`.
+- `NetworkSecurityConfig.getDefaultBuilder` always adds the system certificates. It adds user certificates only if `targetSdkVersion <= M` (API 23) and the app is not privileged: "Applications targeting N and above must opt in into trusting the user added certificate store."
+- `SystemCertificateSource` reads `/apex/com.android.conscrypt/cacerts` when it exists (the updatable Conscrypt module), else `$ANDROID_ROOT/etc/security/cacerts`. It skips certificates the user disabled (`cacerts-removed`).
+- `AndroidCAStore` lists the system **and** the user-installed CAs (aliases `system:` and `user:`). It ignores the app's network security config. This point is from memory; the probe did not re-read it.
+
+Result: `TrustManagerFactory.getInstance(getDefaultAlgorithm()).init(null as KeyStore?)`, then `X509TrustManager.acceptedIssuers`, gives exactly the system anchors that the app's config trusts, minus the ones the user disabled. `AndroidCAStore` would add user CAs and must not be used. The M10 spec's design holds.
+
+Not verified: the behaviour on specific OEM builds and on API 28–33 images. The instrumented test `TrustAnchorsTest.containsIsrgRootX1AndNoUserCas` checks it on the CI emulator (API 34).
+
+### Decision
+- **TLS trust.** `mosaic-sync` gains `TlsTrust { Platform, Anchors(Vec<CertificateDer<'static>>) }` and `set_tls_trust(trust)`.
+  - The setting is process-wide, set once by `Core::open`. `Platform` is not available on `target_os = "android"`.
+  - `Anchors` builds `rustls::client::WebPkiServerVerifier::builder_with_provider(roots, ring)`: TLS 1.3 only, the `ring` provider, no client auth. Empty anchors are refused.
+  - `rustls-webpki` already comes with `rustls`, so there is no new crate.
+  - `rustls-platform-verifier` moves to `[target.'cfg(not(target_os = "android"))'.dependencies]`. The behaviour on the desktop, in the CLI and on iOS is unchanged; iOS uses Security.framework without JNI.
+- **Kotlin side.** Kotlin collects the anchors as above and passes their DER in `CoreConfig.trust_anchors_der`. `res/xml/network_security_config.xml` has a base config with `<certificates src="system"/>` only and `cleartextTrafficPermitted="false"`. Release builds have no user CAs and no debug overrides.
+- **Asset-links fetch:** `mosaic_sync::http::assetlinks::fetch(host) -> Result<Vec<u8>, TransportError>`.
+  - It requests `https://<host>/.well-known/assetlinks.json` with the same TLS trust.
+  - No redirects, a 64 KiB cap on the body, a 10 s timeout, no cookies, no auth.
+  - `http` is allowed for loopback only, for tests, by the `canonical_origin` rule.
+  - It sits next to `http::pwned`, the precedent for an HTTPS client that is not the sync server.
+  - Results are cached in memory per process for 24 h, keyed by (rpId, package, cert).
+- **Sync on mobile.** Hosted only, in the foreground.
+  - The join follows the CLI pattern: `prelogin`, the join keys, `join_login`, an optional TOTP or WebAuthn handoff, `join_fetch_account`, then `join_account`.
+  - The pending join holds no store, so the iOS app can close the store while the user is in Safari. It expires after 5 minutes.
+  - **Amendment (M10 G1 review, G1-11):** a `lock()` drops the pending join (it holds the Secret Key and the derived keys and must not outlive a lock), and an expired join is dropped by `lock()`, `state()` and `close_store()`. `close_store()` alone keeps an unexpired join, so the Safari handoff survives the iOS background; the apps must not call `lock()` during the handoff.
+  - **Amendment (G1-17):** a release build of the phone refuses `http://` loopback servers (typed or in a setup code) with `syncServerInsecure` (`setupCodeInvalid` for a code); debug builds and the `test-hooks` builds still accept them. `canonical_origin` itself is unchanged for the desktop and the CLI.
+  - `syncPasswordChanged` leads to `recover_password(new)` through `adopt_remote_password`, which deletes the quick-unlock wrapping and the boot marker.
+  - A re-key or a Secret Key change elsewhere leads to "Set up this phone again". The app shows the number of pending uploads. After the user types the email, `reset_device` deletes the store, the stored secrets and the platform keys.
+
+### Alternatives considered
+- **`rustls-platform-verifier` with JNI:** hand-written `unsafe`, a `jni` dependency, and a Kotlin init path in every process.
+- **`AndroidCAStore` as the anchor source:** it includes user-installed CAs, which a MITM proxy or a stalkerware profile can add.
+- **`webpki-roots`** (the Mozilla list compiled in): it goes stale between releases and ignores a system CA the user removed. The platform list is updated through the Conscrypt module.
+- **OkHttp in Kotlin for sync:** it duplicates the transport and moves the token out of Rust.
+
+### Consequences
+THREAT_MODEL R133: on Android the Rust path has no OCSP and no CT, a revoked certificate is accepted until it expires or leaves the system store, and self-hosted servers with a private CA do not work. Self-hosters use a public CA (`docs/SERVER.md`). R134 covers the asset-links fetch. An rpId host without TLS 1.3 fails the fetch.
+
+## ADR-0092: Mobile autofill and app-origin matching
+
+- Status: accepted
+- Date: 2026-11-11
+- Milestone: M10
+
+### Context
+Brief §4 sets four rules: no fill without a trusted user gesture, exact-origin matching, no cross-origin iframe fills, and one credential at a time to content. On Android, the Autofill Service receives an `AssistStructure` from any app, and its `webDomain` is a claim by that app: a malicious app can claim `github.com`. On iOS, the OS has already checked the service identifier it gives the provider. The M10 spec asked T1 to check whether autofill clients are visible to the service without a `<queries>` element.
+
+### Probe (d), 2026-11-11
+- `developer.android.com/training/package-visibility/automatic` lists the apps that are visible automatically:
+  - your own app, certain system packages, and the installer;
+  - an app that calls `startActivityForResult()` on yours;
+  - an app that "starts or binds to a service" in yours;
+  - an app that accesses your content provider, or whose provider granted you a URI;
+  - an app that receives input from yours as an IME.
+
+  An autofill client is none of these: the system server binds the Autofill Service, not the client. The page does not mention autofill, and neither does the autofill guide (`developer.android.com/guide/topics/text/autofill-services`). A search of the AOSP sources found no implicit visibility grant from the autofill framework, but the search was not conclusive.
+- **Not verified:** we could not confirm that an autofill client is visible without `<queries>`.
+- The same guide says: "Chrome stopped supporting the compatibility mode from version 137 in favor of Android Autofill." Chrome fills through the Autofill Service only when the user turns on "Autofill using another service".
+- Credential Manager gives the provider `CallingAppInfo` (package and `SigningInfo`), so no package visibility is needed there.
+
+### Decision
+- **Package visibility.** The manifest keeps `<queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent></queries>`. That makes every app with a launcher activity visible to `PackageManager.getPackageInfo(pkg, GET_SIGNING_CERTIFICATES)`. There is no `QUERY_ALL_PACKAGES`.
+  - If a package is still not visible (`NameNotFoundException`), the fill **fails closed**: no datasets, and the fallback dataset says "Could not check this app".
+  - The androidTest client activity of T9 must declare a `MAIN`/`LAUNCHER` intent filter, or it is not visible.
+  - Dropping `<queries>` later needs a device test that proves visibility on API 30 to 35.
+- **Matching is in Rust** (`mosaic-origin`, pure and host-tested).
+  - **App URLs** on logins: `androidapp://<package>?cert=<b64url(sha256(signing cert))>`.
+    - A URL without `cert` (from an import, for example) **never matches**. It shows as "needs linking".
+    - A match needs an equal package, and a `cert` equal to the caller's **current** signer: `apkContentsSigners`, else the last entry of `signingCertificateHistory`.
+    - **Amendment (M10 G1 review, G1-9): exactly one current signer.** Kotlin chooses the current signers and hands them over as `AndroidCaller.current_signers`, never the old certificates of a signing history. Rust and `mosaic-origin` refuse a caller with more than one current signer as ambiguous: `link_android_app`, `asset_links_status` and the non-browser passkey path answer `invalidInput`, `app_fill_allowed` does not match, and `is_trusted_browser` does not trust it. A browser's own allowlist entry may still list several release certificates (for rotation); the single current signer of the caller must be one of them. The earlier text ("a `cert` equal to one of the caller's current signers") let a stale or co-signing certificate of the history identify an app.
+  - **Browser allowlist:** `crates/origin/data/android-privileged-browsers.json`, in the Credential Manager `getOrigin` format.
+    - It holds Chrome (stable and beta), Firefox, Edge, Brave, Samsung Internet, DuckDuckGo, Vivaldi and Opera.
+    - It is sourced from Google's published privileged-apps list. The source and date go in a header comment of `android_browsers.rs`.
+  - **`webDomain`** counts only when the caller is an allowlisted browser with a matching certificate.
+    - Then the target is `Web { origin: scheme://domain }`, with `https` when the scheme is absent. `http` is refused unless the login allows HTTP.
+    - A `webDomain` from any other app is ignored, and the target is `AndroidApp`.
+  - **Fields.**
+    - The root `webDomain` is the first node's. A node with a different `webDomain` is a foreign frame and is excluded.
+    - If the focused node is in a foreign frame, the request is refused (`ForeignFrame`).
+    - Invisible nodes are excluded.
+    - Fields are recognised by autofill hints first, then HTML `autocomplete`, then the input type, and only then by EN and DE keywords.
+  - **Asset links:** strict JSON, at most 64 KiB and 256 statements.
+    - Relation `delegate_permission/common.get_login_creds` counts for passwords and passkeys.
+    - Relation `delegate_permission/common.handle_all_urls` counts for passkeys only, as Credential Manager accepts it.
+    - Certificate fingerprints compare case-insensitively in colon-hex form.
+- **Android Autofill Service:** per-dataset authentication.
+  - When locked, the response holds one dataset, "Unlock Mosaic". After the unlock, it holds presentations (title and username) with **null values**, each authenticated through `FillAuthActivity`.
+  - Values are released only after a dataset tap, through `fill_values(target, key)`, which checks the match again. They come back as one dataset (username and password) and are then wiped.
+  - With no match, there is one dataset: "No login for <app label>". It opens the main app's Link app screen.
+  - Never: compatibility mode, inline suggestions (OD-M10-8, default off), `SaveInfo`, or a fill without a dataset tap.
+- **Linking** happens only on the login itself, from the item editor or from the "No login for X" dataset (UX_GUIDELINES §8: "explicit choice on the login itself").
+  - The screen shows the app label, the package, the installer (API 30+), the first 8 bytes of the certificate fingerprint, and the asset-links status of each web domain of the login: "Verified by github.com", "Not verified" or "Could not check".
+  - When the status is not "Verified", one extra sentence warns. There is no "fill anyway".
+- **Android Credential Manager passwords** (API 34+). The caller comes from `CallingAppInfo`; for browsers through `getOrigin(privileged_browsers_json())`. When locked, the provider answers with an `AuthenticationAction`; when unlocked, with entries that carry no values. Only `CredentialActivity` delivers a value, after `fill_values`.
+- **iOS Credential Provider.**
+  - Service identifiers go through `fill_target_ios`: a `Domain` becomes `https://<IDNA-ASCII host>`, a `Url` goes through `PageOrigin::parse`.
+  - The extension unlocks with quick unlock only. Without an enrolment or a boot marker it says "Open Mosaic and unlock it once with your master password."
+  - Matching items come first. "Search all" shows the other items read-only, with no select action.
+  - `provideCredentialWithoutUserInteraction` always answers `userInteractionRequired`.
+  - One-time codes on iOS 18+.
+  - **Identity store.** Passkey identities are written when "Use Mosaic for passkeys" is on. Password identities are written only with OD-M10-7 (default off). On reset, and when the setting is turned off, `removeAllCredentialIdentities` runs.
+
+  - **Amendment (M10 G2 round 2, N1): fields by target kind.** `select_fill_fields` takes the fill target. For an app target (which includes a browser that is not on the allowlist) it excludes every node with a `webDomain`, own or inherited, and a focus in one refuses the fill. For a web target it starts at the first node with a `webDomain`, which drops the browser's own screen; the Kotlin reader no longer trims. Without this, a `WebView` of a third party inside an app could receive the login linked to that app.
+  - **Amendment (M10 G3 red team, G3-1 and G3-2): fields rooted at the target.** A web selection takes the target's host (ASCII, no port). Only nodes whose own or inherited `webDomain` equals it (ASCII case-insensitive) are the page; a node of another domain, or of none (the browser's own screen, a frame without a domain), is foreign: never selected, and a focus in one refuses the fill. The earlier rule (start at the first node with a domain) let a cross-origin frame placed first become the page. The Kotlin reader takes the page root from the first node in tree order that reports a domain, container or not. For an app target, a node with HTML info (`html_tag`) is web content even without a `webDomain` (`loadData`, `about:blank`, `srcdoc`): excluded, and a focus in one refuses.
+  - **Amendment (M10 G3 red team, G3-3): the verifying host.** `asset_links_status` answers `Verified { host }` with the host whose `assetlinks.json` lists the app, and the link screen shows that host, not the login's primary host. A second URL of the login can no longer lend its verification to the primary host's name.
+  - **Amendment (M10 G3 red team, G3-4): loopback needs `allow_http` on a phone.** On a phone any installed app can listen on `127.0.0.1`, so the ADR-0037 loopback exemption does not hold. The mobile core matches web pages with `fill_allowed_with(.., HttpPolicy::LoopbackNeedsAllowHttp)`: a loopback `http` page needs the URL's `allow_http` like any other `http` page. `fill_allowed` (desktop, extension) keeps the exemption.
+  - **Amendment (M10 G3 red team, G3-5): browser packages are never apps.** `android_fill_target` refuses a package on the browser list whose signer is not trusted (`TargetError::UntrustedBrowser`, `noMatch`), and `app_fill_allowed` never matches a browser package. A fake or a rotated key the list does not know yet can no longer fill an `androidapp://<browser>?cert=` login on every page.
+  - **Amendment (M10 G3 red team, G3-6 and housekeeping): DNS names, bounded state.** `canonical_rp_id` requires DNS labels: ASCII letters, digits and hyphens, no leading or trailing hyphen, at most 63 bytes per label (253 in total). Callers: the passkey import (`mosaic-import`, so desktop and CLI imports reach it too) and the mobile passkey calls. `webauthn_rp_id` applies the same DNS-label check at creation (M10-G3 round 2, N1). The asset-links answer cache holds at most 256 entries and evicts the one that expires first. The system pickers' lists open a fill or passkey session per request that nothing uses: `fill_release` and `passkey_release` drop it (the provider calls them right after building the list and on every failed exit of the get flows).
+  - **Amendment (M10 RT-android-1): a missing `webScheme` is refused.** A trusted browser's `webDomain` without a `webScheme` is `TargetError::MissingScheme` (`noMatch` on the phone), never read as `https`: the page may be plain `http`.
+  - **Amendment (M10-G2-iOS, M3): a QuickType selection fills only after a confirm.** For a tap on a QuickType suggestion (`prepareInterfaceToProvideCredential`) iOS gives the provider the identity (its own domain and record) and not the page the user is on. The core's origin match would compare the identity with itself, so a login saved for `a.example` could be offered for a page of another site that the keyboard showed it on. The conservative choice is taken: the request never fills by itself. The extension opens the interface, shows "Fill the login for <saved site>?" naming the site of the identity, and asks for Face ID or Touch ID only after the explicit confirm; then it fills the identity's login, if the core still lists it as a match for that site. The settings text of OD-M10-7 says so. Alternative rejected: filling at once after Face ID, as a QuickType suggestion normally does (the user cannot see which page the fill is for, and the check proves nothing).
+
+### Alternatives considered
+- **Trust `webDomain` from any app:** any app could ask for any site's password.
+- **Match apps by package name only:** a sideloaded app with the same package and another key would get the login.
+- **Automatic linking through asset links:** it would fill a site's password into any app the site lists, without a user decision. Mosaic shows the asset-links status and lets the user decide.
+- **`QUERY_ALL_PACKAGES`:** broader than needed, and Google Play restricts it.
+- **Compatibility mode:** URL bars read through accessibility can be spoofed, and Chrome dropped the mode.
+
+### Consequences
+THREAT_MODEL rows: R135 (a stale or compromised allowlisted browser), R136 (a deliberately linked malicious app), R132 (the iOS identity store) and R140 (accessibility services and IMEs). A browser that does not send `webDomain` natively gets no web fills. The allowlist is refreshed with each release; Dependabot cannot see it.
+
+## ADR-0093: Mobile passkey providers
+
+- Status: accepted
+- Date: 2026-11-11
+- Milestone: M10
+
+### Context
+Android Credential Manager (API 34+) and iOS 17+ let a third-party app act as a passkey provider.
+- iOS, and Android for privileged browsers, build `clientDataJSON` themselves. They give the provider only `SHA-256(clientDataJSON)`.
+- For other Android apps, the provider builds `clientDataJSON` with the origin `android:apk-key-hash:<b64url(sha256(cert))>`, and must check that the rpId trusts the app.
+
+`mosaic-passkey` (ADR-0039) builds `clientDataJSON` itself in every case. Its `CreateInput` and `GetInput` take `origin` and `challenge`; CORE_API marks them stable.
+
+### Decision
+- **Client-data mode** (CRYPTO_SPEC §16). `mosaic-passkey` gains `ClientData::{Json { origin, challenge }, Hash(&[u8; 32])}`.
+  - `CreateInput` and `GetInput` stay as they are, and run through new **adapters over `CreateRequest { rp_id, client_data, user_handle, algorithms, user_verified }` and `GetRequest { rp_id, client_data, user_verified }`** (M10 T2 built it additively, see CORE_API; the breaking in-place form of the first draft of this ADR was not applied).
+  - `ClientCreated.client_data_json` and `ClientAssertionResponse.client_data_json` are `Option<Vec<u8>>`, which is `None` in `Hash` mode. `AssertionResponse.client_data_json` stays a `Vec<u8>` and belongs to `Json` mode only: `into_json_response` and `into_response_without_count` refuse a hash-mode assertion (`InvalidInput`) instead of returning an empty `clientDataJSON` (G1-16).
+  - The signed message is `authenticatorData ‖ hash`, where the hash is the given one or `SHA-256(clientDataJSON)`.
+  - `android_app_origin(cert_sha256) -> String` returns `"android:apk-key-hash:" ‖ b64url(cert_sha256)`.
+  - No new primitive.
+  - The first draft called this a **breaking change of a stable API**, admitted by this ADR. The build is additive instead, so the extension and desktop callers did not change; the breaking form is a follow-up that must change `apps/desktop` and `crates/import/tests` in one commit. The existing vectors still pass (`json_mode_vectors_unchanged`).
+- **Android** (API 34+):
+  - **Request.** `AndroidPasskeyRequest { request_json, caller, platform_origin, client_data_hash }`. Rust parses `request_json` strictly, capped at 64 KiB, with a fuzz target.
+  - **A caller that brings a `platform_origin`** must also pass Rust's own allowlist check (package and certificate). That checks `CallingAppInfo.getOrigin` a second time. The rpId is validated with `mosaic_origin::webauthn_rp_id(origin, rpId)`. With a `client_data_hash` the mode is `Hash`; without one it is `Json` with that origin.
+  - **Any other app** gets `Json` mode with `android_app_origin(cert)`, and the rpId must delegate to the app. Rust fetches the asset links (ADR-0091) and requires `app_is_delegated`. A failure gives `appNotVerified`; no network gives `assetLinksUnavailable`.
+  - **User verification is always required, on iOS too (G1-4).** `CredentialActivity` runs `BiometricPrompt` with `BIOMETRIC_STRONG or DEVICE_CREDENTIAL` for every ceremony; a quick unlock in the same activity counts. Without UV the ceremony is refused, so `user_verified` is always `true`.
+  - **Get** returns the candidates whose rpId equals the request's exactly, filtered by `allowCredentials`. It signs through `PendingAssertion`, so the sign count is stored before the signature is released (ADR-0039 D5). Rust builds `AuthenticationResponseJSON`, with `authenticatorAttachment:"platform"`.
+  - **Create** checks `excludeCredentials` (`passkeyExcluded`). It stores the `passkey` item **before** it returns `RegistrationResponseJSON` (with `transports:["internal","hybrid"]` and `publicKeyAlgorithm:-7`), and syncs later.
+  - Sessions expire after 5 minutes and are dropped on lock.
+- **iOS 17+:**
+  - The OS gives the rpId and `clientDataHash`, and has already checked the caller: the Safari origin, or the app's associated domains through Apple's CDN. Rust uses `Hash` mode.
+  - UV comes from the Secure Enclave biometric unlock in the same extension run. **Amendment (G1-4):** `passkey_ios_assert` and `passkey_ios_register` answer `reauthRequired` when `user_verified` is `false`, always sign with the UV flag set, and need a session opened by a verified user in this process (`unlock_quick`, or the master password in the app). The `*_ios_*` calls and `fill_target_ios` answer `invalidInput` on an Android core, and the Android calls (`passkey_android_*`, `fill_target_android`, `link_android_app`, `asset_links_status`) on an iOS core (G1-5).
+  - After a registration, the extension adds the new `ASPasskeyCredentialIdentity`. The app reconciles at its next unlock.
+- **Unchanged** (CRYPTO_SPEC §16): the flags, the encodings, the zero AAGUID, BE = BS = 1, and ES256 only.
+  - **Amendment (M10-G2-iOS, L1): the exclude list.** On iOS 18+ the registration request carries `excludedCredentials`; the extension passes their credential IDs to `passkey_ios_register`, which refuses a duplicate (`passkeyExcluded`). iOS 17 has no such field, so on iOS 17 a relying party's exclude list is not enforced; the system's own checks apply.
+
+### Alternatives considered
+- **A second signing function for hash mode, next to the old API:** two code paths over the same key, and the old API would remain a client-data builder that mobile cannot use. One enum keeps one signing path.
+- **Trusting `CallingAppInfo.getOrigin` alone:** its answer depends on the allowlist we pass in. Checking again in Rust costs nothing and guards against a wiring mistake.
+- **No asset-links check for non-browser apps:** any app could ask for any rpId's passkey.
+
+### Consequences
+THREAT_MODEL R134 (the asset-links fetch). CORE_API records the breaking change. A passkey ceremony from a non-browser app needs the network.
+
+## ADR-0094: Mobile lock, clipboard and screen protection
+
+- Status: accepted
+- Date: 2026-11-11
+- Milestone: M10
+
+### Context
+Phones carry these risks:
+- they are left unlocked;
+- the app switcher keeps snapshots of apps;
+- other apps and keyboards read the clipboard;
+- screens are recorded.
+
+iOS also kills an app that is suspended while it holds a file lock in an App Group container (`0xdead10cc`).
+
+Credential Manager and per-dataset autofill take two steps: the provider shows entries, then the user picks one and Mosaic's activity starts. On Android, a strict "lock on background" rule breaks the second step.
+
+### Decision
+- **Store location and backups.**
+  - Android: `noBackupFilesDir/mosaic/store.sqlite`. `allowBackup="false"` and `fullBackupContent="false"`; `dataExtractionRules` exclude everything (API 31+).
+  - iOS: `<app group>/Library/Application Support/Mosaic/store.sqlite`. The directory has `isExcludedFromBackup`, and the entitlement `default-data-protection` is `NSFileProtectionComplete`.
+- **iOS store lifecycle.**
+  - On `.background` the app calls `lock()` and then `close_store()`. On `.active` it calls `reopen_store()`.
+  - The extension opens the store for each request. It calls `close_store()` before every `completeRequest` or `cancelRequest`.
+  - If the extension finds the store held (`StoreBusy`), it shows "Mosaic is busy. Try again in a moment."
+- **Android lock triggers** (`LockPolicy`, `ProcessLifecycleOwner`). None of them can be turned off.
+  - Background: immediately by default; the options are 0 s, 30 s, 1 min and 5 min.
+  - Foreground idle: 5 min by default, 1 to 30 min; touches reset it.
+  - `ACTION_SCREEN_OFF`.
+  - A new process always starts locked.
+- **iOS lock triggers:** background (immediately), the same idle timeout, `protectedDataWillBecomeUnavailable` (the device locks), and the end of each extension request.
+- **Provider grace (Android only).** After a provider activity unlocks, the session may stay unlocked in the background for at most **60 s**, and only while a provider flow token is open.
+  - The unlock opens the token.
+  - Finish, cancel or `ACTION_SCREEN_OFF` closes it.
+  - Outside such a flow, the background rule applies unchanged.
+- **Reveal** hides after 60 s, on background and on lock. View models hold only `SecretValue` handles and call `wipe()` on lock.
+- **Clipboard.** It clears after 30 s by default. The options are 10 s to 5 min, or off with a warning.
+  - **Android.**
+    - The `ClipData` carries `EXTRA_IS_SENSITIVE`; below API 33 the literal key `android.content.extra.IS_SENSITIVE`.
+    - A label nonce is kept in memory. At the timeout, the clip is cleared only if its nonce still matches.
+    - If the clipboard cannot be read (Android 10+ in the background), it is cleared unconditionally.
+    - The toast says "Copied. Clears in 30 seconds."
+  - **iOS:** `UIPasteboard` with `.localOnly` and `.expirationDate`.
+- **Screen.**
+  - **Android.**
+    - `FLAG_SECURE` on every window, through a `SecureActivity` base class that the provider activities use too.
+    - `setRecentsScreenshotEnabled(false)` (API 33+).
+    - `setContentSensitivity(SENSITIVE)` on secret views (API 35+).
+  - **iOS.**
+    - A privacy cover on `sceneWillResignActive`.
+    - While the screen is captured, revealed values are hidden and reveal is off ("Hidden while your screen is recorded").
+    - `.privacySensitive()` on every secret view.
+    - Screenshots cannot be blocked. The screenshot notification only hides the values again.
+- **TOTP.** Codes are `SecretValue`s with `remaining_s`. Pending OTP slots follow ADR-0031 item 2: at most 4, for 10 minutes, dropped on lock.
+- **Settings.** Auto-lock, clipboard, the quick-unlock maximum age and the identity-store opt-in carry the MAC of CRYPTO_SPEC §11.1 (ADR-0030). The code is ported from the desktop into `mosaic_mobile::settings`.
+  - **Amendment (M10-G2-iOS, M1): the extension's end and its idle timer.** Every end of an extension request (a completion, a failure, the user's cancel, a newer request) runs one `finish()`: lock, close the store, release the fill session. A dismissal without a completion call (`viewWillDisappear`), the host resigning active or entering the background (`NSExtensionHostWillResignActive`, `NSExtensionHostDidEnterBackground`) and `protectedDataWillBecomeUnavailable` end the request the same way, exactly once. The 120 s idle timer is only a backstop: it is re-armed on each user action and does not run while the process is suspended, so the dismissal and the host's background are the real bound on how long the store stays open.
+  - **Amendment (M10 G3 red team, G3i-1 to G3i-4): closing during a call, and the silent end.** `close_store()` during an unlock, a long call or a reopen sets `close_requested`; whoever settles the phase (a finished or failed unlock, a restored session, a reopen) then closes the store and releases its file lock. A request that ends while `begin()` reopens the store closes it after the reopen. A silent end (a dismissal, the host going away) leaves the sheet on screen, so the next user action or `NSExtensionHostDidBecomeActive` tells the system once (`userCanceled`); whether `NSExtensionHostWillResignActive` also fires on the Face ID prompt is an open device check (MOBILE.md section 7).
+
+### Alternatives considered
+- **No provider grace:** Credential Manager entries could never be used without a second unlock. That would push users to a background delay above 0 s, which is worse.
+- **A longer grace, or one without a flow token:** the vault would stay open behind any app.
+- **A blur instead of `FLAG_SECURE`:** it does not stop screenshots, or screen recording by other apps.
+
+### Consequences
+THREAT_MODEL R129 (iOS screenshots), R130 (the limits of the Android clipboard) and R131 (the 60 s grace).
+
+## ADR-0095: Mobile build and CI
+
+- Status: accepted
+- Date: 2026-11-11
+- Milestone: M10
+
+### Context
+The development PC runs Windows with 7.4 GB of RAM, Java 21, and an Android SDK without an NDK. There is no Mac and no phone. A local `cargo ndk` build uses about 2 GB of RAM and must not run next to Gradle.
+
+### Decision
+- **CI first.** Native mobile builds and tests run in `.github/workflows/mobile.yml`:
+  - `android` (Ubuntu): cargo-ndk for `aarch64-linux-android` and `x86_64-linux-android`, the host `.so` for the JVM tests, bindgen, the Gradle unit tests, lint, and assemble.
+  - `android-release-check` (on `main` and nightly): a release library without features, `check-no-test-hooks.sh`, and `assembleRelease` with R8.
+  - `android-instrumented`: an emulator with API 34, x86_64, without Play services.
+  - `ios` (macOS): the static libraries for `aarch64-apple-ios` and `aarch64-apple-ios-sim`, the XCFramework, XcodeGen, the simulator tests, and a release compile check for devices.
+- **Triggers.** `pull_request` and `push` to `main` with path filters, `workflow_dispatch`, and a nightly schedule. `permissions: contents: read`, and one concurrency group per ref.
+- **Pins.** Every action is pinned by commit SHA, reusing the `ci.yml` pins. iOS calls `xcode-select` directly; there is no third-party Xcode action.
+- **Rust targets** are installed in CI only (`rustup target add`), never in `rust-toolchain.toml`. `armv7` only if OD-M10-9 says yes.
+- **Host tests.** `ci.yml` runs `mosaic-mobile` and `mosaic-mobile-ffi` with `cargo test --workspace` on all three OSes. `mobile.yml` does not repeat them.
+- **Tools.**
+  - The NDK is pinned to the current LTS at T5. `cargo-ndk` gets an exact version.
+  - XcodeGen comes from its GitHub release zip and is checked against a SHA-256 in the workflow.
+  - Gradle dependency verification is on (`gradle/verification-metadata.xml`, SHA-256), and `gradle/actions/wrapper-validation` runs.
+- **Committed or generated.**
+  - Committed: sources, `project.yml`, the Gradle files and the wrapper jar, `verification-metadata.xml`, the exported strings and tokens, and the fonts.
+  - Generated and git-ignored: the UniFFI bindings, `jniLibs/`, the XCFramework, the `.xcodeproj`, `build/`, `.gradle/` and `local.properties`.
+- **Dependency guards.**
+  - `scripts/mobile/check-android-deps.sh` compares the release runtime classpath with `apps/mobile/android/dependency-allowlist.txt`. It also greps for `firebase|gms|crashlytics|analytics|sentry|mlkit`.
+  - `check-ios-deps.sh` fails on any remote Swift package.
+  - `check-no-logging.sh` forbids platform logging calls in the app sources.
+- **Local loop:** `cargo fmt`, scoped clippy and tests, `cargo build -p mosaic-mobile-ffi`, a bindgen sanity run into the temp directory, and the pnpm exporters. Gradle may resolve dependencies locally only to write `verification-metadata.xml`, and only when no other build runs.
+- **CI budget:** at most 4 CI round trips per track. macOS minutes count 10 times on private repositories (OD-M10-13).
+
+### Alternatives considered
+- **A local NDK and emulator:** too heavy for this machine, and still no iOS (OD-M10-14).
+- **Committing the generated bindings:** they drift from the library and make reviews bigger. The bindgen sanity run checks them instead.
+- **Third-party actions for Xcode or mobile Rust:** more supply chain for little gain.
+
+### Consequences
+A CI round trip takes 15 to 25 minutes. Device-only behaviour waits for OD-M10-2 and OD-M10-3. `cargo deny` does not cover the Gradle and AndroidX tree; dependency verification and the allowlist script guard it (THREAT_MODEL §4.9).
+
+## ADR-0096: Desktop setup code for a phone
+
+- Status: accepted
+- Date: 2026-11-11
+- Milestone: M10
+
+### Context
+Typing a 28-character Secret Key on a phone is slow and error-prone. The desktop already holds the Secret Key in the OS keystore, and viewing the Secret Key needs re-authentication (UX_GUIDELINES §8).
+
+### Decision
+- **Desktop:** Settings › Devices › "Set up a phone".
+  - The dialog re-authenticates with the master password, then shows a QR code for 60 s.
+  - The code hides on blur, on lock, and when the 60 s end.
+  - Hosted accounts only. A folder account gets the ADR-0088 sentence instead.
+  - IPC: `setup_code_show { password: SecretIn } → { modules, size, expiresAt }`. Rust renders the QR with `qrcodegen` (`=1.8.0`, vetted by ADR-0031), which moves from a dev-dependency to a desktop dependency. The webview draws the modules on a canvas.
+- **Payload** (`mosaic_core::setup_code`; CRYPTO_SPEC §6.9.7):
+  - `mosaic-setup:1:` ‖ base64url-unpadded(canonical JSON `{"v":1,"server":"<canonical origin>","email":"<normalized>","sk":"<M1-… display form>"}`), at most 1 024 bytes.
+  - The parser is strict: exact keys, `v == 1`, `canonical_origin`, the email normalization of §9.2, and `SecretKey::parse` with its checksum.
+  - The payload is built and parsed in zeroizing buffers.
+  - No label, no key, no primitive. The code carries no master password, no token, and no key derived from either.
+- **Mobile scanner.**
+  - Android: CameraX `ImageAnalysis` (the Y plane) feeds `scan_setup_qr` or `scan_otp_qr`. Rust decodes it with `mosaic-qr` (rqrr). No ML Kit, no Play services.
+  - iOS: `AVCaptureMetadataOutput` (`.qr`) feeds `parse_setup_code` or `otp_from_text`.
+  - Frames are never stored. Other QR content is dropped unread ("Not a Mosaic setup code").
+- **Onboarding:**
+  1. Welcome.
+  2. Scan the code, or type the details.
+  3. Master password.
+  4. Second factor if needed: TOTP, or the WebAuthn handoff in the system browser, polled every 2 s while the app is active.
+  5. Quick-unlock offer.
+  6. Autofill setup.
+  7. Done.
+
+  The device name defaults to "Android phone" or "iPhone".
+
+### Alternatives considered
+- **Put the master password in the QR too:** a photo of the screen would then open the vault.
+- **A pairing protocol between desktop and phone** (an encrypted channel, short codes): new protocol code and a new attack surface, with no gain over a short-lived QR behind re-authentication. The Secret Key alone does not open the vault.
+- **No setup code** (OD-M10-10 answered "no"): the user can always type the details instead.
+
+### Consequences
+THREAT_MODEL R139: a camera or screen capture during the 60 s captures the Secret Key, which is still useless without the master password. Track T13 changes the copy of the server handoff page to "start again in the Mosaic app".

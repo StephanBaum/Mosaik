@@ -63,7 +63,9 @@ fn assert_and_verify(credential: &PasskeyCredential, sign_count: u64, key: &Es25
     )
     .unwrap();
     let response = if pending.count_to_persist().is_some() {
-        pending.into_response(CountPersisted::after_store_write())
+        pending
+            .into_json_response(CountPersisted::after_store_write())
+            .unwrap()
     } else {
         pending.into_response_without_count().unwrap()
     };

@@ -547,7 +547,8 @@ impl UnlockedSession {
 
     /// Where the comparisons of view digests with `device` for `vault`
     /// stand: since when they keep failing to happen (`None`: the last one
-    /// succeeded) and the peer's checkpoint counter then.
+    /// succeeded), the peer's checkpoint counter then and this device's own
+    /// (one per run), as `(since, peer, own)`.
     ///
     /// # Errors
     /// [`Error::Store`].
@@ -555,7 +556,7 @@ impl UnlockedSession {
         &self,
         device: InstallId,
         vault: VaultId,
-    ) -> Result<Option<(Option<u64>, u64)>> {
+    ) -> Result<Option<(Option<u64>, u64, u64)>> {
         Ok(self.store.view_compare(&device, &vault)?)
     }
 
@@ -568,11 +569,12 @@ impl UnlockedSession {
         device: InstallId,
         vault: VaultId,
         since_ms: Option<u64>,
-        counter: u64,
+        peer_counter: u64,
+        own_counter: u64,
     ) -> Result<()> {
         Ok(self
             .store
-            .put_view_compare(&device, &vault, since_ms, counter)?)
+            .put_view_compare(&device, &vault, since_ms, peer_counter, own_counter)?)
     }
 
     /// Stores the finding that the heads of `device` and this device never

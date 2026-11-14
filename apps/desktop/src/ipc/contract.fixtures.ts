@@ -63,6 +63,7 @@ export const fixtures = {
     "import_commit",
     "import_cancel",
     "export_passkeys_cxf",
+    "setup_code_show",
     "ssh_agent_status",
     "ssh_agent_set_enabled",
     "ssh_respond",
@@ -365,6 +366,7 @@ export const fixtures = {
       "shortcutUnavailable",
       "shortcutUnsupported",
       "sharingNotHosted",
+      "setupCodeNeedsServer",
       "sharingContactUnverified",
       "sharingKeyChanged",
       "sharingRoleForbidden",
@@ -1082,6 +1084,9 @@ export const fixtures = {
     },
     {
       "code": "sharingNotHosted"
+    },
+    {
+      "code": "setupCodeNeedsServer"
     },
     {
       "code": "sharingContactUnverified"
@@ -2511,6 +2516,11 @@ export const fixtures = {
         "favorite": true,
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "setup_code_show": [
+      {
+        "password": "correct horse battery staple"
       }
     ],
     "sharing_accept_key_change": [
@@ -5096,6 +5106,22 @@ export const fixtures = {
         "title": "GitHub",
         "trashedAt": null,
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "setup_code_show": [
+      {
+        "expiresAt": 1762689660000,
+        "modules": [
+          [
+            true,
+            false
+          ],
+          [
+            false,
+            true
+          ]
+        ],
+        "size": 2
       }
     ],
     "sharing_accept_key_change": [

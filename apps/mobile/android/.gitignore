@@ -1,0 +1,8 @@
+# Generated or local (docs/MOBILE.md: committed vs generated)
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+# Native libraries from scripts/mobile/build-android-native.sh
+core/src/main/jniLibs/

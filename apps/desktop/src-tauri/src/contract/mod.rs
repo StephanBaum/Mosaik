@@ -11,6 +11,8 @@
 //! - IDs are canonical UUID strings, times are Unix milliseconds.
 //! - No secret in any type except [`secret::SecretIn`] (requests) and
 //!   [`secret::SecretOut`] (explicit reveals, generated passwords, codes).
+//!   One more answer carries a secret in another form: the module matrix of
+//!   `setup_code_show` (it encodes the Secret Key; ADR-0096).
 //! - `fixtures` exports samples of every type to
 //!   `src/ipc/contract.fixtures.ts`, which `tsc` checks against the
 //!   TypeScript types; a test keeps the file current.
@@ -35,6 +37,7 @@ pub mod rotation;
 pub mod secret;
 pub mod session;
 pub mod settings;
+pub mod setup_code;
 pub mod sharing;
 pub mod ssh;
 pub mod sync;

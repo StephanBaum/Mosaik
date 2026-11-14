@@ -20,7 +20,7 @@ milestone close appends its section there).
 | M7b Credential rotation | ✅ done (2026-11-10; PR #49; T1 to T4, the T1 and milestone reviews, an extension red team and a UX review; ADR-0065 to 0070, R97 to R104; deferred: connectors, scheduler, passkey hints; open: manual checks with real sites and the owner decisions OD-M7b-1 to OD-M7b-9). **M8 CLI is next** |
 | M8 CLI | ✅ done (2026-11-10; PR #50; T1 to T5, the T1 crypto review and the CLI security review; `crates/cli` and `crates/platform`; ADR-0071 to 0075, R105 to R111; open: Windows console-mode restore after a timeout or Ctrl-C, the owner decisions OD-M8-1 to OD-M8-9, signed distribution in M9). **M9 hardening is next** |
 | M9 Hardening | ✅ done (2026-11-12; branch `feat/m9-hardening` with `feat/m9-docs` merged; T1 to T13, ADR-0076 to 0087, R112 to R124; the T2 crypto review, the T12 milestone review (crypto-reviewer, extension-attacker, sync-chaos, ux-reviewer, test-engineer) and the T13 fixes; open: the extended fuzz run (CI workflow `fuzz-extended`), the manual checks, the owner decisions OD-M9-1 to OD-M9-21, M9-UX5 rest and the flaky `passkey-shim-tamper.spec.ts:120`). **M10 mobile is next** (branch `feat/m10-mobile`, T1 and T2 done) |
-| M10 Mobile | — |
+| M10 Mobile | in progress (2026-11-11; branch `feat/m10-mobile`; T1 spec, ADR-0088 to 0096, R125 to R140 and the probes done: UniFFI 0.32.2 compiles under `forbid(unsafe_code)`, `zeroizing-alloc` adopted; T2 to T15 open; see "M10 Mobile" below) |
 
 ## M0 Foundations — done
 
@@ -2565,6 +2565,26 @@ Spec: the `mosaic` command line (`docs/CLI.md`). Numbering: ADR-0071 to ADR-0075
 CRYPTO_SPEC §6.8 (CLI session) and §11.2 (encrypted export). Tracks run in order T1 to T5, one agent at a
 time.
 
+**T2 notes (core crates for mobile):**
+- `mosaic-core`: `setup_code` (build and strict parse; the origin and email rules are injected, and `mosaic-sync` supplies
+  them), the two labels, fuzz target `setup_code`.
+- `mosaic-vault`: store v11 (`boot_marker`), `BootId`, `record_boot_marker`, `adopt_boot_marker`, marker deletion in the
+  same transaction as every quick-unlock wrapping deletion, fixture `tests/fixtures/store_v10.sqlite`
+  (written by the v10 code at `cac40bb`).
+- `mosaic-passkey`: `ClientData`, `CreateRequest`, `GetRequest`, `create_request`, `assert_request`,
+  `android_app_origin`. **Deviation:** added next to the old types instead of replacing them, because replacing them breaks
+  `apps/desktop` and `crates/import/tests`, outside the T2 scope. The breaking form of ADR-0093 is a follow-up that must
+  change those callers in the same commit.
+- `mosaic-origin`: `app`, `android_browsers` (14 packages, release signatures, Google's list of 2026-11-11), `target`,
+  `fields`, `assetlinks`; fuzz targets `assetlinks_parse` and `field_selection` in `crates/origin/fuzz` (the crate files
+  are copied from the M9 branch, so the later merge has nothing to reconcile there except the two `[[bin]]` entries).
+- `mosaic-sync`: `http::TlsTrust` and `set_tls_trust`, `http::assetlinks::fetch`, `setup_code::parse`;
+  `rustls-platform-verifier` is a non-Android dependency.
+- `mosaic-qr`: `scan_setup_frames` and `ScanError::NotSetupCode` (`Payload` is unchanged: the desktop matches it exhaustively).
+- `MatchKind` got no new variant for apps (the desktop matches it exhaustively); an app match is `ExactOrigin`.
+- `ci.yml` (fuzz matrix, cargo-deny and cargo-audit lists), `dependabot.yml` and the workspace `exclude` list have
+  `crates/origin/fuzz`.
+
 | Track | State |
 |---|---|
 | T1 Spec and core | done: CRYPTO_SPEC §3, §4, §6.8, §11, §11.2, §12, §14; ADR-0071 to 0075; THREAT_MODEL §4.7 and R105 to R111; `docs/CLI.md`; `mosaic-core` `cli_session` and `export` modules, labels `cli-session`, `export`, `export-key`, errors `Expired`, `InvalidTtl`, `Io`; known-answer vectors `crates/core/tests/vectors/export_kat.py`; fuzz targets `export_reader` and `cli_session_file` |
@@ -2633,6 +2653,90 @@ Decisions on items retargeted to M9 (ADR-0076):
 | T11 Fuzz targets and the extended run | done except the run (2026-11-11): `mosaic-cli` is now a library (`src/lib.rs`, `[lib] name = "mosaic_cli"`; `main.rs` only calls `real_main`); `refs::scan_template` (infallible, returns `Vec<Segment>`; `inject` uses it) is extracted. New fuzz crates `crates/cli/fuzz` (`cli_args`, `inject_template`) and `crates/origin/fuzz` (`origin_match`: round-trip, symmetric same-origin, exact match iff same origin, symmetric eTLD+1, IDN and lookalike total), each with seeds, a lock file, a CI smoke matrix entry, a deny and audit entry and a Dependabot entry. `crates/server/fuzz` (`webauthn_bodies`) passes `cargo check --bins`. `.github/workflows/fuzz-extended.yml`: `workflow_dispatch` with `tier_a_seconds` (1800) and `tier_b_seconds` (600), one job per fuzz directory, `-rss_limit_mb=2048`, the `ci.yml` per-target limits, crash and corpus artifacts; no schedule enabled. New unit test `scan_template_splits_references_and_keeps_the_rest_literal`. **Open: the extended run has not happened.** It needs a push and a CI dispatch (the owner decides); until then there are no times, executions or corpus counts, and no crash has been looked for beyond `cargo check`. The local 60-second run of `origin_match` built but failed to start on Windows (`STATUS_DLL_NOT_FOUND`, the sanitizer runtime), so none of the three new targets has executed yet; their invariants are first tested in the CI smoke job. |
 | T12 Full threat-model review (crypto-reviewer, extension-attacker, sync-chaos, ux-reviewer, test-engineer) | done (2026-11-12). crypto-reviewer: 0 high, 1 medium, 5 low, 3 info (M9-F1 to F9). extension-attacker (`99ca2e9`): 3 breaks and 1 regression (M9-F70 to F73), a flaky spec. ux-reviewer: 1 blocker, 10 major, 7 minor (M9-UX1 to UX18). test-engineer (`90e7197`): 23 tests (WebAuthn handoff budgets, ceremony type confusion, expiry and logout; non-ASCII and `REG_EXPAND_SZ` audit paths; CLI revocation reasons and a lossless `scan_template` check; 10 handoff page tests), no bug found. sync-chaos done (2026-11-11), tests only: M2-R11 renames in `sim_folder` and `sim_hosted`; oversized metadata merges (`crates/core/tests/it/meta_oversized.rs`, `crates/vault/tests/it/meta_oversized.rs`); handoffs under a password change or re-key, a restart and a counter race (`webauthn.rs`); revocation offline and after the purge, and a rotation with re-seal interrupted in every phase (`chaos_m9.rs`); the seeder run twice (`contest_seed.rs`). Open findings, ignored tests: **M9-F50** the stored oversized-merge bytes depend on the delivery order when some pairs fit and the triple does not; **M9-F51** the same reduction makes equal-vector states with different contents, which `merge_and_repair` takes for a device-ID collision (spurious repair or `DeviceIdReused` and a device-ID rotation, with the shown value chosen by wall clock) |
 | T13 Fixes and close | done (2026-11-12): every finding of T12 fixed except where noted. Core: the husk rule for oversized metadata merges (M9-F50, F51; CRYPTO_SPEC §7.1, ADR-0085 amendment, R122; property test over three replicas, `c48d730`); the vault re-seal job opens before the key offer and the `vault_rotate_key` grant is taken atomically (M9-F1, F5; `fef52d9`); THREAT_MODEL revisit of R5, R11, R14, R20 to R22, R27, R30 (all stay accepted, they need `unsafe`; next revisit M10 or after 1.0) and the ADR-0084 wording (F6, F8). Connector: the manifest audit compares path and allowed origins, reads HKLM against `installed_host()`, parses `REG_EXPAND_SZ`, compares hosts by exact bytes except ASCII case, `browserHostMissing` (F2, F3, F70, F71, F73); the MSI no longer appends its folder to the system PATH because Tauri cannot pin INSTALLDIR (F74, ADR-0082 amendment, R121; `6ef58c6`). Server and page: `topOrigin` refused when present, the handoff ID cleared from history, focus and texts (F7, F72, UX8, UX15; `7f922d7`). Release: no caches on real releases, the updater key only in its own signing step, R118 (F4); minisign pinned; the match code wiped (F9); `SECURITY.md`-linked pages without placeholders, `VERIFY.md` quick check (UX10, UX18; `564f9dd`). UI: UX1 to UX17 (`cae6d96`). Open: M9-UX5 rest (a code in place of the browser confirm on a stale session needs `code` on `sync_webauthn_confirm_begin`; today the dialog sends the person through a fresh login), the flaky `passkey-shim-tamper.spec.ts:120` (suspected leftover `passkeyLog` entry) |
+
+## M10 Mobile (2026-11-11)
+
+Spec: the M10 implementation spec (a scratch file of the orchestrator, not in the repo), made normative by the
+T1 docs: `docs/MOBILE.md`, CRYPTO_SPEC §2, §3, §5.2, §5.3, §6.2, §6.9 (new), §11, §12, §14 and §16,
+ADR-0088 to ADR-0096, THREAT_MODEL §4.8 and R125 to R140.
+
+Numbering: ADR-0088 to ADR-0096; THREAT_MODEL R125 to R140; local store schema v11 (the boot marker); the server
+schema stays v4.
+
+Branch: `feat/m10-mobile`, based on `feat/m9-hardening` at `5bd82b7`. M9 T10 to T13 are still open, so this
+branch is rebased once M9 is merged to `main`. `feat/m9-docs` (T11) already creates `crates/origin/fuzz`, so T2
+adds its targets to that crate.
+
+Tracks run in order, one agent at a time, with `CARGO_BUILD_JOBS=1`, and never cargo next to Gradle or pnpm.
+Native mobile code builds only in CI (at most 4 round trips per track). Each track ends with fmt, its scoped
+checks, a row here and one Conventional Commit.
+
+**T1 probes (ADR-0089, ADR-0091, ADR-0092):**
+- **(a) UniFFI 0.32.2 under `#![forbid(unsafe_code)]`** (edition 2024, Rust 1.99.1): **compiles**.
+  - Every macro kind of the FFI surface passed: Record, Enum, Error, Object with constructor, a `with_foreign`
+    trait, a free function, and a `#[global_allocator]`.
+  - The build and `clippy -D warnings` are clean, and the DLL exports 96 UniFFI symbols.
+  - A hand-written `unsafe` block in the same crate fails as expected.
+  - Decision: `mosaic-mobile-ffi` keeps `#![forbid(unsafe_code)]` and the workspace lints. That is stricter than
+    the spec. The `unsafe_code = "allow"` lint table is the pre-approved fallback.
+- **(b) Licences and `cargo deny`** (all features, with the bindgen feature, 79 crates).
+  - Eight MPL-2.0 crates: `uniffi`, `uniffi_bindgen`, `uniffi_core`, `uniffi_internal_macros`, `uniffi_macros`,
+    `uniffi_meta`, `uniffi_pipeline`, `uniffi_udl`. `weedle2` is MIT.
+  - `advisories FAILED`: RUSTSEC-2026-0374 (`basic-toml` unmaintained), through `uniffi_bindgen` → `askama`, which
+    is bindgen only. `cargo audit` warns on it too.
+  - T3b adds the eight licence exceptions to `deny.toml`, and the advisory ignore to **both** `deny.toml` and
+    `.cargo/audit.toml`.
+- **(c) Zero-on-free allocator:** `zeroizing-alloc` 0.1.1 (1Password, MIT OR Apache-2.0, released 2026-09-17,
+  about 100 lines, `no_std`, no dependencies, no advisory) **passes** and is adopted as the global allocator of
+  `mosaic-mobile-ffi`; R125 is narrowed. `zeroize_alloc` failed (no release since 2019). `secmem-alloc` failed
+  (not a global allocator).
+- **(d) Android.**
+  - The AOSP sources confirm that `TrustManagerFactory…init(null)` gives the app's network-security-config
+    anchors: system CAs only, without the ones the user disabled. `AndroidCAStore` adds user CAs and is not used.
+  - Package visibility of autofill clients without `<queries>` could **not** be verified: the docs do not list it.
+    The launcher `<queries>` element stays, and an invisible package fails closed. The T9 test client activity
+    needs a `MAIN`/`LAUNCHER` intent filter.
+  - Chrome dropped autofill compatibility mode at version 137.
+
+**Deviations of the T1 docs from the spec (the T1 docs win):**
+- `forbid(unsafe_code)` in `mosaic-mobile-ffi` (probe a).
+- RUSTSEC-2026-0374 is ignored in `deny.toml` and `.cargo/audit.toml`, so T3b also writes `.cargo/audit.toml`.
+- The Android secure-store AAD binds the file version: `0x01 ‖ aad("mobile/secure-store", u32 len ‖ name)`.
+- The Android quick-unlock AAD binds the parameter header: `0x02 ‖ 0x04 ‖ aad("quick-unlock/android", key_nonce)`.
+  Both follow the header-binding rule of CRYPTO_SPEC §3. The quick-unlock `flags` byte stays unauthenticated and
+  informational.
+- The spec's risk note "the fix is a lower profile set on the desktop" contradicts CRYPTO_SPEC §5.3 (profiles
+  only increase). MOBILE.md §3 and CRYPTO_SPEC §6.9.4 now say plainly that such an account may not unlock on a
+  low-memory phone.
+- One extra test, `secure_store_aad_binds_version_and_name` (T3a).
+
+| Track | State |
+|---|---|
+| T1 Spec, ADRs, threat model, probes (docs only) | done (2026-11-11): the docs listed above and the probes (a) to (d) |
+| T2 Core crate changes (core setup code and labels, vault v11 boot marker, passkey client-data mode, origin app/browser/target/fields/asset links, sync TLS trust and asset-links fetch, qr setup payload) | done (2026-11-11): see "T2 notes" below |
+| T3a `mosaic-mobile` core | open |
+| T3b Autofill, passkeys, setup; `mosaic-mobile-ffi`; bindgen and scripts; `deny.toml` and `.cargo/audit.toml` | open |
+| G1 crypto-reviewer on T1 to T3b | open |
+| T3-fix | open |
+| T4 i18n and token exports | open |
+| T5 Android skeleton and CI | open |
+| T6 iOS skeleton and CI | open |
+| T7 Android security layer, onboarding, unlock | open |
+| T8 Android vault UI | open |
+| T9 Android Autofill Service and Credential Manager | open |
+| T10 iOS security layer, onboarding, unlock | open |
+| T11 iOS vault UI | open |
+| T12 iOS Credential Provider extension | open |
+| T13 Setup code, scanners, handoff page copy | open |
+| G2 crypto-reviewer on the platform key code | open |
+| G3 extension-attacker red team on the providers | open |
+| G4 ux-reviewer | open |
+| G5 test-engineer and sync-chaos | open |
+| T14 Fixes from G2 to G5 | open |
+| T15 Close | open |
+
+Owner decisions OD-M10-1 to OD-M10-16 with their defaults: `docs/MOBILE.md` §6 and "Needs owner" below. Manual
+device checks: `docs/MOBILE.md` §7.
 
 ## Open risks / findings
 
@@ -2829,4 +2933,5 @@ See the THREAT_MODEL §5 residual-risk register.
   deliverables avoid them, `marketing/` is not scanned; (OD-M9-19) extension store accounts and IDs: empty, zips only;
   (OD-M9-20) if the WebAuthn crate vetting fails: ship without WebAuthn, TOTP only (not triggered: `passkey-auth`
   passed, ADR-0078); (OD-M9-21) WebAuthn without a TOTP backup: allowed, with a warning and a recommendation.
+- **M10 mobile (2026-11-11)**, owner decisions; the default applies until decided (`docs/MOBILE.md` §6): (OD-M10-1) bundle and application IDs, app group, keychain groups (irreversible after the first store upload): `io.github.stephanbaum.mosaic`, extension `….autofill`, `group.io.github.stephanbaum.mosaic`, `<prefix>io.github.stephanbaum.mosaic.shared`; (OD-M10-2) Apple Developer Program: none, unsigned simulator builds and a device compile check, device checks wait; (OD-M10-3) Play Console and Play App Signing: none, unsigned builds only; (OD-M10-4) distribution outside the stores: no; (OD-M10-5) minimum OS: iOS 17, Android API 28 (API 30 drops the API 28–29 key branch); (OD-M10-6) store listings and the name "Mosaic" on both stores: drafted in MOBILE.md, not submitted; (OD-M10-7) iOS password identities in the system store: off; (OD-M10-8) Android inline suggestions: off; (OD-M10-9) 32-bit Android: no; (OD-M10-10) desktop setup code: yes, behind re-authentication, 60 s; (OD-M10-11) folder sync on mobile: deferred to M10b; (OD-M10-12) hosted default URL in the apps: a custom URL is required until a domain exists; (OD-M10-13) CI budget if the repository becomes private: iOS UI tests nightly only; (OD-M10-14) local Android NDK: no; (OD-M10-15) export compliance and the Play encryption declaration: declare encryption, the owner files before the first upload; (OD-M10-16) mobile design mockups before T8 and T11: none, screens derived from the desktop design language, reviewed through the G4 screenshots. Manual device checks: `docs/MOBILE.md` §7.
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.

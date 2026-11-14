@@ -489,6 +489,31 @@ impl LockedSession {
     /// (THREAT_MODEL R8).
     pub fn note_failed_hardware_attempt(&mut self) {
         self.quick.failed_quick = self.quick.failed_quick.saturating_add(1);
+        // CRYPTO_SPEC §6.9.2: at the limit the boot marker goes too. This call
+        // cannot fail; a marker that cannot be deleted is still refused by the
+        // counter of this session, and the desktop never writes one.
+        let _ = self.enforce_boot_marker_limit();
+    }
+
+    /// CRYPTO_SPEC §6.9.2: once the failed-attempt limit is reached the boot
+    /// marker must be gone, so that a new process cannot adopt it. Deletes it
+    /// (or, when the delete fails, overwrites it with an ID that matches no
+    /// boot). Fails only when the limit is reached and the store cannot be
+    /// written: quick unlock stays refused in this process (the counter), and
+    /// a caller can try again later. Below the limit it does nothing.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn enforce_boot_marker_limit(&mut self) -> Result<()> {
+        if self.quick.failed_quick < MAX_FAILED_QUICK_ATTEMPTS {
+            return Ok(());
+        }
+        // Nothing to write when the marker is gone or already neutralised (the
+        // phone core calls this on every state read).
+        if self.store.boot_marker_is_neutral()? {
+            return Ok(());
+        }
+        Ok(self.store.clear_boot_marker()?)
     }
 
     /// The stored quick-unlock enrollment, if any (no side effects).
@@ -638,6 +663,11 @@ impl LockedSession {
             }
             Err(mosaic_core::Error::Decryption) => {
                 self.quick.failed_quick = self.quick.failed_quick.saturating_add(1);
+                if let Err(e) = self.enforce_boot_marker_limit() {
+                    // The marker could be neither deleted nor neutralised:
+                    // refuse loudly instead of leaving it for a new process.
+                    return Err(self.fail(e));
+                }
                 Err(self.fail(Error::HardwareKeyRejected))
             }
             Err(e) => Err(self.fail(e.into())),
@@ -725,6 +755,22 @@ impl UnlockedSession {
             QuickUnlockEnrollment::from_id(id, platform_params.to_vec()),
             replaced,
         ))
+    }
+
+    /// Replaces the platform parameters of the stored quick-unlock
+    /// enrollment, keeping its ID, wrapping and therefore its AAD. For the
+    /// app to lower the age byte it keeps in them (CRYPTO_SPEC §6.9.2).
+    /// Returns whether an enrollment was stored.
+    ///
+    /// # Errors
+    /// [`Error::Store`] (`UnlockParamsTooLarge`).
+    pub fn set_quick_unlock_params(&mut self, platform_params: &[u8]) -> Result<bool> {
+        let Some(row) = quick_rows(self.store.unlock_methods()?).into_iter().next() else {
+            return Ok(false);
+        };
+        self.store
+            .put_unlock_method(&row.method, &row.wrapped_account_key, platform_params)?;
+        Ok(true)
     }
 
     fn check_reauth(&self, reauth: &Reauthenticated) -> Result<()> {
