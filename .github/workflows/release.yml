@@ -11,6 +11,14 @@ name: Release
 #     secrets, signs with an ephemeral key, names the signature SHA256SUMS.DRY-RUN.minisig,
 #     publishes nothing and uploads no Actions artifacts. No environment, so no secrets.
 #
+# Android: the `android` job builds the release APK (the same Rust library steps and release checks
+# as mobile.yml: no Cargo features, no test hooks) and signs it with the key in the `release`
+# environment (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+# ANDROID_KEY_PASSWORD). None of the four set: the job skips with a warning and the release ships
+# without an APK. Some but not all: it fails. A tag run compares the APK signer with the committed
+# release/android-signer.sha256; a dry run signs with a key made in the job. The APK goes through
+# SHA256SUMS and the minisign signature like every other file.
+#
 # Platform signing (Authenticode, Developer ID and notarization) runs only when its secrets are
 # set; without them the builds ship unsigned (OD-M9-2, OD-M9-3, THREAT_MODEL R119). No GitHub
 # provenance attestations (OD-M9-15). The image is built here and pushed only when the repository
@@ -653,9 +661,193 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  android:
+    name: Android (release APK)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # A tag run uses the environment `release` (approval, the ANDROID_* secrets); a dry run uses none.
+    environment: ${{ needs.prepare.outputs.dry_run == 'false' && 'release' || '' }}
+    env:
+      DRY: ${{ needs.prepare.outputs.dry_run }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      ANDROID_NDK_VERSION: "29.0.14206865"
+      ANDROID_COMPILE_SDK: "36"
+      ANDROID_BUILD_TOOLS: "36.0.0"
+      CARGO_NDK_VERSION: "4.1.2"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      # Same all-or-nothing rule as the platform signing groups: none of the four set skips the job with
+      # a warning (no APK in the release); some but not all fails it. A dry run signs with a key made
+      # in this job.
+      - name: Decide whether to build and how to sign
+        id: mode
+        shell: bash
+        env:
+          S_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          S_STOREPASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          S_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          S_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY" = true ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::DRY RUN: the APK is signed with a key made in this job and is not uploaded"
+            exit 0
+          fi
+          n=0
+          for v in "$S_KEYSTORE" "$S_STOREPASS" "$S_ALIAS" "$S_KEYPASS"; do [ -z "$v" ] || n=$((n + 1)); done
+          if [ "$n" -eq 0 ]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No ANDROID_* signing secrets are set in the environment 'release': this release ships WITHOUT an Android APK (docs/RELEASE.md, Android setup)."
+            exit 0
+          fi
+          if [ "$n" -ne 4 ]; then
+            echo "::error::Only $n of ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD are set in the environment 'release'. Set all four, or none."
+            exit 1
+          fi
+          # Fail before the long build: the owner commits the signer fingerprint in setup.
+          if [ ! -s release/android-signer.sha256 ]; then
+            echo "::error::release/android-signer.sha256 is missing. The owner creates the Android keystore and commits its signer SHA-256 there first (docs/RELEASE.md, Android setup)."
+            exit 1
+          fi
+          echo "build=true" >> "$GITHUB_OUTPUT"
+      - name: Install toolchain from rust-toolchain.toml
+        if: steps.mode.outputs.build == 'true'
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Add the Android Rust targets (CI only)
+        if: steps.mode.outputs.build == 'true'
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+      # No build cache on a real release (M9-F4): a poisoned cache entry must not reach a job that holds
+      # the signing key. Dry runs keep it.
+      - if: steps.mode.outputs.build == 'true' && needs.prepare.outputs.dry_run == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with: { key: release-android }
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        if: steps.mode.outputs.build == 'true'
+        with: { distribution: temurin, java-version: "21" }
+      - name: Install the Android SDK parts and the NDK
+        if: steps.mode.outputs.build == 'true'
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "ndk;${ANDROID_NDK_VERSION}" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+      - name: Install cargo-ndk
+        if: steps.mode.outputs.build == 'true'
+        run: command -v cargo-ndk || cargo install cargo-ndk --version "=${CARGO_NDK_VERSION}" --locked
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        if: steps.mode.outputs.build == 'true'
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        if: steps.mode.outputs.build == 'true'
+        with:
+          cache-disabled: ${{ needs.prepare.outputs.dry_run == 'false' }}
+      # The same release checks as mobile.yml's "Android release check": no Cargo features, no test hooks.
+      - name: Build the release libraries (no features)
+        if: steps.mode.outputs.build == 'true'
+        run: bash scripts/mobile/build-android-native.sh release
+      - name: No test hooks in the release libraries
+        if: steps.mode.outputs.build == 'true'
+        run: |
+          set -euo pipefail
+          for lib in apps/mobile/android/core/src/main/jniLibs/*/libmosaic_mobile_ffi.so; do
+            bash scripts/mobile/check-no-test-hooks.sh "$lib"
+          done
+      - name: Generate the Kotlin bindings (no features, so no MosaicTestHooks)
+        if: steps.mode.outputs.build == 'true'
+        run: bash scripts/mobile/bindgen.sh --out apps/mobile/android/core/build/generated/uniffi kotlin
+      # Real release: the keystore comes from the environment secret and lives in RUNNER_TEMP only.
+      # Dry run: a throwaway key with a random password (as in preview.yml). Nothing here is printed.
+      - name: Prepare the keystore
+        if: steps.mode.outputs.build == 'true'
+        shell: bash
+        env:
+          S_KEYSTORE: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+        run: |
+          set -euo pipefail
+          ks="$RUNNER_TEMP/mosaic-android.keystore"
+          if [ "$DRY" = true ]; then
+            pw="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
+            test "${#pw}" -ge 24
+            echo "::add-mask::$pw"
+            export EPHEMERAL_PW="$pw"
+            keytool -genkeypair -keystore "$ks" -storetype PKCS12 -alias mosaic-dry-run \
+              -keyalg RSA -keysize 3072 -validity 30 -dname "CN=Mosaic dry run (throwaway key)" \
+              -storepass:env EPHEMERAL_PW -keypass:env EPHEMERAL_PW > /dev/null
+            echo "EPHEMERAL_PW=$pw" >> "$GITHUB_ENV"
+          else
+            (umask 077; printf '%s' "$S_KEYSTORE" | base64 -d > "$ks")
+            test -s "$ks" || { echo "::error::ANDROID_KEYSTORE_BASE64 did not decode to a keystore"; exit 1; }
+          fi
+          echo "MOSAIC_ANDROID_KEYSTORE=$ks" >> "$GITHUB_ENV"
+      # The init script is the one preview.yml uses; it signs only the release build type and reads the
+      # three variables (plus MOSAIC_ANDROID_KEY_PASSWORD). No keystore or password is in the repository.
+      - name: Release APK
+        if: steps.mode.outputs.build == 'true'
+        working-directory: apps/mobile/android
+        env:
+          MOSAIC_ANDROID_KEYSTORE_PASSWORD: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.ANDROID_KEYSTORE_PASSWORD || env.EPHEMERAL_PW }}
+          MOSAIC_ANDROID_KEYSTORE_ALIAS: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.ANDROID_KEY_ALIAS || 'mosaic-dry-run' }}
+          MOSAIC_ANDROID_KEY_PASSWORD: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.ANDROID_KEY_PASSWORD || env.EPHEMERAL_PW }}
+        run: ./gradlew --no-daemon --stacktrace --init-script "$GITHUB_WORKSPACE/scripts/preview/android-signing.init.gradle" :app:assembleRelease
+      - name: Delete the keystore
+        if: always() && steps.mode.outputs.build == 'true'
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/mosaic-android.keystore"
+      - name: Verify the APK (signature, signer, version, no test hooks, not debuggable)
+        if: steps.mode.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          apks=(apps/mobile/android/app/build/outputs/apk/release/*.apk)
+          test "${#apks[@]}" -eq 1 && test -f "${apks[0]}" || { echo "::error::expected one release APK"; exit 1; }
+          apk="${apks[0]}"
+          case "$apk" in *unsigned*) echo "::error::the APK is unsigned"; exit 1 ;; esac
+          bt="$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}"
+          "$bt/apksigner" verify --verbose --min-sdk-version 28 "$apk"
+          certs="$("$bt/apksigner" verify --print-certs --min-sdk-version 28 "$apk")"
+          # Public data (a certificate digest), printed on purpose.
+          printf '%s\n' "$certs"
+          [ "$(printf '%s\n' "$certs" | grep -c '^Signer #[0-9]* certificate SHA-256 digest:')" -eq 1 ] \
+            || { echo "::error::the APK must have exactly one signer"; exit 1; }
+          signer="$(printf '%s\n' "$certs" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f' | tr -d ': ')"
+          printf '%s' "$signer" | grep -Eq '^[0-9a-f]{64}$' || { echo "::error::could not read the signer SHA-256"; exit 1; }
+          echo "Signer SHA-256: $signer"
+          if [ "$DRY" = false ]; then
+            expected="$(tr 'A-F' 'a-f' < release/android-signer.sha256 | tr -d ': \r\n')"
+            printf '%s' "$expected" | grep -Eq '^[0-9a-f]{64}$' || { echo "::error::release/android-signer.sha256 must hold one SHA-256 (64 hex digits)"; exit 1; }
+            if [ "$signer" != "$expected" ]; then
+              echo "::error::The APK signer ($signer) is not the committed signer ($expected). The wrong keystore is in the secret, or release/android-signer.sha256 is stale."
+              exit 1
+            fi
+            echo "The signer matches release/android-signer.sha256"
+          fi
+          badging="$("$bt/aapt2" dump badging "$apk")"
+          printf '%s\n' "$badging" | grep -q "versionName='${VERSION}'" \
+            || { echo "::error::the APK versionName is not ${VERSION} (apps/mobile/android/app/build.gradle.kts)"; exit 1; }
+          if printf '%s\n' "$badging" | grep -q 'application-debuggable'; then echo "::error::the APK is debuggable"; exit 1; fi
+          # The libraries inside the APK, not only the ones the build made: no test hooks.
+          mkdir -p "$RUNNER_TEMP/apk-libs"
+          unzip -q -o "$apk" 'lib/*/libmosaic_mobile_ffi.so' -d "$RUNNER_TEMP/apk-libs"
+          libs=("$RUNNER_TEMP"/apk-libs/lib/*/libmosaic_mobile_ffi.so)
+          test "${#libs[@]}" -ge 1 && test -f "${libs[0]}" || { echo "::error::no libmosaic_mobile_ffi.so in the APK"; exit 1; }
+          for lib in "${libs[@]}"; do bash scripts/mobile/check-no-test-hooks.sh "$lib"; done
+          mkdir -p out
+          cp "$apk" "out/Mosaic-${VERSION}-android.apk"
+          (cd out && sha256sum -- *)
+      - name: Upload
+        if: steps.mode.outputs.build == 'true' && needs.prepare.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
   checksums-sign-verify:
     name: Checksums, signature and verification
-    needs: [prepare, cli, desktop, extension, server-image, sbom, reproducibility]
+    needs: [prepare, cli, desktop, android, extension, server-image, sbom, reproducibility]
     runs-on: ubuntu-24.04
     # Signing needs the owner's approval and the environment secrets; a dry run has neither.
     environment: ${{ needs.prepare.outputs.dry_run == 'false' && 'release' || '' }}
@@ -779,6 +971,7 @@ jobs:
 
           Check the download before you run it: follow docs/VERIFY.md (verify \`SHA256SUMS\` with \`SHA256SUMS.minisig\` and the public key in \`release/minisign.pub\`, then the file hash).
           Builds without a platform certificate are unsigned, so Windows SmartScreen and macOS Gatekeeper warn; see docs/VERIFY.md.
+          The Android APK (when present) is signed with the project's Android key: check its signer as docs/VERIFY.md describes.
           The server image is named in \`mosaic-server-image.ref\` by digest. Source commit: $GIT_SHA.
           NOTES
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --prerelease \
