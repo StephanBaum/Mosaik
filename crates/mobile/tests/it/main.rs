@@ -22,6 +22,7 @@ mod g1_review;
 mod g3_redteam;
 mod g3i_redteam;
 mod g5_gaps;
+mod g5b_sync_chaos;
 mod items;
 mod join;
 mod lifecycle;

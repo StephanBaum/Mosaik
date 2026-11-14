@@ -26,7 +26,28 @@ use zeroize::Zeroizing;
 #[path = "../../../../server/tests/it/loopback.rs"]
 pub mod loopback;
 
+pub mod hostile;
+
 pub use loopback::LoopbackServer;
+
+/// What the helpers need of a server: its origin and its clock (the
+/// loopback server, or the hostile one of the G5b scenarios).
+pub trait Server {
+    /// `http://127.0.0.1:<port>`.
+    fn base(&self) -> &str;
+    /// Moves the server clock (and so the rate-limit buckets) forward.
+    fn advance_ms(&self, ms: u64);
+}
+
+impl Server for LoopbackServer {
+    fn base(&self) -> &str {
+        &self.base
+    }
+
+    fn advance_ms(&self, ms: u64) {
+        self.clock.advance_ms(ms);
+    }
+}
 
 pub const PASSWORD: &str = "correct horse battery staple";
 pub const BOOT: [u8; 4] = [0, 0, 0, 7];
@@ -185,12 +206,12 @@ impl Phone {
         self.core.vaults().unwrap()[0].vault_id.clone()
     }
 
-    pub fn join(&self, server: &LoopbackServer, email: &str, sk: &str) -> SessionState {
+    pub fn join(&self, server: &impl Server, email: &str, sk: &str) -> SessionState {
         server.advance_ms(60_000);
         match self
             .core
             .join_hosted(JoinHostedRequest {
-                server_url: server.base.clone(),
+                server_url: server.base().to_owned(),
                 email: email.to_owned(),
                 password: PASSWORD.as_bytes().to_vec(),
                 secret_key: sk.as_bytes().to_vec(),
@@ -223,7 +244,7 @@ pub fn pw(s: &str) -> MasterPassword {
 }
 
 impl Desktop {
-    pub fn register(server: &LoopbackServer, email: &str) -> Self {
+    pub fn register(server: &impl Server, email: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path().join("desktop.db")).unwrap();
         let install = store.install_id().unwrap();
@@ -235,7 +256,7 @@ impl Desktop {
             .opaque_password(&pw(PASSWORD), &created.secret_key)
             .unwrap();
         hosted::register(
-            &server.base,
+            server.base(),
             email,
             None,
             &bootstrap,
@@ -254,7 +275,7 @@ impl Desktop {
             email: email.to_owned(),
             secret_key: created.secret_key,
             password: PASSWORD.to_owned(),
-            base: server.base.clone(),
+            base: server.base().to_owned(),
         }
     }
 
@@ -296,15 +317,15 @@ impl Desktop {
         })
     }
 
-    fn opw(&self) -> mosaic_core::OpaquePassword {
+    pub fn opw(&self) -> mosaic_core::OpaquePassword {
         self.with(|s| {
             s.opaque_password(&pw(&self.password), &self.secret_key)
                 .unwrap()
         })
     }
 
-    /// A fresh login and one sync run.
-    pub fn sync(&self, server: &LoopbackServer) {
+    /// A fresh login and an engine over it.
+    pub fn engine(&self, server: &impl Server) -> SyncEngine<HttpTransport> {
         server.advance_ms(60_000);
         let grant = hosted::login(
             &self.base,
@@ -316,7 +337,12 @@ impl Desktop {
         )
         .unwrap();
         let transport = HttpTransport::connect(&self.base, &grant.token, self.install).unwrap();
-        let mut engine = SyncEngine::new(transport, EngineConfig::for_kind(TransportKind::Hosted));
+        SyncEngine::new(transport, EngineConfig::for_kind(TransportKind::Hosted))
+    }
+
+    /// A fresh login and one sync run.
+    pub fn sync(&self, server: &impl Server) {
+        let mut engine = self.engine(server);
         let mut access = self.owned.clone();
         engine.sync_once(&mut access, &SystemClock).unwrap();
     }
