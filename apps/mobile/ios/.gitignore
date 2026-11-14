@@ -1,0 +1,6 @@
+# Generated in CI by scripts/mobile/build-ios-xcframework.sh and `xcodegen generate` (docs/MOBILE.md)
+/Generated/
+/MosaicFFI/
+/build/
+*.xcodeproj
+xcuserdata/

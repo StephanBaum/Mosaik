@@ -104,6 +104,23 @@ export const sync = {
   "settings.sync.devices.folderNote":
     "Um ein Gerät auszusperren, ändere dein Master-Passwort und deinen Secret Key.",
 
+  "settings.sync.phone.title": "Handy einrichten",
+  "settings.sync.phone.body":
+    "Zeige einen Code, den dein Handy scannt, damit du deinen Secret Key nicht tippen musst. Das Handy braucht trotzdem dein Master-Passwort.",
+  "settings.sync.phone.button": "Handy einrichten",
+  "settings.sync.phone.reauth": "Der Code enthält deinen Secret Key, deshalb braucht er dein Master-Passwort.",
+  "settings.sync.phone.dialogTitle": "Scanne diesen Code mit deinem Handy",
+  "settings.sync.phone.steps":
+    "Öffne Mosaic auf deinem Handy, wähle die Einrichtung und scanne dann diesen Code.",
+  "settings.sync.phone.hint":
+    "Der Code verschwindet nach 60 Sekunden oder wenn du dieses Fenster verlässt. Teile kein Foto davon.",
+  "settings.sync.phone.canvas": "Einrichtungscode für dein Handy",
+  "settings.sync.phone.hidden.time": "Die 60 Sekunden sind um, der Code ist ausgeblendet.",
+  "settings.sync.phone.hidden.away": "Du hast dieses Fenster verlassen, der Code ist ausgeblendet.",
+  "settings.sync.phone.again": "Erneut anzeigen",
+  "settings.sync.phone.folder":
+    "Dieses Konto synchronisiert über einen Ordner. Die Handy-Apps unterstützen vorerst nur Mosaic-Sync.",
+
   "settings.sync.totp.title": "Authenticator-App",
   "settings.sync.totp.body":
     "Verlangt einen Code aus einer Authenticator-App, wenn sich jemand bei deinem Sync-Konto anmeldet. Das schützt das Konto auf dem Server, nicht deine Tresore: Die bleiben mit deinem Master-Passwort und Secret Key verschlüsselt.",

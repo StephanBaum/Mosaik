@@ -11,7 +11,6 @@
 
 use std::io::Read;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 use std::time::Duration;
 
 use base64ct::{Base64UrlUnpadded, Encoding};
@@ -21,7 +20,6 @@ use reqwest::blocking::Client;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue, RETRY_AFTER};
 use reqwest::redirect::Policy;
 use rustls::ClientConfig;
-use rustls_platform_verifier::BuilderVerifierExt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use zeroize::Zeroizing;
@@ -144,17 +142,11 @@ pub(super) fn tls_versions() -> &'static [&'static rustls::SupportedProtocolVers
 }
 
 /// The client's TLS configuration: the `ring` provider, TLS 1.3 only, the
-/// operating system's trust store and no client certificate. (`rustls` is
+/// trust of [`super::TlsTrust`] (the operating system's by default) and no client certificate. (`rustls` is
 /// built with its `tls12` feature, which hyper-rustls switches on; this
 /// configuration offers TLS 1.3 only whatever the features say.)
 pub(super) fn tls_config() -> Result<ClientConfig, TransportError> {
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    Ok(ClientConfig::builder_with_provider(provider)
-        .with_protocol_versions(tls_versions())
-        .map_err(|_| TransportError::Io)?
-        .with_platform_verifier()
-        .map_err(|_| TransportError::Io)?
-        .with_no_client_auth())
+    super::tls::config()
 }
 
 /// A request body.

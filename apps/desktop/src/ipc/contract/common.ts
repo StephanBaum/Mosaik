@@ -137,6 +137,7 @@ export const errorCodes = [
   "shortcutUnavailable",
   "shortcutUnsupported",
   "sharingNotHosted",
+  "setupCodeNeedsServer",
   "sharingContactUnverified",
   "sharingKeyChanged",
   "sharingRoleForbidden",

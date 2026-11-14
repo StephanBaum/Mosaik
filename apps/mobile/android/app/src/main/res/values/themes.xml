@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The window theme only; every visible style comes from the Compose theme and the design tokens. -->
+    <style name="Theme.Mosaic" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/mosaic_window_background</item>
+    </style>
+</resources>

@@ -460,9 +460,11 @@ dependencies = [
 name = "mosaic-origin"
 version = "0.0.0"
 dependencies = [
+ "base64ct",
  "idna",
  "mosaic-core",
  "psl",
+ "serde_json",
  "thiserror",
  "url",
 ]

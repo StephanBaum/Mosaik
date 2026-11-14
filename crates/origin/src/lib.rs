@@ -19,8 +19,20 @@
 //! - [`canonical_rp_id`]: an rp ID read from a file (an import) brought into
 //!   the one canonical form [`webauthn_rp_id`] accepts.
 //!
+//! Mobile (M10, ADR-0092): [`app`] (Android app URLs bound to a signing
+//! certificate), [`android_browsers`] (the vendored allowlist of browsers that
+//! may pass a web origin), [`target`] (what an Android or iOS autofill request
+//! is for), [`fields`] (which fields of a view tree to fill, never those of a
+//! cross-origin frame) and [`assetlinks`] (Digital Asset Links parsing).
+//!
 //! The public suffix list is a build-time snapshot of the `psl` crate.
 #![forbid(unsafe_code)]
+
+pub mod android_browsers;
+pub mod app;
+pub mod assetlinks;
+pub mod fields;
+pub mod target;
 
 use mosaic_core::model::{LoginUrl, UrlMatch};
 use url::{Host, Origin, Url};
@@ -227,25 +239,41 @@ fn is_canonical_domain(rp: &str) -> bool {
         && Host::parse(rp) == Ok(Host::Domain(rp.to_owned()))
 }
 
+/// Whether every label is a DNS label: ASCII letters, digits and hyphens, no
+/// leading or trailing hyphen, at most 63 bytes (M10-G3-6). The WHATWG host
+/// parser lets `*`, `!`, `$` and the like through; a DNS name never has them.
+fn is_ldh_name(rp: &str) -> bool {
+    rp.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    })
+}
+
 /// The canonical relying party ID for an rp ID read from a file (an import
 /// from another password manager), or `None` if it cannot be one: ASCII
 /// letters are lowercased and one trailing dot is removed; the result must
-/// be a canonical domain name (the check [`webauthn_rp_id`] applies: no
-/// U-labels, IP addresses, URLs, spaces or direction-changing characters, at
+/// be a canonical DNS name (letters, digits and hyphens per label; the
+/// check [`webauthn_rp_id`] applies: no U-labels, IP addresses, URLs, spaces or direction-changing characters, at
 /// most [`MAX_RP_ID_LEN`] bytes) with a registrable domain in the public
 /// suffix list (so `com` is refused).
 #[must_use]
 pub fn canonical_rp_id(raw: &str) -> Option<String> {
     let prepared = raw.to_ascii_lowercase();
     let rp = prepared.strip_suffix('.').unwrap_or(&prepared);
-    (is_canonical_domain(rp) && registrable_domain(rp).is_some()).then(|| rp.to_owned())
+    (is_canonical_domain(rp) && is_ldh_name(rp) && registrable_domain(rp).is_some())
+        .then(|| rp.to_owned())
 }
 
 /// The WebAuthn relying party ID for a request from `origin` (WebAuthn L3
 /// 5.1.3 step 8 and 5.1.4.1 step 7), restricted (ADR-0040): `https` only;
 /// the host must be a domain, not loopback; the rp ID defaults to the host;
 /// a given rp ID must be canonical (`Host::parse(rp)` is the same domain,
-/// no trailing dot, at most [`MAX_RP_ID_LEN`] bytes), equal the host or be a
+/// DNS labels only (letters, digits, hyphens), no trailing dot, at most [`MAX_RP_ID_LEN`] bytes), equal the host or be a
 /// dot-suffix of it, have a registrable domain in the public suffix list, and
 /// lie at or under the host's registrable domain (so a tenant of a wildcard
 /// public suffix such as `*.platformsh.site` cannot claim the parent).
@@ -266,7 +294,7 @@ pub fn webauthn_rp_id(origin: &PageOrigin, requested: Option<&str>) -> Result<St
         return Err(RpIdError::NotADomain);
     }
     let rp = requested.unwrap_or(host.as_str());
-    if !is_canonical_domain(rp) {
+    if !is_canonical_domain(rp) || !is_ldh_name(rp) {
         return Err(RpIdError::NotCanonical);
     }
     let is_suffix = host == rp
@@ -326,6 +354,30 @@ pub enum Refusal {
 /// # Errors
 /// [`Refusal`] as above.
 pub fn fill_allowed(saved: &LoginUrl, page: &PageOrigin) -> Result<MatchKind, Refusal> {
+    fill_allowed_with(saved, page, HttpPolicy::LoopbackExempt)
+}
+
+/// How an `http` page on a loopback address is treated by [`fill_allowed_with`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HttpPolicy {
+    /// Loopback `http` needs no `allow_http` (ADR-0037: on a desktop, other
+    /// processes of the same user are out of scope).
+    LoopbackExempt,
+    /// Loopback `http` needs `allow_http` like any other `http` page. On a
+    /// phone any installed app can listen on `127.0.0.1` and serve a fake form
+    /// (ADR-0092 amendment, M10-G3-4).
+    LoopbackNeedsAllowHttp,
+}
+
+/// [`fill_allowed`] with the loopback rule of `policy`.
+///
+/// # Errors
+/// [`Refusal`] as for [`fill_allowed`].
+pub fn fill_allowed_with(
+    saved: &LoginUrl,
+    page: &PageOrigin,
+    policy: HttpPolicy,
+) -> Result<MatchKind, Refusal> {
     let origin = saved_origin(saved.url.as_str()).ok_or(Refusal::NoMatch)?;
     let kind = if origin == *page {
         MatchKind::ExactOrigin
@@ -334,7 +386,8 @@ pub fn fill_allowed(saved: &LoginUrl, page: &PageOrigin) -> Result<MatchKind, Re
     } else {
         return Err(Refusal::NoMatch);
     };
-    if page.is_http() && !page.is_loopback() && !saved.allow_http {
+    let exempt = policy == HttpPolicy::LoopbackExempt && page.is_loopback();
+    if page.is_http() && !exempt && !saved.allow_http {
         return Err(Refusal::Insecure);
     }
     Ok(kind)
@@ -452,5 +505,11 @@ fn is_one_deletion(long: &[char], short: &[char]) -> bool {
     long.get(common + 1..) == short.get(common..)
 }
 
+#[cfg(test)]
+mod mobile_tests;
+#[cfg(test)]
+mod redteam_android_tests;
+#[cfg(test)]
+mod redteam_g3_tests;
 #[cfg(test)]
 mod tests;

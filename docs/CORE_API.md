@@ -424,7 +424,8 @@ key type; no vault, no I/O, no origin policy (callers pass an rpId validated by
   (`#[must_use]`, private fields, so the signature cannot be used before the sign
   count is dealt with, ADR-0039 D5). `count_to_persist() -> Option<u64>`: `Some(n)`
   means store `n` with `ItemEdit::set_passkey_sign_count`, wait for the write, then
-  `into_response(CountPersisted) -> AssertionResponse`. `CountPersisted` is a
+  `into_json_response(CountPersisted) -> Result<AssertionResponse>` (the deprecated `into_response` returns the
+  response without the hash-mode check). `CountPersisted` is a
   zero-sized token built with `CountPersisted::after_store_write()`, to be called
   only after that write succeeded (the type cannot check it). `None` (a counter
   that stays 0): `into_response_without_count() -> Result<AssertionResponse,
@@ -550,7 +551,8 @@ vault_flags, no_common_view }` lists both kinds (`is_clear`, `vaults`), so the d
 offer one acknowledge action and call both clears depending on what is set.
 `mark_vault_key_accepted` records an accepted upload and its confirmation in one transaction
 (the creation and `commit_vault_rotation` confirm in theirs); `view_compare` and
-`put_view_compare` hold the comparison times. `mosaic_core::sync_auth` gains
+`put_view_compare` hold the comparison times, with the peer's and this device's own checkpoint counter in
+`counter` and `own_counter` (store v12; the migration unpacks the two counters an earlier build packed into `counter`). `mosaic_core::sync_auth` gains
 `view_key_commit`, `view_digest` and `ServedEntry`; the view digest has the key commitment
 (CRYPTO_SPEC §10). `HttpTransport::connect` takes `&SessionToken`.
 `PeerEntry` and `CheckpointEntry` gain `view_digest: [u8; 32]` (`checkpoint::NO_VIEW`,
@@ -1035,6 +1037,191 @@ Encrypted export (CRYPTO_SPEC §11.2, ADR-0073):
   store as its own device, ADR-0071). `new(UnlockedSession)`, `take() ->
   Option<UnlockedSession>` (locks every clone: later engine and transport calls
   fail with `Locked`), `is_unlocked()`. A poisoned lock fails closed.
+
+## M10: mobile (core, vault, passkey, origin, sync, qr; new crates `mosaic-mobile` and `mosaic-mobile-ffi`)
+
+Written by M10 T1 (spec-first) and updated by T2 with the signatures as built. T3a and T3b update the
+`mosaic-mobile` and `mosaic-mobile-ffi` parts. CRYPTO_SPEC §6.2, §6.9 and §16 and ADR-0089 to ADR-0093 are
+normative. Everything below is additive. The one exception the spec admits (ADR-0093), the `mosaic-passkey` input
+change, was built **additively** in T2 (see below); the breaking form is still to come.
+
+### `mosaic-core`
+- `setup_code` (stable): `SetupCode { server, email, secret_key }`, `build(&SetupCode) -> Result<Zeroizing<String>>`,
+  `parse(&[u8], canonical) -> Result<SetupCode>`, `MAX_SETUP_CODE_LEN` (1024), `SETUP_CODE_PREFIX`
+  (`"mosaic-setup:1:"`).
+  - The format follows CRYPTO_SPEC §6.9.7. The parser is strict, and a wrong checksum is `SecretKeyMistyped`; every
+    other failure is `Malformed`. The Secret Key must be in display form.
+  - Deviation from the spec: the server origin rule (`canonical_origin`) and the email normalization (§9.2) live in
+    `mosaic-sync`, which depends on `mosaic-core`. `parse` therefore takes `canonical(server, email) ->
+    Option<(String, String)>` and requires the code to carry exactly the returned forms. Use
+    `mosaic_sync::setup_code::parse(bytes)` in apps. `build` refuses a server or email with `"`, `\` or a control
+    character (`Malformed`), which is stricter than JSON needs.
+  - `SetupCode` does not implement `Clone`, and `Debug` redacts `secret_key`.
+- `random_public_bytes::<N>() -> Result<[u8; N]>` (additive, G1-14): `N` bytes from the OS CSPRNG for values that
+  are not secret (pending-slot IDs, key-alias nonces). `mosaic-mobile` draws all its randomness through it and has
+  no `getrandom` dependency.
+- `encoding::label`: `MOBILE_SECURE_STORE` (`mobile/secure-store`) and `QUICK_UNLOCK_ANDROID`
+  (`quick-unlock/android`), both in `label::ALL`.
+
+### `mosaic-vault` (`session`, `storage`)
+- `BootId::new(&[u8]) -> Result<BootId>`: 1 to 32 bytes, else `Error::InvalidInput` (a new variant of the
+  non-exhaustive `session::Error`). `BootId::as_bytes()`.
+- `UnlockedSession::record_boot_marker(&mut self, &BootId, now_ms) -> Result<()>`: only right after a
+  master-password unlock of this session, else `ReauthenticationRequired`.
+- `LockedSession::adopt_boot_marker(&mut self, &BootId) -> Result<bool>`: sets the app-start flag if and only if
+  the marker matches (constant time) and a write transaction (the marker rewritten unchanged) succeeded; it
+  refuses once five wrong re-authentications are stored (N2, N6). It never resets the failed-attempt counter.
+- `LockedSession::require_password(&mut self)`: counter to the limit and the marker deleted, for a strict lock that
+  finds the session locked already (N4).
+- `UnlockedSession::note_failed_reauth(&mut self) -> Result<u8>` and `reset_failed_reauth(&mut self)`: the stored
+  count of wrong master passwords at a re-authentication (`Store::reauth_failures`, `note_reauth_failure`,
+  `reset_reauth_failures`; table `reauth_failures` of the unreleased v11, N2).
+- `Store::boot_marker() -> Result<Option<StoredBootMarker>>`, `put_boot_marker`, `delete_boot_marker`,
+  `StoredBootMarker { boot_id, recorded_at_ms }`, `MAX_BOOT_ID_LEN` (32).
+- Store schema v11 (`boot_marker`), fixture `crates/vault/tests/fixtures/store_v10.sqlite`. The marker is deleted
+  in the same transaction as every quick-unlock wrapping deletion (`remove_unlock_method` of a quick method, a
+  password change, a Secret Key rotation, a profile upgrade, a re-key, an adoption), by
+  `lock_requiring_password`, and when the failed-attempt counter reaches its limit. Enrolling a quick unlock keeps
+  it. `lock_requiring_password` and `note_failed_hardware_attempt` return nothing; their delete falls back to
+  overwriting the marker with a 32-byte ID that matches no boot (`Store::clear_boot_marker`), and
+  `LockedSession::enforce_boot_marker_limit() -> Result<()>` retries it at the limit (G1-13). The hardware-key
+  unlock path returns the store error when the marker can be neither deleted nor overwritten.
+- Restricted to `mosaic-mobile`: the desktop and the CLI never call `record_boot_marker` or `adopt_boot_marker`.
+  Their behaviour is unchanged.
+
+### `mosaic-passkey` (additive in T2; ADR-0093)
+- `ClientData<'a> { Json { origin: &'a str, challenge: &'a [u8] }, Hash(&'a [u8; 32]) }`.
+- `CreateRequest { rp_id, client_data, user_handle, algorithms, user_verified }` and
+  `GetRequest { rp_id, client_data, user_verified }`, with `create_request(&CreateRequest) -> Result<ClientCreated>`
+  and `assert_request(&GetRequest, &PasskeyCredential, stored_count) -> Result<PendingAssertion>`.
+- `PendingAssertion::into_json_response(CountPersisted) -> Result<AssertionResponse>` and
+  `into_response_without_count()` refuse a hash-mode assertion (`InvalidInput`, G1-16); `into_response` is
+  `#[deprecated]` (it returns an empty `clientDataJSON` in hash mode); the desktop and the import tests use
+  `into_json_response`.
+- `ClientCreated.client_data_json` and `ClientAssertionResponse.client_data_json` are `Option<Vec<u8>>` (`None` in
+  hash mode). A pending assertion is released with `into_client_response(CountPersisted)` or
+  `into_client_response_without_count()`; the sign-count discipline of ADR-0039 D5 is unchanged.
+- The signed message is `authenticatorData ‖ hash`, where the hash is the given one or `SHA-256(clientDataJSON)`.
+- `android_app_origin(&[u8; 32]) -> String`.
+- **Deviation from ADR-0093:** the spec changes `CreateInput`, `GetInput`, `Created` and `AssertionResponse`
+  in place. That breaks `apps/desktop` (`browser/passkey.rs` and two test files) and `crates/import/tests`, which
+  are outside the T2 write scope. T2 therefore left the four types and `create`/`assert` exactly as they were
+  (they now run through the new path in `Json` mode, with identical bytes: `json_mode_vectors_unchanged`) and added
+  the types above next to them. The breaking form of the ADR is a follow-up that must change the desktop callers in
+  the same commit.
+
+### `mosaic-origin` (additive)
+- `app`: `AndroidAppUrl::{parse, new, package, cert_sha256, canonical}`, `is_valid_package_name`,
+  `app_fill_allowed(saved, package, certs) -> Result<MatchKind, Refusal>` (`certs` is the one current signer: more
+  than one never matches, G1-9). A match is reported as
+  `MatchKind::ExactOrigin` (no new variant: the desktop matches `MatchKind` exhaustively). Parsing is stricter than
+  the `url` crate: the canonical form only.
+- `android_browsers`: `is_trusted_browser(package, certs) -> bool` (exactly one current signer, which must be one
+  of the browser's listed certificates), `privileged_browsers_json() -> &'static str`.
+  The data is `data/android-privileged-browsers.json`: the release signatures of 14 packages (Chrome, Firefox, Edge,
+  Brave, Samsung Internet, DuckDuckGo, Vivaldi, Opera) from Google's privileged-apps list, fetched 2026-11-11.
+- `target`: `android_fill_target(&AndroidCaller) -> Result<FillTarget, TargetError>`,
+  `ios_fill_target(IosIdentifier) -> Result<FillTarget, TargetError>`. `FillTarget::Web { origin, idn_unicode }` or
+  `AndroidApp { package, certs }`. The look-alike check needs the saved hosts, so the caller runs `lookalike_of`.
+  An iOS `Url` identifier keeps scheme, host and port and drops userinfo, path, query and fragment (the spec said
+  `PageOrigin::parse`, which refuses a path).
+- `fields`: `select_fill_fields(&[FieldNode]) -> FieldSelection { root_domain, fields, refused }` with
+  `FieldRole::{Username, Password, NewPassword, Otp}` and `FieldRefusal::ForeignFrame`; at most 4096 nodes.
+  `select_scoped_fill_fields(&[FieldNode], FieldScope::{Web, App})` is what the mobile core calls with the fill
+  target's kind: `App` selects native nodes only, `Web` starts at the first node with a `web_domain` (M10-G2 round 2, N1).
+  `mosaic_mobile::Core::select_fill_fields` takes the `FillTarget` as a second argument.
+- `assetlinks`: `parse_asset_links(&[u8]) -> Result<Vec<Statement>, AssetLinksError>`,
+  `app_is_delegated(statements, package, cert_sha256, Relation) -> bool`,
+  `app_is_delegated_for_passkeys(..)` (either relation).
+- New dependencies: `serde_json` and `base64ct` (both already in the tree).
+
+### `mosaic-sync` (`http`, restricted to the engine, the desktop, the CLI and `mosaic-mobile`)
+- `http::TlsTrust { Platform, Anchors(Vec<CertificateDer<'static>>) }` and
+  `http::set_tls_trust(TlsTrust) -> Result<(), TransportError>`. The setting is process-wide and set once; the same
+  value again is accepted, another one is refused (`Io`), as are no anchors, more than 1024 or an invalid anchor.
+  `Platform` is not available on Android. `http::CertificateDer` is re-exported.
+- `http::assetlinks::fetch(host) -> Result<Vec<u8>, TransportError>`: `NotFound` for a 404, `Protocol` for any other
+  non-200, a redirect or a body over 64 KiB, `Unreachable` for a failed connection.
+- `setup_code::parse(&[u8]) -> Result<SetupCode>` (the core parser with the sync origin and email rules).
+- `rustls-platform-verifier` is a non-Android dependency.
+
+### `mosaic-qr` (additive)
+- `scan_setup_frames(&[Frame]) -> Result<Zeroizing<String>, ScanError>` returns the one `mosaic-setup:` payload
+  (not parsed here) and drops every other payload unread. New `ScanError::NotSetupCode`. `Payload` and `classify`
+  are unchanged (the desktop matches `Payload` exhaustively).
+
+### `mosaic-mobile` (M10 T3; restricted: `mosaic-mobile-ffi` and its tests)
+The logic of both phone apps behind plain Rust types. No UniFFI dependency, `#![forbid(unsafe_code)]`. One
+[`Core`] per process; every method blocks. The method list mirrors the FFI surface of `docs/MOBILE.md` §2.
+- **Construction and state.** `Core::open(CoreConfig, Arc<dyn SecureStorage>)`, `state() -> SessionState`
+  (`NoAccount`, `Locked { email, secret_key_stored, quick_unlock }`, `Unlocked { account_id, email,
+  quick_unlock_enrolled }`, `StoreClosed`, `StoreBusy`, `Busy`; `Busy` is an addition to the five states of the
+  plan, so `state()` is total while a long call runs), `lock()`, `close_store()`, `reopen_store()`,
+  `required_unlock_memory_bytes()`.
+- **Locking rule.** The core's mutex is never held across Argon2id, the network, a `SecureStorage` callback or
+  another core call. A long call takes the session out and the core reports `Busy`; a `lock()` meanwhile sets a flag
+  and wins when the call stores its result. The lock order is always the session holder first, then the core's
+  mutex. The lock flag is read and cleared under the mutex (G1-1). `lock()` wipes every `SecretValue` handed out
+  (a value read before a lock and handed out after it is wiped and the call answers `locked`, G1-6), and drops the
+  pending slots (quick-unlock enrolment, OTP setups, passkey ceremonies, fill sessions) and a pending join;
+  `close_store()` alone keeps an unexpired join (G1-11). `state()` and `sync_overview()` never call the platform:
+  presence of the Secret Key and the token is cached and asked with `SecureStorage::contains`, never `get` (G1-2).
+  Five wrong master passwords at a re-authentication end the session and require the password (G1-3).
+- **Onboarding and unlock.** `prelogin_check`, `join_hosted` (`JoinOutcome::{Unlocked, SecondFactor}`),
+  `join_totp`, `join_webauthn_begin`, `join_webauthn_status`, `join_cancel`, `parse_setup_code`, `scan_setup_qr`,
+  `unlock_password`, `unlock_quick`. The pending join holds no store and lives 5 minutes. A join over an existing
+  account is `accountExists`.
+- **Quick unlock.** `quick_unlock_enroll_begin` (verifies the master password, returns `W` once in a 120 s slot),
+  `quick_unlock_enroll_finish`, `quick_unlock_remove`, `quick_unlock_platform_failed`; the platform parameters are
+  in `quick_unlock::params` (strict decoder, `key_alias`, `quick_unlock_aad`). An enrolment that ran out, was
+  invalidated or was removed by a password recovery shows as `QuickUnlockAvailability::Expired { key_alias }` until
+  the platform deletes the key (`quick_unlock_remove` returns it).
+- **Vault.** `vaults`, `items`, `search`, `item`, `reveal`, `otp_code`, `save_login`, `save_note`, `trash_item`,
+  `set_favorite`, `generate_password`, `otp_from_text`, `scan_otp_qr`, `otp_pending_discard`. Lists and details
+  hold no concealed value (`FieldView.value` is `None`); a secret leaves only as `Arc<SecretValue>`.
+- **Sync.** `sync_overview`, `sync_now`, `recover_password`, `reset_device(ResetConfirm) -> ResetOutcome { state,
+  key_aliases }`. Deviations: `reset_device` returns the platform keys to delete (the plan returned only the
+  state), and `recover_password` has no second-factor argument, so an account with a second factor cannot recover
+  on the phone (`syncTwoFactorRequired`).
+- **Autofill (T3b).** `select_fill_fields`, `fill_target_android`, `fill_target_ios`, `fill_warning` (an addition:
+  the look-alike warning needs the saved hosts), `fill_candidates`, `fill_values`, `fill_otp`,
+  `privileged_browsers_json`, `link_android_app`, `asset_links_status`. `fill_candidates` returns `FillCandidates {
+  session_id, candidates }`: Rust holds the resolved target for 5 minutes (dropped on lock), and `fill_values(
+  session_id, item)` and `fill_otp(session_id, item)` take that ID instead of a target (G1-12; an unknown or expired
+  session is `notFound`). They check the match again for the chosen login. `AndroidCaller.current_signers` holds
+  the one current signer (G1-9). The iOS entry points refuse an Android core and the other way round (G1-5), and
+  the asset-links fetch is refused in the extension context (G1-8). A login in a hardware-protected vault, a trashed login and an item that is not
+  a login are never candidates. Matching on plain `http` without `allow_http` answers `insecureOrigin`.
+- **Passkeys (T3b).** `passkey_android_{get,create}_{begin,finish}`, `passkey_ios_{candidates,assert,register}`,
+  `passkey_identities`, `password_identities`; `passkeys::json` parses the Credential Manager request JSON strictly
+  (at most 64 KiB, only `public-key` descriptors, a fuzz target) and builds the response JSON. An Android caller
+  that is not on Rust's own browser allowlist cannot pass a platform origin, and any other app must be delegated
+  by the relying party's `assetlinks.json` (cached 24 h in memory). A ceremony without user verification is
+  `reauthRequired`, on iOS too (G1-4).
+- **Settings.** `settings`, `update_settings(SettingsUpdate)`: `settings.json` with the MAC of CRYPTO_SPEC §11.1.
+  Raising the quick-unlock age or turning the password identity store on needs `reauth_password`.
+- **Setup code (T3b).** `parse_setup_code`, `scan_setup_qr` over `mosaic_sync::setup_code::parse` and
+  `mosaic_qr::scan_setup_frames`.
+- **Test hooks (feature `test-hooks`).** `Core::test_hooks()`: a local Baseline account with one vault, a clock
+  offset, a work delay (makes the lock races deterministic) and a replacement for the asset-links fetch. The crate's
+  own dev-dependency turns the feature on for `cargo test -p mosaic-mobile`; `scripts/mobile/check-no-test-hooks.sh`
+  keeps it out of release libraries.
+- **Errors.** `MobileError` has unit variants only; `code()` is the camelCase code and `error_codes()` lists them.
+  The codes of §3.4 of the plan plus the sync transport codes (`syncServerUnreachable`, `syncServerInvalid`,
+  `syncServerInsecure`, `syncServerMismatch`, `syncServerIncompatible`).
+
+### `mosaic-mobile-ffi` (new; the binding shell, consumed only by the generated Kotlin and Swift code)
+- `SecureStorage` (foreign trait) has `contains(name) -> Result<bool>` next to `get`, `put` and `delete`: the
+  platform implements it as an existence check that reads and decrypts nothing (G1-2).
+- `src/lib.rs` (the `MosaicCore` object, `SecureStorage` foreign trait, `SecretValue`, `mobile_error_codes`,
+  `core_version`), `src/types.rs` (the mirror records and enums), `src/convert.rs` (the conversions) and
+  `src/bin/uniffi-bindgen.rs`. Nothing else may be added (`scripts/mobile/check-ffi-crate.sh`).
+- It keeps `#![forbid(unsafe_code)]` and the workspace lints (UniFFI 0.32.2 compiles under them, ADR-0089 probe a).
+  It declares `zeroizing-alloc` as the global allocator, so every freed Rust heap block is wiped.
+- `SyncOverview.last_error` crosses as the camelCase code (a string). `SecretValue` also exports `is_empty`.
+- `scripts/mobile/bindgen.sh [--out DIR] [--release] [kotlin|swift|all]` generates the bindings into `$TEMP`
+  (the generator needs feature `bindgen`); nothing generated is committed.
+- It is not a Rust API for other crates.
 
 ## Expected additions (pre-approved as additive)
 

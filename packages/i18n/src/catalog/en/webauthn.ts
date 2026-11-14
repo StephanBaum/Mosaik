@@ -8,7 +8,7 @@ export const webauthn = {
   "webauthn.documentTitle": "Mosaic: security key",
   "webauthn.heading.code": "Check the code first",
   "webauthn.lead.code":
-    "Type the 6 digits that the Mosaic app shows on your computer. Only then does this page ask for your security key.",
+    "Type the 6 digits that the Mosaic app shows. Only then does this page ask for your security key.",
   "webauthn.code.label": "Code from the Mosaic app",
   "webauthn.code.submit": "Continue",
   "webauthn.code.format": "Enter the 6 digits.",
@@ -38,13 +38,13 @@ export const webauthn = {
   "webauthn.done.confirm": "Confirmed. Go back to the Mosaic app. You can close this tab.",
   "webauthn.heading.expired": "This request has run out",
   "webauthn.expired.body":
-    "It was valid for a few minutes only. Start again in the Mosaic app on your computer.",
+    "It was valid for a few minutes only. Start again in the Mosaic app.",
   "webauthn.heading.failed": "That did not work",
   "webauthn.failed.body":
-    "The security key step did not finish: it was cancelled, it timed out, or the key was not accepted. Nothing was changed. Start again in the Mosaic app on your computer.",
+    "The security key step did not finish: it was cancelled, it timed out, or the key was not accepted. Nothing was changed. Start again in the Mosaic app.",
   "webauthn.heading.invalid": "This link is not complete",
   "webauthn.invalid.body":
-    "Open the link from the Mosaic app on your computer. Do not retype it or take it from anywhere else.",
+    "Open the link from the Mosaic app. Do not retype it or take it from anywhere else.",
   "webauthn.rateLimited": "Too many tries. Wait a few minutes, then start again in the Mosaic app.",
   "webauthn.unavailable":
     "This server does not offer security keys right now. Use the Mosaic app to sign in another way.",

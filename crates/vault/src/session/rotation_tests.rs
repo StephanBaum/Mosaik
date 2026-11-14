@@ -146,6 +146,7 @@ fn secret_key_rotation_keeps_ak_and_removes_quick_unlock() {
     )
     .unwrap();
     s.enroll_hardware_key(&hw_key(1), &prf(1), &ra(&s)).unwrap();
+    s.store.put_boot_marker(&[1, 2, 3, 4], 5).unwrap();
     let ak_before = s.store.unlock_methods().unwrap().len();
     assert_eq!(ak_before, 3);
     let account = s.account_id();
@@ -177,6 +178,8 @@ fn secret_key_rotation_keeps_ak_and_removes_quick_unlock() {
     let p = s.prepare_credential_change(&pw(), &sk, &change).unwrap();
     let done = s.commit_master_password_change(p).unwrap();
     assert!(done.removed_quick_unlock.is_some());
+    // CRYPTO_SPEC 6.9.2: a Secret Key rotation deletes the boot marker too.
+    assert_eq!(s.store.boot_marker().unwrap(), None);
     assert_ne!(done.params.salt, old_salt);
     assert!(s.salt_retired(&old_salt).unwrap());
     assert_eq!(s.ak_epoch(), 1);
@@ -625,6 +628,7 @@ fn rekey_deletes_quick_and_hardware_unlock_keeps_tk_vaults() {
     )
     .unwrap();
     s.enroll_hardware_key(&hw_key(1), &prf(1), &ra(&s)).unwrap();
+    s.store.put_boot_marker(&[9; 16], 5).unwrap();
     let tk = s
         .create_hardware_vault("codes", &hw_key(2), &prf(2))
         .unwrap();
@@ -643,6 +647,8 @@ fn rekey_deletes_quick_and_hardware_unlock_keeps_tk_vaults() {
     );
     assert_eq!(done.committed.removed_hardware_keys.len(), 1);
     assert_eq!(s.store.unlock_methods().unwrap().len(), 1, "password only");
+    // CRYPTO_SPEC 6.9.2: a re-key deletes the boot marker too.
+    assert_eq!(s.store.boot_marker().unwrap(), None);
     assert_eq!(s.store.vault_keys(&tk).unwrap(), tk_keys);
     assert_eq!(s.store.tk_wrappings(&tk).unwrap(), tk_wraps);
     // Still there after a lock, closed.

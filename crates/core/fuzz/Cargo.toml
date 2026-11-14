@@ -87,3 +87,10 @@ path = "fuzz_targets/cli_session_file.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "setup_code"
+path = "fuzz_targets/setup_code.rs"
+test = false
+doc = false
+bench = false

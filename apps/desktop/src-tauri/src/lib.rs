@@ -299,6 +299,8 @@ mod rotation_handler_tests;
 #[cfg(test)]
 mod settings_integrity_tests;
 #[cfg(test)]
+mod setup_code_tests;
+#[cfg(test)]
 mod sharing_tests;
 #[cfg(test)]
 mod sync_handler_tests;
