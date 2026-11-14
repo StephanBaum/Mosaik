@@ -223,6 +223,75 @@ preview = ["mosaic-native-messaging/preview"]
 }
 known RT2-CHAIN-2 "the release guard catches preview in tauri.conf.json and in the desktop feature lists" chain2
 
+# FIX-1: the [features] header spellings Cargo accepts, a missing header, and a --cfg feature set
+# from a .cargo config all fail the guard.
+chain2_headers() {
+  local base="$work/chain2h" hdr
+  mkdir -p "$base/scripts/release" "$base/apps/desktop/src-tauri" "$base/crates/cli" "$base/crates/server" "$base/crates/native-messaging" "$base/deploy" "$base/.github/workflows"
+  cp "$here/check-features.sh" "$base/scripts/release/"
+  for c in cli server native-messaging; do printf '[features]
+' > "$base/crates/$c/Cargo.toml"; done
+  : > "$base/deploy/Dockerfile"
+  : > "$base/.github/workflows/release.yml"
+  printf '{}
+' > "$base/apps/desktop/src-tauri/tauri.conf.json"
+  printf '{}
+' > "$base/apps/desktop/src-tauri/tauri.release.conf.json"
+  write_desktop() { printf '%s
+custom-protocol = ["tauri/custom-protocol"]
+preview = []
+' "$1" > "$base/apps/desktop/src-tauri/Cargo.toml"; }
+  write_desktop '[features]'
+  bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1 || return 1
+  # The other spellings with a clean list still pass (the header is found), and with preview in
+  # custom-protocol they fail.
+  for hdr in '[ features ]' '["features"]' '[features] # the list' '[  "features"  ]'; do
+    write_desktop "$hdr"
+    bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1 || return 1
+    printf '%s
+custom-protocol = ["tauri/custom-protocol", "preview"]
+preview = []
+' "$hdr" > "$base/apps/desktop/src-tauri/Cargo.toml"
+    if bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1; then return 1; fi
+    # A default feature list under the same header is seen as well.
+    printf '%s
+default = ["x"]
+' "$hdr" > "$base/crates/cli/Cargo.toml"
+    write_desktop "$hdr"
+    if bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1; then return 1; fi
+    printf '[features]
+' > "$base/crates/cli/Cargo.toml"
+  done
+  # No header at all in a manifest that is expected to have one.
+  write_desktop '# nothing'
+  printf 'x = 1
+' > "$base/apps/desktop/src-tauri/Cargo.toml"
+  if bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1; then return 1; fi
+  write_desktop '[features]'
+  # A feature cfg from the cargo config, in the usual and in the multi-line spelling.
+  mkdir -p "$base/.cargo"
+  printf '[build]
+rustflags = ["--cfg", "feature=\\"preview\\""]
+' > "$base/.cargo/config.toml"
+  if bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1; then return 1; fi
+  printf '%s\n' '[build]' 'rustflags = [' '  "--cfg",' "  'feature=\"preview\"'," ']' > "$base/.cargo/config.toml"
+  if bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1; then return 1; fi
+  rm -f "$base/.cargo/config.toml"
+  # A build script printing the cfg.
+  printf 'fn main() { println!("cargo:rustc-cfg=feature=\\"preview\\""); }
+' > "$base/crates/native-messaging/build.rs"
+  if bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1; then return 1; fi
+  rm -f "$base/crates/native-messaging/build.rs"
+  # Encoded rustflags in the release workflow.
+  printf 'env:
+  CARGO_ENCODED_RUSTFLAGS: x
+' > "$base/.github/workflows/release.yml"
+  if bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1; then return 1; fi
+  : > "$base/.github/workflows/release.yml"
+  bash "$base/scripts/release/check-features.sh" > /dev/null 2>&1
+}
+known RT2-CHAIN-2b "header spellings, a missing header and feature cfgs from outside the manifests are caught" chain2_headers
+
 echo
 echo "redteam-selftest: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

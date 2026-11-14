@@ -184,7 +184,9 @@ pub fn repair(
 ///
 /// # Errors
 /// [`Error::Install`] if `expected_host` is not absolute or a key or file
-/// that has to go could not be removed; entries not yet reached stay.
+/// that has to go could not be removed. A key that could not be deleted
+/// keeps its manifest and stays for the audit; the other entries are still
+/// handled before the error is returned.
 pub fn remove_foreign_user_entries(
     layout: &Layout,
     expected_host: &Path,
@@ -205,6 +207,7 @@ pub fn remove_foreign_user_entries(
     )?;
     let mut removed = 0;
     let mut gone_files: Vec<PathBuf> = Vec::new();
+    let mut failed = false;
     for (browser, entry) in Browser::ALL.into_iter().zip(&plan.registry) {
         // A fallback has to exist: the MSI's entry for this browser.
         let machine_ok = machine
@@ -228,7 +231,13 @@ pub fn remove_foreign_user_entries(
             Some((path, same_list)) => !(same_list && same_host(layout.os, &path, expected_host)),
         };
         if foreign {
-            user.delete(&entry.key)?;
+            // The manifest goes only once its key is really gone: a key that
+            // could not be deleted keeps its manifest, so the entry still
+            // works as an entry and the audit's banner and repair path see it.
+            if user.delete(&entry.key).is_err() {
+                failed = true;
+                continue;
+            }
             removed += 1;
             if !gone_files.contains(&entry.manifest) {
                 gone_files.push(entry.manifest.clone());
@@ -249,6 +258,9 @@ pub fn remove_foreign_user_entries(
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => return Err(Error::Install),
         }
+    }
+    if failed {
+        return Err(Error::Install);
     }
     Ok(removed)
 }

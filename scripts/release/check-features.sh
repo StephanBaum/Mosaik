@@ -18,6 +18,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fail=0
+features_header='^\[[[:space:]]*"?features"?[[:space:]]*\]'
 shipped=(crates/cli crates/server crates/native-messaging apps/desktop/src-tauri)
 
 for d in "${shipped[@]}"; do
@@ -27,7 +28,18 @@ for d in "${shipped[@]}"; do
     fail=1
     continue
   fi
-  default="$(awk '/^\[features\]/{s=1;next} /^\[/{s=0} s&&/^default[[:space:]]*=/{print;exit}' "$f")"
+  # A manifest that is expected to have a [features] table and has no header the matcher finds is
+  # an error: a header spelling the matcher misses must not hide a feature list (FIX-1).
+  case "$d" in
+    crates/server) ;;
+    *)
+      if ! grep -Eq "$features_header" "$f"; then
+        echo "error: no [features] header found in $d/Cargo.toml (expected one)" >&2
+        fail=1
+      fi
+      ;;
+  esac
+  default="$(awk '/^\[[[:space:]]*"?features"?[[:space:]]*\]/{s=1;next} /^\[/{s=0} s&&/^default[[:space:]]*=/{print;exit}' "$f")"
   if [ -n "$default" ] && ! printf '%s' "$default" | grep -Eq '^default[[:space:]]*=[[:space:]]*\[[[:space:]]*\]'; then
     echo "error: $d has default features: $default" >&2
     fail=1
@@ -60,7 +72,7 @@ done
 desktop="$root/apps/desktop/src-tauri"
 if [ -f "$desktop/Cargo.toml" ]; then
   # Any line of [features] except the preview definition itself (and comments) naming it.
-  bad="$(awk '/^\[/{s=($0=="[features]")} s && !/^[[:space:]]*#/ && !/^preview[[:space:]]*=/ && /preview/ {print}' "$desktop/Cargo.toml")"
+  bad="$(awk '/^\[/{s=($0 ~ /^\[[[:space:]]*"?features"?[[:space:]]*\]/)} s && !/^[[:space:]]*#/ && !/^preview[[:space:]]*=/ && /preview/ {print}' "$desktop/Cargo.toml")"
   if [ -n "$bad" ]; then
     echo "error: the preview feature is enabled by another feature of the desktop crate:" >&2
     echo "$bad" >&2
@@ -76,6 +88,38 @@ for c in tauri.conf.json tauri.release.conf.json; do
     fail=1
   fi
 done
+
+if [ -f "$desktop/Cargo.toml" ] && ! grep -Eq "$features_header" "$desktop/Cargo.toml"; then
+  echo "error: no [features] header found in the desktop Cargo.toml (step 4 would check nothing)" >&2
+  fail=1
+fi
+
+# 5. No cfg(feature = ...) can be set from outside the manifests (FIX-1): --cfg in any
+#    .cargo/config*.toml, rustc-cfg=feature in a build script of the desktop or the native host,
+#    and RUSTFLAGS or CARGO_ENCODED_RUSTFLAGS in the release workflow (other than the reproducible
+#    remap flags, which name no --cfg).
+cfg_pat='--cfg[[:space:]=]*[^#]*feature[[:space:]]*=|"--cfg"[^#]*feature[[:space:]]*=|rustc-cfg=feature|cargo:rustc-cfg=feature|cargo::rustc-cfg=[^#]*feature|feature[[:space:]]*=[[:space:]]*[\\]?["'"'"']'
+cfgs=()
+while IFS= read -r -d '' c; do cfgs+=("$c"); done < <(find "$root" \( -name node_modules -o -name target -o -name .git -o -name .claude \) -prune -o -type d -name .cargo -print0 2>/dev/null |
+  while IFS= read -r -d '' dir; do find "$dir" -maxdepth 1 -type f \( -name 'config' -o -name 'config.toml' \) -print0; done)
+for c in "${cfgs[@]}" "$root"/crates/native-messaging/build.rs "$desktop/build.rs"; do
+  [ -f "$c" ] || continue
+  hits="$(grep -nE -- "$cfg_pat" "$c" | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+  if [ -n "$hits" ]; then
+    echo "error: a feature cfg is set in ${c#"$root"/}:" >&2
+    echo "$hits" >&2
+    fail=1
+  fi
+done
+rel="$root/.github/workflows/release.yml"
+if [ -f "$rel" ]; then
+  hits="$(grep -nE -- 'CARGO_ENCODED_RUSTFLAGS|--cfg[^#]*feature|rustc-cfg' "$rel" | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+  if [ -n "$hits" ]; then
+    echo "error: a feature cfg or encoded rustflags in release.yml:" >&2
+    echo "$hits" >&2
+    fail=1
+  fi
+fi
 
 if [ "$fail" -ne 0 ]; then exit 1; fi
 echo "ok: no Cargo features are enabled for the shipped crates"

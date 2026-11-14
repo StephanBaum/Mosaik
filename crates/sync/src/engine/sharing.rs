@@ -103,6 +103,19 @@ fn roster_uploaded(
     super::served::note_roster(s, vault, seq, ct.as_bytes())
 }
 
+/// How a revocation rotation of a shared vault ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RotateOutcome {
+    /// The rotation was done; the new generation.
+    Rotated(KeyGeneration),
+    /// Not done, for a benign reason (another install rotated first, the key
+    /// moved under it): no warning, the revocations stay queued.
+    Retry,
+    /// Cannot go on (a refusal, a lost path, a key the plan lacks): the
+    /// report carries [`SyncWarning::RotationBlocked`].
+    Blocked,
+}
+
 impl<T: Transport> SyncEngine<T> {
     /// The sharing calls of the backend.
     pub(super) fn sharing_tx(&mut self) -> Result<&mut dyn SharingTransport, SyncError> {
@@ -160,18 +173,49 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
         vault: VaultId,
         report: &mut SyncReport,
+    ) -> Result<RotateOutcome, SyncError> {
+        if Self::flag_refused_owned(access, vault)? {
+            Self::warn_rotation_blocked(report, vault);
+            Ok(RotateOutcome::Blocked)
+        } else {
+            // Not the owner: only the owner's device rotates.
+            Ok(RotateOutcome::Retry)
+        }
+    }
+
+    /// The roster of an owned vault cannot be uploaded because the server
+    /// refused it (403, 404 or `role_forbidden`): the same finding against
+    /// the server, but reported as [`SyncWarning::ServerInconsistent`], not
+    /// under the rotation wording (no rotation is involved). The roster
+    /// stays queued. A vault this account does not own is left alone: a
+    /// member's role change that the server refuses simply stays queued.
+    fn roster_refused(
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        report: &mut SyncReport,
     ) -> Result<(), SyncError> {
-        let owned = access.with(|s| -> Result<bool, Error> {
+        if Self::flag_refused_owned(access, vault)? {
+            let warning = SyncWarning::ServerInconsistent { vault };
+            if !report.warnings.contains(&warning) {
+                report.warnings.push(warning);
+            }
+        }
+        Ok(())
+    }
+
+    /// Persists the finding against the server for an owned shared vault;
+    /// whether the vault is one. One closure: check and write cannot race.
+    fn flag_refused_owned(
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+    ) -> Result<bool, SyncError> {
+        Ok(access.with(|s| -> Result<bool, Error> {
             if !s.vault_shared(vault)? || !s.owns_vault(vault)? {
                 return Ok(false);
             }
             s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
             Ok(true)
-        })??;
-        if owned {
-            Self::warn_rotation_blocked(report, vault);
-        }
-        Ok(())
+        })??)
     }
 
     fn warn_rotation_blocked(report: &mut SyncReport, vault: VaultId) {
@@ -659,7 +703,7 @@ impl<T: Transport> SyncEngine<T> {
 
     /// Uploads the rosters that wait for it (a role change, a merge the
     /// server lacks); a conflict pulls the vault, which merges.
-    fn push_pending_rosters(
+    pub(super) fn push_pending_rosters(
         &mut self,
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
@@ -696,11 +740,11 @@ impl<T: Transport> SyncEngine<T> {
                     // Not allowed to write it (a role change on the server
                     // side): it stays queued.
                     Err(TransportError::Rejected(Rejection::RoleForbidden)) => {
-                        Self::rotation_refused(access, vault, report)?;
+                        Self::roster_refused(access, vault, report)?;
                         break;
                     }
                     Err(e) if is_lost(&e) => {
-                        Self::rotation_refused(access, vault, report)?;
+                        Self::roster_refused(access, vault, report)?;
                         break;
                     }
                     Err(e) => return Err(e.into()),
@@ -812,12 +856,10 @@ impl<T: Transport> SyncEngine<T> {
             }
             // A rotation that did not happen leaves the revocation queued:
             // that is visible, never a silent skip (SYNC-1).
-            if self
-                .rotate_shared(access, vault, &explicit, false, report, stats)?
-                .is_none()
-            {
-                Self::warn_rotation_blocked(report, vault);
-            }
+            // A blocked rotation has already said so; a retry (another
+            // install rotated first, the key moved under it) is benign and
+            // not worded as a block.
+            let _ = self.rotate_shared(access, vault, &explicit, false, report, stats)?;
         }
         Ok(())
     }
@@ -1054,9 +1096,14 @@ impl<T: Transport> SyncEngine<T> {
     /// The owner's revocation rotation of a shared vault (CRYPTO_SPEC §8.3).
     /// `explicit` are the accounts a user or a declined invite queued; the
     /// plan adds members that left and members the roster does not list.
-    /// Returns the new generation, or `None` if the rotation could not be
-    /// done now (not the owner, a key the plan needs is missing, the server
-    /// kept refusing): the revocations stay queued.
+    /// Returns [`RotateOutcome::Rotated`] with the new generation;
+    /// [`RotateOutcome::Retry`] if the rotation did not happen for a benign
+    /// reason (another install of the account rotated first, the key moved
+    /// under it): no warning, the revocations stay queued and the next run
+    /// tries again; [`RotateOutcome::Blocked`] if it cannot go on (a refusal
+    /// or a lost path, a key the plan needs is missing, the member list keeps
+    /// changing): [`SyncWarning::RotationBlocked`] is in the report, a
+    /// refusal is also persisted as a finding, the revocations stay queued.
     ///
     /// # Errors
     /// [`SyncError`].
@@ -1073,41 +1120,40 @@ impl<T: Transport> SyncEngine<T> {
         strict: bool,
         report: &mut SyncReport,
         stats: &mut RunStats,
-    ) -> Result<Option<KeyGeneration>, SyncError> {
+    ) -> Result<RotateOutcome, SyncError> {
         let install = access.with(|s| s.install_id())?;
         for _ in 0..ROTATION_ATTEMPTS {
             self.pull_vault(access, vault, report, stats)?;
             let members = match self.sharing_tx()?.members(vault) {
                 Ok(m) => m,
-                Err(e) if is_lost(&e) => {
-                    Self::rotation_refused(access, vault, report)?;
-                    return Ok(None);
-                }
+                Err(e) if is_lost(&e) => return Self::rotation_refused(access, vault, report),
                 Err(e) => return Err(e.into()),
             };
             self.fetch_vault_attachments(access, vault)?;
             let Some(plan) = self.build_plan(access, vault, explicit, &members, strict)? else {
-                report.warnings.push(SyncWarning::RotationBlocked { vault });
-                return Ok(None);
+                Self::warn_rotation_blocked(report, vault);
+                return Ok(RotateOutcome::Blocked);
             };
             let prepared = match access.with(|s| s.prepare_shared_rotation(vault, &plan))? {
                 Ok(p) => p,
                 Err(Error::PreparedStale) => continue,
                 // A served key that does not match the roster or the pin, an
                 // unverified grantee, a plan the roster does not support: the
-                // rotation waits for the user.
+                // rotation waits for the user. Not the owner (callers check
+                // ownership first, so that is an inconsistent state) says the
+                // same.
                 Err(
                     Error::MemberKeyMismatch
                     | Error::ContactUnverified
                     | Error::ContactKeyChanged
                     | Error::PlanMismatch
-                    | Error::NoRoster,
+                    | Error::NoRoster
+                    | Error::NotOwner
+                    | Error::OwnerCannotBeRevoked,
                 ) => {
-                    report.warnings.push(SyncWarning::RotationBlocked { vault });
-                    return Ok(None);
+                    Self::warn_rotation_blocked(report, vault);
+                    return Ok(RotateOutcome::Blocked);
                 }
-                // Not the owner: only the owner's device rotates.
-                Err(Error::NotOwner | Error::OwnerCannotBeRevoked) => return Ok(None),
                 Err(e) => return Err(e.into()),
             };
             let head = cursor_head(access.with(|s| s.sync_cursor(vault))??.as_deref());
@@ -1141,26 +1187,22 @@ impl<T: Transport> SyncEngine<T> {
                 Ok(RotateResult::GenerationTaken { .. }) => {
                     drop(prepared);
                     self.pull_vault(access, vault, report, stats)?;
-                    return Ok(None);
+                    return Ok(RotateOutcome::Retry);
                 }
                 Ok(RotateResult::HeadMoved { .. } | RotateResult::MembersMismatch { .. }) => {
                     continue;
                 }
                 Err(TransportError::Rejected(Rejection::RoleForbidden)) => {
-                    Self::rotation_refused(access, vault, report)?;
-                    return Ok(None);
+                    return Self::rotation_refused(access, vault, report);
                 }
-                Err(e) if is_lost(&e) => {
-                    Self::rotation_refused(access, vault, report)?;
-                    return Ok(None);
-                }
+                Err(e) if is_lost(&e) => return Self::rotation_refused(access, vault, report),
                 Err(e) => return Err(e.into()),
             }
             let outcome = match access.with(|s| s.commit_shared_rotation(prepared))? {
                 Ok(o) => o,
                 Err(Error::PreparedStale | Error::KeyGenerationRollback { .. }) => {
                     self.pull_vault(access, vault, report, stats)?;
-                    return Ok(None);
+                    return Ok(RotateOutcome::Retry);
                 }
                 Err(e) => return Err(e.into()),
             };
@@ -1188,10 +1230,10 @@ impl<T: Transport> SyncEngine<T> {
             // new generation as soon as the server has rotated.
             self.push_metas(access, stats, report)?;
             self.pull_vault(access, vault, report, stats)?;
-            return Ok(Some(outcome.generation));
+            return Ok(RotateOutcome::Rotated(outcome.generation));
         }
-        report.warnings.push(SyncWarning::RotationBlocked { vault });
-        Ok(None)
+        Self::warn_rotation_blocked(report, vault);
+        Ok(RotateOutcome::Blocked)
     }
 
     // ---- emergency seals --------------------------------------------------

@@ -240,9 +240,17 @@ fn secret_key_rotation_replaces_the_key_only_after_a_verified_kit() {
 /// prepare opened; a lock closes it and an unlock (quick or not) never reopens it.
 #[test]
 fn the_pending_kit_needs_the_password_outside_the_prepare_window() {
+    use crate::contract::quick_unlock::EnrollBiometricRequest;
     use crate::contract::session::SaveKitRequest;
+    use crate::contract::session::{QuickUnlockKind, QuickUnlockRequest};
+    use crate::quick_unlock::fakes::FakeBiometric;
+    use crate::quick_unlock::{NoHardwareKeys, QuickUnlockService};
     let _kdf = kdf_permit();
-    let e = Env::new();
+    let fake = FakeBiometric::new(true);
+    let e = Env::with_quick_unlock(QuickUnlockService::new(
+        Some(Box::new(std::sync::Arc::clone(&fake))),
+        Box::new(NoHardwareKeys),
+    ));
     e.create();
     let b = e.b();
     let kit = |password: Option<&str>| SaveKitRequest {
@@ -282,6 +290,25 @@ fn the_pending_kit_needs_the_password_outside_the_prepare_window() {
             .unwrap_err()
             .code,
         ErrorCode::WrongCredentials
+    );
+    // Lock and then quick-unlock (the biometric path): no password was typed,
+    // so the pending kit still needs it.
+    b.enroll_biometric(EnrollBiometricRequest {
+        password: Some(SecretIn::test(PASSWORD)),
+    })
+    .unwrap();
+    b.lock(crate::contract::events::LockReason::Manual).unwrap();
+    b.unlock_quick(&mut QuickUnlockRequest {
+        method: QuickUnlockKind::Biometric,
+        pin: None,
+    })
+    .unwrap();
+    assert!(b.is_unlocked());
+    assert!(b.pending_secret_keys.load(e.account()).unwrap().is_some());
+    assert_eq!(
+        b.save_emergency_kit(kit(None)).unwrap_err().code,
+        ErrorCode::ReauthRequired,
+        "a quick unlock never reopens the window"
     );
     // A right password passes the gate.
     let with_password = b.save_emergency_kit(kit(Some(PASSWORD)));
