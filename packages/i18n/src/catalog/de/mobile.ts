@@ -199,6 +199,8 @@ export const mobile = {
     "Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
   "mobile.sync.warning.serverRollback":
     "Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
+  "mobile.sync.warning.sharingAttention":
+    "Bei einem geteilten Tresor ist etwas offen: Ein Schlüsselwechsel wartet, oder ein Mitglied konnte nicht geprüft werden. Öffne Mosaic auf deinem Computer, um zu sehen, was es ist. Wähle dann „Ich habe es geprüft“.",
   "mobile.sync.warning.undecryptable":
     "{count, plural, one {# empfangener Eintrag konnte} other {# empfangene Einträge konnten}} auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.",
   "mobile.sync.warning.accountRollback":

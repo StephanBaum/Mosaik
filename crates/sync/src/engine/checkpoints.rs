@@ -57,6 +57,19 @@ struct Seen<'a> {
     kind: TransportKind,
     cursors: &'a BTreeMap<VaultId, Option<Vec<u8>>>,
     known: &'a BTreeSet<VaultId>,
+    /// The key generation this device holds per vault.
+    generations: &'a BTreeMap<VaultId, KeyGeneration>,
+}
+
+/// Whether a peer announces a vault key generation newer than the one this
+/// device holds. A checkpoint is authenticated, so this is evidence of a key
+/// (and re-sealed records) this device has not received: a rotation that is
+/// withheld, or one this device has not caught up with yet. It counts as lag
+/// with the same grace as unread records (CRYPTO_SPEC §10, SYNC-2, R155): the
+/// view digests are compared only at equal generations, so without this a
+/// device left on a revoked key would wait for the 48 hour rule.
+fn generation_behind(held: Option<KeyGeneration>, announced: KeyGeneration) -> bool {
+    held.is_some_and(|held| announced > held)
 }
 
 /// Whether `device`'s entry for a vault shows data this device has not read.
@@ -70,12 +83,13 @@ fn entry_lags(
     entry: &PeerEntry,
 ) -> Result<bool, Error> {
     if let Some(cursor) = seen.cursors.get(&entry.vault_id) {
-        return Ok(is_lagging(
-            seen.kind,
-            cursor.as_deref(),
-            device,
-            entry.high_seq,
-        ));
+        return Ok(
+            is_lagging(seen.kind, cursor.as_deref(), device, entry.high_seq)
+                || generation_behind(
+                    seen.generations.get(&entry.vault_id).copied(),
+                    entry.generation,
+                ),
+        );
     }
     if seen.known.contains(&entry.vault_id) || s.vault_deleted_locally(entry.vault_id)? {
         return Ok(false);
@@ -94,10 +108,16 @@ fn lagging_pairs(
         cursors.insert(vault, s.sync_cursor(vault)?);
     }
     let known: BTreeSet<VaultId> = s.all_vault_ids()?.into_iter().collect();
+    let generations: BTreeMap<VaultId, KeyGeneration> = s
+        .vaults()
+        .into_iter()
+        .map(|v| (v.vault_id, v.key_generation))
+        .collect();
     let seen = Seen {
         kind,
         cursors: &cursors,
         known: &known,
+        generations: &generations,
     };
     let mut lagging = BTreeSet::new();
     for cp in s.peer_checkpoints()? {

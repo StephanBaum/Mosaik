@@ -5799,3 +5799,37 @@ Typing a 28-character Secret Key on a phone is slow and error-prone. The desktop
 
 ### Consequences
 THREAT_MODEL R139: a camera or screen capture during the 60 s captures the Secret Key, which is still useless without the master password. Track T13 changes the copy of the server handoff page to "start again in the Mosaic app".
+
+## ADR-0154: The owner is never refused a vault; a withheld rotation is lag; the phone shows what it clears
+
+- Status: accepted
+- Date: 2026-11-14
+- Milestone: M9 (hardening), red-team round 2 (SYNC-1 to SYNC-3)
+
+### Context
+CRYPTO_SPEC 8.3 says a removed member's device gets `not_member` and the vault becomes access-lost. The code keyed that on "a sharing row exists",
+and the owner has one. So one lying 403 or 404 from a hostile server made the owner's device drop its own vault for good, skip the queued revocation
+rotation and show the owner "you lost access". The lag rule of 10 compared only sequence numbers, so a device held on an old key generation
+waited for the 48 hour `NoCommonView` rule. The phone's acknowledgement cleared sharing findings it never showed.
+
+### Decision
+- **Owner.** A 403/404 on a vault this account owns (`vault_shared && owns_vault`, one session step) is never access-lost. It sets the
+  `ServerInconsistent` flag for the vault (persisted until acknowledged, already shown on desktop and phone) and the vault stays in the normal retry
+  path: the pull, push and metadata handlers return and the next run asks again. Only a member loses the vault. The flag does not block reads or
+  writes (only `ServerRolledBack` does), so a lying server cannot use it to stop the owner syncing.
+- **Revocation path.** In `rotate_shared`, `process_revocations` and the roster upload, a refusal on an owned vault (403, 404, or `role_forbidden`,
+  which the owner never gets from an honest server) pushes `RotationBlocked` and sets the same flag; nothing returns silently. A revocation that
+  `process_revocations` could not complete in a run always leaves `RotationBlocked` in the report, which the desktop and the phone show.
+- **Old marks.** Every run clears an access-lost mark on a vault the account owns (`clear_owner_access_lost`), and the owner gates of the rotation
+  and revocation steps no longer test that mark. A member's mark stays.
+- **Lag by generation.** A peer checkpoint entry with a key generation above the one this device holds for the vault is lag (same grace, same
+  warnings). No dedicated finding: the existing `FreezeSuspected` and `MissingFiles` carry it, and a second finding type would need its own
+  screens on every client for no extra information. CRYPTO_SPEC 10 states the rule.
+- **Phone.** The phone shows `RotationBlocked` and any stored sharing finding as one generic `SharingAttention` warning (DE and EN strings, both
+  apps). Its acknowledgement keeps a snapshot of the sharing findings of the last overview and clears the sharing findings only when all of them are
+  in it, in one session step.
+
+### Consequences
+A server can no longer make an owner device forget a revocation by one answer. It can still refuse the rotation request itself: that is visible on
+every run. A server that withholds all peer checkpoints from a device hides the generation evidence (R56, R68). Tests: `refusal_tests` in
+`crates/sync` and `acknowledge_keeps_sharing_findings_the_phone_never_showed` in `crates/mobile`. THREAT_MODEL R154, R155, R156.

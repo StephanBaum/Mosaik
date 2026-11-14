@@ -347,6 +347,20 @@ impl Store {
         Ok(n > 0)
     }
 
+    /// Forgets that the server refused this device the vault. Returns
+    /// whether a mark was cleared.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn clear_access_lost(&mut self, vault_id: &VaultId) -> Result<bool> {
+        let n = self.conn.execute(
+            "UPDATE vault_sharing SET access_lost_at = NULL
+             WHERE vault_id = ?1 AND access_lost_at IS NOT NULL",
+            params![vault_id.as_bytes()],
+        )?;
+        Ok(n > 0)
+    }
+
     /// How many shared vaults this device still has access to (rows without
     /// `access_lost_at`). A backend change is refused while there are any.
     ///

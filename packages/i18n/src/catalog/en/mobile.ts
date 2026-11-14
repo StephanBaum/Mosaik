@@ -195,6 +195,8 @@ export const mobile = {
     "The server showed this phone different data than another device. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
   "mobile.sync.warning.serverRollback":
     "The server's copy of one of your vaults is older than this phone's. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+  "mobile.sync.warning.sharingAttention":
+    "A shared vault needs attention: a key change is waiting, or a member could not be checked. Open Mosaic on your computer to see which one. Then choose “I've checked”.",
   "mobile.sync.warning.undecryptable":
     "{count, plural, one {# received item} other {# received items}} couldn't be read on this phone. Update Mosaic on all your devices, then sync again.",
   "mobile.sync.warning.accountRollback":

@@ -1607,6 +1607,10 @@ public enum L10n {
         NSLocalizedString("mobile.sync.warning.serverRollback", bundle: .main, comment: "")
     }
 
+    public static func syncWarningSharingAttention() -> String {
+        NSLocalizedString("mobile.sync.warning.sharingAttention", bundle: .main, comment: "")
+    }
+
     public static func syncWarningUndecryptable(count: Int) -> String {
         String(format: NSLocalizedString("mobile.sync.warning.undecryptable", bundle: .main, comment: ""), locale: .current, arguments: [count])
     }

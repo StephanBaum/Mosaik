@@ -409,6 +409,7 @@
   <string name="mobile_sync_warning_rollbackDetected">Deine Sync-Daten wirken älter als dieses Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.</string>
   <string name="mobile_sync_warning_serverInconsistent">Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.</string>
   <string name="mobile_sync_warning_serverRollback">Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.</string>
+  <string name="mobile_sync_warning_sharingAttention">Bei einem geteilten Tresor ist etwas offen: Ein Schlüsselwechsel wartet, oder ein Mitglied konnte nicht geprüft werden. Öffne Mosaic auf deinem Computer, um zu sehen, was es ist. Wähle dann „Ich habe es geprüft“.</string>
   <plurals name="mobile_sync_warning_undecryptable">
     <item quantity="one">%1$d empfangener Eintrag konnte auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.</item>
     <item quantity="other">%1$d empfangene Einträge konnten auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.</item>

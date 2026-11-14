@@ -236,6 +236,7 @@ impl Core {
                 last_sync_at_ms: None,
                 last_sync_error: None,
                 sync_warnings: Vec::new(),
+                shown_sharing: Vec::new(),
                 secret_key_stored,
                 signed_in,
                 pending: Pending::default(),

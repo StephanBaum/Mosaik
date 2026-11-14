@@ -378,6 +378,7 @@ unit_enum!(SyncWarningKind <=> m::SyncWarningKind {
     ServerRollback,
     Undecryptable,
     AccountRollback,
+    SharingAttention,
 });
 record!(SyncWarning <=> m::SyncWarning {
     kind: SyncWarningKind,
