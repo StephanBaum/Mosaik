@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
+use super::agent;
 use super::attachments::{self, AttachmentAdded, AttachmentSaved};
 use super::browser::{
     self, BrowserCloseReason, BrowserEndpointState, BrowserFamily, BrowserHint,
@@ -386,7 +387,24 @@ fn item_commands(f: &mut Fixtures, item_request: ItemRequest) {
                     ..items::samples::draft()
                 },
             })
+            .chain([UpdateItemRequest {
+                vault_id: ids::vault(1),
+                item_id: ids::item(1),
+                draft: items::ItemDraft {
+                    agent_bindings: vec![agent::samples::basic_change()],
+                    ..items::samples::draft()
+                },
+            }])
             .collect(),
+        vec![items::samples::detail()],
+    );
+    f.command(
+        "agent_binding_confirm",
+        vec![agent::AgentBindingConfirmRequest {
+            vault_id: ids::vault(1),
+            item_id: ids::item(1),
+            element_id: "b2".into(),
+        }],
         vec![items::samples::detail()],
     );
     f.command(
@@ -1402,6 +1420,8 @@ fn enums() -> Map<String, Value> {
         ("sshDecision", values(SshDecision::ALL)),
         ("sshCloseReason", values(SshCloseReason::ALL)),
         ("sshOrigin", values(SshOrigin::ALL)),
+        ("agentInjectKind", values(agent::AgentInjectKind::ALL)),
+        ("agentBasicUserKind", values(agent::AgentBasicUserKind::ALL)),
         ("browserEndpointState", values(BrowserEndpointState::ALL)),
         ("browserRegistryState", values(BrowserRegistryState::ALL)),
         ("browserFamily", values(BrowserFamily::ALL)),

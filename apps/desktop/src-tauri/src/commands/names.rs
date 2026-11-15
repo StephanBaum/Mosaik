@@ -45,6 +45,7 @@ pub const COMMANDS: &[&str] = &[
     "restore_item",
     "purge_item",
     "move_item",
+    "agent_binding_confirm",
     // Attachments
     "attachment_add",
     "attachment_preview",

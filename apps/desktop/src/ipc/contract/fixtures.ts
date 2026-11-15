@@ -9,6 +9,8 @@ import type { AppEvent } from "./events.ts";
 
 /** String enums whose value lists the parity test compares in both directions. */
 export interface EnumFixtures {
+  agentInjectKind: string[];
+  agentBasicUserKind: string[];
   biometricPlatformKind: string[];
   errorCode: string[];
   quickUnlockKind: string[];

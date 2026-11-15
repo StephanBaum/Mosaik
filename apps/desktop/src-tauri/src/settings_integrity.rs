@@ -84,6 +84,7 @@ fn adopt_file(stored: &mut StoredState, file: StoredState, valid: bool, ssh_off:
             ..wanted
         };
         stored.ssh_agent_enabled = file.ssh_agent_enabled && !ssh_off;
+        stored.agent_access_enabled = file.agent_access_enabled;
         return Checked {
             invalid: false,
             notice: false,
@@ -93,9 +94,11 @@ fn adopt_file(stored: &mut StoredState, file: StoredState, valid: bool, ssh_off:
     // asked for something weaker or for the SSH agent.
     let strict = stricter_than_default(&stored.settings);
     let notice = !same_protection(&crate::persist::normalize(file.settings), &strict)
-        || file.ssh_agent_enabled;
+        || file.ssh_agent_enabled
+        || file.agent_access_enabled;
     stored.settings = strict;
     stored.ssh_agent_enabled = false;
+    stored.agent_access_enabled = false;
     if let Some(account) = stored.account.as_mut() {
         account.email = None;
         account.kit_verified = false;

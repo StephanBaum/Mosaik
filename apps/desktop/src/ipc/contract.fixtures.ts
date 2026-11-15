@@ -43,6 +43,7 @@ export const fixtures = {
     "restore_item",
     "purge_item",
     "move_item",
+    "agent_binding_confirm",
     "attachment_add",
     "attachment_preview",
     "attachment_save",
@@ -157,6 +158,17 @@ export const fixtures = {
     "emergency_claim"
   ],
   "enums": {
+    "agentBasicUserKind": [
+      "literal",
+      "field",
+      "secretIsUser"
+    ],
+    "agentInjectKind": [
+      "bearer",
+      "header",
+      "basic",
+      "query"
+    ],
     "attemptStage": [
       "prepared",
       "delivered"
@@ -332,6 +344,15 @@ export const fixtures = {
       "browserAllowTooSoon",
       "browserPairingNotFound",
       "browserHostMissing",
+      "agentOriginInvalid",
+      "agentBindingInvalid",
+      "agentValueUnusable",
+      "agentVaultShared",
+      "agentAccessOff",
+      "agentRequestExpired",
+      "agentAllowTooSoon",
+      "agentPairingNotFound",
+      "agentEndpointUnavailable",
       "syncNotConfigured",
       "syncAlreadyConfigured",
       "syncServerUnreachable",
@@ -984,6 +1005,33 @@ export const fixtures = {
       "code": "browserHostMissing"
     },
     {
+      "code": "agentOriginInvalid"
+    },
+    {
+      "code": "agentBindingInvalid"
+    },
+    {
+      "code": "agentValueUnusable"
+    },
+    {
+      "code": "agentVaultShared"
+    },
+    {
+      "code": "agentAccessOff"
+    },
+    {
+      "code": "agentRequestExpired"
+    },
+    {
+      "code": "agentAllowTooSoon"
+    },
+    {
+      "code": "agentPairingNotFound"
+    },
+    {
+      "code": "agentEndpointUnavailable"
+    },
+    {
       "code": "syncNotConfigured"
     },
     {
@@ -1560,6 +1608,49 @@ export const fixtures = {
     "add_item": [
       {
         "draft": {
+          "agentBindings": [
+            {
+              "env": null,
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "bearer",
+                "queryName": null
+              },
+              "op": "add",
+              "origins": [
+                "api.example.com"
+              ]
+            },
+            {
+              "elementId": "b1",
+              "env": "EXAMPLE_API_KEY",
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "query",
+                "queryName": "key"
+              },
+              "op": "update",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            {
+              "elementId": "b1",
+              "op": "remove"
+            }
+          ],
           "customFields": [
             {
               "kind": "hidden",
@@ -1634,6 +1725,13 @@ export const fixtures = {
           ]
         },
         "kind": "login",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "agent_binding_confirm": [
+      {
+        "elementId": "b2",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
     ],
@@ -2777,6 +2875,49 @@ export const fixtures = {
     "update_item": [
       {
         "draft": {
+          "agentBindings": [
+            {
+              "env": null,
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "bearer",
+                "queryName": null
+              },
+              "op": "add",
+              "origins": [
+                "api.example.com"
+              ]
+            },
+            {
+              "elementId": "b1",
+              "env": "EXAMPLE_API_KEY",
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "query",
+                "queryName": "key"
+              },
+              "op": "update",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            {
+              "elementId": "b1",
+              "op": "remove"
+            }
+          ],
           "customFields": [
             {
               "kind": "hidden",
@@ -2855,6 +2996,49 @@ export const fixtures = {
       },
       {
         "draft": {
+          "agentBindings": [
+            {
+              "env": null,
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "bearer",
+                "queryName": null
+              },
+              "op": "add",
+              "origins": [
+                "api.example.com"
+              ]
+            },
+            {
+              "elementId": "b1",
+              "env": "EXAMPLE_API_KEY",
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "query",
+                "queryName": "key"
+              },
+              "op": "update",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            {
+              "elementId": "b1",
+              "op": "remove"
+            }
+          ],
           "customFields": [
             {
               "kind": "hidden",
@@ -2935,6 +3119,49 @@ export const fixtures = {
       },
       {
         "draft": {
+          "agentBindings": [
+            {
+              "env": null,
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "bearer",
+                "queryName": null
+              },
+              "op": "add",
+              "origins": [
+                "api.example.com"
+              ]
+            },
+            {
+              "elementId": "b1",
+              "env": "EXAMPLE_API_KEY",
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "query",
+                "queryName": "key"
+              },
+              "op": "update",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            {
+              "elementId": "b1",
+              "op": "remove"
+            }
+          ],
           "customFields": [
             {
               "kind": "hidden",
@@ -2963,6 +3190,107 @@ export const fixtures = {
           ],
           "otp": {
             "op": "remove"
+          },
+          "secrets": [
+            {
+              "field": "password",
+              "value": "n3w-pa55word"
+            }
+          ],
+          "sshKey": {
+            "op": "set",
+            "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----"
+          },
+          "tags": [
+            "work"
+          ],
+          "text": [
+            {
+              "field": "title",
+              "value": "GitHub"
+            },
+            {
+              "field": "notes",
+              "value": null
+            }
+          ],
+          "urls": [
+            {
+              "allowHttp": false,
+              "matchMode": "exactOrigin",
+              "op": "add",
+              "url": "https://github.com"
+            },
+            {
+              "allowHttp": false,
+              "elementId": "3-019a2b3c4d5e7000",
+              "matchMode": "etld1",
+              "op": "update",
+              "url": "https://github.com/login"
+            },
+            {
+              "elementId": "6-019a2b3c4d5e7000",
+              "op": "remove"
+            }
+          ]
+        },
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "draft": {
+          "agentBindings": [
+            {
+              "env": null,
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": {
+                  "kind": "literal",
+                  "value": "api"
+                },
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "basic",
+                "queryName": null
+              },
+              "op": "add",
+              "origins": [
+                "https://api.example.com"
+              ]
+            }
+          ],
+          "customFields": [
+            {
+              "kind": "hidden",
+              "label": "PIN",
+              "op": "add",
+              "value": "1234"
+            },
+            {
+              "elementId": "4-019a2b3c4d5e7000",
+              "kind": "email",
+              "label": "Recovery email",
+              "op": "update",
+              "value": "alex@example.org"
+            },
+            {
+              "elementId": "5-019a2b3c4d5e7000",
+              "kind": "hidden",
+              "label": "PIN code",
+              "op": "update",
+              "value": null
+            },
+            {
+              "elementId": "7-019a2b3c4d5e7000",
+              "op": "remove"
+            }
+          ],
+          "otp": {
+            "op": "set",
+            "uri": "otpauth://totp/GitHub:alex?secret=JBSWY3DPEHPK3PXP&issuer=GitHub"
           },
           "secrets": [
             {
@@ -3129,6 +3457,210 @@ export const fixtures = {
     ],
     "add_item": [
       {
+        "agentBindings": [
+          {
+            "confirmed": true,
+            "elementId": "b1",
+            "env": "EXAMPLE_API_KEY",
+            "field": {
+              "field": "apiKeySecret",
+              "kind": "field"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": null,
+              "headerPrefix": null,
+              "kind": "bearer",
+              "queryName": null
+            },
+            "lastConfirmed": null,
+            "origins": [
+              "https://api.example.com"
+            ],
+            "usable": true
+          },
+          {
+            "confirmed": false,
+            "elementId": "b2",
+            "env": null,
+            "field": {
+              "elementId": "c1",
+              "kind": "customField"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": "X-Api-Key",
+              "headerPrefix": "",
+              "kind": "header",
+              "queryName": null
+            },
+            "lastConfirmed": {
+              "inject": "bearer",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            "origins": [
+              "https://api.example.com",
+              "https://eu.example.com:8443"
+            ],
+            "usable": false
+          }
+        ],
+        "attachments": [
+          {
+            "addedAt": 1800000000000,
+            "attachmentId": "019a2b3c-4d5e-7040-8000-000000000001",
+            "available": true,
+            "fileName": "recovery-codes.txt",
+            "mime": "text/plain",
+            "previewable": false,
+            "size": 512
+          }
+        ],
+        "changeUrl": {
+          "source": "wellKnown",
+          "url": "https://example.com/.well-known/change-password"
+        },
+        "createdAt": 1761400000000,
+        "customFields": [
+          {
+            "elementId": "4-019a2b3c4d5e7000",
+            "kind": "email",
+            "label": "Recovery email",
+            "value": "alex@example.org"
+          },
+          {
+            "elementId": "5-019a2b3c4d5e7000",
+            "kind": "hidden",
+            "label": "PIN",
+            "value": null
+          }
+        ],
+        "history": [
+          {
+            "changedAt": 1761480100000,
+            "historyId": "00000000000000a2.0123456789abcdef.0",
+            "index": 0,
+            "reason": "unconfirmed"
+          },
+          {
+            "changedAt": 1761400000000,
+            "historyId": "00000000000000a0.0123456789abcdef.0",
+            "index": 1,
+            "reason": "replaced"
+          }
+        ],
+        "historyCount": 2,
+        "otp": {
+          "digits": 6,
+          "hardwareProtected": false,
+          "issuer": "GitHub",
+          "period": 30,
+          "scheme": "totp"
+        },
+        "passkey": null,
+        "review": {
+          "conflictCopyOf": null,
+          "conflictingFields": 0,
+          "deletedConcurrently": false
+        },
+        "rotationAttempts": [
+          {
+            "attemptId": "00000000000000a1.0123456789abcdef.0",
+            "stage": "prepared",
+            "startedAt": 1761480000000
+          }
+        ],
+        "rotationPolicy": 90,
+        "secrets": [
+          "password"
+        ],
+        "sshKey": null,
+        "summary": {
+          "favorite": true,
+          "hasOtp": true,
+          "host": "github.com",
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+          "kind": "login",
+          "modifiedAt": 1761480000000,
+          "needsReview": false,
+          "subtitle": "alex@example.com",
+          "tags": [
+            "work"
+          ],
+          "title": "GitHub",
+          "trashedAt": null,
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+        },
+        "text": [
+          {
+            "field": "username",
+            "value": "alex@example.com"
+          }
+        ],
+        "urls": [
+          {
+            "allowHttp": false,
+            "elementId": "3-019a2b3c4d5e7000",
+            "matchMode": "exactOrigin",
+            "url": "https://github.com/login"
+          }
+        ]
+      }
+    ],
+    "agent_binding_confirm": [
+      {
+        "agentBindings": [
+          {
+            "confirmed": true,
+            "elementId": "b1",
+            "env": "EXAMPLE_API_KEY",
+            "field": {
+              "field": "apiKeySecret",
+              "kind": "field"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": null,
+              "headerPrefix": null,
+              "kind": "bearer",
+              "queryName": null
+            },
+            "lastConfirmed": null,
+            "origins": [
+              "https://api.example.com"
+            ],
+            "usable": true
+          },
+          {
+            "confirmed": false,
+            "elementId": "b2",
+            "env": null,
+            "field": {
+              "elementId": "c1",
+              "kind": "customField"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": "X-Api-Key",
+              "headerPrefix": "",
+              "kind": "header",
+              "queryName": null
+            },
+            "lastConfirmed": {
+              "inject": "bearer",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            "origins": [
+              "https://api.example.com",
+              "https://eu.example.com:8443"
+            ],
+            "usable": false
+          }
+        ],
         "attachments": [
           {
             "addedAt": 1800000000000,
@@ -3241,6 +3773,56 @@ export const fixtures = {
     "attachment_add": [
       {
         "item": {
+          "agentBindings": [
+            {
+              "confirmed": true,
+              "elementId": "b1",
+              "env": "EXAMPLE_API_KEY",
+              "field": {
+                "field": "apiKeySecret",
+                "kind": "field"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": null,
+                "headerPrefix": null,
+                "kind": "bearer",
+                "queryName": null
+              },
+              "lastConfirmed": null,
+              "origins": [
+                "https://api.example.com"
+              ],
+              "usable": true
+            },
+            {
+              "confirmed": false,
+              "elementId": "b2",
+              "env": null,
+              "field": {
+                "elementId": "c1",
+                "kind": "customField"
+              },
+              "inject": {
+                "basicUser": null,
+                "headerName": "X-Api-Key",
+                "headerPrefix": "",
+                "kind": "header",
+                "queryName": null
+              },
+              "lastConfirmed": {
+                "inject": "bearer",
+                "origins": [
+                  "https://api.example.com"
+                ]
+              },
+              "origins": [
+                "https://api.example.com",
+                "https://eu.example.com:8443"
+              ],
+              "usable": false
+            }
+          ],
           "attachments": [
             {
               "addedAt": 1800000000000,
@@ -3350,6 +3932,56 @@ export const fixtures = {
     ],
     "attachment_remove": [
       {
+        "agentBindings": [
+          {
+            "confirmed": true,
+            "elementId": "b1",
+            "env": "EXAMPLE_API_KEY",
+            "field": {
+              "field": "apiKeySecret",
+              "kind": "field"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": null,
+              "headerPrefix": null,
+              "kind": "bearer",
+              "queryName": null
+            },
+            "lastConfirmed": null,
+            "origins": [
+              "https://api.example.com"
+            ],
+            "usable": true
+          },
+          {
+            "confirmed": false,
+            "elementId": "b2",
+            "env": null,
+            "field": {
+              "elementId": "c1",
+              "kind": "customField"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": "X-Api-Key",
+              "headerPrefix": "",
+              "kind": "header",
+              "queryName": null
+            },
+            "lastConfirmed": {
+              "inject": "bearer",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            "origins": [
+              "https://api.example.com",
+              "https://eu.example.com:8443"
+            ],
+            "usable": false
+          }
+        ],
         "attachments": [
           {
             "addedAt": 1800000000000,
@@ -3843,6 +4475,56 @@ export const fixtures = {
     ],
     "get_item": [
       {
+        "agentBindings": [
+          {
+            "confirmed": true,
+            "elementId": "b1",
+            "env": "EXAMPLE_API_KEY",
+            "field": {
+              "field": "apiKeySecret",
+              "kind": "field"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": null,
+              "headerPrefix": null,
+              "kind": "bearer",
+              "queryName": null
+            },
+            "lastConfirmed": null,
+            "origins": [
+              "https://api.example.com"
+            ],
+            "usable": true
+          },
+          {
+            "confirmed": false,
+            "elementId": "b2",
+            "env": null,
+            "field": {
+              "elementId": "c1",
+              "kind": "customField"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": "X-Api-Key",
+              "headerPrefix": "",
+              "kind": "header",
+              "queryName": null
+            },
+            "lastConfirmed": {
+              "inject": "bearer",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            "origins": [
+              "https://api.example.com",
+              "https://eu.example.com:8443"
+            ],
+            "usable": false
+          }
+        ],
         "attachments": [
           {
             "addedAt": 1800000000000,
@@ -3945,6 +4627,56 @@ export const fixtures = {
         ]
       },
       {
+        "agentBindings": [
+          {
+            "confirmed": true,
+            "elementId": "b1",
+            "env": "EXAMPLE_API_KEY",
+            "field": {
+              "field": "apiKeySecret",
+              "kind": "field"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": null,
+              "headerPrefix": null,
+              "kind": "bearer",
+              "queryName": null
+            },
+            "lastConfirmed": null,
+            "origins": [
+              "https://api.example.com"
+            ],
+            "usable": true
+          },
+          {
+            "confirmed": false,
+            "elementId": "b2",
+            "env": null,
+            "field": {
+              "elementId": "c1",
+              "kind": "customField"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": "X-Api-Key",
+              "headerPrefix": "",
+              "kind": "header",
+              "queryName": null
+            },
+            "lastConfirmed": {
+              "inject": "bearer",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            "origins": [
+              "https://api.example.com",
+              "https://eu.example.com:8443"
+            ],
+            "usable": false
+          }
+        ],
         "attachments": [],
         "changeUrl": {
           "source": "wellKnown",
@@ -4017,6 +4749,56 @@ export const fixtures = {
         "urls": []
       },
       {
+        "agentBindings": [
+          {
+            "confirmed": true,
+            "elementId": "b1",
+            "env": "EXAMPLE_API_KEY",
+            "field": {
+              "field": "apiKeySecret",
+              "kind": "field"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": null,
+              "headerPrefix": null,
+              "kind": "bearer",
+              "queryName": null
+            },
+            "lastConfirmed": null,
+            "origins": [
+              "https://api.example.com"
+            ],
+            "usable": true
+          },
+          {
+            "confirmed": false,
+            "elementId": "b2",
+            "env": null,
+            "field": {
+              "elementId": "c1",
+              "kind": "customField"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": "X-Api-Key",
+              "headerPrefix": "",
+              "kind": "header",
+              "queryName": null
+            },
+            "lastConfirmed": {
+              "inject": "bearer",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            "origins": [
+              "https://api.example.com",
+              "https://eu.example.com:8443"
+            ],
+            "usable": false
+          }
+        ],
         "attachments": [],
         "changeUrl": null,
         "createdAt": 1761400000000,
@@ -7448,6 +8230,56 @@ export const fixtures = {
     ],
     "update_item": [
       {
+        "agentBindings": [
+          {
+            "confirmed": true,
+            "elementId": "b1",
+            "env": "EXAMPLE_API_KEY",
+            "field": {
+              "field": "apiKeySecret",
+              "kind": "field"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": null,
+              "headerPrefix": null,
+              "kind": "bearer",
+              "queryName": null
+            },
+            "lastConfirmed": null,
+            "origins": [
+              "https://api.example.com"
+            ],
+            "usable": true
+          },
+          {
+            "confirmed": false,
+            "elementId": "b2",
+            "env": null,
+            "field": {
+              "elementId": "c1",
+              "kind": "customField"
+            },
+            "inject": {
+              "basicUser": null,
+              "headerName": "X-Api-Key",
+              "headerPrefix": "",
+              "kind": "header",
+              "queryName": null
+            },
+            "lastConfirmed": {
+              "inject": "bearer",
+              "origins": [
+                "https://api.example.com"
+              ]
+            },
+            "origins": [
+              "https://api.example.com",
+              "https://eu.example.com:8443"
+            ],
+            "usable": false
+          }
+        ],
         "attachments": [
           {
             "addedAt": 1800000000000,

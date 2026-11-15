@@ -20,6 +20,7 @@ import type {
   VaultSummary,
   ReauthPurpose,
 } from "../contract/index.ts";
+import type { MockAgent } from "./agent.ts";
 import type { MockBrowser } from "./browser.ts";
 import type { MockCredRotation } from "./credentialRotation.ts";
 import type { MockRotation } from "./rotation.ts";
@@ -113,6 +114,8 @@ export interface MockState {
   /** The Emergency Kit check passed. */
   kitVerified: boolean;
   sshEnabled: boolean;
+  /** Agent access (`mock/agent.ts`): the setting and the bindings. */
+  agent: MockAgent;
   /** The browser extension endpoint (`mock/browser.ts`). */
   browser: MockBrowser;
   /** Sync (`mock/sync.ts`): the backend, its status, warnings and devices. */

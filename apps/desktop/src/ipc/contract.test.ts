@@ -7,6 +7,8 @@ import { catalogs, type MessageKey } from "@mosaic/i18n";
 import { describe, expect, it } from "vitest";
 import { fixtures } from "./contract.fixtures.ts";
 import {
+  agentBasicUserKinds,
+  agentInjectKinds,
   attemptStages,
   binaryCommands,
   breachModes,
@@ -101,6 +103,8 @@ describe("contract parity with Rust", () => {
   });
 
   const enums: { [K in keyof EnumFixtures]: readonly string[] } = {
+    agentInjectKind: agentInjectKinds,
+    agentBasicUserKind: agentBasicUserKinds,
     biometricPlatformKind: biometricPlatformKinds,
     errorCode: errorCodes,
     rotationKind: rotationKinds,

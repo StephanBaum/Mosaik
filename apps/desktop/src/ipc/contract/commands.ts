@@ -4,6 +4,7 @@
  * `src-tauri/src/commands/names.rs`. `subscribe_events` is not here: its argument is a
  * Channel, and `MosaicIpc.subscribe` wraps it.
  */
+import type { AgentBindingConfirmRequest } from "./agent.ts";
 import type { AttachmentAdded, AttachmentRequest, AttachmentSaved } from "./attachments.ts";
 import type {
   BrowserPairingRespondRequest,
@@ -185,6 +186,7 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   restore_item: Command<ItemRequest, null>;
   purge_item: Command<ItemRequest, null>;
   move_item: Command<MoveItemRequest, MovedItem>;
+  agent_binding_confirm: Command<AgentBindingConfirmRequest, ItemDetail>;
   // Attachments
   attachment_add: Command<ItemRequest, AttachmentAdded>;
   /** Binary response: `[width u32 LE][height u32 LE][width * height * 4 RGBA bytes]`. */
@@ -340,6 +342,7 @@ const commandSet = {
   restore_item: true,
   purge_item: true,
   move_item: true,
+  agent_binding_confirm: true,
   attachment_add: true,
   attachment_preview: true,
   attachment_save: true,

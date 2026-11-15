@@ -11,6 +11,7 @@ import type {
   TextFieldKey,
   UrlChange,
 } from "../contract/index.ts";
+import { applyBindings, viewOf } from "./agent.ts";
 import { passwordChanged, pushHistory, refreshDetail } from "./credentialRotation.ts";
 import { MOCK_SSH_SUMMARY } from "./data.ts";
 import { requireFreshReauth } from "./quickUnlock.ts";
@@ -224,6 +225,7 @@ function applyDraft(state: MockState, item: MockItem, draft: ItemDraft): void {
   refreshDetail(item);
   applyCustomFields(item, draft.customFields);
   applySshKey(item, draft);
+  applyBindings(state, item, draft.agentBindings ?? []);
   if (draft.tags !== null) {
     summary.tags = draft.tags;
   }
@@ -267,6 +269,7 @@ function newItem(state: MockState, request: AddItemRequest): MockItem {
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: null,
       passkey: null,
+      agentBindings: [],
     },
     secrets: {},
     history: [],
@@ -290,14 +293,14 @@ export const itemHandlers: MockHandlers = {
     const item = newItem(state, request);
     applyDraft(state, item, request.draft);
     state.items.push(item);
-    return item.detail;
+    return viewOf(state, item);
   },
 
   update_item: (state, request) => {
     requireUnlocked(state);
     const item = findItem(state, request);
     applyDraft(state, item, request.draft);
-    return item.detail;
+    return viewOf(state, item);
   },
 
   list_items: (state, request) => {
@@ -309,7 +312,7 @@ export const itemHandlers: MockHandlers = {
 
   get_item: (state, request) => {
     requireUnlocked(state);
-    return findItem(state, request).detail;
+    return viewOf(state, findItem(state, request));
   },
 
   reveal_secret: (state, request) => {

@@ -75,6 +75,7 @@ import {
   type ShortcutState,
   type VaultMetaField,
 } from "./contract/index.ts";
+import { agentHandlers, defaultAgent } from "./mock/agent.ts";
 import { announceMetaDropped, appHandlers } from "./mock/app.ts";
 import {
   browserHandlers,
@@ -211,6 +212,7 @@ const handlers: MockHandlers = {
   ...settingsHandlers,
   ...insightHandlers,
   ...sshHandlers,
+  ...agentHandlers,
   ...browserHandlers,
   ...syncHandlers,
   ...rotationHandlers,
@@ -477,6 +479,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     unlocked: start === "unlocked",
     kitVerified: start !== "noAccount" && options.kitUnverified !== true,
     sshEnabled: false,
+    agent: defaultAgent(),
     browser: seededBrowser(options, now),
     rotation: seedRotation(options.rotation ?? {}),
     sharing: seedSharing(options.sharing),
