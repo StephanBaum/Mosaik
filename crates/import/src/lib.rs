@@ -62,6 +62,7 @@ mod entries;
 mod error;
 mod json;
 mod lastpass;
+mod nordpass;
 mod otp;
 mod passkey;
 mod preview;

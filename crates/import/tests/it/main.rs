@@ -5,6 +5,7 @@ mod csv_presets;
 mod formats;
 mod lastpass;
 mod mosaic_export;
+mod nordpass;
 mod passkeys;
 mod properties;
 mod redteam;

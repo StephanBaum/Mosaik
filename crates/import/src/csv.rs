@@ -71,6 +71,9 @@ pub enum CsvPreset {
     /// secure notes use the URL `http://sn`.
     // unverified against a current export (launch gate)
     LastPass,
+    /// `NordPass`: `name,url,additional_urls,username,password,note,...,type,custom_fields`.
+    // unverified against a current export (launch gate)
+    NordPass,
     /// RoboForm: `Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2`.
     // unverified against a current export (launch gate)
     RoboForm,
@@ -116,6 +119,17 @@ fn detect_preset(header: &[&str]) -> Option<CsvPreset> {
         Some(CsvPreset::Firefox)
     } else if has(&["url", "username", "password", "extra", "name", "grouping"]) {
         Some(CsvPreset::LastPass)
+    } else if has(&[
+        "name",
+        "url",
+        "username",
+        "password",
+        "note",
+        "folder",
+        "type",
+        "cardnumber",
+    ]) {
+        Some(CsvPreset::NordPass)
     } else if has(&["name", "url", "matchurl", "login", "pwd"]) {
         Some(CsvPreset::RoboForm)
     } else if has(&["group", "title", "username", "password", "url", "notes"]) {
@@ -211,6 +225,13 @@ pub fn parse(input: &[u8], mapping: Option<&CsvMapping>) -> Result<Import> {
         let builder = match preset {
             Some(CsvPreset::LastPass) => {
                 crate::lastpass::entry(&Named::new(&header, &names, &row), &row, mapping)
+            }
+            Some(CsvPreset::NordPass) => {
+                match crate::nordpass::entry(&Named::new(&header, &names, &row)) {
+                    Some(b) => b,
+                    // A folder row is not an entry.
+                    None => continue,
+                }
             }
             _ => entry(&row, mapping, preset),
         };

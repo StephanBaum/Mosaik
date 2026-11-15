@@ -461,6 +461,21 @@ impl Builder {
         }
     }
 
+    /// Sets the first and last name from a full name: the last word is the
+    /// last name, the words before it the first name (one word is a first
+    /// name).
+    pub(crate) fn full_name(&mut self, value: &str) {
+        let words: Vec<&str> = value.split_whitespace().collect();
+        match words.split_last() {
+            None => {}
+            Some((last, first)) if !first.is_empty() => {
+                self.text(TextField::FirstName, &first.join(" "), "First name");
+                self.text(TextField::LastName, last, "Last name");
+            }
+            Some((only, _)) => self.text(TextField::FirstName, only, "First name"),
+        }
+    }
+
     /// Sets the title (a second title becomes a custom field).
     pub(crate) fn title(&mut self, value: &str) {
         // Invisible and direction-changing characters could make the title
@@ -1069,6 +1084,20 @@ mod tests {
             .collect();
         assert_eq!(values, ["ftp://files.example", "my bank"]);
         assert!(w.contains(&EntryWarning::UrlKeptAsText));
+    }
+
+    #[test]
+    fn full_name_splits_at_the_last_word() {
+        let mut b = Builder::new(ItemType::Identity);
+        b.full_name("Maria de la Cruz");
+        let (d, _) = b.finish().unwrap();
+        assert_eq!(d.text(TextField::FirstName), Some("Maria de la"));
+        assert_eq!(d.text(TextField::LastName), Some("Cruz"));
+        let mut b = Builder::new(ItemType::Identity);
+        b.full_name("Cher");
+        let (d, _) = b.finish().unwrap();
+        assert_eq!(d.text(TextField::FirstName), Some("Cher"));
+        assert_eq!(d.text(TextField::LastName), None);
     }
 
     #[test]
