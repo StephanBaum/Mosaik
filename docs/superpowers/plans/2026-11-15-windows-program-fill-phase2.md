@@ -12,6 +12,22 @@
 
 **Base:** branch `feat/program-fill` after phase 1 Task 7 (the shim and `WindowsProbe` exist, the manual phase 1 checklist passed). Same worktree `C:/Users/Stephan/Documents/DEV/Mosaic/.claude/worktrees/progfill`.
 
+
+> **Owner decision 2026-11-15 (overrides ADR-0158 Q2 for WebView2): "also webview2 apps should work."**
+> Content rendered by WebView2 (`msedgewebview2.exe`) for a host program counts as that host program's own
+> content, so new Teams and other WebView2 apps get offers. Conditions, all required and all tested:
+> (1) the focused element's process is `msedgewebview2.exe` and its WebView2 browser process was started by the
+> host program (walk the parent chain from the renderer to the browser process to the host; the PIDs and start
+> times are re-verified before each write, like the program itself); (2) the host program is signed or packaged
+> (an unsigned host is refused, no two-confirmation path); (3) the host is not a browser (Edge, Chrome, Firefox,
+> etc. stay refused; the extension covers them); (4) the binding stays exe plus signer of the **host**, never the
+> WebView2 runtime. Record it as an amendment to ADR-0158 Q2 in Task 1 (ADR-0164 or the amendment section), widen
+> R174 to "Electron, CEF and WebView2 programs that render remote web content receive the linked login when that
+> content has focus", and add tests for: host signed and WebView2 child → offer; unsigned host → refused;
+> browser host → refused; WebView2 process not descended from the focused host → refused; host replaced between
+> offer and write → refused. Task 13's Teams check now expects a chip on the new Teams sign-in fields (the AAD
+> broker window stays `Broker`).
+
 ## Global Constraints
 
 - `#![forbid(unsafe_code)]` everywhere except `crates/winshim`; new shim code follows ADR-0157 D2 exactly (`unsafe` only in `sys*` modules, one operation per block, `// SAFETY:` on each, safe public API without `unsafe fn`, raw pointers, raw handles or `windows` types, a test per public function, `scripts/check-unsafe-confined.sh` passes).
@@ -126,7 +142,7 @@ Alternatives considered: one picker window with `set_focusable` toggling (not ve
 - R171: a same-user process synthesises input (SendInput, posted messages) into the chip and list; WebView2 input arrives in the webview process, so Mosaic cannot tell injected from hardware input. It can pick a login offered for the focused program or walk the link flow after the guards and link any login to a program it controls. Accepted (P5, like R45); narrowed by the checks of ADR-0164.
 - R172: while the list is open, any same-user UIA client can read its titles, user names, vault names and hosts (search results in the link flow included); never a secret; the window is excluded from screen capture. Accepted.
 - R173: typed characters pass through the Windows input queue, where low-level keyboard hooks of same-user processes see them, and Windows' own copies are not zeroized. Accepted, as a user typing.
-- R174: Electron and CEF programs that render remote web content in their own process receive the linked login when that content has focus (Q2 refuses only foreign-process content). Accepted (spec §6.4).
+- R174: Electron, CEF and WebView2 programs that render remote web content (in their own process, or in a WebView2 process descended from the signed host) receive the linked login when that content has focus. Accepted (spec §6.4; owner decision 2026-11-15 for WebView2).
 - R175: an abort after part of the password was typed leaves those characters in the field when focus already moved (Mosaic clears only the same field) and delivers at most one batch (8 units) to whatever took focus before the check saw it. Accepted.
 - R176: the block list is outside the settings MAC; an outside edit can remove entries so Mosaic offers logins again where the user said no (it never fills without a pick). Accepted.
 
@@ -1117,7 +1133,7 @@ git commit -m "feat(desktop): program fill settings, first-unlock card and progr
 
 - [ ] **Step 1: Write the checklist** in `docs/PROGRAM_FILL.md`, each item with its expected result; run with `pnpm tauri dev` (a debug build) and record each result (pass / fail / observed) in PROGRESS:
 - [ ] **Slack** (Electron, signed): first sign-in screen; chip at the e-mail field; link a login (one confirmation, "Signed by Slack Technologies"); pick → e-mail typed, Enter; the password step gets the password via the continuation and Enter, once. Second visit: single match preselected, one Enter.
-- [ ] **Microsoft Teams** (new Teams on WebView2) and its sign-in window: expected `ForeignContent` (no chip) for WebView2 content (ADR-0158 Q2) and `Broker` for the AAD broker window; record which windows behave how (owner input for a Q2 follow-up).
+- [ ] **Microsoft Teams** (new Teams on WebView2) and its sign-in window: expected a chip on the sign-in fields (WebView2 content of the signed Teams host, owner decision 2026-11-15) and `Broker` for the AAD broker window; record which windows behave how.
 - [ ] **A Java/Swing app** (for example a `jpackage` demo or JMeter): no chip; the hotkey shows "Mosaic can't see a login field here".
 - [ ] **An Electron app with a plain login form** (for example a local test app from `%TEMP%` built with Electron, or Discord): chip, link, fill both fields, Enter; Chromium accessibility cost: VS Code with one folder open and a heavy page in Edge, measured with the ADR-0157 Step 4 method (closes the ADR's Open item; over 5 % CPU or 150 MB → D3's opt-in applies and is a bug for this task).
 - [ ] **An elevated installer or any program run as administrator**: no chip; the hotkey shows the administrator notice; nothing typed.
