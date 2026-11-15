@@ -23,6 +23,7 @@
 mod account;
 mod blobs;
 mod devices;
+pub mod hint;
 pub(crate) mod fsutil;
 mod init;
 mod layout;
