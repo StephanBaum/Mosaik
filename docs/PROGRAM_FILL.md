@@ -75,7 +75,7 @@ Run each item with `cargo run -p mosaic-program-fill --example probe`, focus a
 field within the 5 s wait, and record the result in `docs/PROGRESS.md`. The
 automated tests of the shim and the probe run without a person
 (`cargo test -p mosaic-winshim -p mosaic-program-fill`); the interactive ones are
-`#[ignore]` (`cargo test -p mosaic-winshim -p mosaic-program-fill -- --ignored`
+`#[ignore]` and opt-in: set `MOSAIC_MANUAL_TESTS=1` and run (`cargo test -p mosaic-winshim -p mosaic-program-fill -- --ignored`
 with a text field focused).
 
 - [ ] Notepad (packaged on Windows 11, Win32 on 10): package binding or signed
@@ -112,7 +112,7 @@ with a text field focused).
       reaches the owner.
 - [ ] A file signed under a root that is only in the per-user store
       (`HKCU\Software\Microsoft\SystemCertificates\Root`, added through the
-      registry store provider): `cargo test -p mosaic-winshim -- --ignored user_only`
+      registry store provider): `MOSAIC_MANUAL_TESTS=1 cargo test -p mosaic-winshim -- --ignored user_only`
       with `MOSAIC_USER_ROOT_SIGNED` set to the file; the capture says
       `InvalidSignature`. Remove the certificate afterwards.
 - [ ] A program started from a mapped network drive or a UNC path: `NetworkImage`.

@@ -457,6 +457,10 @@ mod tests {
     #[test]
     #[ignore = "interactive desktop: docs/PROGRAM_FILL.md checklist"]
     fn the_focused_field_is_captured_and_verified() {
+        // Manual checklist only: CI runs ignored tests in release, so opt in explicitly.
+        if std::env::var_os("MOSAIC_MANUAL_TESTS").is_none() {
+            return;
+        }
         let probe = WindowsProbe::new().unwrap();
         let captured = probe.capture_focused(0).unwrap();
         let write = match captured.session.target_kind {

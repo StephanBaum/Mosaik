@@ -179,6 +179,10 @@ fn a_uia_client_starts_and_stops_on_a_worker_thread() {
 #[test]
 #[ignore = "interactive desktop: docs/PROGRAM_FILL.md checklist"]
 fn uia_reads_the_focused_element() {
+    // Manual checklist only: CI runs ignored tests in release, so opt in explicitly.
+    if std::env::var_os("MOSAIC_MANUAL_TESTS").is_none() {
+        return;
+    }
     let uia = Uia::new(2000, 2000).unwrap();
     let element = uia.focused(soon()).unwrap().expect("something has focus");
     let facts = element.facts();
@@ -312,6 +316,10 @@ fn clients_started_at_the_same_time_all_start() {
 #[test]
 #[ignore = "needs a file signed under a root only in the per-user store: docs/PROGRAM_FILL.md checklist"]
 fn a_signature_rooted_in_a_user_only_store_is_untrusted() {
+    // Manual checklist only: CI runs ignored tests in release, so opt in explicitly.
+    if std::env::var_os("MOSAIC_MANUAL_TESTS").is_none() {
+        return;
+    }
     // `MOSAIC_USER_ROOT_SIGNED` is a file whose signature `WinVerifyTrust`
     // accepts only because its root is in `HKCU\...\SystemCertificates\Root`.
     let path = std::env::var("MOSAIC_USER_ROOT_SIGNED").expect("set MOSAIC_USER_ROOT_SIGNED");
