@@ -108,7 +108,10 @@ class AutofillTestKit(private val instrumentation: Instrumentation) {
     fun showClientAndFocusUsername() {
         val dialog = dismissCrashDialog()
         shell("settings put secure autofill_service $service")
-        val start = "am start -n $clientPackage/${AutofillClientActivity::class.java.name}"
+        // NEW_TASK | CLEAR_TASK (0x10008000): always a fresh activity through onCreate. The client runs in this test
+        // APK's own process, which has no Kotlin stdlib of its own (it is deduplicated against the app), so code paths
+        // with Kotlin null checks such as onNewIntent(Intent) crash there (NoClassDefFoundError: Intrinsics).
+        val start = "am start -f 0x10008000 -n $clientPackage/${AutofillClientActivity::class.java.name}"
         shell(start)
         var field = waitFor(10_000) { findText("client-username") }
         if (field == null) {
