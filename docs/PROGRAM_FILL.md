@@ -2,7 +2,7 @@
 
 Design notes for phase 1 and the manual Windows checklist. Decisions: ADR-0157
 (vetting, the `mosaic-winshim` exception) and ADR-0158 (program identity and
-binding). Threats: `docs/THREAT_MODEL.md` §4.10, R154, R155.
+binding). Threats: `docs/THREAT_MODEL.md` §4.10, R177, R178.
 
 ## Phase 1 scope
 
