@@ -181,7 +181,11 @@ fn login(b: &mut Builder, content: Option<&Json>) -> &'static [&'static str] {
 
 fn card(b: &mut Builder, content: Option<&Json>) -> &'static [&'static str] {
     let get = |key: &str| content.and_then(|c| c.str(key)).unwrap_or_default();
-    b.text(TextField::CardholderName, get("cardholderName"), "Cardholder");
+    b.text(
+        TextField::CardholderName,
+        get("cardholderName"),
+        "Cardholder",
+    );
     b.text(TextField::CardBrand, get("cardType"), "Card type");
     b.secret(SecretField::CardNumber, get("number"), "Number");
     b.secret(
@@ -219,7 +223,11 @@ fn identity(b: &mut Builder, content: Option<&Json>) -> &'static [&'static str] 
         ("streetAddress", TextField::AddressLine1, "Street address"),
         ("city", TextField::City, "City"),
         ("stateOrProvince", TextField::Region, "State or province"),
-        ("zipOrPostalCode", TextField::PostalCode, "Zip or postal code"),
+        (
+            "zipOrPostalCode",
+            TextField::PostalCode,
+            "Zip or postal code",
+        ),
         ("countryOrRegion", TextField::Country, "Country or region"),
     ] {
         b.text(field, get(key), label);

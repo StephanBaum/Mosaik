@@ -1,6 +1,6 @@
 //! Content-based detection of the export format.
 
-#![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "tests")]
+#![expect(clippy::indexing_slicing, clippy::too_many_lines, reason = "tests")]
 
 use mosaic_import::{Detected, Error, Format, Source, detect, parse};
 
@@ -17,7 +17,11 @@ fn is(bytes: &[u8], format: Format, source: Source) {
 
 #[test]
 fn detects_every_format_from_content() {
-    is(&fixture("aes-argon2d.kdbx"), Format::Keepass, Source::KeePass);
+    is(
+        &fixture("aes-argon2d.kdbx"),
+        Format::Keepass,
+        Source::KeePass,
+    );
     is(
         &zip_of(&[("export.data", &fixture("1pux-export.data.json"))]),
         Format::OnePassword,
@@ -43,7 +47,11 @@ fn detects_every_format_from_content() {
         Format::ProtonPass,
         Source::ProtonPass,
     );
-    is(&fixture("bitwarden.json"), Format::Bitwarden, Source::Bitwarden);
+    is(
+        &fixture("bitwarden.json"),
+        Format::Bitwarden,
+        Source::Bitwarden,
+    );
     is(
         br#"{"passwordProtected":true,"items":[]}"#,
         Format::Bitwarden,
@@ -58,7 +66,11 @@ fn detects_every_format_from_content() {
     );
     is(&fixture("enpass.json"), Format::Enpass, Source::Enpass);
     // A byte order mark and leading white space do not hide a JSON file.
-    is(b"\xef\xbb\xbf \n{\"records\":[]}", Format::Keeper, Source::Keeper);
+    is(
+        b"\xef\xbb\xbf \n{\"records\":[]}",
+        Format::Keeper,
+        Source::Keeper,
+    );
 
     let csv = [
         ("name,url,username,password,note", Source::Chromium),
@@ -71,12 +83,18 @@ fn detects_every_format_from_content() {
             "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp",
             Source::BitwardenCsv,
         ),
-        ("url,username,password,totp,extra,name,grouping,fav", Source::LastPass),
+        (
+            "url,username,password,totp,extra,name,grouping,fav",
+            Source::LastPass,
+        ),
         (
             "name,url,additional_urls,username,password,note,cardholdername,cardnumber,cvc,pin,expirydate,zipcode,folder,full_name,phone_number,email,address1,address2,city,country,state,type,custom_fields",
             Source::NordPass,
         ),
-        ("Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2", Source::RoboForm),
+        (
+            "Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2",
+            Source::RoboForm,
+        ),
         (
             "Group,Title,Username,Password,URL,Notes,TOTP,Icon,Last Modified,Created",
             Source::KeePassXcCsv,

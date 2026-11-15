@@ -1,11 +1,11 @@
 //! `LastPass` CSV: logins, secure notes and structured note types (synthetic
 //! file, written from public format descriptions).
 
-#![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "tests")]
+#![expect(clippy::assert_is_empty, clippy::indexing_slicing, reason = "tests")]
 
 use mosaic_core::model::{CustomFieldValue, ItemType, SecretField, TextField};
 use mosaic_import::csv::{CsvMapping, CsvPreset};
-use mosaic_import::{EntryWarning, Format, parse};
+use mosaic_import::{EntryWarning, Format, Import, parse};
 
 use crate::support::{draft, entry, labels, secret, tags, urls};
 
@@ -17,7 +17,16 @@ fn q(s: &str) -> String {
 }
 
 #[expect(clippy::too_many_arguments, reason = "one argument per column")]
-fn row(url: &str, user: &str, pw: &str, totp: &str, extra: &str, name: &str, group: &str, fav: &str) -> String {
+fn row(
+    url: &str,
+    user: &str,
+    pw: &str,
+    totp: &str,
+    extra: &str,
+    name: &str,
+    group: &str,
+    fav: &str,
+) -> String {
     format!(
         "{url},{user},{pw},{totp},{},{name},{group},{fav}\n",
         q(extra)
@@ -86,21 +95,29 @@ fn lastpass_export() {
     let import = parse(Format::Csv, export().as_bytes(), None).unwrap();
     assert_eq!(import.entries.len(), 7);
     assert!(import.skipped.is_empty());
+    check_login_and_notes(&import);
+    check_card(&import);
+    check_address(&import);
+    check_wifi_passport_and_scheme_only_url(&import);
+}
 
-    let d = draft(&import, 0);
+fn check_login_and_notes(import: &Import) {
+    let d = draft(import, 0);
     assert_eq!(d.item_type, ItemType::Login);
     assert!(d.otp.is_some());
     assert_eq!(d.text(TextField::Notes), Some("my note"));
     assert_eq!(tags(d), ["Work\\Dev"]);
     assert!(d.favorite);
 
-    let d = draft(&import, 1);
+    let d = draft(import, 1);
     assert_eq!(d.item_type, ItemType::SecureNote);
     assert_eq!(d.title(), Some("Plain note"));
     assert_eq!(d.text(TextField::Notes), Some("just text"));
     assert!(urls(d).is_empty());
+}
 
-    let d = draft(&import, 2);
+fn check_card(import: &Import) {
+    let d = draft(import, 2);
     assert_eq!(d.item_type, ItemType::CreditCard);
     assert_eq!(d.text(TextField::CardholderName), Some("Alice Doe"));
     assert_eq!(d.text(TextField::CardBrand), Some("Visa"));
@@ -109,27 +126,37 @@ fn lastpass_export() {
     assert_eq!(d.text(TextField::CardExpiry), Some("01/2030"));
     assert_eq!(d.text(TextField::Notes), Some("line1\nline2"));
     assert!(labels(d).is_empty());
+}
 
-    let e = entry(&import, 3);
+fn check_address(import: &Import) {
+    let e = entry(import, 3);
     assert_eq!(e.draft.item_type, ItemType::Identity);
     assert_eq!(e.draft.text(TextField::FirstName), Some("Alice"));
     assert_eq!(e.draft.text(TextField::Phone), Some("123"));
     assert_eq!(labels(&e.draft), ["Gender"]);
     assert!(e.warnings.contains(&EntryWarning::UnmappedFields));
+}
 
-    let d = draft(&import, 4);
+fn check_wifi_passport_and_scheme_only_url(import: &Import) {
+    let d = draft(import, 4);
     assert_eq!(d.item_type, ItemType::Wifi);
     assert_eq!(d.text(TextField::WifiSsid), Some("home"));
     assert_eq!(secret(d, SecretField::WifiPassword), "wifipw");
     assert_eq!(d.text(TextField::WifiSecurity), Some("WPA2"));
 
-    let d = draft(&import, 5);
+    let d = draft(import, 5);
     assert_eq!(d.item_type, ItemType::SecureNote);
     assert_eq!(labels(d), ["Number", "Name"]);
-    assert!(matches!(d.custom_fields[0].value, CustomFieldValue::Hidden(_)));
-    assert!(matches!(d.custom_fields[1].value, CustomFieldValue::Text(_)));
+    assert!(matches!(
+        d.custom_fields[0].value,
+        CustomFieldValue::Hidden(_)
+    ));
+    assert!(matches!(
+        d.custom_fields[1].value,
+        CustomFieldValue::Text(_)
+    ));
 
-    let e = entry(&import, 6);
+    let e = entry(import, 6);
     assert!(urls(&e.draft).is_empty());
     assert!(!e.warnings.contains(&EntryWarning::UrlKeptAsText));
 }

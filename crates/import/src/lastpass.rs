@@ -37,13 +37,12 @@ pub(crate) fn entry(n: &Named<'_>, row: &[Str], mapping: &CsvMapping) -> Builder
         return csv::entry(row, mapping, Some(CsvPreset::LastPass));
     }
     let extra = n.get("extra");
-    let mut b = match structured(extra) {
-        Some(s) => structured_entry(&s),
-        None => {
-            let mut b = Builder::new(ItemType::SecureNote);
-            b.notes(extra);
-            b
-        }
+    let mut b = if let Some(s) = structured(extra) {
+        structured_entry(&s)
+    } else {
+        let mut b = Builder::new(ItemType::SecureNote);
+        b.notes(extra);
+        b
     };
     b.title(n.get("name"));
     if !n.get("grouping").trim().is_empty() {
@@ -95,7 +94,9 @@ fn structured_entry(s: &Structured<'_>) -> Builder {
     for (key, value) in &s.fields {
         let v = value.as_str();
         // Blank values (`,` and white space only) carry nothing.
-        if *key == "Language" || v.trim_matches(|c: char| c == ',' || c.is_whitespace()).is_empty()
+        if *key == "Language"
+            || v.trim_matches(|c: char| c == ',' || c.is_whitespace())
+                .is_empty()
         {
             continue;
         }
@@ -193,8 +194,6 @@ fn phone(v: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    #![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "tests")]
-
     use super::*;
 
     #[test]

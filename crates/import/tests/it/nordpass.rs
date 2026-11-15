@@ -1,7 +1,7 @@
 //! `NordPass` CSV: item types, additional URLs and custom fields (synthetic
 //! file, written from public format descriptions).
 
-#![expect(clippy::unwrap_used, reason = "tests")]
+#![expect(clippy::assert_is_empty, reason = "tests")]
 
 use mosaic_core::model::{CustomFieldValue, ItemType, SecretField, TextField};
 use mosaic_import::csv::{CsvMapping, CsvPreset};
@@ -16,7 +16,10 @@ fn row(pairs: &[(&str, &str)]) -> String {
     HEADER
         .split(',')
         .map(|col| {
-            let v = pairs.iter().find(|(c, _)| *c == col).map_or("", |(_, v)| *v);
+            let v = pairs
+                .iter()
+                .find(|(c, _)| *c == col)
+                .map_or("", |(_, v)| *v);
             format!("\"{}\"", v.replace('"', "\"\""))
         })
         .collect::<Vec<_>>()
@@ -81,7 +84,10 @@ fn nordpass_export() {
     assert_eq!(d.item_type, ItemType::Login);
     assert_eq!(urls(d), ["https://a.example", "https://b.example"]);
     assert_eq!(labels(d), ["PIN"]);
-    assert!(matches!(d.custom_fields[0].value, CustomFieldValue::Hidden(_)));
+    assert!(matches!(
+        d.custom_fields[0].value,
+        CustomFieldValue::Hidden(_)
+    ));
     assert_eq!(tags(d), ["Work"]);
 
     assert_eq!(draft(&import, 1).item_type, ItemType::SecureNote);

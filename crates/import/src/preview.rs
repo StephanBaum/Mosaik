@@ -194,9 +194,7 @@ const fn summary_warning(w: EntryWarning) -> Option<ImportWarning> {
     match w {
         EntryWarning::UnmappedFields
         | EntryWarning::UnknownCategory
-        | EntryWarning::UrlKeptAsText => {
-            Some(ImportWarning::UnmappedFields)
-        }
+        | EntryWarning::UrlKeptAsText => Some(ImportWarning::UnmappedFields),
         EntryWarning::AttachmentTooLarge
         | EntryWarning::AttachmentMissing
         | EntryWarning::AttachmentQuota => Some(ImportWarning::AttachmentsSkipped),

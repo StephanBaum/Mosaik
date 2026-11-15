@@ -51,7 +51,7 @@ pub enum Source {
     NordPass,
     /// Proton Pass (zip, JSON or PGP-encrypted).
     ProtonPass,
-    /// RoboForm CSV.
+    /// `RoboForm` CSV.
     RoboForm,
     /// A CSV file with a header row that matches no known product.
     Csv,
@@ -120,7 +120,8 @@ fn zip(input: &[u8]) -> Option<Detected> {
 fn object(input: &[u8]) -> Option<Detected> {
     let doc = json::parse(input).ok()?;
     let is_array = |key: &str| matches!(doc.get(key), Some(Json::Array(_)));
-    let (format, source) = if (doc.get("encrypted").is_some() || doc.get("passwordProtected").is_some())
+    let (format, source) = if (doc.get("encrypted").is_some()
+        || doc.get("passwordProtected").is_some())
         && is_array("items")
     {
         (Format::Bitwarden, Source::Bitwarden)

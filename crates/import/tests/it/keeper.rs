@@ -1,7 +1,7 @@
 //! Keeper JSON and CSV exports (synthetic files, written from public format
 //! descriptions).
 
-#![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "tests")]
+#![expect(clippy::assert_is_empty, reason = "tests")]
 
 use mosaic_core::model::{CustomFieldValue, ItemType, SecretField, TextField};
 use mosaic_import::{EntryWarning, Error, Format, SkipReason, SkippedEntry, parse};
@@ -67,7 +67,10 @@ fn keeper_json_errors() {
         parse(Format::Keeper, br#"{"records":5}"#, None).unwrap_err(),
         Error::Malformed
     );
-    assert_eq!(parse(Format::Keeper, b"[", None).unwrap_err(), Error::Malformed);
+    assert_eq!(
+        parse(Format::Keeper, b"[", None).unwrap_err(),
+        Error::Malformed
+    );
     let import = parse(Format::Keeper, br#"{"records":[1]}"#, None).unwrap();
     assert!(import.entries.is_empty());
     assert_eq!(
@@ -81,7 +84,8 @@ fn keeper_json_errors() {
 
 #[test]
 fn keeper_json_values_nested_deeper_are_dropped_with_a_warning() {
-    let json = br#"{"records":[{"title":"T","custom_fields":{"$text:A":[["x"]],"B":{"c":{"d":"e"}}}}]}"#;
+    let json =
+        br#"{"records":[{"title":"T","custom_fields":{"$text:A":[["x"]],"B":{"c":{"d":"e"}}}}]}"#;
     let import = parse(Format::Keeper, json, None).unwrap();
     assert!(
         entry(&import, 0)

@@ -1,8 +1,8 @@
 //! Integration tests of `mosaic-import`, built as one binary.
 
 mod commit;
-mod dashlane;
 mod csv_presets;
+mod dashlane;
 mod detect;
 mod formats;
 mod keeper;

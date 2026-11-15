@@ -1,8 +1,6 @@
 //! Dashlane CSV export: a zip of CSV files (synthetic, written from public
 //! format descriptions).
 
-#![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "tests")]
-
 use mosaic_core::model::{CustomFieldValue, ItemType, SecretField, TextField};
 use mosaic_import::csv::{CsvMapping, CsvPreset};
 use mosaic_import::{EntryWarning, Error, Format, parse};
@@ -32,7 +30,10 @@ fn archive() -> Vec<u8> {
         ("personalInfo.csv", personal.as_bytes()),
         ("ids.csv", ids.as_bytes()),
         ("payments.csv", payments.as_bytes()),
-        ("securenotes.csv", b"title,note,category\nMemo,body,Personal\n"),
+        (
+            "securenotes.csv",
+            b"title,note,category\nMemo,body,Personal\n",
+        ),
         ("credentials.csv", credentials().as_bytes()),
     ])
 }
@@ -61,8 +62,14 @@ fn dashlane_export() {
     assert_eq!(secret(d, SecretField::CardNumber), "4111111111111111");
 
     let d = draft(&import, 3);
-    let i = labels(d).iter().position(|l| *l == "Account number").unwrap();
-    assert!(matches!(d.custom_fields[i].value, CustomFieldValue::Hidden(_)));
+    let i = labels(d)
+        .iter()
+        .position(|l| *l == "Account number")
+        .unwrap();
+    assert!(matches!(
+        d.custom_fields[i].value,
+        CustomFieldValue::Hidden(_)
+    ));
 
     let d = draft(&import, 4);
     assert_eq!(secret(d, SecretField::PassportNumber), "X1234567");
@@ -72,7 +79,11 @@ fn dashlane_export() {
     assert_eq!(d.text(TextField::BirthDate), Some("1990-02-03"));
     assert_eq!(d.text(TextField::PostalCode), Some("12345"));
 
-    assert!(entry(&import, 6).warnings.contains(&EntryWarning::UnknownCategory));
+    assert!(
+        entry(&import, 6)
+            .warnings
+            .contains(&EntryWarning::UnknownCategory)
+    );
 }
 
 #[test]

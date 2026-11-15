@@ -853,7 +853,10 @@ impl Builder {
 /// `scheme://` and nothing else (for example `http://`).
 fn is_scheme_only(v: &str) -> bool {
     v.strip_suffix("://").is_some_and(|scheme| {
-        scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        scheme
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic())
             && scheme
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))

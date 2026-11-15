@@ -2,7 +2,7 @@
 //! Mosaic's own encrypted export ([`mosaic_export`]),
 //! FIDO CXF v1.0 JSON and CSV (brief §5 "Import/export"), plus the
 //! exports of Dashlane (zip of CSV), Keeper (JSON and CSV), Proton Pass
-//! (unencrypted), and the CSV presets of `LastPass`, `NordPass`, RoboForm,
+//! (unencrypted), and the CSV presets of `LastPass`, `NordPass`, `RoboForm`,
 //! `KeePassXC` and the browsers. [`detect`] tells the format from the file's
 //! content. The presets and formats added for onboarding were written from
 //! public format descriptions and are unverified against a current export

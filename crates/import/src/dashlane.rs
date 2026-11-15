@@ -56,7 +56,10 @@ pub fn parse(input: &[u8]) -> Result<Import> {
                 .next()
                 .unwrap_or_default()
                 .to_lowercase();
-            if file.ends_with(".csv") {
+            if std::path::Path::new(&file)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("csv"))
+            {
                 csvs.push((i, file));
             }
         }
@@ -165,16 +168,8 @@ fn payment(n: &Named<'_>) -> Builder {
             ] {
                 b.custom(label, Kind::Text, n.get(column));
             }
-            b.custom(
-                "Account number",
-                Kind::Hidden,
-                n.get("account number"),
-            );
-            b.custom(
-                "Routing number",
-                Kind::Hidden,
-                n.get("routing number"),
-            );
+            b.custom("Account number", Kind::Hidden, n.get("account number"));
+            b.custom("Routing number", Kind::Hidden, n.get("routing number"));
             rest(
                 &mut b,
                 n,
@@ -211,13 +206,7 @@ fn id(n: &Named<'_>) -> Builder {
     rest(
         &mut b,
         n,
-        &[
-            "type",
-            "number",
-            "name",
-            "issue date",
-            "expiration date",
-        ],
+        &["type", "number", "name", "issue date", "expiration date"],
     );
     b
 }

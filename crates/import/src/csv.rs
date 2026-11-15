@@ -78,7 +78,7 @@ pub enum CsvPreset {
     /// `username,username2,username3,title,password,note,url,category,otpSecret`.
     // unverified against a current export (launch gate)
     Dashlane,
-    /// RoboForm: `Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2`.
+    /// `RoboForm`: `Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2`.
     // unverified against a current export (launch gate)
     RoboForm,
     /// `KeePassXC`: `Group,Title,Username,Password,URL,Notes,TOTP,Icon,...`.
@@ -108,10 +108,7 @@ impl CsvMapping {
     /// lacks some of the columns detection looks for.
     pub(crate) fn for_preset(header: &[&str], preset: CsvPreset) -> Self {
         Self {
-            columns: header
-                .iter()
-                .map(|h| column_for(h, Some(preset)))
-                .collect(),
+            columns: header.iter().map(|h| column_for(h, Some(preset))).collect(),
         }
     }
 }
@@ -297,11 +294,7 @@ pub(crate) struct Named<'a> {
 
 impl<'a> Named<'a> {
     pub(crate) const fn new(labels: &'a [Str], names: &'a [String], row: &'a [Str]) -> Self {
-        Self {
-            labels,
-            names,
-            row,
-        }
+        Self { labels, names, row }
     }
 
     /// The value of the column named `name` (normalized), `""` if the
@@ -322,7 +315,7 @@ impl<'a> Named<'a> {
             .zip(self.names)
             .zip(self.row)
             .filter(move |((_, name), value)| {
-                !value.trim().is_empty() && !known.iter().any(|k| *k == name.as_str())
+                !value.trim().is_empty() && !known.contains(&name.as_str())
             })
             .map(|((label, _), value)| (label.as_str(), value.as_str()))
     }

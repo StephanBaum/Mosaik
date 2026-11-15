@@ -74,19 +74,12 @@ pub(crate) fn read_member(
 }
 
 /// The lowest member index whose name is UTF-8 and satisfies `pred`.
-pub(crate) fn find(
-    zip: &ZipArchive<Cursor<&[u8]>>,
-    pred: impl Fn(&str) -> bool,
-) -> Option<usize> {
-    (0..zip.len()).find(|&i| {
-        matches!(zip.name_for_index(i), Some(Ok(name)) if pred(&name))
-    })
+pub(crate) fn find(zip: &ZipArchive<Cursor<&[u8]>>, pred: impl Fn(&str) -> bool) -> Option<usize> {
+    (0..zip.len()).find(|&i| matches!(zip.name_for_index(i), Some(Ok(name)) if pred(&name)))
 }
 
 #[cfg(test)]
 mod tests {
-    #![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "tests")]
-
     use std::io::Write;
 
     use zip::CompressionMethod::{Deflated, Stored};
@@ -140,7 +133,10 @@ mod tests {
 
     #[test]
     fn find_skips_non_utf8_names_and_takes_the_lowest_index() {
-        let mut z = zip_of(&[(b"a/x.csv", b"1"), (b"QQ.csv", b"2"), (b"b/x.csv", b"3")], Stored);
+        let mut z = zip_of(
+            &[(b"a/x.csv", b"1"), (b"QQ.csv", b"2"), (b"b/x.csv", b"3")],
+            Stored,
+        );
         // Make the second member's name non-UTF-8 in both the local header
         // and the central directory.
         for w in 0..z.len().saturating_sub(2) {

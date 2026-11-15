@@ -1,7 +1,7 @@
 //! The CSV presets of other password managers (synthetic files, written from
 //! public format descriptions).
 
-#![expect(clippy::unwrap_used, clippy::indexing_slicing, reason = "tests")]
+#![expect(clippy::assert_is_empty, reason = "tests")]
 
 use mosaic_core::model::{CustomFieldValue, SecretField, TextField};
 use mosaic_import::csv::{CsvMapping, CsvPreset};
@@ -30,7 +30,10 @@ fn roboform_logins() {
     assert_eq!(d.text(TextField::Notes), Some("n1"));
     assert_eq!(tags(d), ["Work/Dev"]);
     assert_eq!(labels(d), ["RoboForm fields"]);
-    assert!(matches!(d.custom_fields[0].value, CustomFieldValue::Hidden(_)));
+    assert!(matches!(
+        d.custom_fields[0].value,
+        CustomFieldValue::Hidden(_)
+    ));
 }
 
 #[test]
@@ -53,7 +56,8 @@ fn keepassxc_csv() {
 #[test]
 fn header_drift_keeps_unknown_columns() {
     let header = format!("{ROBOFORM_HEADER},Rf_Extra");
-    let csv = format!("{header}\nGitHub,https://github.com,https://github.com/,alice,pw1,,,,kept\n");
+    let csv =
+        format!("{header}\nGitHub,https://github.com,https://github.com/,alice,pw1,,,,kept\n");
     assert_eq!(preset(&header), Some(CsvPreset::RoboForm));
     let import = parse(Format::Csv, csv.as_bytes(), None).unwrap();
     assert!(labels(draft(&import, 0)).contains(&"Rf_Extra"));

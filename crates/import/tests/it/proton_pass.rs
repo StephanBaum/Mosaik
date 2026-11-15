@@ -1,8 +1,6 @@
 //! Proton Pass export (synthetic file, written from public format
 //! descriptions).
 
-#![expect(clippy::unwrap_used, reason = "tests")]
-
 use mosaic_core::model::{ItemType, SecretField, TextField};
 use mosaic_import::{EntryWarning, Error, Format, parse};
 
@@ -43,9 +41,11 @@ fn zipped() -> Vec<u8> {
 fn proton_pass_zip_export() {
     let import = parse(Format::ProtonPass, &zipped(), None).unwrap();
     assert_eq!(import.entries.len(), 6);
-    for (i, vault) in ["Personal", "Personal", "Personal", "Personal", "Work", "Work"]
-        .iter()
-        .enumerate()
+    for (i, vault) in [
+        "Personal", "Personal", "Personal", "Personal", "Work", "Work",
+    ]
+    .iter()
+    .enumerate()
     {
         assert_eq!(tags(draft(&import, u32::try_from(i).unwrap())), [*vault]);
     }
@@ -87,7 +87,12 @@ fn proton_pass_raw_data_json_matches_the_zip() {
 #[test]
 fn proton_pass_encrypted_and_malformed() {
     assert_eq!(
-        parse(Format::ProtonPass, br#"{"encrypted":true,"vaults":{}}"#, None).unwrap_err(),
+        parse(
+            Format::ProtonPass,
+            br#"{"encrypted":true,"vaults":{}}"#,
+            None
+        )
+        .unwrap_err(),
         Error::Encrypted
     );
     assert_eq!(
