@@ -5111,7 +5111,7 @@ M10 brings Mosaic to Android and iOS (brief §2 and §10: "native autofill and p
   - The desktop "Set up a phone" setup code (ADR-0096).
 - **Out of scope**, each with its reason:
   - *Account creation on mobile.* It needs Argon2 calibration on the phone, the Emergency Kit PDF and its verification step. The app says "Create your account on a computer, then set up this phone." The `test-hooks` feature creates local accounts for tests only.
-  - *Folder sync.* Android has no path-based access to cloud folders (Storage Access Framework URIs, no atomic rename, no file locks). On iOS, iCloud Drive and File Provider folders need `NSFileCoordinator` downloads, which need a signed-in Apple ID on a device; CI has neither. Deferred to M10b (OD-M10-11). The app says "This account syncs through a folder. The phone apps support Mosaic sync for now."
+  - *Folder sync.* Android has no path-based access to cloud folders (Storage Access Framework URIs, no atomic rename, no file locks). On iOS, iCloud Drive and File Provider folders need `NSFileCoordinator` downloads, which need a signed-in Apple ID on a device; CI has neither. Deferred to M10b (OD-M10-11). The app says "This account syncs through a folder. The phone apps support Mosaic sync for now." Android: resolved by ADR-0162 (provider APIs, no SAF).
   - *Features that stay on the computer:*
     - sharing management and emergency access;
     - key or credential rotation, and re-key adoption (the fallback is "Set up this phone again", ADR-0091);
@@ -6227,3 +6227,96 @@ and Q3. The rules are pure and live in `crates/origin/src/program.rs`; the captu
 
 ### Consequences
 THREAT_MODEL §4.10. `crates/program-fill` (identity, policy, re-verification) builds on these rules.
+
+## ADR-0161: Folder setup code v2
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: Android folder sync (spec `docs/superpowers/specs/2026-11-15-android-folder-sync-design.md` §7)
+
+### Context
+The desktop setup code (ADR-0096, CRYPTO_SPEC §6.9.7) carries a server, an email and the Secret Key, so it only
+fits hosted accounts, and the desktop refuses to show it for a folder account. A free user whose desktop syncs
+through Dropbox, OneDrive or Nextcloud has to type the account ID, the provider, the folder and the Secret Key on
+the phone. A folder account has no server and no email, so it needs another body.
+
+### Decision
+A second code form, `mosaic-setup:2:` followed by unpadded base64url of a canonical JSON with seven members in a
+fixed order: `v` (2), `kind` (`folder`), `account` (32 lowercase hex), `provider` (`dropbox`, `onedrive`, `webdav`
+or `other`), `server` (a canonical `https` origin, non-empty exactly for `webdav`), `path` (a hint, strict path
+rules) and `sk` (the Secret Key display form). At most 1 024 bytes. The exact rules are in CRYPTO_SPEC §6.9.7. The
+v1 form and its parser stay as they are.
+
+- The code carries nothing secret that is not in a v1 code: the Secret Key was already there, and the account ID
+  and the path are visible to the provider (§12.1). It has no label and uses no primitive.
+- The desktop builds it only after re-authentication and shows it for 60 s, as for v1.
+- The path and the provider come from the desktop's provider client configuration (Dropbox `info.json`, the
+  `OneDrive*` variables, the Nextcloud client config). The hint is best effort: an unknown source gives `other`
+  and an empty path, and the phone asks the user to choose the folder.
+
+### Alternatives considered
+- **An optional member in v1.** Rejected: the v1 parser is strict (exactly four members), so an older phone would
+  refuse the code with a misleading error, and a strict parser is the point.
+- **Carrying an OAuth token in the code.** Rejected: a new secret in a QR code that a camera or a screenshot can
+  capture. The phone signs in to the provider itself.
+
+### Consequences
+The desktop shows the code for folder accounts. A wrong or hostile hint gains nothing: the join opens only an
+account file that the master password and the Secret Key unwrap, and the version rule refuses a re-planted
+wrapping (§10.1 "Joining"), while the newer file is visible; a withholding provider is R54. THREAT_MODEL R139 applies to the folder code too.
+
+## ADR-0162: Android folder sync through provider APIs
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: Android folder sync (spec `docs/superpowers/specs/2026-11-15-android-folder-sync-design.md`, with the
+  owner answers of 2026-11-15)
+
+### Context
+The phone apps support hosted accounts only (`folderAccountUnsupported`), so a free user, who syncs through their
+own cloud folder, cannot use the Android app. Android has no path-based access to Dropbox or OneDrive folders
+(spec §4). The folder format, MACs and join rules of CRYPTO_SPEC §10.1 stay as they are; no primitive is added.
+
+### Decision
+- **Rust HTTP stores, not SAF.** A `FolderStore` trait goes under `FolderTransport`; today's local file access
+  becomes `LocalStore` (no behaviour change). Remote stores for WebDAV, Dropbox API v2 and Microsoft Graph live in
+  `mosaic-sync` behind the feature `folder-remote`, over the existing blocking `reqwest` client with `rustls`. A
+  SAF store for local-sync apps is a possible phase 2 and not part of this decision.
+- **Full-access scopes, confined by our code** (owner answer 2): Dropbox Full Dropbox with
+  `files.metadata.read files.content.read files.content.write account_info.read`, Graph
+  `Files.ReadWrite offline_access`. Mosaic's code reaches only `root + RelPath`, a validated relative path type.
+- **No provider SDKs, no Play services, no `androidx.browser`.** The sign-in page opens with
+  `Intent.ACTION_VIEW` in the system browser (RFC 8252 external user agent), as the WebAuthn handoff does, not in
+  Custom Tabs.
+- **OAuth.** Redirect `io.github.stephanbaum.mosaic.oauth:/cb`, PKCE S256 with a fresh 32-byte verifier per
+  attempt and a 32-byte `state` compared in constant time with `subtle`. PKCE is RFC 7636 over SHA-256 and
+  `random(32)` from CRYPTO_SPEC §2, not a new construction. There is no client secret.
+- **Pending link.** The pending sign-in lives 5 minutes and follows the lifetime of the join slot; it is dropped
+  on lock.
+- **Client IDs** are compile-time `option_env!` values; an empty one means `folderProviderUnsupported`.
+- **Graph lists per directory** at launch (no `delta`).
+- **Revocation.** Unlink revokes what can be revoked: Dropbox `/2/auth/token/revoke`, Nextcloud
+  `DELETE /ocs/v2.php/core/apppassword`. Microsoft has no per-app revocation of consumer refresh tokens: the user
+  removes the app on the account page (R168).
+- **TLS 1.3 only** (owner answer 3, ADR-0046, ADR-0091), also for self-hosted WebDAV. A TLS 1.2 server gets
+  `folderServerTlsTooOld`.
+- **Google Drive is skipped** (owner answer 1): restricted-scope verification, an annual assessment and Play
+  services conflict with the rules above. iCloud Drive has no Android access.
+- **`quick-xml`** (already in `Cargo.lock` through `plist`) reads WebDAV `PROPFIND` answers; `subtle` (already in
+  the lock file) compares `state`. Neither adds a cryptographic primitive.
+- **Build order** (owner answer 4): WebDAV and Nextcloud, then Dropbox, then OneDrive.
+
+### Alternatives considered
+- **SAF through a Kotlin callback store for every provider.** Rejected: Dropbox, OneDrive and Google Drive expose
+  no usable tree (spec §4), and Rust-owned provider rules are written and host-tested once.
+- **App-folder scopes.** Rejected by the owner: an existing desktop folder would have to move, and Dropbox team
+  folders are out of reach.
+- **A provider SDK or MSAL.** Rejected: telemetry and proprietary code, and Play services.
+
+### Consequences
+- CRYPTO_SPEC §10.1 "Remote stores" lists the write and listing rules; §12.1 lists what a provider sees; §6.9.1
+  adds the `folder-credential/<account>` secure-storage entry.
+- A provider API answer is a hostile folder (R54): the MAC checks, the name parser, the caps and the own-log
+  rollback halt apply unchanged. The own-log check asks an authoritative `stat` before it halts, so a lagging
+  listing never causes a false halt.
+- New residual risks R166 to R170 in THREAT_MODEL §5.

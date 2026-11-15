@@ -49,6 +49,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Unicode normalization | NFC | UAX #15 | `unicode-normalization` |
 | TLS (client) | TLS 1.3 only, OS trust store | RFC 8446 | `rustls` with the `ring` provider, through `reqwest` blocking (ADR-0046); the server runs behind a reverse proxy that terminates TLS. Server verification: Windows, macOS, Linux and iOS through `rustls-platform-verifier`; **Android** through `rustls::client::WebPkiServerVerifier` over the system trust anchors that the platform's default trust manager accepts under the app's network security config, handed to Rust at start (`TlsTrust::Anchors`, §6.9.6, ADR-0091) |
 | Platform keystores (mobile, §6.2, §6.9.1, ADR-0090) | Android Keystore AES-256-GCM (StrongBox when available); iOS Keychain items and Secure Enclave P-256 ECIES (`eciesEncryptionCofactorX963SHA256AESGCM`) | — (OS facilities) | none: used through the OS APIs in Kotlin and Swift only. Rust supplies the AAD and decides what is stored, under which name and when it is deleted |
+| Provider sign-in (folder sync on the phone, §10.1 "Remote stores", ADR-0162) | OAuth code flow with PKCE S256: the verifier is base64url(`random(32)`), the challenge is its SHA-256, `state` is `random(32)` compared in constant time | RFC 7636, RFC 8252 | `sha2`, `base64ct`, `subtle`; no new primitive |
 | Release integrity (tooling, §17, ADR-0081) | Ed25519 over a BLAKE2b-512 prehash (minisign), SHA-256 manifests | — (minisign format) | the `minisign` CLI in the release job, never linked into Mosaic; Tauri updater artifacts through Tauri's own signer. `minisign-verify` (the updater's verifier) is **not a dependency until OD-M9-5** turns the in-app updater on; that decision needs its own ADR |
 
 Banned: OpenSSL bindings, `ring`-only APIs outside `rustls`, anything
@@ -719,6 +720,7 @@ read a secret to tell whether it is there.
 |---|---|---|---|
 | `secret-key/<account_id hex32>` | the 16-byte `SK`, raw | after a successful join | `reset_device`, account removal |
 | `sync-token/<account_id hex32>` | the 32-byte stored session token | after a login; replaced at each new login | sign-out, revocation (§9.5), `reset_device` |
+| `folder-credential/<account_id hex32>` | the encoded provider credential (a refresh token or an app password, ADR-0162) | after a provider sign-in; replaced at each refresh-token rotation (Graph) | `reset_device`, account removal, unlink, a new sign-in, `invalid_grant` |
 | `settings-key-hint` | reserved, not used in M10 | — | — |
 
 - **Android.** One Keystore key, alias `mosaic-secure-store`:
@@ -756,7 +758,7 @@ read a secret to tell whether it is there.
   The AutoFill extension has no access to this group and never needs `SK` or the token: it is given a
   `SecureStorage` that refuses every call (`contains` fails too, which the core reads as "not stored"). A
   device build whose `Info.plist` has no keychain group refuses to open the store (a configuration error).
-- Values cross the FFI under the rules of §6.9.5. Neither `SK` nor the token is ever shown to the platform as
+- Values cross the FFI under the rules of §6.9.5. Neither `SK` nor the token nor the folder credential is ever shown to the platform as
   text, logged, or written outside these places.
 
 #### 6.9.2 The boot rule and store v11
@@ -955,8 +957,28 @@ JSON       = {"v":1,"server":"<canonical origin>","email":"<normalized email>","
 - The code carries no master password, no session token and no key derived from either. It has no label and
   uses no primitive.
 - The desktop shows it only after re-authentication with the master password, for at most 60 s. It hides the
-  code on blur, on lock and when the time is up. It shows the code only for hosted accounts (THREAT_MODEL
-  R139).
+  code on blur, on lock and when the time is up. It shows the code for hosted and folder accounts (ADR-0161,
+  THREAT_MODEL R139).
+
+**Folder form (v2, ADR-0161).** A folder account has no server and no email, so it has its own form:
+```
+setup_code = "mosaic-setup:2:" || base64url_unpadded(JSON)
+JSON       = {"v":2,"kind":"folder","account":"<32 lowercase hex>","provider":"dropbox|onedrive|webdav|other","server":"<canonical origin or empty>","path":"<path hint or empty>","sk":"<SK display form, §5.2>"}
+```
+- The JSON is canonical: these seven members in this order, no whitespace, no other member. The whole code is at
+  most 1 024 bytes. `v == 2` and `kind == "folder"`.
+- `account` is the account ID as 32 lowercase hex characters (16 bytes).
+- `server` is non-empty exactly when `provider == "webdav"`, and then it passes `canonical_origin` with the
+  `https` scheme only.
+- `path` is empty, or it starts with `/`, has no empty, `.` or `..` component and no trailing `/`, is at most
+  512 bytes and contains no `"`, `\` or control character. It is a hint for the phone's folder picker; the join
+  still opens only an account file that the master password and the Secret Key unwrap (§10.1 "Joining").
+- `sk` is checked as for v1. The parser is as strict as for v1 and answers `setupCodeInvalid` for anything else.
+  A v1 prefix with a v2 body, and the other way round, are refused.
+- The phone shows the `server` origin and asks the user to confirm it before any provider sign-in, so a hostile code cannot send a user's credentials to an origin they did not expect.
+- The folder code carries no new secret: the account ID and the path are visible to the provider (§12.1). It has
+  no label and uses no primitive. The re-authentication, the 60 s lifetime and the zeroizing buffers are those of
+  v1.
 
 ## 7. Vaults and items
 
@@ -2551,6 +2573,33 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   overlap or disagree cannot both be complete, because a number is one file.
   An incomplete set marks only the numbers of its own verified parts.
 
+#### Remote stores (ADR-0162)
+
+The phone reaches the same folder through a provider API instead of a local directory. The folder format, the MACs
+and the join rules of this section do not change.
+
+- The phone reads and writes the same files as the desktops, through the provider's API. It is one more device of
+  the folder, bound by the single-writer rule: it writes only its own `d/<device>/`, `log/<device>/`, `.macct`
+  and `.mdel` files and write-once blobs.
+- Write-once names use the provider's conflict mode (Dropbox `add` with `strict_conflict`, Graph
+  `conflictBehavior=fail`, WebDAV `MOVE` with `Overwrite: F`; the temp names are own-device names that `folder_names::parse` rejects), never a check-then-write. A conflict has the same
+  result as an existing name on disk.
+- `head.mck` and `info.mdev` are replaced in one provider call, so a reader sees the old file or the new one.
+- The own-log rollback check counts a name as missing only when an authoritative `stat` (a direct metadata
+  request) says it is missing. A missing entry in a listing never counts: provider listings lag behind writes.
+  A `stat` that says "present" is not presence by itself: the file must then be read in full and verify. A read
+  that fails with a transport or provider error counts as present for at most 24 h from the first such run; after
+  that the run halts as a rollback. A provider that shows this device its own files while it withholds them from
+  other devices is detected only by those devices' lag warning (THREAT_MODEL R56).
+  A directory that a remote store cannot remove from an own segment name is stepped past, within the writer's
+  limit of 16 name attempts; beyond it the run fails closed.
+- The PKCE verifier, `state`, authorization code and access token are zeroizing and stay in Rust. The pending sign-in is dropped after 5 minutes and on lock.
+- A remote `remove` never deletes a directory, and it is conditional on the listed version.
+- Listing entries outside the root, and entries whose names fail `folder_names::parse`, are dropped. Provider
+  answers are bounded (bytes, entries, pages) and a hostile answer is a hostile folder (THREAT_MODEL R54, R170).
+- No log line, error or metric carries a path, a name or a provider message. The credential is a secret
+  of §6.9.1 and never leaves `mosaic-sync` except through the secure storage.
+
 ### 10.2 Hosted write rules
 
 - Per-record compare-and-swap on `server_seq` (`baseSeq`); a new record
@@ -2890,6 +2939,10 @@ desktop setup code (§6.9.7) is shown on a screen and never sent anywhere.
 | `ak_epoch` in `.macct` (clear header), re-key markers `.mrek` (epochs, new account version, writing device, time; MAC'd, no key material) | `.macct`, `.mrek` |
 | size of `info.mdev`: constant (573 bytes), so the length of a device name is not visible | `.mdev` (padded plaintext, §10.1) |
 | file creation and modification times | edit timing |
+| the API app that reads and writes the files (the Dropbox app key, the Entra client ID) | the OAuth grant, phone only |
+| the phone's IP address, and the time, count and size of every request of a sync run | provider request logs, phone only |
+| the OAuth grant and its scopes | the user's account page at the provider, phone only |
+| Nextcloud only: the app password's name `Mosaic (Android)` and its last use | the admin's device list, phone only |
 
 The provider, its admins and the other members of a shared folder can also
 delete, withhold or roll back files, and a provider's version history keeps
