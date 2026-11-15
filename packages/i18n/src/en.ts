@@ -12,6 +12,7 @@ import { generator } from "./catalog/en/generator.ts";
 import { clipboard } from "./catalog/en/clipboard.ts";
 import { insights } from "./catalog/en/insights.ts";
 import { importMessages } from "./catalog/en/import.ts";
+import { importGuide } from "./catalog/en/importGuide.ts";
 import { browser } from "./catalog/en/browser.ts";
 import { ssh } from "./catalog/en/ssh.ts";
 import { settings } from "./catalog/en/settings.ts";
@@ -39,6 +40,7 @@ export const en = {
   ...clipboard,
   ...insights,
   ...importMessages,
+  ...importGuide,
   ...ssh,
   ...browser,
   ...settings,
