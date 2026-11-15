@@ -30,14 +30,14 @@
 //! item gets its vault's name as a tag.
 
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 
 use mosaic_core::model::{ItemType, SecretField, TextField};
 use zip::ZipArchive;
-use zip::result::ZipError;
 
 use crate::Format;
-use crate::buf::{self, Buf};
+use crate::archive;
+use crate::buf::Buf;
 use crate::draft::{AttachmentBudget, Builder, EntryWarning, Kind};
 use crate::entries::{Collector, Import, SkipReason};
 use crate::error::{Error, Result};
@@ -59,13 +59,7 @@ pub fn parse(input: &[u8]) -> Result<Import> {
     if input.len() > crate::MAX_FILE_LEN {
         return Err(Error::TooLarge);
     }
-    // Bound the central directory before the zip crate reads it: every
-    // member needs one central directory header (`PK\x01\x02`).
-    let headers = input.windows(4).filter(|w| *w == b"PK\x01\x02").count();
-    if headers > MAX_ARCHIVE_MEMBERS {
-        return Err(Error::LimitExceeded);
-    }
-    let mut zip = ZipArchive::new(Cursor::new(input)).map_err(|_| Error::Malformed)?;
+    let mut zip = archive::open(input, MAX_ARCHIVE_MEMBERS)?;
     let data = member(&mut zip, "export.data", MAX_EXPORT_DATA_LEN)?.ok_or(Error::Malformed)?;
     let doc = json::parse(&data)?;
     drop(data);
@@ -98,30 +92,7 @@ fn member(zip: &mut ZipArchive<Cursor<&[u8]>>, name: &str, limit: usize) -> Resu
     let Some(index) = zip.index_for_name(name) else {
         return Ok(None);
     };
-    read_member(zip, index, limit).map(Some)
-}
-
-fn read_member(zip: &mut ZipArchive<Cursor<&[u8]>>, index: usize, limit: usize) -> Result<Buf> {
-    let file = zip.by_index(index).map_err(|e| match e {
-        ZipError::UnsupportedArchive(ZipError::PASSWORD_REQUIRED) => Error::Encrypted,
-        ZipError::UnsupportedArchive(_) | ZipError::CompressionMethodNotSupported(_) => {
-            Error::Unsupported
-        }
-        _ => Error::Malformed,
-    })?;
-    // zip 9.5 instantiates the decompressor lazily, so an unsupported method
-    // would otherwise only surface as a read error: check it up front.
-    if !matches!(
-        file.compression(),
-        zip::CompressionMethod::Stored | zip::CompressionMethod::Deflated
-    ) {
-        return Err(Error::Unsupported);
-    }
-    let hint = usize::try_from(file.size()).unwrap_or(limit);
-    // Read one byte past the limit so an oversized member is detected
-    // whatever size its header declares.
-    let reader = file.take(u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1));
-    buf::read_limited(reader, limit, hint.min(limit))
+    archive::read_member(zip, index, limit).map(Some)
 }
 
 /// The attachment files of the archive, looked up by document ID.
@@ -185,7 +156,7 @@ impl<'a> Files<'a> {
     }
 
     fn read(&mut self, index: usize) -> Result<Buf> {
-        read_member(&mut self.zip, index, mosaic_core::MAX_ATTACHMENT_LEN)
+        archive::read_member(&mut self.zip, index, mosaic_core::MAX_ATTACHMENT_LEN)
     }
 }
 

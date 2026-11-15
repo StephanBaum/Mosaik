@@ -3450,7 +3450,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-program-fill"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "mosaic-core",
  "mosaic-origin",
@@ -3598,7 +3598,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-winshim"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "tempfile",
  "thiserror 2.0.21",

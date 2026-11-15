@@ -54,6 +54,7 @@
 //! Mosaic is pre-audit.
 #![forbid(unsafe_code)]
 
+mod archive;
 mod buf;
 mod commit;
 mod draft;
