@@ -6387,8 +6387,9 @@ chip without taking focus.
   `NotOwnWindow`. No `unsafe fn`, no raw pointer, raw handle or `windows` type in a public signature.
 - **Features.** The added `windows =0.62.2` feature is `Win32_UI_Input_KeyboardAndMouse` (new). `Win32_System_Variant` was
   already enabled in phase 1. The focus handler uses `windows::core::implement` (the `windows-implement` crate is already in
-  the tree), so the only change to `Cargo.lock` is `zeroize` (workspace dependency) joining `mosaic-winshim` and
-  `mosaic-program-fill`.
+  the tree); its generated code names `::windows_core`, so `windows-core =0.62.2` (the version `windows` already pulls
+  in) becomes a direct dependency edge of the shim. The only changes to `Cargo.lock` are these edges and `zeroize`
+  (workspace dependency) joining `mosaic-winshim` and `mosaic-program-fill`; no new package.
 - **Input buffers.** `send_unicode` builds its `INPUT` records in a `Zeroizing<Vec<InputRecord>>` of exact capacity that is
   never grown, at most 16 UTF-16 units (32 records) per call; the typed password therefore never sits in a record that is
   not wiped. A longer slice is `TooLong`.
