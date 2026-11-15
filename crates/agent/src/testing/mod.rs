@@ -9,8 +9,9 @@ use std::path::Path;
 
 use mosaic_native_messaging::endpoint::{ChannelKind, Endpoint, new_windows_pipe_name_for};
 
-/// A fresh local agent endpoint for a test: a random pipe on Windows, `agent.sock` in `dir`
-/// (which must be a private directory) elsewhere.
+/// A fresh local agent endpoint for a test: a random pipe on Windows, `ep/agent.sock` under `dir`
+/// elsewhere. The `ep` subdirectory does not exist yet, so the listener creates it with mode 0700
+/// (a `tempfile` directory itself is created with the default mode, which the endpoint refuses).
 ///
 /// # Errors
 /// If the OS random generator fails.
@@ -20,7 +21,7 @@ pub fn local_endpoint(dir: &Path) -> Result<Endpoint, mosaic_native_messaging::E
             ChannelKind::Agent,
         )?))
     } else {
-        Ok(Endpoint::UnixSocket(dir.join("agent.sock")))
+        Ok(Endpoint::UnixSocket(dir.join("ep").join("agent.sock")))
     }
 }
 
