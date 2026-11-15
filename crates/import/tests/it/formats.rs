@@ -13,10 +13,11 @@
 use std::io::Write;
 
 use mosaic_core::SecretString;
-use mosaic_core::model::{CustomFieldValue, ItemType, OtpKind, SecretField, Text, TextField};
+use mosaic_core::model::{CustomFieldValue, ItemType, OtpKind, SecretField, TextField};
 use mosaic_import::csv::{CsvColumn, CsvMapping};
+use crate::support::{draft, entry, labels, secret, tags, urls};
 use mosaic_import::{
-    EntryWarning, Error, Format, Import, ImportEntry, ImportWarning, ItemDraft, SkipReason,
+    EntryWarning, Error, Format, Import, ImportWarning, ItemDraft, SkipReason,
     SkippedEntry, parse,
 };
 
@@ -26,30 +27,6 @@ fn fixture(name: &str) -> Vec<u8> {
         env!("CARGO_MANIFEST_DIR")
     ))
     .unwrap()
-}
-
-fn entry(import: &Import, index: u32) -> &ImportEntry {
-    import.entries.iter().find(|e| e.index == index).unwrap()
-}
-
-fn draft(import: &Import, index: u32) -> &ItemDraft {
-    &entry(import, index).draft
-}
-
-fn secret(d: &ItemDraft, f: SecretField) -> &str {
-    d.secret(f).unwrap().expose_secret()
-}
-
-fn labels(d: &ItemDraft) -> Vec<&str> {
-    d.custom_fields.iter().map(|c| c.label.as_str()).collect()
-}
-
-fn tags(d: &ItemDraft) -> Vec<&str> {
-    d.tags.iter().map(Text::as_str).collect()
-}
-
-fn urls(d: &ItemDraft) -> Vec<&str> {
-    d.urls.iter().map(Text::as_str).collect()
 }
 
 fn history(d: &ItemDraft) -> Vec<&str> {
