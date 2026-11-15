@@ -29,6 +29,7 @@ import { SharingFindings } from "../sharing/SharingFindings.tsx";
 import { useVaultSharing } from "../sharing/useVaultSharing.tsx";
 import { useVaultRotation } from "./useVaultRotation.tsx";
 import { BrowserConnectorBanner } from "../BrowserConnectorBanner.tsx";
+import { ProgramFillCard } from "../ProgramFillCard.tsx";
 import { MetaDroppedNotice } from "./MetaDroppedNotice.tsx";
 import { ListView } from "./ListView.tsx";
 import { CreateVaultDialog } from "./CreateVaultDialog.tsx";
@@ -127,6 +128,8 @@ function MainArea({
         <RotationResumeBanner />
         <MetaDroppedNotice vaults={vaults} onChanged={shell.changed} />
         <BrowserConnectorBanner />
+        {/* On the list of logins only: the first thing after an unlock, not on every screen. */}
+        {view === "vault" && <ProgramFillCard />}
       </div>
       {listing && (
         <ListView

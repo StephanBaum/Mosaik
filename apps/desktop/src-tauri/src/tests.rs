@@ -268,6 +268,71 @@ fn capability_grants_exactly_the_commands() {
     assert_eq!(granted, expected);
 }
 
+/// The picker windows (ADR-0164) have a capability of their own each, which grants exactly their
+/// picker commands, and no other window or capability grants a picker command.
+#[test]
+fn picker_capabilities_grant_exactly_the_picker_commands() {
+    use crate::commands::names::{CHIP_COMMANDS, LIST_COMMANDS};
+    let allow = |commands: &[&str]| -> Vec<String> {
+        commands
+            .iter()
+            .map(|c| format!("allow-{}", c.replace('_', "-")))
+            .collect()
+    };
+    for (text, window, commands) in [
+        (
+            include_str!("../capabilities/picker.json"),
+            "picker",
+            LIST_COMMANDS,
+        ),
+        (
+            include_str!("../capabilities/chip.json"),
+            "picker-chip",
+            CHIP_COMMANDS,
+        ),
+    ] {
+        let capability: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(capability["windows"], json!([window]));
+        assert!(
+            capability.get("remote").is_none(),
+            "no remote origin may invoke"
+        );
+        let granted: Vec<String> = capability["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(granted, allow(commands), "{window}");
+        for name in &granted {
+            for denied in [
+                "core",
+                "shell",
+                "fs",
+                "http",
+                "dialog",
+                "opener",
+                "clipboard",
+            ] {
+                assert!(!name.contains(denied), "{window} grants {name}");
+            }
+        }
+    }
+    // The main window grants no picker command.
+    let main: Value = serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
+    for permission in main["permissions"].as_array().unwrap() {
+        assert!(
+            !permission.as_str().unwrap().starts_with("allow-picker"),
+            "{permission}"
+        );
+    }
+    let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    assert_eq!(
+        config["app"]["security"]["capabilities"],
+        json!(["main", "picker", "chip"])
+    );
+}
+
 #[test]
 fn tauri_config_keeps_the_security_baseline() {
     let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
@@ -287,7 +352,7 @@ fn tauri_config_keeps_the_security_baseline() {
         assert!(!sources.contains(forbidden), "CSP allows {forbidden}");
     }
     assert_eq!(security["freezePrototype"], json!(true));
-    assert_eq!(security["capabilities"], json!(["main"]));
+    assert_eq!(security["capabilities"], json!(["main", "picker", "chip"]));
     assert_eq!(
         config["app"]["windows"][0]["contentProtected"],
         json!(true),
@@ -410,6 +475,70 @@ fn every_command_is_registered_and_allowed() {
         unknown.contains("not found") || unknown.contains("not allowed"),
         "{unknown}"
     );
+}
+
+/// Every picker command is registered, and each picker window is granted exactly its own
+/// commands (the real ACL, mock runtime): the list window reaches the list commands and the chip
+/// window the chip commands, and neither reaches the other's.
+#[test]
+fn every_picker_command_is_registered_and_allowed_for_its_window() {
+    use crate::commands::names::{CHIP_COMMANDS, LIST_COMMANDS};
+    let _kdf = crate::test_support::kdf_permit();
+    let app = tauri::test::mock_builder()
+        .invoke_handler(crate::commands::handler())
+        .build(crate::context())
+        .unwrap();
+    tauri::Manager::manage(&app, AppState::new(backend()));
+    let local = if cfg!(windows) {
+        "http://tauri.localhost"
+    } else {
+        "tauri://localhost"
+    };
+    let call = |webview: &tauri::WebviewWindow<tauri::test::MockRuntime>, cmd: &str| {
+        tauri::test::get_ipc_response(
+            webview,
+            tauri::webview::InvokeRequest {
+                cmd: cmd.into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: local.parse().unwrap(),
+                body: tauri::ipc::InvokeBody::Json(json!({})),
+                headers: tauri::http::HeaderMap::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_owned(),
+            },
+        )
+    };
+    let refused = |result: Result<_, Value>| {
+        result.err().is_some_and(|e| {
+            let text = e.to_string();
+            text.contains("not found") || text.contains("not allowed")
+        })
+    };
+    let picker = tauri::WebviewWindowBuilder::new(&app, "picker", tauri::WebviewUrl::default())
+        .build()
+        .unwrap();
+    let chip = tauri::WebviewWindowBuilder::new(&app, "picker-chip", tauri::WebviewUrl::default())
+        .build()
+        .unwrap();
+    // `picker_subscribe` needs a channel and is exercised by the surface tests of the windows.
+    for &cmd in LIST_COMMANDS.iter().filter(|c| **c != "picker_subscribe") {
+        assert!(!refused(call(&picker, cmd)), "list window: {cmd}");
+        if !CHIP_COMMANDS.contains(&cmd) {
+            assert!(
+                refused(call(&chip, cmd)),
+                "chip window must not reach {cmd}"
+            );
+        }
+    }
+    for &cmd in CHIP_COMMANDS.iter().filter(|c| **c != "picker_subscribe") {
+        assert!(!refused(call(&chip, cmd)), "chip window: {cmd}");
+        if !LIST_COMMANDS.contains(&cmd) {
+            assert!(
+                refused(call(&picker, cmd)),
+                "list window must not reach {cmd}"
+            );
+        }
+    }
 }
 
 /// Every command's request samples (the contract fixtures, as the webview

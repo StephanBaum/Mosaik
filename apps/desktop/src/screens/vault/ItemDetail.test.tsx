@@ -283,3 +283,133 @@ describe("detail fields by kind", () => {
     expect(screen.getByText("alex")).toBeTruthy();
   });
 });
+
+describe("program bindings in the item view", () => {
+  const web = {
+    elementId: "u1",
+    url: "https://slack.com",
+    matchMode: "exactOrigin",
+    allowHttp: false,
+    program: null,
+  } as const;
+  const binding = {
+    elementId: "u2",
+    url: "winapp://signed/slack.exe?signer=AAAA",
+    matchMode: "exactOrigin",
+    allowHttp: false,
+    program: { kind: "signed", name: "Slack", signer: "Slack Technologies", path: null, submit: true },
+  } as const;
+
+  /** Renders the rows with an IPC that records `update_item` and answers with `after`. */
+  function renderProgramRows(detail: Detail, after: Detail) {
+    const sent: unknown[] = [];
+    const base = createMockIpc({ start: "unlocked" });
+    const ipc = {
+      subscribe: (listener: Parameters<typeof base.subscribe>[0]) => base.subscribe(listener),
+      call: ((command: string, request: unknown) => {
+        if (command === "update_item") {
+          sent.push(request);
+          return Promise.resolve({ ok: true, value: after });
+        }
+        return base.call(command as never, request as never);
+      }) as typeof base.call,
+    };
+    const changed: Detail[] = [];
+    render(
+      <I18nProvider locale="en">
+        <IpcProvider ipc={ipc}>
+          <ToastProvider>
+            <SecretsProvider>
+              <DetailFields
+                detail={detail}
+                item={ITEM}
+                onDetail={(next) => {
+                  changed.push(next);
+                }}
+              />
+            </SecretsProvider>
+          </ToastProvider>
+        </IpcProvider>
+      </I18nProvider>,
+    );
+    return { sent, changed };
+  }
+
+  it("renders a program binding as a row with its submit switch and Unlink", async () => {
+    const detail = detailOf({ kind: "login", urls: [web, binding] });
+    const after = detailOf({ kind: "login", urls: [web] });
+    const { sent, changed } = renderProgramRows(detail, after);
+    // The website row stays a website; the binding is a program row, never an anchor.
+    expect(screen.getByText("https://slack.com")).toBeTruthy();
+    expect(screen.getByText("Slack")).toBeTruthy();
+    expect(screen.getByText("Signed by Slack Technologies")).toBeTruthy();
+    expect(screen.queryByText(/winapp:/)).toBeNull();
+    expect(document.querySelector("a")).toBeNull();
+    const user = userEvent.setup();
+    const switchBox = screen.getByRole("switch", { name: "Sign in after filling" });
+    expect((switchBox as HTMLInputElement).checked).toBe(true);
+    await user.click(switchBox);
+    await user.click(screen.getByRole("button", { name: "Unlink" }));
+    expect(sent).toEqual([
+      {
+        ...ITEM,
+        draft: {
+          text: [],
+          secrets: [],
+          urls: [{ op: "programSubmit", elementId: "u2", submit: false }],
+          customFields: [],
+          tags: null,
+          otp: null,
+          sshKey: null,
+        },
+      },
+      {
+        ...ITEM,
+        draft: {
+          text: [],
+          secrets: [],
+          urls: [{ op: "remove", elementId: "u2" }],
+          customFields: [],
+          tags: null,
+          otp: null,
+          sshKey: null,
+        },
+      },
+    ]);
+    expect(changed).toEqual([after, after]);
+  });
+
+  it("describes a Store app and an unsigned program", () => {
+    const store = {
+      ...binding,
+      program: { kind: "package", name: "Calculator", signer: null, path: null, submit: false },
+    } as const;
+    const unsigned = {
+      ...binding,
+      elementId: "u3",
+      program: { kind: "unsigned", name: "tool.exe", signer: null, path: "C:\\Tools\\tool.exe", submit: true },
+    } as const;
+    renderProgramRows(detailOf({ kind: "login", urls: [store, unsigned] }), detailOf({ kind: "login" }));
+    expect(screen.getByText("Store app")).toBeTruthy();
+    expect(screen.getByText("Not signed: C:\\Tools\\tool.exe")).toBeTruthy();
+    const switches = screen.getAllByRole("switch", { name: "Sign in after filling" });
+    expect((switches[0] as HTMLInputElement).checked).toBe(false);
+    expect((switches[1] as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("is read only without a callback (the trash)", () => {
+    render(
+      <I18nProvider locale="en">
+        <IpcProvider ipc={createMockIpc({ start: "unlocked" })}>
+          <ToastProvider>
+            <SecretsProvider>
+              <DetailFields detail={detailOf({ kind: "login", urls: [binding] })} item={ITEM} />
+            </SecretsProvider>
+          </ToastProvider>
+        </IpcProvider>
+      </I18nProvider>,
+    );
+    expect(screen.getByRole<HTMLInputElement>("switch", { name: "Sign in after filling" }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Unlink" }).disabled).toBe(true);
+  });
+});

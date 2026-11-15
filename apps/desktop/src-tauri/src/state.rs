@@ -32,6 +32,7 @@ use crate::keystore::{
 };
 use crate::otp_pending::PendingOtps;
 use crate::persist::{AccountInfo, Persistence, StoredState};
+use crate::program_fill::ProgramFillService;
 use crate::quick_unlock::QuickUnlockService;
 use crate::screen_capture::{NoScreenCapture, ScreenCapture};
 use crate::settings_integrity::SettingsGuard;
@@ -226,6 +227,8 @@ pub struct Backend {
     pub browser: BrowserService,
     /// The agent endpoint (ADR-0159): AI clients use marked secrets through it.
     pub agent: AgentService,
+    /// Windows program fill (ADR-0164): the block list, offers and picks.
+    pub program_fill: ProgramFillService,
     /// The opt-in breach scan (M7b): whether one runs and where answers
     /// come from.
     pub breach: BreachService,
@@ -301,6 +304,7 @@ impl Backend {
             focus: None,
             browser: BrowserService::new(),
             agent: AgentService::new(),
+            program_fill: ProgramFillService::memory(),
             breach: BreachService::default(),
             last_user_verification: Mutex::new(None),
             os_sources: Mutex::new(Vec::new()),
@@ -411,6 +415,13 @@ impl Backend {
     #[must_use]
     pub fn with_screen_capture(mut self, screen: Box<dyn ScreenCapture>) -> Self {
         self.screen = screen;
+        self
+    }
+
+    /// Uses this program fill service.
+    #[must_use]
+    pub fn with_program_fill(mut self, service: ProgramFillService) -> Self {
+        self.program_fill = service;
         self
     }
 
@@ -617,6 +628,7 @@ impl AppState {
         let backend = Arc::new(backend);
         // The sync service reaches the backend through a weak handle.
         backend.sync.attach(Arc::downgrade(&backend));
+        backend.program_fill.attach(Arc::downgrade(&backend));
         Self(backend)
     }
 

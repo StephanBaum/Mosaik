@@ -185,6 +185,20 @@ impl LoginUrl {
         }
     }
 
+    /// The members this version does not know (display data such as
+    /// `program`, per-binding switches). Read-only view.
+    #[must_use]
+    pub const fn extra(&self) -> &Object {
+        &self.extra
+    }
+
+    /// Mutable access to the members this version does not know. The known
+    /// members `url`, `match` and `allow_http` written here are overwritten
+    /// on save by the typed fields.
+    pub const fn extra_mut(&mut self) -> &mut Object {
+        &mut self.extra
+    }
+
     pub(crate) fn to_value(&self) -> Value {
         let mut o = writer(&self.extra);
         o.insert("url", Value::String(self.url.dup()));
@@ -1096,6 +1110,21 @@ mod tests {
 
     fn sv(b: &[u8]) -> SecretVec {
         SecretVec::from_slice(b).unwrap()
+    }
+
+    #[test]
+    fn login_url_extra_members_round_trip_and_cannot_override_known_keys() {
+        let mut u = LoginUrl::new("https://example.com");
+        let mut program = Object::new();
+        program.insert("name", Value::text("Slack"));
+        u.extra_mut().insert("program", Value::Object(program));
+        u.extra_mut().insert("url", Value::text("evil"));
+        u.extra_mut().insert("allow_http", Value::Bool(true));
+        let back = LoginUrl::from_value(&u.to_value()).unwrap();
+        assert_eq!(back.url.as_str(), "https://example.com");
+        assert!(!back.allow_http);
+        let program = back.extra().get("program").unwrap().as_object().unwrap();
+        assert_eq!(program.get("name").unwrap().as_str(), Some("Slack"));
     }
 
     #[test]

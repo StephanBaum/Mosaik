@@ -134,6 +134,10 @@ pub fn is_wayland(session_type: Option<&str>, wayland_display: Option<&str>) -> 
 /// the status of the new one (the old one stays when it fails).
 pub type Registrar = Arc<dyn Fn(Accelerator) -> ShortcutStatus + Send + Sync>;
 
+/// Registers, replaces or (with `None`) removes the accelerator of a second action (the program
+/// fill hotkey, ADR-0164); the answer is the status of the new registration.
+pub type HotkeyRegistrar = Arc<dyn Fn(Option<Accelerator>) -> ShortcutStatus + Send + Sync>;
+
 /// Installs the plugin and registers `accelerator`. Never fails the app. The
 /// registrar re-registers when the setting changes.
 pub fn install<R: Runtime>(
@@ -156,6 +160,43 @@ pub fn install<R: Runtime>(
     let registrar = registrar(app.clone());
     let status = registrar(accelerator);
     (status, Some(registrar))
+}
+
+/// A registrar for a second action, once [`install`] installed the plugin. `None` when the
+/// plugin is not there (Wayland, or it failed to start), so the action has no hotkey.
+pub fn install_action<R: Runtime>(
+    app: &AppHandle<R>,
+    action: fn(&AppHandle<R>),
+) -> Option<HotkeyRegistrar> {
+    // The plugin is installed once, by `install`; without it nothing can be registered.
+    app.try_state::<tauri_plugin_global_shortcut::GlobalShortcut<R>>()?;
+    let app = app.clone();
+    let current: Mutex<Option<Shortcut>> = Mutex::new(None);
+    Some(Arc::new(move |wanted| {
+        let Ok(mut held) = current.lock() else {
+            return ShortcutStatus::Unavailable;
+        };
+        let new = wanted.map(Accelerator::shortcut);
+        if *held == new {
+            return ShortcutStatus::Registered;
+        }
+        if let Some(new) = new {
+            let registered = app
+                .global_shortcut()
+                .on_shortcut(new, move |app, _, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        action(app);
+                    }
+                });
+            if registered.is_err() {
+                return ShortcutStatus::Conflict;
+            }
+        }
+        if let Some(old) = std::mem::replace(&mut *held, new) {
+            let _ = app.global_shortcut().unregister(old);
+        }
+        ShortcutStatus::Registered
+    }))
 }
 
 fn registrar<R: Runtime>(app: AppHandle<R>) -> Registrar {

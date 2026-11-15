@@ -47,6 +47,10 @@ wire_enum!(
 /// was stored (values are clamped to their ranges).
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one switch per setting on the wire; a state machine would only rename them"
+)]
 pub struct Settings {
     /// Lock after this many idle minutes (1 to 480; `null`: never).
     pub auto_lock_minutes: Option<u32>,
@@ -79,6 +83,17 @@ pub struct Settings {
     /// `shortcut::parse_accelerator`; not a protection setting, so it
     /// changes while locked too.
     pub global_shortcut: String,
+    /// Offer logins in other Windows programs (ADR-0164). Off by default and under the
+    /// settings MAC: a file edited outside Mosaic reads as `false`. Windows only.
+    pub program_fill: bool,
+    /// Press Enter after filling a program's login (default on; a binding can turn it off).
+    /// Under the settings MAC together with `programFill`.
+    pub program_fill_submit: bool,
+    /// The global shortcut that opens the program fill list (default: none). Validated like
+    /// `globalShortcut`; must differ from it.
+    pub program_fill_hotkey: Option<String>,
+    /// The user dismissed or answered the first-unlock card about program fill.
+    pub program_fill_card_dismissed: bool,
 }
 
 /// The default global shortcut of this OS, as an accelerator string.
@@ -105,6 +120,10 @@ impl Default for Settings {
             breach_consent_at: None,
             rotation_reminders: true,
             global_shortcut: default_global_shortcut(),
+            program_fill: false,
+            program_fill_submit: true,
+            program_fill_hotkey: None,
+            program_fill_card_dismissed: false,
         }
     }
 }
@@ -146,6 +165,10 @@ pub(crate) mod samples {
                 breach_consent_at: Some(1_761_000_000_000),
                 rotation_reminders: false,
                 global_shortcut: "Ctrl+Alt+K".into(),
+                program_fill: true,
+                program_fill_submit: false,
+                program_fill_hotkey: Some("Ctrl+Alt+L".into()),
+                program_fill_card_dismissed: true,
             },
         ]
     }

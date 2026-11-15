@@ -107,10 +107,10 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `remove_hardware_vault_key` | `{ vaultId, methodId }` → `{ keys }` | `vaultUnavailable`, `hardwareKeyLast`, `hardwareKeyNotRecognized` | live |
 | **Items** | | | |
 | `list_items` | `{ vaultId \| null, trash: "exclude" \| "only" \| "include", favoritesOnly, query \| null }` → `ItemSummary[]` | | live |
-| `get_item` | `{ vaultId, itemId }` → `ItemDetail` (secrets as field names only) | `vaultNotFound`, `itemNotFound`, `itemDeleted` | live |
+| `get_item` | `{ vaultId, itemId }` → `ItemDetail` (secrets as field names only) | `vaultNotFound`, `itemNotFound`, `itemDeleted` | live (each `urls` entry has `program`: `null` for a website, and for a `winapp://` URL `{ kind: "package" \| "signed" \| "unsigned", name, signer \| null, path \| null (unsigned only), submit }`, ADR-0164: the name is the stored display name, else the exe, the package or the file name; the UI shows such an entry as a program, never as a link) |
 | `reveal_secret` | `{ vaultId, itemId, secret: SecretRef }` → `{ value, hideAfterSeconds }` | `itemNotFound`, `fieldEmpty` | live |
 | `add_item` | `{ vaultId, kind, draft: ItemDraft }` → `ItemDetail` | `invalidInput`, `sshKeyInvalid`, `vaultUnavailable`, `otpPendingExpired`, and with `draft.agentBindings`: `agentAccessOff`, `agentVaultShared`, `agentOriginInvalid`, `agentBindingInvalid`, `agentValueUnusable` | live (at most 512 entries per draft list) |
-| `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `sshKeyInvalid`, `itemNotFound`, `otpPendingExpired`, and with `draft.agentBindings` the codes of `add_item` | live (the kind of an item cannot change, ADR-0033) |
+| `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `sshKeyInvalid`, `itemNotFound`, `otpPendingExpired`, and with `draft.agentBindings` the codes of `add_item` | live (the kind of an item cannot change, ADR-0033. URL changes are `{ op: "add" }`, `{ op: "update" }`, `{ op: "remove" }` and, since ADR-0164, `{ op: "programSubmit", elementId, submit }`: the Enter switch of a `winapp://` binding, `invalidInput` for any other element. The editor cannot write a program binding: an `add` or `update` whose URL, trimmed, starts with `winapp:` in any case refuses the whole draft with `invalidInput`; only the picker's link step makes one. `remove` of a binding unlinks the program and touches nothing else) |
 | `set_favorite` | `{ vaultId, itemId, favorite }` → `ItemSummary` | `itemNotFound` | live |
 | `trash_item`, `restore_item`, `purge_item` | `{ vaultId, itemId }` → `null`. `purge_item` (delete forever) is refused while a password change of the login is open, so the new password is not lost; the trash is allowed | `itemNotFound`, `itemDeleted`, `rotationOpen` (`purge_item` only) | live |
 | `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound`, `reauthRequired` (the item leaves a hardware vault without a fresh `reauthenticate`; a success uses it up, a failure keeps it) | live |
@@ -167,6 +167,8 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `agent_grant_revoke` | `{ grantId }` → `AgentAccessStatus` | none (an unknown grant ended already) | live (a request that already began loses its answer, the client gets `grantRevoked`, `Revoked` is logged) |
 | `agent_stop_all` | `null` → `AgentAccessStatus` | none | live ("Stop all agent access now": every grant ends, every connection closes, the pairings stay, `StoppedAll` is logged; the endpoint comes back up at once) |
 | `agent_log` | `{ pairingId \| null, itemId \| null, beforeMs \| null, limit (1 to 200) }` → `{ entries: AgentLogView[], skipped }` | `locked`, `invalidInput` (a pairing ID that is not 32 hex digits) | live (newest first; `AgentLogView` holds facts only: `atMs`, `kind`, client, item title, field label, `method`, `origin`, URL `path` without query, `status`, `bytes`, `masked`, the refusal `code`, the grant, the destinations and the inject kind of a binding. Never a value, a header, a body or a query string. Entries that cannot be opened are counted in `skipped`) |
+| `program_fill_status` | `null` → `{ available, reason: "notWindows" \| "mosaicElevated" \| "hostFailed" \| null, running, blocked: { key, label }[] }` | none | live (ADR-0164. `available` is false off Windows and while Mosaic itself runs above the normal integrity level; `running` is true while the watcher runs, which is only while unlocked, switched on and verified in this run. `blocked` is the block list; `key` is opaque) |
+| `program_fill_unblock` | `{ key }` → `ProgramFillStatus` | `storeUnavailable` (the list file could not be written; the entry is off the list for this run) | live (the program is offered logins again; an unknown key is no error) |
 
 | `sync_status` | `null` → `SyncOverview` | `locked` | live |
 | `sync_check_server` | `{ serverUrl }` → `{ serverUrl, registration: "open" \| "invite" \| "closed" }` (`serverUrl` is the canonical origin) | `syncServerInvalid`, `syncServerInsecure` (`http` to anything but this computer), `syncServerUnreachable`, `syncServerMismatch`, `syncServerIncompatible`, `invalidInput` (an address over 2048 bytes), `locked` (the app is locked and has an account: the probe is closed). Works while unlocked, and in the onboarding while the app has no account | live |
@@ -242,6 +244,15 @@ that took `code: SecretIn` (`sync_totp_disable`, `sync_device_remove`) accept `c
   fields: ("name" | "icon" | "description")[] }`; the UI shows a notice the user can dismiss that names
   those fields (live, M9 T6: `MetaDroppedNotice` in the vault; mock `&metaDropped=name,description`). The event
   carries field names, never the dropped values.
+- Program fill settings (ADR-0164, Windows only): `programFill` (default off; reads `false` everywhere but Windows),
+  `programFillSubmit` (default on: Enter after filling), `programFillHotkey` (an accelerator opening the program list, default
+  none; `invalidInput` when it does not parse or equals `globalShortcut`; `shortcutUnavailable` and `shortcutUnsupported` as
+  for `globalShortcut`) and `programFillCardDismissed` (the first-unlock card was answered). `programFill` and, while it is
+  on, `programFillSubmit` are under the settings MAC: the canonical bytes hold `"programFill":true,"programFillSubmit":<bool>,`
+  between `lockOnSleep` and `quickUnlockMaxAgeDays` only while `programFill` is on, so earlier MACs still verify. A file that
+  turns it on without a valid MAC reads as off after the first unlock and sends `settingsReset`; changing it while locked is
+  `locked`. Turning it on needs no master password. The hotkey and the card flag are not under the MAC. Mock: `&programFill=
+  blocked|notWindows|mosaicElevated|hostFailed`.
 - `settings.globalShortcut` (an accelerator string, validated in Rust by `shortcut::parse_accelerator`) is
   re-registered when it changes; a registration failure is `shortcutUnavailable`, on Wayland `shortcutUnsupported`
   and the field is disabled (live, M9 T6: Settings > Quick search shortcut). `parse_accelerator` takes modifiers plus
@@ -262,6 +273,35 @@ that took `code: SecretIn` (`sync_totp_disable`, `sync_device_remove`) accept `c
   warning with a Repair button, at the top of the vault and in Settings > Browsers, tested with mock findings:
   `&connector=foreign`). Repair goes to `browser_connector_repair`; on success the banner goes away and focus moves to
   the page.
+
+### Picker windows (Windows program fill, ADR-0164)
+
+Rust builds two more windows, never the webview: `picker-chip` (the small button at a login field in another
+program; it never takes the focus) and `picker` (the list, the link step and the notices). Each has a capability
+of its own (`capabilities/chip.json`, `capabilities/picker.json`) that grants only its own commands; the main
+window grants none of them, and every command checks the label of the calling window in Rust again
+(`commands::picker::check_window`, `invalidInput` for any other). The windows load `chip.html` and `picker.html`
+from the bundle, are built on first use, hidden, without decorations, shadow or taskbar entry, always on top and
+excluded from screen capture, and are destroyed on lock and when program fill stops. `WebviewWindowBuilder`
+appears in one file (`program_fill/picker_windows.rs`).
+
+| Command | Window | Request → response | Errors |
+|---|---|---|---|
+| `picker_subscribe` | both | a `Channel<PickerEvent>` → `null` | none (one channel per window; the latest `picker_subscribe` of a window wins) |
+| `picker_state` | both | `null` → `PickerState` (`generation`, `mode: "hidden" \| "chip" \| "list" \| "notice"`, `locked`, `language`, `theme`, `program`, `matches`, `preselected`, `suggestions`, `linkAgain`, `link`, `notice`) | none |
+| `picker_chip_click` | chip | `{ generation }` → `null` | `pickerStale` (the chip changed). Locked: brings the unlock screen forward; unlocking reopens the list for the same field within 60 s. Unlocked: opens the list |
+| `picker_search` | list | `{ generation, query }` → `PickerLogin[]` (at most 20) | `pickerStale`, `invalidInput` (over 128 characters), `locked` |
+| `picker_choose` | list | `{ generation, vaultId, itemId }` → `null` after the fill | `pickerStale` (generation, list not in front, not where it was put, or covered), `pickerTooSoon` (within 300 ms of the list appearing), `invalidInput` (not on the list), `itemNotFound`, `locked` |
+| `picker_link_begin` | list | `{ generation, vaultId, itemId }` → `LinkStep` | `pickerStale`, `invalidInput` (not a live login in a vault this account may change, or a program that cannot be linked), `locked` |
+| `picker_link_confirm` | list | `{ generation }` → `{ kind: "needAnother" \| "tooSoon" \| "linked" }` | `pickerStale`, `pickerTooSoon` (within 1 s of the step appearing), `invalidInput` (no link step), `sharingRoleForbidden` |
+| `picker_block` | list | `{ generation }` → `null` ("Don't offer for this program") | `pickerStale`, `invalidInput`, `storeUnavailable` |
+| `picker_dismiss` | list | `{ generation }` → `null` (Escape or Close; the focus goes back into the field) | `pickerStale` |
+
+`PickerEvent` (`{ "type": "changed", generation }`) says only that the state changed; the window reads `picker_state`
+again. A request that carries another generation than the current one is `pickerStale`, so a click on a list that
+was replaced does nothing. Nothing fills without a pick: a focus event only shows the chip, and a fill starts from
+`picker_choose` or the last `picker_link_confirm` only. `PickerLogin` holds ID, title, user name, vault name and host;
+`ProgramView` kind, exe, name, signer and (unsigned) path. The password goes from the vault to the host inside Rust.
 
 ### Account keys (M7, CRYPTO_SPEC §5.3, §6.4 to §6.7, ADR-0057 to ADR-0062)
 
@@ -682,7 +722,7 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `attachmentPreviewTooLarge`, `clipboardUnavailable`, `importFileUnreadable`,
 `importDeleteNotAllowed`, `importDeleteFailed`, `importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
 `importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `unlockDelayed`, `tooManyAttempts`, `sshAllowTooSoon`,
-`browserRequestExpired`, `browserAllowTooSoon`, `browserPairingNotFound`, `browserHostMissing`, `agentOriginInvalid`, `agentBindingInvalid`, `agentValueUnusable`, `agentVaultShared`, `agentAccessOff`, `agentRequestExpired`, `agentAllowTooSoon`, `agentPairingNotFound`, `agentEndpointUnavailable`, `busy`,
+`browserRequestExpired`, `browserAllowTooSoon`, `browserPairingNotFound`, `browserHostMissing`, `agentOriginInvalid`, `agentBindingInvalid`, `agentValueUnusable`, `agentVaultShared`, `agentAccessOff`, `agentRequestExpired`, `agentAllowTooSoon`, `agentPairingNotFound`, `agentEndpointUnavailable`, `pickerStale` (a picker generation, place or foreground check failed, ADR-0164), `pickerTooSoon` (a pick or confirmation inside the guard time), `programFillUnavailable`, `busy`,
 `internal`, `cancelled`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`,
 `hardwareKeyUnsupported`, `hardwareKeyNotFound`, `hardwareKeyTimeout`,
 `hardwareKeyPinRequired`, `hardwareKeyPinInvalid`, `hardwareKeyPinBlocked`,
@@ -705,6 +745,8 @@ without its own code becomes `internal`, which leaks nothing.
 |---|---|---|
 | webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, the `password` of `export_passkeys_cxf`, `lastGroup`, secret field values, custom-field values and the SSH private key in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the `password` of `browser_passkey_respond`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key`, and (M6) the master password, Secret Key, second-factor codes and invite code of the sync and join commands and of `change_master_password`, and (M7) the passwords, the retyped last Secret Key group, the Secret Key typed from the newest kit and the codes of the account-key commands, and (M9) the `password` and `code` of `sync_webauthn_add_begin`, the `password` of `sync_webauthn_confirm_begin` and the `code` of `sync_webauthn_remove`, and (M10) the `password` of `setup_code_show` |
 | Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code`, `otp_pending_code`, `sync_totp_begin` (the sync account's second-factor setup key and link: the fifth), `rotation_reveal` (the new password of an open change attempt, M7b; `rotation_begin` takes it as a `SecretIn`) |
+
+The picker windows receive no secret: `PickerState`, `PickerLogin`, `LinkStep` and `PickerEvent` hold titles, user names, host names, program names and counters only (a test serializes a whole scripted session and looks for the passwords). The password of a program fill goes from the vault into the host's zeroizing buffers and is never a contract type.
 
 Preview pixels are a second Rust → webview flow of decrypted content. They are not a
 `SecretOut` (they are binary, not JSON, and are not a string the UI can hide by clearing

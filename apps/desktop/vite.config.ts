@@ -8,6 +8,7 @@
  */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 // By path, not by package name: Vite's config bundler leaves packages external, and
 // Node cannot import the workspace package's TypeScript source.
@@ -41,6 +42,8 @@ function excludeMockIpc(mode: string): Plugin {
         return [
           'export function createMockIpc() { throw new Error("The mock IPC is not part of this build."); }',
           "export function mockOptionsFromUrl() { return {}; }",
+          'export function createMockPickerIpc() { throw new Error("The mock IPC is not part of this build."); }',
+          "export function mockPickerFromUrl() { return null; }",
         ].join("\n");
       }
       return undefined;
@@ -102,5 +105,13 @@ export default defineConfig(({ mode }) => ({
     // Never inline assets as data: URIs; the CSP allows 'self' only.
     assetsInlineLimit: 0,
     sourcemap: false,
+    // The main window and the two picker windows of Windows program fill (ADR-0164).
+    rolldownOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        chip: fileURLToPath(new URL("./chip.html", import.meta.url)),
+        picker: fileURLToPath(new URL("./picker.html", import.meta.url)),
+      },
+    },
   },
 }));

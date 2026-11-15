@@ -32,6 +32,14 @@ export interface Settings {
   rotationReminders: boolean;
   /** The accelerator that opens the palette from anywhere, e.g. `Ctrl+Shift+Space` (M3-R10). */
   globalShortcut: string;
+  /** Offer logins in other Windows programs (ADR-0164). Off by default; under the settings MAC. */
+  programFill: boolean;
+  /** Press Enter after filling a program's login (default on). */
+  programFillSubmit: boolean;
+  /** The accelerator that opens the program fill list; `null`: none. */
+  programFillHotkey: string | null;
+  /** The first-unlock card about program fill was answered. */
+  programFillCardDismissed: boolean;
 }
 
 export interface UpdateSettingsRequest {

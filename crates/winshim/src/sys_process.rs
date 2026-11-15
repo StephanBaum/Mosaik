@@ -8,7 +8,7 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_INSUFFICIENT_BUFFER, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    CloseHandle, ERROR_INSUFFICIENT_BUFFER, FILETIME, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows::Win32::Security::{
     GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TOKEN_MANDATORY_LABEL,
@@ -24,7 +24,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
+    GetCurrentProcess, GetProcessTimes, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, QueryFullProcessImageNameW,
     WaitForSingleObject,
 };
@@ -116,6 +116,33 @@ impl ProcessHandle {
         } else {
             Err(last_error())
         }
+    }
+
+    /// When the process was created, as 100 ns ticks since 1601 (a `FILETIME`).
+    /// A parent that started after its child is a reused process ID, not the
+    /// parent.
+    ///
+    /// # Errors
+    /// An OS error.
+    pub fn start_time(&self) -> Result<u64> {
+        let (mut created, mut exited, mut kernel, mut user) = (
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+        );
+        // SAFETY: the handle is valid and has query access; the four out
+        // pointers are valid, writable `FILETIME`s.
+        unsafe {
+            GetProcessTimes(
+                self.handle.0,
+                &raw mut created,
+                &raw mut exited,
+                &raw mut kernel,
+                &raw mut user,
+            )
+        }?;
+        Ok((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
     }
 
     /// The image path in Win32 form (`C:\...`); not yet resolved to its final

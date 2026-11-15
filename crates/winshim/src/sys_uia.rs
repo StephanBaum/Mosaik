@@ -6,9 +6,10 @@
 use core::ffi::c_void;
 use core::marker::PhantomData;
 use std::rc::Rc;
+use std::sync::mpsc::SyncSender;
 use std::time::Instant;
 
-use windows::Win32::Foundation::{E_POINTER, POINT};
+use windows::Win32::Foundation::{E_POINTER, HWND, POINT};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
     SAFEARRAY,
@@ -17,29 +18,37 @@ use windows::Win32::System::Ole::{
     SafeArrayDestroy, SafeArrayGetDim, SafeArrayGetElement, SafeArrayGetElemsize,
     SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayGetVartype,
 };
-use windows::Win32::System::Variant::VT_I4;
+use windows::Win32::System::Variant::{VARIANT, VT_I4};
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation8, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
-    IUIAutomationTreeWalker, IUIAutomationValuePattern, UIA_BoundingRectanglePropertyId,
-    UIA_ControlTypePropertyId, UIA_FrameworkIdPropertyId, UIA_IsEnabledPropertyId,
-    UIA_IsKeyboardFocusablePropertyId, UIA_IsOffscreenPropertyId, UIA_IsPasswordPropertyId,
-    UIA_NativeWindowHandlePropertyId, UIA_ProcessIdPropertyId, UIA_ValueIsReadOnlyPropertyId,
-    UIA_ValuePatternId,
+    CUIAutomation8, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationCondition,
+    IUIAutomationElement, IUIAutomationFocusChangedEventHandler, IUIAutomationTreeWalker,
+    IUIAutomationValuePattern, TreeScope_Descendants, UIA_BoundingRectanglePropertyId,
+    UIA_ControlTypePropertyId, UIA_EditControlTypeId, UIA_FrameworkIdPropertyId,
+    UIA_IsEnabledPropertyId, UIA_IsKeyboardFocusablePropertyId, UIA_IsOffscreenPropertyId,
+    UIA_IsPasswordPropertyId, UIA_NativeWindowHandlePropertyId, UIA_ProcessIdPropertyId,
+    UIA_ValueIsReadOnlyPropertyId, UIA_ValuePatternId,
 };
 use windows::core::BSTR;
 
 use crate::error::{Result, ShimError, check_deadline};
+use crate::sys_window::window_facts;
 
 /// Serialises client start-up (see [`Uia::new`]).
 static START: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The most parent steps any walk takes.
 const MAX_PARENT_STEPS: usize = 64;
+/// The most elements a bounded window walk looks at; more is [`ShimError::Timeout`]
+/// (an answer of "not decided", never a partial list passed off as complete).
+const MAX_WALK_NODES: usize = 4000;
 /// The longest runtime ID accepted (real ones have a handful of entries).
 const MAX_RUNTIME_ID: usize = 64;
 /// The longest provider string (the framework ID) copied, in UTF-16 units; a
 /// longer one is an error, not a truncation.
 const MAX_PROVIDER_STRING_UNITS: usize = 256;
+/// The longest value read back from a field, in UTF-16 units; a longer one is an
+/// error, not a truncation.
+const MAX_VALUE_UNITS: usize = 8192;
 /// The properties every element read caches (one request, no later calls).
 pub(crate) const CACHED_PROPERTIES: [windows::Win32::UI::Accessibility::UIA_PROPERTY_ID; 10] = [
     UIA_ControlTypePropertyId,
@@ -292,6 +301,265 @@ impl Uia {
         }
     }
 
+    /// Subscribes to focus changes. The handler sends the process ID of each
+    /// newly focused element (`0` if it cannot be read) with `try_send`, so a
+    /// full channel drops the event and a UI Automation thread never blocks.
+    ///
+    /// # Errors
+    /// An OS error.
+    pub fn subscribe_focus(&self, sink: FocusSink) -> Result<FocusSubscription> {
+        let handler: IUIAutomationFocusChangedEventHandler = FocusHandler { sink }.into();
+        // SAFETY: `automation` is live; no cache request is passed (the
+        // handler reads the sender live); `handler` is a live COM object that
+        // the call adds a reference to.
+        unsafe {
+            self.automation
+                .AddFocusChangedEventHandler(None::<&IUIAutomationCacheRequest>, &handler)
+        }?;
+        Ok(FocusSubscription {
+            automation: self.automation.clone(),
+            handler,
+            _com: Rc::clone(&self.com),
+        })
+    }
+
+    /// The Edit controls under the ancestor `levels_up` steps above `e` (the
+    /// climb stops at a top-level window or the root), in tree order, at most
+    /// `max`.
+    ///
+    /// # Errors
+    /// [`ShimError::Timeout`] if a provider does not answer, or an OS error.
+    pub fn edits_near(&self, e: &UiaElement, levels_up: u8, max: usize) -> Result<Vec<UiaElement>> {
+        let mut current = e.element.clone();
+        for _ in 0..levels_up {
+            // SAFETY: `current` is a live element read with a cache request
+            // that includes the native window handle.
+            let hwnd = unsafe { current.CachedNativeWindowHandle() }?;
+            let addr = hwnd.0.addr().cast_signed();
+            if addr != 0 && window_facts(addr).is_ok_and(|w| w.root == addr) {
+                break;
+            }
+            match self.parent_of(&current)? {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        self.edits_under(&current, max)
+    }
+
+    /// The Edit controls of the window `root`, in tree order, at most `max`.
+    ///
+    /// # Errors
+    /// [`ShimError::NotFound`] for a window that does not exist,
+    /// [`ShimError::Timeout`], or an OS error.
+    pub fn edits_in_window(&self, root: isize, max: usize) -> Result<Vec<UiaElement>> {
+        window_facts(root)?;
+        let hwnd = HWND(core::ptr::without_provenance_mut::<c_void>(
+            root.cast_unsigned(),
+        ));
+        // SAFETY: `automation` and `cache` are live; `hwnd` was just checked
+        // to be a window, and UI Automation validates it again.
+        let element = unsafe {
+            self.automation
+                .ElementFromHandleBuildCache(hwnd, &self.cache)
+        }?;
+        self.edits_under(&element, max)
+    }
+
+    /// The Edit controls of the window `root` in tree order, found by a walk
+    /// that checks `deadline` before every element and stops as soon as
+    /// `stop_after` edits satisfy `counts`. Holding `max` edits first, or a
+    /// window larger than [`MAX_WALK_NODES`] elements, is a timeout, never a
+    /// silently truncated list.
+    ///
+    /// # Errors
+    /// [`ShimError::NotFound`] for a window that does not exist,
+    /// [`ShimError::Timeout`] past `deadline` or for a too large tree, or an
+    /// OS error.
+    pub fn edits_in_window_until(
+        &self,
+        root: isize,
+        max: usize,
+        deadline: Instant,
+        stop_after: usize,
+        counts: &dyn Fn(&ElementFacts) -> bool,
+    ) -> Result<Vec<UiaElement>> {
+        window_facts(root)?;
+        let hwnd = HWND(core::ptr::without_provenance_mut::<c_void>(
+            root.cast_unsigned(),
+        ));
+        // SAFETY: `automation` and `cache` are live; `hwnd` was just checked
+        // to be a window, and UI Automation validates it again.
+        let top = unsafe {
+            self.automation
+                .ElementFromHandleBuildCache(hwnd, &self.cache)
+        }?;
+        let mut out = Vec::new();
+        let mut counted = 0usize;
+        let mut visited = 0usize;
+        let mut pending: Vec<IUIAutomationElement> = Vec::new();
+        if let Some(first) = self.first_child_of(&top)? {
+            pending.push(first);
+        }
+        while let Some(node) = pending.pop() {
+            check_deadline(deadline)?;
+            visited += 1;
+            if visited > MAX_WALK_NODES {
+                return Err(ShimError::Timeout);
+            }
+            // The sibling goes below the child, so the walk is in tree order.
+            if let Some(next) = self.next_sibling_of(&node)? {
+                pending.push(next);
+            }
+            // SAFETY: `node` is a live element fetched with a cache request
+            // that includes the control type; the call reads the cache.
+            let control_type = unsafe { node.CachedControlType() }?.0;
+            if control_type == UIA_EditControlTypeId.0 {
+                let facts = read_facts(&node)?;
+                if counts(&facts) {
+                    counted += 1;
+                }
+                out.push(UiaElement {
+                    element: node.clone(),
+                    facts,
+                    _com: Rc::clone(&self.com),
+                });
+                if counted >= stop_after {
+                    break;
+                }
+                if out.len() >= max {
+                    // The limit came before the answer: not decided, so a
+                    // field past it can never be taken for absent.
+                    return Err(ShimError::Timeout);
+                }
+            }
+            if let Some(child) = self.first_child_of(&node)? {
+                pending.push(child);
+            }
+        }
+        Ok(out)
+    }
+
+    fn first_child_of(
+        &self,
+        element: &IUIAutomationElement,
+    ) -> Result<Option<IUIAutomationElement>> {
+        // SAFETY: `walker` and `cache` are live; `element` is a live element.
+        let child = unsafe {
+            self.walker
+                .GetFirstChildElementBuildCache(element, &self.cache)
+        };
+        match child {
+            Ok(child) => Ok(Some(child)),
+            Err(err) if absent(&err) => Ok(None),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    fn next_sibling_of(
+        &self,
+        element: &IUIAutomationElement,
+    ) -> Result<Option<IUIAutomationElement>> {
+        // SAFETY: `walker` and `cache` are live; `element` is a live element.
+        let next = unsafe {
+            self.walker
+                .GetNextSiblingElementBuildCache(element, &self.cache)
+        };
+        match next {
+            Ok(next) => Ok(Some(next)),
+            Err(err) if absent(&err) => Ok(None),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// `e` read again, with fresh cached facts.
+    ///
+    /// # Errors
+    /// [`ShimError::NotFound`] if the element is gone, [`ShimError::Timeout`],
+    /// or an OS error.
+    pub fn refresh(&self, e: &UiaElement) -> Result<UiaElement> {
+        // SAFETY: `e.element` and `cache` are live; the call reads the element.
+        let updated = unsafe { e.element.BuildUpdatedCache(&self.cache) }?;
+        let facts = read_facts(&updated)?;
+        Ok(UiaElement {
+            element: updated,
+            facts,
+            _com: Rc::clone(&self.com),
+        })
+    }
+
+    /// Gives `e` keyboard focus.
+    ///
+    /// # Errors
+    /// [`ShimError::NotFound`] if the element is gone, [`ShimError::Timeout`],
+    /// or an OS error.
+    pub fn set_focus(&self, e: &UiaElement) -> Result<()> {
+        // SAFETY: `e.element` is a live element; the call asks it to take focus.
+        unsafe { e.element.SetFocus() }?;
+        Ok(())
+    }
+
+    /// Sets the value of a text element through the value pattern.
+    ///
+    /// # Errors
+    /// [`ShimError::AccessDenied`] for a password element (never written
+    /// this way), [`ShimError::NotFound`] without a value pattern,
+    /// [`ShimError::Timeout`], or an OS error.
+    pub fn set_value(&self, e: &UiaElement, value: &str) -> Result<()> {
+        refuse_password(e)?;
+        let pattern = value_pattern(e)?;
+        let text = BSTR::from(value);
+        // SAFETY: `pattern` is a live pattern object; `text` is a valid BSTR.
+        unsafe { pattern.SetValue(&text) }?;
+        Ok(())
+    }
+
+    /// Reads the value of a text element through the value pattern.
+    ///
+    /// # Errors
+    /// As [`Uia::set_value`]; also an OS error for a value longer than the
+    /// limit or not valid UTF-16.
+    pub fn value(&self, e: &UiaElement) -> Result<String> {
+        refuse_password(e)?;
+        let pattern = value_pattern(e)?;
+        // SAFETY: `pattern` is a live pattern object; the call returns a new BSTR.
+        let text: BSTR = unsafe { pattern.CurrentValue() }?;
+        if text.len() > MAX_VALUE_UNITS {
+            return Err(ShimError::Os(0));
+        }
+        String::from_utf16(&text).map_err(|_| ShimError::Os(0))
+    }
+
+    /// The Edit controls below `root`, in tree order, at most `max`.
+    fn edits_under(&self, root: &IUIAutomationElement, max: usize) -> Result<Vec<UiaElement>> {
+        let value = VARIANT::from(UIA_EditControlTypeId.0);
+        // SAFETY: `automation` is live; `value` is a valid VARIANT that the call copies.
+        let condition: IUIAutomationCondition = unsafe {
+            self.automation
+                .CreatePropertyCondition(UIA_ControlTypePropertyId, &value)
+        }?;
+        // SAFETY: `root`, `condition` and `cache` are live; the call searches
+        // the subtree and returns a new array.
+        let found =
+            unsafe { root.FindAllBuildCache(TreeScope_Descendants, &condition, &self.cache) }?;
+        // SAFETY: `found` is a live element array.
+        let length = unsafe { found.Length() }?;
+        let count = usize::try_from(length).unwrap_or(0).min(max);
+        let mut out = Vec::with_capacity(count);
+        for index in 0..count {
+            let index = i32::try_from(index).map_err(|_| ShimError::Os(0))?;
+            // SAFETY: `found` is live and `index` is below its length.
+            let element = unsafe { found.GetElement(index) }?;
+            let facts = read_facts(&element)?;
+            out.push(UiaElement {
+                element,
+                facts,
+                _com: Rc::clone(&self.com),
+            });
+        }
+        Ok(out)
+    }
+
     fn wrap(
         &self,
         found: windows::core::Result<IUIAutomationElement>,
@@ -309,6 +577,96 @@ impl Uia {
             Err(err) => Err(err.into()),
         }
     }
+}
+
+/// Where focus-change events send the new element process ID (`0` when it
+/// cannot be read). Use a bounded channel: the handler never blocks.
+pub type FocusSink = SyncSender<u32>;
+
+/// The COM object UI Automation calls on a focus change.
+mod focus_handler {
+    #![expect(
+        clippy::ref_as_ptr,
+        clippy::inline_always,
+        reason = "generated by windows::core::implement"
+    )]
+
+    use std::sync::mpsc::SyncSender;
+
+    use windows::Win32::UI::Accessibility::{
+        IUIAutomationElement, IUIAutomationFocusChangedEventHandler,
+        IUIAutomationFocusChangedEventHandler_Impl,
+    };
+    use windows::core::Ref;
+
+    #[windows::core::implement(IUIAutomationFocusChangedEventHandler)]
+    pub(super) struct FocusHandler {
+        pub(super) sink: SyncSender<u32>,
+    }
+
+    impl IUIAutomationFocusChangedEventHandler_Impl for FocusHandler_Impl {
+        fn HandleFocusChangedEvent(
+            &self,
+            sender: Ref<'_, IUIAutomationElement>,
+        ) -> windows::core::Result<()> {
+            let pid = sender
+                .as_ref()
+                // SAFETY: `element` is the live sender UI Automation passed in; the
+                // call reads its process ID (bounded by the client timeouts).
+                .and_then(|element| unsafe { element.CurrentProcessId() }.ok())
+                .and_then(|pid| u32::try_from(pid).ok())
+                .unwrap_or(0);
+            // A full channel or a closed receiver drops the event.
+            self.sink.try_send(pid).ok();
+            Ok(())
+        }
+    }
+}
+
+use focus_handler::FocusHandler;
+
+/// A live focus-change subscription. Not `Send`: it belongs to the thread that
+/// created the client. Dropping it removes the handler.
+pub struct FocusSubscription {
+    automation: IUIAutomation2,
+    handler: IUIAutomationFocusChangedEventHandler,
+    _com: Rc<ComGuard>,
+}
+
+impl Drop for FocusSubscription {
+    fn drop(&mut self) {
+        // SAFETY: `automation` is live and `handler` is the one added when the
+        // subscription was made; removing a handler twice or after the client
+        // is gone only returns an error, which cannot be handled here.
+        let removed = unsafe {
+            self.automation
+                .RemoveFocusChangedEventHandler(&self.handler)
+        };
+        drop(removed);
+    }
+}
+
+/// Refuses password elements, read live (the cached fact could be stale).
+fn refuse_password(e: &UiaElement) -> Result<()> {
+    // SAFETY: `e.element` is a live element; the call reads a property.
+    let live = unsafe { e.element.CurrentIsPassword() }?.as_bool();
+    if e.facts.is_password || live {
+        return Err(ShimError::AccessDenied);
+    }
+    Ok(())
+}
+
+fn value_pattern(e: &UiaElement) -> Result<IUIAutomationValuePattern> {
+    // SAFETY: `e.element` is a live element; an element without the pattern
+    // gives an error.
+    unsafe {
+        e.element
+            .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+    }
+    .map_err(|err| match ShimError::from(err) {
+        ShimError::Timeout => ShimError::Timeout,
+        _ => ShimError::NotFound,
+    })
 }
 
 /// Whether the error means "no such element" rather than a failure.

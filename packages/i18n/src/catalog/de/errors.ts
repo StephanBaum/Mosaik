@@ -161,6 +161,9 @@ export const errors = {
     "Dein Sync-Speicher zeigt ältere Kontoschlüssel, als dieses Gerät hat. Es wurde nichts geändert.",
   "error.syncRekeyRefused":
     "Die Schlüssel, die dein Sync-Speicher anbietet, sind nicht die nächsten nach denen dieses Geräts. Es wurde nichts geändert. Prüfe deine anderen Geräte.",
+  "error.pickerStale": "Diese Liste ist nicht mehr aktuell. Klick noch einmal ins Feld.",
+  "error.pickerTooSoon": "Warte einen Moment und bestätige dann noch einmal.",
+  "error.programFillUnavailable": "Das Ausfüllen in Programmen ist auf diesem Gerät nicht verfügbar.",
   "error.busy":
     "Mosaic schließt noch den letzten Schritt ab. Warte kurz und versuche es dann noch einmal.",
   "error.internal":

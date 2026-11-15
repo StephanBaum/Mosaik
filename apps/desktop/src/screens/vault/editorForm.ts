@@ -120,13 +120,17 @@ function storedUrls(editing: ItemDetail | null): UrlRow[] {
   if (editing === null) {
     return [newUrlRow()];
   }
-  return editing.urls.map((entry) => ({
+  // A program a login is linked to is not a website: the item view shows it and the picker made
+  // it, so the editor neither shows nor changes it (Rust refuses a `winapp://` URL here).
+  return editing.urls
+    .filter((entry) => entry.program === null)
+    .map((entry) => ({
     rowKey: entry.elementId,
     elementId: entry.elementId,
     url: entry.url,
-    matchMode: entry.matchMode,
-    allowHttp: entry.allowHttp,
-  }));
+      matchMode: entry.matchMode,
+      allowHttp: entry.allowHttp,
+    }));
 }
 
 function storedCustom(editing: ItemDetail | null): CustomRow[] {

@@ -86,6 +86,33 @@ impl Backend {
         }
     }
 
+    /// Checks and registers the program fill hotkey (`None`: removes it).
+    ///
+    /// # Errors
+    /// As [`Backend::apply_global_shortcut`].
+    fn apply_program_fill_hotkey(&self, text: Option<&str>) -> IpcResult<()> {
+        let accelerator = text
+            .map(|t| parse_accelerator(t).map_err(|_| IpcError::new(ErrorCode::InvalidInput)))
+            .transpose()?;
+        if accelerator.is_some()
+            && self.shortcut_status.lock().ok().and_then(|s| *s)
+                == Some(ShortcutStatus::Unsupported)
+        {
+            return Err(IpcError::new(ErrorCode::ShortcutUnsupported));
+        }
+        // Without a hotkey manager (a test) the value is stored as it is.
+        let Some(registrar) = self.program_fill.hotkey_registrar() else {
+            return Ok(());
+        };
+        match registrar(accelerator) {
+            ShortcutStatus::Registered => Ok(()),
+            ShortcutStatus::Unsupported => Err(IpcError::new(ErrorCode::ShortcutUnsupported)),
+            ShortcutStatus::Conflict | ShortcutStatus::Unavailable => {
+                Err(IpcError::new(ErrorCode::ShortcutUnavailable))
+            }
+        }
+    }
+
     /// Stores new settings (clamped). A change that turns a protection off
     /// needs `password`, checked against the vault.
     ///
@@ -108,6 +135,17 @@ impl Backend {
         if !has_lock_trigger(&request.settings, self.screen_lock_detection()) {
             return Err(IpcError::new(ErrorCode::InvalidInput));
         }
+        // A program fill hotkey that does not parse, or is the palette's own, is refused here
+        // (`normalize` would drop it silently, which a settings field must not do).
+        if let Some(text) = &request.settings.program_fill_hotkey {
+            let hotkey =
+                parse_accelerator(text).map_err(|_| IpcError::new(ErrorCode::InvalidInput))?;
+            if parse_accelerator(&request.settings.global_shortcut)
+                .is_ok_and(|palette| palette.shortcut() == hotkey.shortcut())
+            {
+                return Err(IpcError::new(ErrorCode::InvalidInput));
+            }
+        }
         let new = normalize(request.settings);
         let old = self.settings_snapshot();
         if weakens(&old, &new) {
@@ -123,6 +161,9 @@ impl Backend {
         if new.global_shortcut != old.global_shortcut {
             self.apply_global_shortcut(&new.global_shortcut)?;
         }
+        if new.program_fill_hotkey != old.program_fill_hotkey {
+            self.apply_program_fill_hotkey(new.program_fill_hotkey.as_deref())?;
+        }
 
         // Protection settings are written with a MAC (ADR-0030), which
         // needs the unlocked vault; theme and language can change locked.
@@ -137,6 +178,8 @@ impl Backend {
         }
         // A shorter maximum age can expire the enrollment at once.
         self.reconcile_quick_unlock();
+        // Program fill starts or stops to match (ADR-0164).
+        self.program_fill_apply_settings();
         stored.map(|s| s.settings)
     }
 }

@@ -15,6 +15,10 @@ export const defaultSettings: Settings = {
   breachConsentAt: null,
   rotationReminders: true,
   globalShortcut: "Ctrl+Shift+Space",
+  programFill: false,
+  programFillSubmit: true,
+  programFillHotkey: null,
+  programFillCardDismissed: false,
 };
 
 /** Like Rust `parse_accelerator`: modifiers plus one key, at least one of Ctrl, Alt, Cmd or Super. */
@@ -73,6 +77,14 @@ function checkShortcut(state: MockState, next: Settings): void {
   }
 }
 
+/** Like Rust: a program fill hotkey that is no accelerator, or is the palette's own, is refused. */
+function checkProgramFillHotkey(next: Settings): void {
+  const hotkey = next.programFillHotkey;
+  if (hotkey !== null && (!validAccelerator(hotkey) || hotkey.toLowerCase() === next.globalShortcut.toLowerCase())) {
+    fail("invalidInput");
+  }
+}
+
 export const settingsHandlers: MockHandlers = {
   get_settings: (state) => state.settings,
 
@@ -82,6 +94,7 @@ export const settingsHandlers: MockHandlers = {
       fail("invalidInput");
     }
     checkShortcut(state, next);
+    checkProgramFillHotkey(next);
     if (weakens(state.settings, next) && request.password !== state.account?.password) {
       fail("reauthRequired");
     }
@@ -91,6 +104,8 @@ export const settingsHandlers: MockHandlers = {
       ...next,
       breachCheck: consented ? next.breachCheck : "off",
       breachConsentAt: consented ? next.breachConsentAt : null,
+      // Like Rust `normalize`: program fill reads Windows programs, so it stays off where it is not available.
+      programFill: next.programFill && state.programFill.reason !== "notWindows",
     };
     return state.settings;
   },

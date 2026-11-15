@@ -48,6 +48,9 @@
  * `&rotationFail=<errorCode>` makes the commits fail, `&rotationStepMs=<ms>` sets the pause between
  * the steps of a run (default 450).
  *
+ * Program fill (ADR-0164): `&programFill=blocked|notWindows|mosaicElevated|hostFailed` (two blocked programs,
+ * or program fill unavailable for that reason).
+ *
  * Credential rotation (M7b, Security > Rotate now): `&credRotation=queue|empty|pending|breachRunning|
  * breachOffline|consent` (`&credRotationStepMs=<ms>` paces a scan, default 250): queue seeds weak, reused, old
  * and breached items and one item Mosaic cannot guide; pending an open change with a not-confirmed history
@@ -110,6 +113,7 @@ import { importHandlers } from "./mock/import.ts";
 import { insightHandlers } from "./mock/insights.ts";
 import { itemHandlers } from "./mock/items.ts";
 import { otpHandlers } from "./mock/otp.ts";
+import { programFillHandlers, seedProgramFill, type ProgramFillVariant } from "./mock/programFill.ts";
 import {
   quickFromOptions,
   quickUnlockAsyncHandlers,
@@ -151,6 +155,9 @@ import {
 import { totpHandlers } from "./mock/totp.ts";
 import { vaultAsyncHandlers, vaultHandlers } from "./mock/vaults.ts";
 
+// The picker windows of program fill have their own mock (`picker.html?mockPicker=`).
+export { createMockPickerIpc, mockPickerFromUrl } from "./mock/picker.ts";
+
 export type MockStart = "noAccount" | "locked" | "unlocked";
 
 export interface MockOptions extends QuickOptions {
@@ -160,6 +167,8 @@ export interface MockOptions extends QuickOptions {
   sshRequest?: boolean;
   /** Agent access (`?agent=on|pair|access`): on with one client, or also opening a dialog 500 ms after subscribing. */
   agent?: AgentVariant;
+  /** Program fill start (`?programFill=blocked|notWindows|mosaicElevated|hostFailed`). */
+  programFill?: ProgramFillVariant;
   /** A browser asks for pairing 500 ms after subscribing (`&browserPair=1`). */
   browserPair?: boolean;
   /** A browser offers to save a login 500 ms after subscribing (`&browserSave=new|update`). */
@@ -220,6 +229,7 @@ const handlers: MockHandlers = {
   ...insightHandlers,
   ...sshHandlers,
   ...agentHandlers,
+  ...programFillHandlers,
   ...browserHandlers,
   ...syncHandlers,
   ...rotationHandlers,
@@ -260,6 +270,13 @@ const asyncHandlers: MockAsyncHandlers = {
 function agentOptionFromParams(params: URLSearchParams): MockOptions {
   const agent = params.get("agent");
   return agent === "on" || agent === "pair" || agent === "access" ? { agent } : {};
+}
+
+function programFillOptionFromParams(params: URLSearchParams): MockOptions {
+  const variant = params.get("programFill");
+  return variant === "blocked" || variant === "notWindows" || variant === "mosaicElevated" || variant === "hostFailed"
+    ? { programFill: variant }
+    : {};
 }
 
 function browserOptionsFromParams(params: URLSearchParams): MockOptions {
@@ -406,6 +423,7 @@ export function mockOptionsFromUrl(search: string): MockOptions {
     ...(Number.isFinite(latency) && latency > 0 ? { latencyMs: latency } : {}),
     ...(params.get("sshRequest") === "1" ? { sshRequest: true } : {}),
     ...browserOptionsFromParams(params),
+    ...programFillOptionFromParams(params),
     ...(params.get("kit") === "unverified" ? { kitUnverified: true } : {}),
     ...otpOptionsFromParams(params),
     ...attachOptionsFromParams(params),
@@ -495,6 +513,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     kitVerified: start !== "noAccount" && options.kitUnverified !== true,
     sshEnabled: false,
     agent: seedAgent(options.agent, now()),
+    programFill: seedProgramFill(options.programFill),
     browser: seededBrowser(options, now),
     rotation: seedRotation(options.rotation ?? {}),
     sharing: seedSharing(options.sharing),

@@ -25,6 +25,12 @@ pub enum ShimError {
     /// open file is not known to be the running one.
     #[error("image path changed")]
     ImageChanged,
+    /// More input units than one call takes.
+    #[error("too long")]
+    TooLong,
+    /// The window belongs to another process; the call only touches Mosaic's own.
+    #[error("not an own window")]
+    NotOwnWindow,
 }
 
 /// The shim's result type.

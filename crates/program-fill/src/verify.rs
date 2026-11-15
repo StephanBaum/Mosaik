@@ -132,8 +132,11 @@ pub enum WriteKind {
     Username,
     /// The password.
     Password,
-    /// The submit key.
+    /// The submit key after the password.
     Submit,
+    /// The submit key after a user name alone (the first page of a two-step
+    /// login): the field must still be the text field that was filled.
+    SubmitText,
 }
 
 /// Why a write must not happen.
@@ -225,6 +228,15 @@ impl<H> PickSession<H> {
         }
     }
 
+    /// Points the session at another field of the same window and process (the
+    /// password field after the user-name field of one fill). Every other fact
+    /// of the pick stays, so the next check re-verifies against the same
+    /// window, process and image.
+    pub fn retarget(&mut self, target: RuntimeId, kind: FieldKind) {
+        self.target = target;
+        self.target_kind = kind;
+    }
+
     fn expired(&self, now_ms: u64) -> bool {
         let ttl = if self.continuation {
             CONTINUATION_TTL_MS
@@ -299,7 +311,7 @@ pub fn verify_before_write<H>(
         return Err(VerifyFailure::PathChanged);
     }
     let needed = match write {
-        WriteKind::Username => FieldKind::Text,
+        WriteKind::Username | WriteKind::SubmitText => FieldKind::Text,
         WriteKind::Password | WriteKind::Submit => FieldKind::Password,
     };
     if focused.kind != needed || session.target_kind != needed {
@@ -389,6 +401,28 @@ mod tests {
         let mut snap = good_snapshot(s);
         edit(&mut snap);
         check(&probe_of(snap), s, write, PICKED + 1_000)
+    }
+
+    #[test]
+    fn submit_after_a_user_name_needs_the_text_field_of_the_pick() {
+        let (mut s, _) = session();
+        // A password pick never submits as a user-name page.
+        assert_eq!(
+            run(&s, |_| {}, WriteKind::SubmitText),
+            Err(VerifyFailure::FieldKindChanged)
+        );
+        s.target_kind = FieldKind::Text;
+        let text = |snap: &mut Snapshot| {
+            if let Some(f) = snap.focused.as_mut() {
+                f.kind = FieldKind::Text;
+            }
+        };
+        assert_eq!(run(&s, text, WriteKind::SubmitText), Ok(()));
+        // And the other way round: a text pick does not submit as a password page.
+        assert_eq!(
+            run(&s, text, WriteKind::Submit),
+            Err(VerifyFailure::FieldKindChanged)
+        );
     }
 
     #[test]

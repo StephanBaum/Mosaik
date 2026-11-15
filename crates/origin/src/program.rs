@@ -308,6 +308,8 @@ const HOSTS: &[&str] = &[
     "ruby.exe",
     "perl.exe",
     "php.exe",
+    // The generic web-app host of old store apps (ADR-0164).
+    "wwahost.exe",
 ];
 
 const HOST_PACKAGES: &[&str] = &[
@@ -323,6 +325,14 @@ const BROKERS: &[&str] = &[
     "logonui.exe",
     "lockapp.exe",
     "applicationframehost.exe",
+    // The Entra ID sign-in broker shows federated sign-in pages of any tenant (ADR-0164).
+    "microsoft.aad.brokerplugin.exe",
+];
+
+/// Broker packages (ADR-0164): the sign-in broker and the first-run experience host.
+const BROKER_PACKAGES: &[&str] = &[
+    "microsoft.aad.brokerplugin_cw5n1h2txyewy",
+    "microsoft.windows.cloudexperiencehost_cw5n1h2txyewy",
 ];
 
 const REMOTE: &[&str] = &[
@@ -382,7 +392,7 @@ pub fn classify_program(exe_folded: &str, package_family: Option<&str>) -> Progr
         ProgramClass::Browser
     } else if in_list(HOSTS) || in_packages(HOST_PACKAGES) {
         ProgramClass::Host
-    } else if in_list(BROKERS) {
+    } else if in_list(BROKERS) || in_packages(BROKER_PACKAGES) {
         ProgramClass::Broker
     } else if in_list(REMOTE) || in_packages(REMOTE_PACKAGES) {
         ProgramClass::Remote
