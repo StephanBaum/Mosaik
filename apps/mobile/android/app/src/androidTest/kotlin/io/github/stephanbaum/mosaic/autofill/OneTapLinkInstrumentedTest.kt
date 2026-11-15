@@ -73,12 +73,17 @@ class OneTapLinkInstrumentedTest {
         runCatching { runBlocking { app.holder.call { kit.resetAccount(it) } } }
     }
 
-    /** True when the login holds the cert-bound URL of the client app: the SHA-256 of its current signer, base64url. */
-    private fun boundUrlPresent(): Boolean {
+    /** The cert-bound URL of the client app: the SHA-256 of its current signer, base64url, behind `?cert=`. */
+    private fun boundUrl(): String {
         val signer = checkNotNull(CallerReader.signersOf(context, clientPackage)).single()
         val digest = MessageDigest.getInstance("SHA-256").digest(signer)
         val cert = Base64.encodeToString(digest, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
-        val expected = "androidapp://$clientPackage?cert=$cert"
+        return "androidapp://$clientPackage?cert=$cert"
+    }
+
+    /** True when the login of the test holds the cert-bound URL of the client app. */
+    private fun boundUrlPresent(): Boolean {
+        val expected = boundUrl()
         val detail = runBlocking { app.holder.call { it.item(vaultId, itemId) } }
         return detail.urls.any { it.url == expected }
     }
@@ -112,7 +117,7 @@ class OneTapLinkInstrumentedTest {
     }
 
     @Test
-    fun oneTapLinkNeedsBiometricConfirm() {
+    fun oneTapLinkNeedsConfirm() {
         LinkFlow.trustAnyInstallerForTests(context, true)
         kit.showClientAndFocusUsername()
         kit.tap(checkNotNull(kit.waitFor(30_000) { kit.findText(L10n.autofillLinkEntry(res, "GitHub")) }))
@@ -131,5 +136,41 @@ class OneTapLinkInstrumentedTest {
         assertTrue(boundUrlPresent())
         // The screen path links only: nothing was filled.
         assertTrue(kit.findText("client-password")?.text.isNullOrEmpty())
+    }
+
+    @Test
+    fun installerTrustedAtListButNotAtTapLinksNothing() {
+        LinkFlow.trustAnyInstallerForTests(context, true)
+        kit.showClientAndFocusUsername()
+        val entry = checkNotNull(kit.waitFor(30_000) { kit.findText(L10n.autofillLinkEntry(res, "GitHub")) })
+        // The install source is checked again at the tap: now it is untrusted.
+        LinkFlow.trustAnyInstallerForTests(context, false)
+        kit.tap(entry)
+        assertNull(
+            "the confirmation opened for an untrusted installer; the screen shows: ${kit.screenTexts()}",
+            kit.waitFor(8_000) { kit.findText(L10n.linkConfirm(res, "GitHub")) },
+        )
+        assertFalse("linked for an untrusted installer", boundUrlPresent())
+    }
+
+    @Test
+    fun aLoginThatMatchesByTheTapRefusesTheLink() {
+        LinkFlow.trustAnyInstallerForTests(context, true)
+        kit.showClientAndFocusUsername()
+        val entry = checkNotNull(kit.waitFor(30_000) { kit.findText(L10n.autofillLinkEntry(res, "GitHub")) })
+        // Between the list and the tap the app gets a login of its own (cert-bound), so it is no longer unlinked.
+        runBlocking {
+            app.holder.call { core ->
+                AppForeground.explainLock(app) {
+                    core.saveLogin(kit.draft(vaultId, "Other", "someone", "hunter3", boundUrl()))
+                }
+            }
+        }
+        kit.tap(entry)
+        assertNull(
+            "the confirmation opened for an app that matches now; the screen shows: ${kit.screenTexts()}",
+            kit.waitFor(8_000) { kit.findText(L10n.linkConfirm(res, "GitHub")) },
+        )
+        assertFalse("linked although the app matches a login", boundUrlPresent())
     }
 }

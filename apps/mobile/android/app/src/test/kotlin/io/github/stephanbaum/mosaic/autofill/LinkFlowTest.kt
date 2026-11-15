@@ -35,18 +35,56 @@ class LinkFlowTest {
         assertFalse(LinkFlow.isTrustedInstaller("com.android.vending "))
     }
 
+    private val play = "com.android.vending"
+    private val galaxy = "com.sec.android.app.samsungapps"
+
     @Test
-    fun anImportedLoginNeedsATrustedInstaller() {
-        assertTrue(LinkFlow.mayOffer(imported = true, installer = "com.android.vending"))
-        assertTrue(LinkFlow.mayOffer(imported = true, installer = "com.sec.android.app.samsungapps"))
-        assertFalse(LinkFlow.mayOffer(imported = true, installer = null))
-        assertFalse(LinkFlow.mayOffer(imported = true, installer = "com.android.shell"))
+    fun theInstallSourceNeedsTheInstallerAndTheInitiatorTrusted() {
+        assertTrue(LinkFlow.installSourceTrusted(30, play, play))
+        assertTrue(LinkFlow.installSourceTrusted(34, galaxy, galaxy))
+        // A privileged installer (adb) can name a store as the installer; the initiator gives it away.
+        assertFalse(LinkFlow.installSourceTrusted(34, play, "com.android.shell"))
+        assertFalse(LinkFlow.installSourceTrusted(34, "com.android.shell", play))
     }
 
     @Test
-    fun aVerifiedLoginIsNotGatedByTheInstaller() {
-        assertTrue(LinkFlow.mayOffer(imported = false, installer = null))
-        assertTrue(LinkFlow.mayOffer(imported = false, installer = "com.android.shell"))
+    fun beforeApi30NothingIsTrusted() {
+        assertFalse(LinkFlow.installSourceTrusted(29, play, play))
+        assertFalse(LinkFlow.installSourceTrusted(28, play, null))
+    }
+
+    @Test
+    fun missingInstallSourceFieldsAreNotTrusted() {
+        assertFalse(LinkFlow.installSourceTrusted(34, null, null))
+        assertFalse(LinkFlow.installSourceTrusted(34, play, null))
+        assertFalse(LinkFlow.installSourceTrusted(34, null, play))
+        assertFalse(LinkFlow.installSourceTrusted(34, "", ""))
+    }
+
+    @Test
+    fun anImportedLoginNeedsATrustedInstallSource() {
+        assertTrue(LinkFlow.mayOffer(imported = true, installTrusted = true))
+        assertFalse(LinkFlow.mayOffer(imported = true, installTrusted = false))
+    }
+
+    @Test
+    fun aVerifiedLoginIsNotGatedByTheInstallSource() {
+        assertTrue(LinkFlow.mayOffer(imported = false, installTrusted = false))
+        assertTrue(LinkFlow.mayOffer(imported = false, installTrusted = true))
+    }
+
+    @Test
+    fun linkEntriesAreCappedAtThree() {
+        val entries = LinkFlow.selectEntries(listOf("a", "b", "c", "d", "e"), { false }, installTrusted = false)
+        assertEquals(listOf("a", "b", "c"), entries)
+    }
+
+    @Test
+    fun untrustedInstallSourceDropsOnlyImportedEntries() {
+        val all = listOf("verified1", "imported1", "verified2", "imported2")
+        val kept = LinkFlow.selectEntries(all, { it.startsWith("imported") }, installTrusted = false)
+        assertEquals(listOf("verified1", "verified2"), kept)
+        assertEquals(all, LinkFlow.selectEntries(all, { it.startsWith("imported") }, installTrusted = true))
     }
 
     @Test

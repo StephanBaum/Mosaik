@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.content.pm.SigningInfo
 import android.os.Build
+import io.github.stephanbaum.mosaic.autofill.LinkFlow
 import io.github.stephanbaum.mosaic.autofill.Signers
 import io.github.stephanbaum.mosaic.ffi.AndroidCaller
 import java.security.MessageDigest
@@ -49,6 +50,26 @@ internal fun installerOf(pm: PackageManager, packageName: String): String? =
         null
     } catch (e: IllegalArgumentException) {
         null
+    }
+
+/**
+ * True when [packageName] was installed by a trusted store, judged on both the installing and the initiating
+ * package (API 30+ only, see [LinkFlow.installSourceTrusted]). False on any error.
+ */
+internal fun installSourceTrusted(pm: PackageManager, packageName: String): Boolean =
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val source = pm.getInstallSourceInfo(packageName)
+            LinkFlow.installSourceTrusted(
+                Build.VERSION.SDK_INT,
+                source.installingPackageName,
+                source.initiatingPackageName,
+            )
+        } else {
+            LinkFlow.installSourceTrusted(Build.VERSION.SDK_INT, null, null)
+        }
+    } catch (e: Exception) {
+        false
     }
 
 /** The details of an installed package, or null when it is not visible or not installed. */

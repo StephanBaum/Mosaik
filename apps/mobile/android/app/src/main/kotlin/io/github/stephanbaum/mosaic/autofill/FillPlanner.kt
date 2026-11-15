@@ -10,7 +10,7 @@ import io.github.stephanbaum.mosaic.ffi.LinkCandidate
 import io.github.stephanbaum.mosaic.ffi.LinkOffer
 import io.github.stephanbaum.mosaic.ffi.MobileException
 import io.github.stephanbaum.mosaic.ffi.OriginWarning
-import io.github.stephanbaum.mosaic.ui.link.installerOf
+import io.github.stephanbaum.mosaic.ui.link.installSourceTrusted
 import kotlinx.coroutines.CancellationException
 
 /** What a fill request is for, as far as it can be known without the vault. */
@@ -128,17 +128,15 @@ class FillPlanner(private val holder: CoreHolder) {
 
     /**
      * The link entries to add to the response: at most [LinkFlow.MAX_ENTRIES] candidates of [linkOffer], where an
-     * imported login (no certificate) is dropped unless the installer of [callerPackage] is a trusted store.
+     * imported login (no certificate) is dropped unless the install source of [callerPackage] is a trusted store.
      */
     suspend fun linkEntries(context: Context, sessionId: String, callerPackage: String): List<LinkCandidate> {
         val offer = linkOffer(sessionId) ?: return emptyList()
         if (offer.candidates.isEmpty()) return emptyList()
-        // The installer matters for imported candidates only, so it is read only then.
-        val installer =
-            if (offer.candidates.any { isImported(it.reason) }) installerOf(context.packageManager, callerPackage) else null
-        return offer.candidates
-            .filter { LinkFlow.mayOffer(isImported(it.reason), installer) }
-            .take(LinkFlow.MAX_ENTRIES)
+        // The install source matters for imported candidates only, so it is read only then.
+        val trusted =
+            offer.candidates.any { isImported(it.reason) } && installSourceTrusted(context.packageManager, callerPackage)
+        return LinkFlow.selectEntries(offer.candidates, { isImported(it.reason) }, trusted)
     }
 
     /** True when [target] is an app (not a page in a browser): only then can the user link a login to it. */

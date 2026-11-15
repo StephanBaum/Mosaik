@@ -40,6 +40,7 @@ import io.github.stephanbaum.mosaic.ui.components.Working
 import io.github.stephanbaum.mosaic.ui.components.TitleText
 import io.github.stephanbaum.mosaic.ui.errorText
 import io.github.stephanbaum.mosaic.ui.link.AppIdentityPanel
+import io.github.stephanbaum.mosaic.ui.link.installSourceTrusted
 import io.github.stephanbaum.mosaic.ui.link.installerOf
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 import kotlinx.coroutines.CancellationException
@@ -185,7 +186,7 @@ class FillAuthActivity : SecureActivity(), ProviderActivity {
      * The link the user tapped, checked against the present state: the caller's signers were read again by the
      * planner (so the session holds the signer of the app in front of the user), the app has no matching login now,
      * the offer is recomputed in this new session and holds the tapped login, and an imported login still needs a
-     * trusted installer. Anything else: [NoLongerMatches]. Errors of the core stop the flow (no lenient reader).
+     * trusted install source (installing and initiating package, API 30+). Anything else: [NoLongerMatches]. Errors of the core stop the flow (no lenient reader).
      */
     private suspend fun prepareLink(
         app: MosaicApp,
@@ -202,7 +203,7 @@ class FillAuthActivity : SecureActivity(), ProviderActivity {
         val key = ItemKey(vault, item)
         val offer = app.holder.call { it.fillLinkOffer(found.sessionId) }
         val chosen = offer.candidates.firstOrNull { it.key == key } ?: throw NoLongerMatches()
-        if (!LinkFlow.mayOffer(isImported(chosen.reason), installerOf(packageManager, info.callerPackage))) {
+        if (!LinkFlow.mayOffer(isImported(chosen.reason), installSourceTrusted(packageManager, info.callerPackage))) {
             throw NoLongerMatches()
         }
         return LinkPending(found.sessionId, offer, chosen, label)

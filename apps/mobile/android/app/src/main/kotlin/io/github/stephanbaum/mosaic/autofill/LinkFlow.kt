@@ -47,16 +47,29 @@ object LinkFlow {
         anyInstallerTrusted = trusted && (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     }
 
-    /** True when [installer] (the installing package of the app, or null) is a trusted store. */
-    fun isTrustedInstaller(installer: String?): Boolean =
-        anyInstallerTrusted || (installer != null && installer in TRUSTED_INSTALLERS)
+    /** True when [installer] (a package name, or null) is a trusted store. */
+    fun isTrustedInstaller(installer: String?): Boolean = installer != null && installer in TRUSTED_INSTALLERS
+
+    /**
+     * Whether the install source of an app counts as a trusted store. From API 30 both the installing and the
+     * initiating package must be trusted: `installingPackageName` alone can be set to a store by a privileged
+     * installer (adb, a shell session), while the initiating package names who started the install. Before API 30
+     * the initiator is not available, so nothing is trusted there and the user keeps the link screen.
+     */
+    fun installSourceTrusted(sdkInt: Int, installing: String?, initiating: String?): Boolean =
+        anyInstallerTrusted ||
+            (sdkInt >= 30 && isTrustedInstaller(installing) && isTrustedInstaller(initiating))
 
     /**
      * Whether a link candidate may be offered (at the list and again at the tap). A candidate verified by the
-     * website is not gated by the installer; an imported one (no certificate) only when the app comes from a
-     * trusted store. Without such an installer the user keeps the link screen, which shows it and "Not verified".
+     * website is not gated by the install source; an imported one (no certificate) only when [installTrusted].
+     * Without it the user keeps the link screen, which shows the installer and "Not verified".
      */
-    fun mayOffer(imported: Boolean, installer: String?): Boolean = !imported || isTrustedInstaller(installer)
+    fun mayOffer(imported: Boolean, installTrusted: Boolean): Boolean = !imported || installTrusted
+
+    /** At most [MAX_ENTRIES] of [candidates] that may be offered; [installTrusted] only matters for imported ones. */
+    fun <T> selectEntries(candidates: List<T>, isImported: (T) -> Boolean, installTrusted: Boolean): List<T> =
+        candidates.filter { mayOffer(isImported(it), installTrusted) }.take(MAX_ENTRIES)
 }
 
 /**
