@@ -118,7 +118,7 @@ pub enum ServerMessage {
 }
 
 /// Reads the version, then the typed message.
-fn parse<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, Error> {
+pub(crate) fn parse<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, Error> {
     #[derive(Deserialize)]
     struct Probe {
         v: u8,
