@@ -372,6 +372,22 @@ pub(crate) enum Kind {
     Date,
 }
 
+impl Kind {
+    /// `Hidden` if a field name suggests a secret (it contains `password`,
+    /// `number`, `pin`, `code`, `key` or `secret`, any case), else `Text`.
+    pub(crate) fn for_key(key: &str) -> Self {
+        let k = key.to_lowercase();
+        if ["password", "number", "pin", "code", "key", "secret"]
+            .iter()
+            .any(|w| k.contains(w))
+        {
+            Self::Hidden
+        } else {
+            Self::Text
+        }
+    }
+}
+
 /// Builds one [`ItemDraft`] from source fields, collecting warnings.
 pub(crate) struct Builder {
     draft: ItemDraft,

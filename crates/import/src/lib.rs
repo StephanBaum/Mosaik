@@ -61,6 +61,7 @@ mod draft;
 mod entries;
 mod error;
 mod json;
+mod lastpass;
 mod otp;
 mod passkey;
 mod preview;

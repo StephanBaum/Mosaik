@@ -67,6 +67,10 @@ pub enum CsvPreset {
     Safari,
     /// Bitwarden CSV: `folder,favorite,type,name,notes,fields,…,login_uri,…`.
     Bitwarden,
+    /// `LastPass`: `url,username,password,totp,extra,name,grouping,fav`;
+    /// secure notes use the URL `http://sn`.
+    // unverified against a current export (launch gate)
+    LastPass,
     /// RoboForm: `Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2`.
     // unverified against a current export (launch gate)
     RoboForm,
@@ -110,6 +114,8 @@ fn detect_preset(header: &[&str]) -> Option<CsvPreset> {
         Some(CsvPreset::Bitwarden)
     } else if has(&["httprealm", "formactionorigin", "guid"]) {
         Some(CsvPreset::Firefox)
+    } else if has(&["url", "username", "password", "extra", "name", "grouping"]) {
+        Some(CsvPreset::LastPass)
     } else if has(&["name", "url", "matchurl", "login", "pwd"]) {
         Some(CsvPreset::RoboForm)
     } else if has(&["group", "title", "username", "password", "url", "notes"]) {
@@ -187,6 +193,7 @@ fn column_for(header: &str, preset: Option<CsvPreset>) -> CsvColumn {
 pub fn parse(input: &[u8], mapping: Option<&CsvMapping>) -> Result<Import> {
     let mut rows = rows(input)?;
     let header = rows.next_row()?.ok_or(Error::Malformed)?;
+    let names: Vec<String> = header.iter().map(|s| normalized(s)).collect();
     let detected;
     let (mapping, preset) = if let Some(m) = mapping {
         (m, None)
@@ -201,7 +208,13 @@ pub fn parse(input: &[u8], mapping: Option<&CsvMapping>) -> Result<Import> {
         if row.iter().all(|v| v.trim().is_empty()) {
             continue;
         }
-        c.push(entry(&row, mapping, preset))?;
+        let builder = match preset {
+            Some(CsvPreset::LastPass) => {
+                crate::lastpass::entry(&Named::new(&header, &names, &row), &row, mapping)
+            }
+            _ => entry(&row, mapping, preset),
+        };
+        c.push(builder)?;
     }
     Ok(c.finish())
 }
@@ -271,7 +284,7 @@ fn folder_tag(preset: Option<CsvPreset>, v: &str) -> Option<&str> {
     (!tag.trim().is_empty()).then_some(tag)
 }
 
-fn entry(row: &[Str], mapping: &CsvMapping, preset: Option<CsvPreset>) -> Builder {
+pub(crate) fn entry(row: &[Str], mapping: &CsvMapping, preset: Option<CsvPreset>) -> Builder {
     let mut b = Builder::new(ItemType::Login);
     let mut title_set = false;
     let mut first_url: Option<&str> = None;

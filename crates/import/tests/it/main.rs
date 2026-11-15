@@ -3,6 +3,7 @@
 mod commit;
 mod csv_presets;
 mod formats;
+mod lastpass;
 mod mosaic_export;
 mod passkeys;
 mod properties;
