@@ -10,6 +10,8 @@
     reason = "errors are documented on the Backend methods and in DESKTOP_IPC.md"
 )]
 
+pub mod agent;
+pub mod agent_bindings;
 pub mod attachments;
 pub mod breach;
 pub mod browser;
@@ -88,6 +90,15 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         items::restore_item,
         items::purge_item,
         items::move_item,
+        agent_bindings::agent_binding_confirm,
+        agent::agent_access_status,
+        agent::agent_access_set_enabled,
+        agent::agent_pairing_respond,
+        agent::agent_pairing_remove,
+        agent::agent_access_respond,
+        agent::agent_grant_revoke,
+        agent::agent_stop_all,
+        agent::agent_log,
         attachments::attachment_add,
         attachments::attachment_preview,
         attachments::attachment_save,

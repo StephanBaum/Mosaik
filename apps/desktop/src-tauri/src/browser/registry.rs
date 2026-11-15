@@ -348,7 +348,7 @@ fn parse_file(file: fs::File) -> Option<Vec<Pairing>> {
 /// Unix. A leftover temporary file is removed first (it could have other
 /// permissions), the new one is created exclusively, and the temporary file
 /// is removed again if anything fails.
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension("json.tmp");
     match fs::remove_file(&tmp) {
         Ok(()) => {}

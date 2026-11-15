@@ -21,8 +21,10 @@ import {
   type SecretFieldKey,
   type VaultSummary,
 } from "../../ipc/contract/index.ts";
+import { useAgentEnabled } from "../../hooks/useAgentEnabled.ts";
 import { Sections } from "./editor/Sections.tsx";
 import { FilesSection } from "./files/FilesSection.tsx";
+import { AGENT_SAVE_ERRORS } from "./agentForm.ts";
 import { changeKind, hasErrors, initialForm, validateForm, type Form } from "./editorForm.ts";
 import { OTP_UNCHANGED } from "./otp/OtpSection.tsx";
 import { useSave } from "./useSave.ts";
@@ -253,6 +255,9 @@ export function ItemEditor({
   const { form, dirty } = state;
   const cancel = useCancel(form, onCancel);
   const heading = useHeading(editing, form.kind);
+  const agentEnabled = useAgentEnabled();
+  // What agent access refused is shown in its section, next to the fields to fix.
+  const agentError = state.error !== null && AGENT_SAVE_ERRORS.includes(state.error.code) ? state.error : null;
   useLeaveOnEscape(() => {
     if (dirty) {
       setConfirmDiscard(true);
@@ -289,9 +294,11 @@ export function ItemEditor({
         otpMissing={state.otpMissing}
         onChange={state.change}
         onGenerate={state.fillGenerated}
+        agentEnabled={agentEnabled}
+        agentError={agentError}
       />
       {editing !== null && editing.summary.kind !== "passkey" && <EditorFiles editing={editing} />}
-      <ErrorAlert error={state.error} />
+      <ErrorAlert error={agentError === null ? state.error : null} />
       <div className="form-footer">
         <Button onClick={cancel}>{t("action.cancel")}</Button>
         <HoloButton type="submit">{t("action.save")}</HoloButton>

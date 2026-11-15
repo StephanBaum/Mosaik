@@ -5,7 +5,8 @@
 use mosaic_platform::PlatformError;
 use mosaic_platform::clipboard::{Clipboard, SystemClipboard};
 use mosaic_platform::keystore::{
-    CliSessionStore, OsCliSessions, OsKeystore, OsSyncTokens, SecretKeyStore, SyncTokenStore,
+    AgentPairingStore, CliSessionStore, OsAgentPairings, OsCliSessions, OsKeystore, OsSyncTokens,
+    SecretKeyStore, SyncTokenStore,
 };
 
 use crate::input::{RealTerminal, Terminal};
@@ -32,6 +33,16 @@ pub fn open() -> Backends {
         sessions: OsCliSessions::new().map(|s| Box::new(s) as Box<dyn CliSessionStore>),
         tokens: Box::new(OsSyncTokens::for_cli()),
     }
+}
+
+/// Where the agent pairings of this client live (the OS keystore; no file fallback).
+#[must_use]
+pub fn agent_pairings() -> Box<dyn AgentPairingStore> {
+    #[cfg(feature = "test-util")]
+    if let Some(store) = crate::testing::agent_pairings() {
+        return store;
+    }
+    Box::new(OsAgentPairings)
 }
 
 /// The clipboard.

@@ -99,5 +99,21 @@
   "cli.sync.acknowledgeWord": "acknowledge",
   "cli.setup.done": "Dieses Gerät ist als eigener Speicher eingerichtet. Führe `mosaic sync` aus.",
   "cli.ssh.agentStatus": "Der SSH-Agent läuft in der Mosaic-App. Die CLI startet keinen.",
-  "cli.ssh.noKeys": "Keine SSH-Schlüssel."
+  "cli.ssh.noKeys": "Keine SSH-Schlüssel.",
+  "cli.err.agentContext": "Das sieht nach einer KI-Agent-Sitzung aus. Ein Geheimnis hier auszugeben, brächte es in den Kontext des Agenten. Nutze stattdessen `mosaic agent mcp`, oder füge --i-know hinzu, wenn du das selbst ausführst.",
+  "cli.err.agentAlreadyPaired": "Eine Kopplung namens {name} gibt es schon. Mit --replace koppelst du neu.",
+  "cli.err.desktopNotRunning": "Die Mosaic-App läuft nicht.",
+  "cli.err.agentAccessOff": "Der Agentenzugriff ist aus. Schalte ihn in der Mosaic-App unter Einstellungen ein.",
+  "cli.err.agentLocked": "Der Tresor ist gesperrt. Entsperre zuerst die Mosaic-App.",
+  "cli.err.pairingDenied": "Die Kopplung wurde in der Mosaic-App abgelehnt.",
+  "cli.err.pairingExpired": "Die Kopplungsanfrage ist abgelaufen.",
+  "cli.err.pairingLimit": "Die Mosaic-App hat die höchste erlaubte Zahl an Kopplungen. Entferne zuerst eine.",
+  "cli.err.pairingNameTaken": "Eine Kopplung mit diesem Namen gibt es schon. Entferne sie zuerst oder wähle einen anderen Namen.",
+  "cli.err.pairingBlocked": "Nach mehreren Ablehnungen ist das Koppeln einige Minuten gesperrt.",
+  "cli.err.notPaired": "Dieser Client ist nicht gekoppelt. Führe `mosaic agent pair --name {name}` aus.",
+  "cli.err.agentRefused": "Die Mosaic-App hat die Anfrage abgelehnt ({reason}).",
+  "cli.err.agentIo": "Die Verbindung zur Mosaic-App ist fehlgeschlagen.",
+  "cli.agent.pairCode": "Vergleiche diesen Code mit dem, den Mosaic anzeigt: {code}",
+  "cli.agent.paired": "Gekoppelt als {name}.",
+  "cli.agent.status": "Desktop: {desktop}. Tresor: {vault}. Agentenzugriff: {access}. Gekoppelt: {paired}."
 }

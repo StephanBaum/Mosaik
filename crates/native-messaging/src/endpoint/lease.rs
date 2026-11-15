@@ -33,7 +33,8 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use super::{
-    is_valid_pipe_name, read_discovery_file, remove_discovery_file, write_discovery_file_io,
+    ChannelKind, is_valid_pipe_name_for, read_discovery_file_for, remove_discovery_file,
+    write_discovery_file_io,
 };
 use crate::error::Error;
 
@@ -70,7 +71,15 @@ impl DiscoveryLease {
     /// directory, [`Error::EndpointInUse`] if another desktop holds the
     /// file, [`Error::Io`] otherwise.
     pub fn create(path: &Path, pipe: &str) -> Result<Self, Error> {
-        if !is_valid_pipe_name(pipe) || path.parent().is_none() {
+        Self::create_for(ChannelKind::Browser, path, pipe)
+    }
+
+    /// [`DiscoveryLease::create`] for the channel `kind`.
+    ///
+    /// # Errors
+    /// As [`DiscoveryLease::create`].
+    pub fn create_for(kind: ChannelKind, path: &Path, pipe: &str) -> Result<Self, Error> {
+        if !is_valid_pipe_name_for(kind, pipe) || path.parent().is_none() {
             return Err(Error::EndpointInvalid);
         }
         let mut attempt = 1;
@@ -141,8 +150,16 @@ pub fn discovery_is_live(path: &Path) -> Result<bool, Error> {
 /// [`Error::DesktopNotRunning`] if the file is missing or stale, and the
 /// errors of [`read_discovery_file`].
 pub fn read_live_discovery_file(path: &Path) -> Result<String, Error> {
+    read_live_discovery_file_for(ChannelKind::Browser, path)
+}
+
+/// [`read_live_discovery_file`] for the channel `kind`.
+///
+/// # Errors
+/// As [`read_live_discovery_file`].
+pub fn read_live_discovery_file_for(kind: ChannelKind, path: &Path) -> Result<String, Error> {
     if discovery_is_live(path)? {
-        read_discovery_file(path)
+        read_discovery_file_for(kind, path)
     } else {
         Err(Error::DesktopNotRunning)
     }
@@ -151,7 +168,7 @@ pub fn read_live_discovery_file(path: &Path) -> Result<String, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::endpoint::{new_windows_pipe_name, write_discovery_file};
+    use crate::endpoint::{new_windows_pipe_name, read_discovery_file, write_discovery_file};
 
     fn discovery_path(dir: &tempfile::TempDir) -> PathBuf {
         dir.path().join("browser").join("endpoint.json")

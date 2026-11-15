@@ -272,6 +272,38 @@ impl Prepared {
         self.ssh_key.is_some()
     }
 
+    /// What the draft makes of a secret field: `None` leaves it as it is,
+    /// `Some(None)` clears it, `Some(Some(value))` sets it.
+    #[must_use]
+    pub fn post_secret(&self, field: SecretField) -> Option<Option<&SecretString>> {
+        self.secrets
+            .iter()
+            .rev()
+            .find(|(f, _)| *f == field)
+            .map(|(_, value)| value.as_ref())
+    }
+
+    /// What the draft makes of the custom field `id`: `None` leaves it as it
+    /// is, `Some(None)` removes it or makes it something else than a hidden
+    /// value, `Some(Some(value))` sets a hidden value.
+    #[must_use]
+    pub fn post_custom(&self, id: &ElementId) -> Option<Option<&SecretString>> {
+        let mut out = None;
+        for op in &self.fields {
+            match op {
+                FieldOp::Set(set, field) if set == id => {
+                    out = Some(match &field.value {
+                        CustomFieldValue::Hidden(secret) => Some(secret),
+                        _ => None,
+                    });
+                }
+                FieldOp::Remove(removed) if removed == id => out = Some(None),
+                _ => {}
+            }
+        }
+        out
+    }
+
     /// Whether the draft changes nothing but the title, the notes and the
     /// tags (all a `passkey` item allows).
     #[must_use]
@@ -398,6 +430,7 @@ mod tests {
             tags: None,
             otp: None,
             ssh_key: None,
+            agent_bindings: vec![],
         }
     }
 

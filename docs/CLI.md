@@ -212,6 +212,38 @@ Error codes reuse the desktop's names where they mean the same (`wrongCredential
   export fails. On Windows the file carries the Mark of the Web (`Zone.Identifier`, `ZoneId=3`) when the
   volume is NTFS.
 
+## Agent access
+
+`mosaic agent *` lets an AI agent in Claude Code, Claude Desktop, Cursor or Codex call an HTTPS API with a key from the vault without the key entering
+the model's context (ADR-0159). The subcommands talk to the running, unlocked desktop over the agent endpoint (`docs/NATIVE_MESSAGING.md` §9). **They never
+open the store or a CLI session**, and they never print or receive a secret value.
+
+```sh
+mosaic agent pair --name NAME [--replace]   # pair this client with the desktop; compare the code, then Allow in the app
+mosaic agent status [--client NAME]         # desktop running, vault locked or not, agent access on or off, client paired or not
+mosaic agent mcp --client NAME              # the MCP server (stdio); launched by the client, not by hand
+```
+
+Turn on "Allow AI agents to use secrets" in the desktop (Settings, Agents) first. `pair` stores the pairing in the OS keystore
+(`mosaic-agent-pairing-<name>`, never in a file; without a keystore there is no pairing). An unpaired `mcp` answers every tool call with `notPaired` and
+never starts a pairing by itself.
+
+Claude Code configuration (the other clients take the same command and arguments in their own format):
+
+```json
+{"mcpServers": {"mosaic": {"command": "C:\\Program Files\\Mosaic\\mosaic.exe",
+                            "args": ["agent", "mcp", "--client", "Claude Code"]}}}
+```
+
+No secret is in the configuration. The tools are `mosaic_status`, `mosaic_list_secrets`, `mosaic_request_access` and `mosaic_http_request`. The agent names a
+secret by reference; Mosaic sends the value only to an origin the user listed in the item editor, and returns the response with the value masked. The
+user approves each secret in the desktop (once, 15 minutes, 1 hour or until lock).
+
+**An open CLI session is a separate path.** While you hold a CLI session (`mosaic unlock`), a shell tool of an agent can still run `mosaic get --reveal`.
+Do not keep a CLI session open while an agent has a shell. As a guard against accidents, `get --reveal` and `inject` to a non-terminal refuse with
+`agentContext` when the environment variable `CLAUDECODE` is set, unless `--i-know` is passed. That stops accidents, not an injected agent, which can
+unset the variable.
+
 ## Packaging
 
 `cargo build -p mosaic-cli --release` builds `mosaic` on Windows, macOS and Linux. `mosaic help --man`

@@ -10,6 +10,7 @@ import { useToast } from "../components/ToastProvider.tsx";
 import { useIpcEvent } from "../hooks/useIpcEvent.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import type { AppEvent, LockReason, SshApprovalRequest, SyncState } from "../ipc/contract/index.ts";
+import { useAgentPrompts, type AgentPrompts } from "./useAgentPrompts.ts";
 import { useBrowserPrompts, type BrowserPrompts } from "./useBrowserPrompts.ts";
 import { useImportDrop, type ImportDrop } from "./useImportDrop.ts";
 import { useNoticeEvents, type NoticeEvents } from "./useNoticeEvents.ts";
@@ -22,6 +23,8 @@ interface EventsContextValue {
   removeSsh: (requestId: string) => void;
   /** The browser extension's pairing, save and passkey prompts, and the paired-browsers counter. */
   browser: BrowserPrompts;
+  /** The agent endpoint's pairing and access prompts, and whether a request is being sent. */
+  agent: AgentPrompts;
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
   /** Why the vault locked last, until the next unlock. */
@@ -59,6 +62,7 @@ export function EventsProvider({
   const secrets = useSecrets();
   const [ssh, setSsh] = useState<SshApprovalRequest[]>([]);
   const browser = useBrowserPrompts();
+  const agent = useAgentPrompts();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [lockReason, setLockReason] = useState<LockReason | null>(null);
   const [sync, setSync] = useState<SyncState | null>(null);
@@ -68,7 +72,7 @@ export function EventsProvider({
   const notices = useNoticeEvents();
 
   useIpcEvent((event: AppEvent) => {
-    if (taken(event, browser, notices, importDrop)) {
+    if (taken(event, browser, agent, notices, importDrop)) {
       return;
     }
     switch (event.type) {
@@ -76,6 +80,7 @@ export function EventsProvider({
         secrets.clearAll();
         setSsh([]);
         browser.clear();
+        agent.clear();
         notices.clear();
         setPaletteOpen(false);
         importDrop.clear();
@@ -116,6 +121,7 @@ export function EventsProvider({
     () => ({
       ssh,
       browser,
+      agent,
       removeSsh: (requestId) => {
         setSsh((queue) => queue.filter((request) => request.requestId !== requestId));
       },
@@ -132,7 +138,7 @@ export function EventsProvider({
       sharing,
       notices,
     }),
-    [ssh, browser, paletteOpen, lockReason, sync, syncDataVersion, importDrop, sharing, notices],
+    [ssh, browser, agent, paletteOpen, lockReason, sync, syncDataVersion, importDrop, sharing, notices],
   );
   return <EventsContext value={value}>{children}</EventsContext>;
 }

@@ -152,6 +152,13 @@ fn reveal_required(field: &str) -> CliError {
     reason = "one pass over the item: selection, gating, copy, JSON and text"
 )]
 pub fn get(app: &mut App, p: &Parsed) -> Result<()> {
+    if p.has("reveal")
+        && !p.has("i-know")
+        && crate::util::in_agent_context()
+        && !std::io::stdout().is_terminal()
+    {
+        return Err(CliError::agent_context());
+    }
     let mut u = app.unlock()?;
     let target = refs::resolve(&u.session, first_arg(p)?)?;
     let mut wanted: Vec<String> = p.values("field").into_iter().map(str::to_owned).collect();

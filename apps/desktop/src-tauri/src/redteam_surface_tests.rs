@@ -639,3 +639,62 @@ fn credential_rotation_requests_refuse_extra_keys_urls_and_values_in_the_wrong_p
             && crate::commands::names::COMMANDS.contains(&"breach_scan_cancel")
     );
 }
+
+/// Agent access (ADR-0159): the webview can set the switch, answer the two dialogs, end grants
+/// and read the log, and nothing else. It cannot make an agent request, spawn a program or
+/// reveal a value: no `agent_*` command takes a reference, URL, header or body, and the modules
+/// behind them never touch the HTTPS sender or a process.
+#[test]
+fn the_webview_cannot_make_agent_requests() {
+    let mut agent: Vec<&str> = crate::commands::names::COMMANDS
+        .iter()
+        .copied()
+        .filter(|c| c.starts_with("agent_"))
+        .collect();
+    agent.sort_unstable();
+    assert_eq!(
+        agent,
+        [
+            "agent_access_respond",
+            "agent_access_set_enabled",
+            "agent_access_status",
+            "agent_binding_confirm",
+            "agent_grant_revoke",
+            "agent_log",
+            "agent_pairing_remove",
+            "agent_pairing_respond",
+            "agent_stop_all",
+        ]
+    );
+    // The request types hold no destination, no reference and no payload.
+    let contract = include_str!("contract/agent_access.rs");
+    for field in [
+        "pub url",
+        "pub headers",
+        "pub body",
+        "pub reference",
+        "pub value",
+    ] {
+        assert!(
+            !contract.contains(field),
+            "{field} in an agent request type"
+        );
+    }
+    // The command modules never send, spawn or reveal.
+    for (name, source) in [
+        ("commands/agent.rs", include_str!("commands/agent.rs")),
+        (
+            "commands/agent_bindings.rs",
+            include_str!("commands/agent_bindings.rs"),
+        ),
+    ] {
+        for forbidden in [
+            "HttpsSender",
+            "Command::new",
+            "spawn_blocking",
+            "reveal_secret",
+        ] {
+            assert!(!source.contains(forbidden), "{name} uses {forbidden}");
+        }
+    }
+}

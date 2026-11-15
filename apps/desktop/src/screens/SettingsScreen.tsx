@@ -26,6 +26,7 @@ import { QuickUnlockSettings } from "./QuickUnlockSettings.tsx";
 import { AccountKeysSection } from "./settings/security/AccountKeysSection.tsx";
 import { kitLabels } from "./onboarding/kit.ts";
 import { SettingsSection } from "./SettingsSection.tsx";
+import { AgentSettings } from "./AgentSettings.tsx";
 import { BrowserSettings } from "./BrowserSettings.tsx";
 import { PasskeyExportSettings } from "./PasskeyExportSettings.tsx";
 import { EmergencySettings } from "./sharing/EmergencySettings.tsx";
@@ -252,6 +253,7 @@ function Integrations({
       <EmergencySettings />
       <SshSettings onError={onError} />
       <BrowserSettings onError={onError} />
+      <AgentSettings onError={onError} />
       <PasskeyExportSettings />
       <ImportSettings onImport={onImport} />
     </>

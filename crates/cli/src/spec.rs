@@ -167,6 +167,7 @@ const GET_FLAGS: &[Flag] = &[
         "30s",
         "Clear the clipboard after this long (5s to 300s).",
     ),
+    flag("i-know", "Print secrets even in an AI agent session."),
 ];
 const TOTP_FLAGS: &[Flag] = &[
     flag("copy", "Copy the code to the clipboard."),
@@ -208,6 +209,16 @@ const INJECT_FLAGS: &[Flag] = &[
         "Write the result to FILE (mode 0600, never overwrites).",
     ),
     flag("reveal", "Allow secrets on a terminal."),
+    flag("i-know", "Print secrets even in an AI agent session."),
+];
+const AGENT_FLAGS: &[Flag] = &[
+    opt(
+        "name",
+        "NAME",
+        "pair: the client name (letters, digits, space, . _ - ( )).",
+    ),
+    opt("client", "NAME", "status, mcp: the paired client name."),
+    flag("replace", "pair: replace an existing pairing of that name."),
 ];
 const IMPORT_FLAGS: &[Flag] = &[
     opt("vault", "V", "Import into this vault (name or ID)."),
@@ -356,6 +367,16 @@ pub const COMMANDS: &[Command] = &[
         "Recover after a password or key change made elsewhere.",
         &[],
         &[],
+    ),
+    cmd(
+        "agent",
+        "Pair an AI client and run its MCP server (secrets never enter the model).",
+        &[Arg {
+            name: "SUB",
+            required: true,
+            choices: &["pair", "status", "mcp"],
+        }],
+        AGENT_FLAGS,
     ),
     cmd(
         "completions",

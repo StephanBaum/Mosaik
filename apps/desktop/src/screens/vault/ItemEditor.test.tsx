@@ -249,6 +249,7 @@ function stored(over: Partial<ItemDetail> = {}): ItemDetail {
     review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
     sshKey: null,
     passkey: null,
+    agentBindings: [],
     ...over,
   };
 }

@@ -15,6 +15,13 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
+use super::agent;
+use super::agent_access::{
+    self, AgentAccessDecision, AgentAccessRespondRequest, AgentCloseReason, AgentEndpointState,
+    AgentGrantRevokeRequest, AgentGrantState, AgentLogKind, AgentLogRequest,
+    AgentPairingRemoveRequest, AgentPairingRespondRequest, AgentRefusalCode,
+    AgentSetEnabledRequest,
+};
 use super::attachments::{self, AttachmentAdded, AttachmentSaved};
 use super::browser::{
     self, BrowserCloseReason, BrowserEndpointState, BrowserFamily, BrowserHint,
@@ -323,6 +330,7 @@ fn vault_commands(f: &mut Fixtures) {
 }
 
 /// The item commands.
+#[expect(clippy::too_many_lines, reason = "one block per command")]
 fn item_commands(f: &mut Fixtures, item_request: ItemRequest) {
     f.command(
         "list_items",
@@ -387,7 +395,24 @@ fn item_commands(f: &mut Fixtures, item_request: ItemRequest) {
                     ..items::samples::draft()
                 },
             })
+            .chain([UpdateItemRequest {
+                vault_id: ids::vault(1),
+                item_id: ids::item(1),
+                draft: items::ItemDraft {
+                    agent_bindings: vec![agent::samples::basic_change()],
+                    ..items::samples::draft()
+                },
+            }])
             .collect(),
+        vec![items::samples::detail()],
+    );
+    f.command(
+        "agent_binding_confirm",
+        vec![agent::AgentBindingConfirmRequest {
+            vault_id: ids::vault(1),
+            item_id: ids::item(1),
+            element_id: "b2".into(),
+        }],
         vec![items::samples::detail()],
     );
     f.command(
@@ -595,6 +620,83 @@ fn ssh_commands(f: &mut Fixtures) {
             })
             .collect(),
         vec![()],
+    );
+}
+
+/// The agent access commands.
+fn agent_commands(f: &mut Fixtures) {
+    f.command(
+        "agent_access_status",
+        vec![()],
+        agent_access::samples::statuses(),
+    );
+    f.command(
+        "agent_access_set_enabled",
+        vec![
+            AgentSetEnabledRequest { enabled: true },
+            AgentSetEnabledRequest { enabled: false },
+        ],
+        agent_access::samples::statuses(),
+    );
+    f.command(
+        "agent_pairing_respond",
+        vec![
+            AgentPairingRespondRequest {
+                request_id: agent_access::samples::request_id(),
+                decision: PairingDecision::Allow,
+            },
+            AgentPairingRespondRequest {
+                request_id: agent_access::samples::request_id(),
+                decision: PairingDecision::Deny,
+            },
+        ],
+        vec![()],
+    );
+    f.command(
+        "agent_pairing_remove",
+        vec![AgentPairingRemoveRequest {
+            pairing_id: agent_access::samples::pairing_id(),
+        }],
+        agent_access::samples::statuses(),
+    );
+    f.command(
+        "agent_access_respond",
+        AgentAccessDecision::ALL
+            .iter()
+            .map(|&decision| AgentAccessRespondRequest {
+                request_id: agent_access::samples::request_id(),
+                decision,
+            })
+            .collect(),
+        vec![()],
+    );
+    f.command(
+        "agent_grant_revoke",
+        vec![AgentGrantRevokeRequest { grant_id: 1 }],
+        agent_access::samples::statuses(),
+    );
+    f.command(
+        "agent_stop_all",
+        vec![()],
+        agent_access::samples::statuses(),
+    );
+    f.command(
+        "agent_log",
+        vec![
+            AgentLogRequest {
+                pairing_id: None,
+                item_id: None,
+                before_ms: None,
+                limit: 50,
+            },
+            AgentLogRequest {
+                pairing_id: Some(agent_access::samples::pairing_id()),
+                item_id: Some(ids::item(1)),
+                before_ms: Some(1_761_480_035_000),
+                limit: 200,
+            },
+        ],
+        agent_access::samples::log_pages(),
     );
 }
 
@@ -1413,6 +1515,14 @@ fn enums() -> Map<String, Value> {
         ("sshDecision", values(SshDecision::ALL)),
         ("sshCloseReason", values(SshCloseReason::ALL)),
         ("sshOrigin", values(SshOrigin::ALL)),
+        ("agentInjectKind", values(agent::AgentInjectKind::ALL)),
+        ("agentEndpointState", values(AgentEndpointState::ALL)),
+        ("agentGrantState", values(AgentGrantState::ALL)),
+        ("agentAccessDecision", values(AgentAccessDecision::ALL)),
+        ("agentCloseReason", values(AgentCloseReason::ALL)),
+        ("agentLogKind", values(AgentLogKind::ALL)),
+        ("agentRefusalCode", values(AgentRefusalCode::ALL)),
+        ("agentBasicUserKind", values(agent::AgentBasicUserKind::ALL)),
         ("browserEndpointState", values(BrowserEndpointState::ALL)),
         ("browserRegistryState", values(BrowserRegistryState::ALL)),
         ("browserFamily", values(BrowserFamily::ALL)),
@@ -1469,6 +1579,7 @@ pub(crate) fn build() -> Value {
     setup_code_commands(&mut f);
     ssh_commands(&mut f);
     browser_commands(&mut f);
+    agent_commands(&mut f);
     sync_commands(&mut f);
     rotation_commands(&mut f);
     vault_rotate_commands(&mut f);
