@@ -39,6 +39,11 @@ What waits for phase 2: the picker, the chip, the hotkey, typing, submit, the
 - **Worker recovery.** A dedicated MTA worker thread that is abandoned and
   respawned when a UI Automation call blocks (ADR-0157 D5). Phase 1 only has the
   deadlines. `WindowsProbe::new` must run on an MTA thread, not a UI (STA) thread.
+- **Image path re-check.** `QueryFullProcessImageNameW` may report the name
+  recorded at process start, so renaming a running exe and copying a signed
+  program into the old path defeats the path re-check (R178, covered by R177's
+  same-user assumption). Phase 2 compares file IDs against `GetMappedFileNameW`
+  of the image base.
 - **Saved signer name.** `link_again_needed` takes the signer's display name the
   caller stored with the link (the URL holds only a hash); phase 2 stores it.
 
@@ -79,6 +84,10 @@ with a text field focused).
 - [ ] An unsigned copy renamed `Discord.exe` in `%TEMP%`: `path/` URL, two
       confirmations, `Unsigned` warning; change one byte and capture again with
       the old URL as an argument: `link_again_needed` says `FileChanged`.
+- [ ] Availability notes: a signature whose revocation lists are not cached can
+      read `Untrusted` (`WTD_CACHE_ONLY_URL_RETRIEVAL`, no network wait); root
+      changes (cross-signing, AuthRoot updates) can cause `SignerChanged`
+      prompts for an unchanged program.
 - [ ] A signed program re-signed with a second test certificate: `SignerChanged`.
 - [ ] Chrome, Windows Terminal, `mstsc.exe`, the UAC prompt (not reachable):
       excluded or nothing captured.

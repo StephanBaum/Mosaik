@@ -3,7 +3,6 @@
 //! window text. Identity data is not secret, but it is not logged either.
 
 use std::io::Read;
-use std::path::Path;
 use std::time::Instant;
 
 use mosaic_origin::program::{ProgramClass, ProgramIdentity, classify_program, fold_name};
@@ -279,7 +278,12 @@ pub fn signer_id(subject_der: &[u8], root_der: &[u8]) -> [u8; 32] {
 /// [`HashError::TooLarge`] if the file is longer than `cap` bytes (by its
 /// metadata, or by what was read), [`HashError::Io`] if it cannot be read,
 /// [`HashError::Timeout`] past `deadline`.
-pub fn hash_image_capped(path: &Path, cap: u64, deadline: Instant) -> Result<[u8; 32], HashError> {
+#[cfg(test)]
+pub fn hash_image_capped(
+    path: &std::path::Path,
+    cap: u64,
+    deadline: Instant,
+) -> Result<[u8; 32], HashError> {
     let file = std::fs::File::open(path).map_err(|_| HashError::Io)?;
     hash_file_capped(&file, cap, deadline)
 }
@@ -289,7 +293,9 @@ pub fn hash_image_capped(path: &Path, cap: u64, deadline: Instant) -> Result<[u8
 /// 64 KiB reads.
 ///
 /// # Errors
-/// As [`hash_image_capped`].
+/// [`HashError::TooLarge`] if the file is longer than `cap` bytes (by its
+/// metadata, or by what was read), [`HashError::Io`] if it cannot be read,
+/// [`HashError::Timeout`] past `deadline`.
 pub fn hash_file_capped(
     mut file: &std::fs::File,
     cap: u64,

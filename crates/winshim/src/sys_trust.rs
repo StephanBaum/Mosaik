@@ -371,7 +371,7 @@ fn in_machine_store(cert: *const CERT_CONTEXT, name: &str) -> Result<bool> {
     };
     let store = CertStore(store);
     // SAFETY: the store is open; `cert` is a valid context the find only reads
-    // (`CERT_FIND_EXISTING` compares it with the store's certificates).
+    // (`CERT_FIND_EXISTING` looks for a certificate with its issuer and serial).
     let found = unsafe {
         CertFindCertificateInStore(
             store.0,
@@ -385,10 +385,20 @@ fn in_machine_store(cert: *const CERT_CONTEXT, name: &str) -> Result<bool> {
     if found.is_null() {
         return Ok(false);
     }
+    // `CERT_FIND_EXISTING` matches by issuer and serial number only, so a
+    // same-user copy in another store with the same name and serial would
+    // pass: the found certificate must be byte-identical to the chain's root.
+    let same = encoded_cert(found)
+        .and_then(|found_der| encoded_cert(cert).map(|root_der| same_der(&found_der, &root_der)));
     // SAFETY: `found` is the context the find returned (owned by this call).
     let freed = unsafe { CertFreeCertificateContext(Some(found)) };
     let _ = freed;
-    Ok(true)
+    same
+}
+
+/// Whether two DER certificates are byte-for-byte equal.
+fn same_der(a: &[u8], b: &[u8]) -> bool {
+    !a.is_empty() && a == b
 }
 
 /// A subject attribute of the certificate by OID, `None` if it has none.
@@ -538,5 +548,21 @@ impl Drop for Catalog<'_> {
         let released =
             unsafe { CryptCATAdminReleaseCatalogContext(self.admin.handle, self.handle, 0) };
         let _ = released;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_der;
+
+    #[test]
+    fn a_root_with_the_same_issuer_and_serial_but_other_bytes_differs() {
+        // Same header (issuer, serial) and a different public key tail.
+        let real = [0x30, 0x82, 0x01, 0x0a, 0x02, 0x01, 0x07, 0xaa, 0xbb];
+        let forged = [0x30, 0x82, 0x01, 0x0a, 0x02, 0x01, 0x07, 0xaa, 0xbc];
+        assert!(same_der(&real, &real));
+        assert!(!same_der(&real, &forged));
+        assert!(!same_der(&real, &real[..8]));
+        assert!(!same_der(&[], &[]));
     }
 }

@@ -8,11 +8,13 @@ cd "$(git rev-parse --show-toplevel)"
 fail=0
 
 # Every tracked package manifest, nested ones (crates/*/fuzz, own workspaces)
-# included (vendored third-party crates excluded): it inherits the workspace lints, or sets unsafe_code = "forbid" itself.
+# included (vendored third-party crates excluded): it inherits the workspace lints (root-workspace members only), or sets unsafe_code = "forbid" itself.
 while IFS= read -r manifest; do
   [ "$manifest" = "crates/winshim/Cargo.toml" ] && continue
   grep -q '^\[package\]' "$manifest" || continue
-  if awk '/^\[lints\]/{in_lints=1; next} /^\[/{in_lints=0} in_lints && /^workspace[[:space:]]*=[[:space:]]*true/{found=1} END{exit !found}' "$manifest"; then
+  # `workspace = true` only counts for a member of the root workspace; a nested
+  # manifest that is its own workspace (has [workspace]) must set the lint itself.
+  if ! grep -q '^\[workspace\]' "$manifest" && awk '/^\[lints\]/{in_lints=1; next} /^\[/{in_lints=0} in_lints && /^workspace[[:space:]]*=[[:space:]]*true/{found=1} END{exit !found}' "$manifest"; then
     continue
   fi
   if awk '/^\[lints\.rust\]/{in_lints=1; next} /^\[/{in_lints=0} in_lints && /^unsafe_code[[:space:]]*=[[:space:]]*"forbid"/{found=1} END{exit !found}' "$manifest"; then

@@ -223,10 +223,21 @@ fn identify(
     // The open file is the process image (checked by `open_image`); its final
     // path is the identity's path.
     image.final_path().clone_into(&mut raw.final_path);
+    // The size cap comes first: the signature checks and the catalog hashes
+    // read the whole image and must not run past the deadline on a huge one.
+    let image_len = image
+        .file()
+        .metadata()
+        .map_err(|_| CaptureError::Probe(ProbeError::Os))?
+        .len();
+    if image_len > MAX_UNSIGNED_IMAGE_BYTES {
+        return Err(CaptureError::Refused(CaptureRefusal::TooLargeToBind));
+    }
     let signature = signature_state(&image, deadline)?;
-    let file_sha256 = match (&signature, hash_unsigned(&image, deadline)) {
-        (SignatureState::Unsigned, hashed) => hashed?,
-        _ => None,
+    let file_sha256 = if matches!(signature, SignatureState::Unsigned) {
+        hash_unsigned(&image, deadline)?
+    } else {
+        None
     };
     let identity = assemble_identity(own, &raw, signature, file_sha256)?;
     Ok((identity, chosen))

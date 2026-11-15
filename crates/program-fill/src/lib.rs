@@ -29,5 +29,5 @@ pub mod windows;
 pub use identity::{
     CaptureRefusal, CapturedIdentity, HashError, IdentitySource, MAX_UNSIGNED_IMAGE_BYTES,
     OwnProcess, RawProcess, SignatureState, SignerDisplay, assemble_identity,
-    choose_identity_process, exe_name_of, hash_file_capped, hash_image_capped, signer_id,
+    choose_identity_process, exe_name_of, hash_file_capped, signer_id,
 };
