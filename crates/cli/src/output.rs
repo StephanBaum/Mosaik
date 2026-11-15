@@ -124,6 +124,12 @@ impl Output {
         }
     }
 
+    /// One fixed line on stderr (the MCP relay's startup failure; nothing else is ever printed
+    /// there).
+    pub fn stderr_line(&self, line: &str) {
+        eprintln!("{line}");
+    }
+
     /// Reports an error on stderr.
     pub fn error(&self, err: &CliError) {
         let args: Vec<(&str, String)> = err.args.iter().map(|(k, v)| (*k, v.clone())).collect();

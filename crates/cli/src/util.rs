@@ -102,6 +102,14 @@ pub fn finish_private(
     }
 }
 
+/// Whether this process runs inside an AI agent session that sets `CLAUDECODE` (the only client
+/// whose variable is verified). The guard that uses it stops accidents, not an injected agent
+/// (ADR-0159, Q10).
+#[must_use]
+pub fn in_agent_context() -> bool {
+    std::env::var_os("CLAUDECODE").is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

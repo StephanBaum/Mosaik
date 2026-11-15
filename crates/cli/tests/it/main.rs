@@ -10,6 +10,7 @@
     reason = "integration tests"
 )]
 
+mod agent;
 mod common;
 mod docs;
 mod exec;

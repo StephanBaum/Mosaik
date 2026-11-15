@@ -98,5 +98,20 @@
   "cli.sync.acknowledgeWord": "acknowledge",
   "cli.setup.done": "This device is set up as its own store. Run `mosaic sync`.",
   "cli.ssh.agentStatus": "The SSH agent runs in the Mosaic app. The CLI does not run one.",
-  "cli.ssh.noKeys": "No SSH keys."
+  "cli.ssh.noKeys": "No SSH keys.",
+  "cli.err.agentContext": "This looks like an AI agent session. Printing a secret here would put it in the agent's context. Use `mosaic agent mcp` instead, or add --i-know if you run this yourself.",
+  "cli.err.agentAlreadyPaired": "A pairing named {name} exists already. Add --replace to pair again.",
+  "cli.err.desktopNotRunning": "The Mosaic app is not running.",
+  "cli.err.agentAccessOff": "Agent access is off. Turn it on in the Mosaic app under Settings.",
+  "cli.err.agentLocked": "The vault is locked. Unlock the Mosaic app first.",
+  "cli.err.pairingDenied": "The pairing was denied in the Mosaic app.",
+  "cli.err.pairingExpired": "The pairing request ran out of time.",
+  "cli.err.pairingLimit": "The Mosaic app has the most pairings it allows. Remove one first.",
+  "cli.err.pairingBlocked": "Pairing is blocked for a few minutes after repeated denials.",
+  "cli.err.notPaired": "This client is not paired. Run `mosaic agent pair --name {name}`.",
+  "cli.err.agentRefused": "The Mosaic app refused the request ({reason}).",
+  "cli.err.agentIo": "The connection to the Mosaic app failed.",
+  "cli.agent.pairCode": "Compare this code with the one Mosaic shows: {code}",
+  "cli.agent.paired": "Paired as {name}.",
+  "cli.agent.status": "Desktop: {desktop}. Vault: {vault}. Agent access: {access}. Paired: {paired}."
 }

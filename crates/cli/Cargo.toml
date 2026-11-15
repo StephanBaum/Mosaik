@@ -23,10 +23,17 @@ mosaic-import = { path = "../import" }
 mosaic-sync = { path = "../sync", features = ["http"] }
 mosaic-platform = { path = "../platform" }
 mosaic-totp = { path = "../totp" }
+# `mosaic agent *` speaks the agent endpoint: its wire types and the channel handshake/transport
+# (workspace crates; mosaic-agent without features is the wire module and the policy types only).
+mosaic-agent = { path = "../agent" }
+mosaic-native-messaging = { path = "../native-messaging" }
 mosaic-generator = { path = "../generator" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 zeroize.workspace = true
+# The agent relay's runtime: one current-thread loop for the endpoint connection and the MCP
+# stdio (already in the tree through mosaic-sync and mosaic-native-messaging).
+tokio = { workspace = true, features = ["rt", "net", "io-util", "io-std", "time", "sync"] }
 lexopt.workspace = true
 rpassword.workspace = true
 ctrlc.workspace = true
@@ -44,6 +51,8 @@ winapi-util = "=0.1.11"
 [dev-dependencies]
 tempfile.workspace = true
 mosaic-vault = { path = "../vault" }
+# The agent tests serve the endpoint with the real server loop and a fake host.
+mosaic-agent = { path = "../agent", features = ["test-util"] }
 # The hosted-flow tests run the real server on 127.0.0.1 (as the sync crate's HTTP tests do; the
 # loopback harness is shared from `crates/server/tests/it/loopback.rs`): `mosaic-server` is the
 # library under test on the other end, `axum` and `tokio` serve it from a thread of the test.

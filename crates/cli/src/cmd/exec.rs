@@ -261,6 +261,13 @@ pub fn inject(app: &mut App, p: &Parsed) -> Result<()> {
         ));
     }
     let to_file = p.value("out");
+    if to_file.is_none()
+        && !p.has("i-know")
+        && crate::util::in_agent_context()
+        && !std::io::stdout().is_terminal()
+    {
+        return Err(CliError::agent_context());
+    }
     if needs_reveal(
         to_file.is_some(),
         std::io::stdout().is_terminal(),

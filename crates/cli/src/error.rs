@@ -152,6 +152,12 @@ impl CliError {
         Self::new("notSupported", EXIT_OTHER, Msg::ErrNotSupported).with("what", what)
     }
 
+    /// An agent-context guard refused to print a secret (exit 9).
+    #[must_use]
+    pub const fn agent_context() -> Self {
+        Self::new("agentContext", EXIT_REVEAL, Msg::ErrAgentContext)
+    }
+
     /// A file could not be read.
     #[must_use]
     pub fn file_read(path: &std::path::Path) -> Self {

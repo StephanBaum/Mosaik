@@ -12,6 +12,7 @@
 //! | desktop sync token (base64url, 32 bytes) | [`SERVICE`] | `mosaic-sync-token-<account id>` |
 //! | CLI sync token | [`SERVICE`] | `mosaic-cli-sync-token-<account id>` |
 //! | CLI session (`session_id[16] \|\| W_cli[32]`, base64url) | [`SERVICE`] | `mosaic-cli-session-<account id>` |
+//! | agent pairing (`pairing_id[16] \|\| K_pair[32]`, base64url; CRYPTO_SPEC §15, ADR-0160) | [`SERVICE`] | `mosaic-agent-pairing-<name>` |
 //!
 //! What the OS does with an entry:
 //! - Windows: Credential Manager (generic credential, DPAPI-protected per
@@ -33,6 +34,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use base64ct::{Base64UrlUnpadded, Encoding as _};
+use mosaic_core::browser_channel::PairingKey;
 use mosaic_core::{AccountId, SecretKey, SecretString};
 use mosaic_sync::http::{StoredToken, Token as _};
 use zeroize::Zeroizing;
@@ -50,6 +52,9 @@ pub const SYNC_TOKEN_PREFIX: &str = "mosaic-sync-token-";
 pub const CLI_SYNC_TOKEN_PREFIX: &str = "mosaic-cli-sync-token-";
 /// Entry-name prefix of the CLI session cache (CRYPTO_SPEC §6.8).
 pub const CLI_SESSION_PREFIX: &str = "mosaic-cli-session-";
+
+/// Entry-name prefix of an agent pairing (`mosaic agent pair --name <name>`).
+pub const AGENT_PAIRING_PREFIX: &str = "mosaic-agent-pairing-";
 
 /// The service name of the pending Secret Key entries under `service`.
 #[must_use]
@@ -342,6 +347,114 @@ fn decode_token(text: &str) -> Option<StoredToken> {
     }
 }
 
+// ---- agent pairings --------------------------------------------------------------
+
+/// Where the MCP relay keeps its pairings with the desktop (`mosaic agent pair`; CRYPTO_SPEC §15,
+/// ADR-0160): one entry per client name, `pairing_id[16] || K_pair[32]` as base64url. There is no
+/// file fallback in production: a pairing key is a credential for the agent endpoint and lives
+/// only in the OS keystore. (On Linux the kernel keyring forgets it at reboot: pair again.)
+pub trait AgentPairingStore: Send + Sync {
+    /// The pairing stored under `name`, if any.
+    ///
+    /// # Errors
+    /// When the store cannot be read.
+    fn load(&self, name: &str) -> Result<Option<([u8; 16], PairingKey)>>;
+
+    /// Stores the pairing under `name`, replacing any previous one.
+    ///
+    /// # Errors
+    /// When the store cannot be written.
+    fn save(&self, name: &str, id: &[u8; 16], key: &PairingKey) -> Result<()>;
+
+    /// Removes the pairing under `name` (no-op when absent).
+    ///
+    /// # Errors
+    /// When the store cannot be written.
+    fn delete(&self, name: &str) -> Result<()>;
+}
+
+/// The stored form of a pairing: `id || key` as base64url (64 characters).
+///
+/// # Errors
+/// [`PlatformError::Keystore`] if encoding fails (it cannot with these sizes).
+pub fn encode_agent_pairing(id: &[u8; 16], key: &PairingKey) -> Result<Zeroizing<String>> {
+    let mut raw = Zeroizing::new([0u8; 48]);
+    raw[..16].copy_from_slice(id);
+    raw[16..].copy_from_slice(key.expose_secret());
+    let mut buffer = Zeroizing::new([0u8; 64]);
+    let text = Base64UrlUnpadded::encode(raw.as_slice(), buffer.as_mut_slice())
+        .map_err(|_| PlatformError::Keystore)?;
+    Ok(Zeroizing::new(text.to_owned()))
+}
+
+/// Reads the stored form; a damaged entry reads as absent (the user pairs again).
+#[must_use]
+pub fn decode_agent_pairing(text: &str) -> Option<([u8; 16], PairingKey)> {
+    let mut raw = Zeroizing::new([0u8; 48]);
+    match Base64UrlUnpadded::decode(text, raw.as_mut_slice()) {
+        Ok(decoded) if decoded.len() == 48 => {
+            let mut id = [0u8; 16];
+            id.copy_from_slice(&raw[..16]);
+            let mut key = Zeroizing::new([0u8; 32]);
+            key.copy_from_slice(&raw[16..]);
+            Some((id, PairingKey::from_bytes(&mut key)))
+        }
+        _ => None,
+    }
+}
+
+/// Keeps pairings in process memory only (zeroized on drop).
+#[derive(Default)]
+pub struct MemoryAgentPairings(Mutex<BTreeMap<String, Zeroizing<String>>>);
+
+impl AgentPairingStore for MemoryAgentPairings {
+    fn load(&self, name: &str) -> Result<Option<([u8; 16], PairingKey)>> {
+        Ok(lock(&self.0)?
+            .get(name)
+            .and_then(|t| decode_agent_pairing(t)))
+    }
+
+    fn save(&self, name: &str, id: &[u8; 16], key: &PairingKey) -> Result<()> {
+        lock(&self.0)?.insert(name.to_owned(), encode_agent_pairing(id, key)?);
+        Ok(())
+    }
+
+    fn delete(&self, name: &str) -> Result<()> {
+        lock(&self.0)?.remove(name);
+        Ok(())
+    }
+}
+
+/// The OS credential store: entry `mosaic-agent-pairing-<name>` under [`SERVICE`].
+#[derive(Default)]
+pub struct OsAgentPairings;
+
+impl OsAgentPairings {
+    fn entry(name: &str) -> Result<keyring::Entry> {
+        entry(SERVICE, &format!("{AGENT_PAIRING_PREFIX}{name}"))
+    }
+}
+
+impl AgentPairingStore for OsAgentPairings {
+    fn load(&self, name: &str) -> Result<Option<([u8; 16], PairingKey)>> {
+        match Self::entry(name)?.get_password() {
+            Ok(text) => Ok(decode_agent_pairing(&Zeroizing::new(text))),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err(PlatformError::Keystore),
+        }
+    }
+
+    fn save(&self, name: &str, id: &[u8; 16], key: &PairingKey) -> Result<()> {
+        Self::entry(name)?
+            .set_password(&encode_agent_pairing(id, key)?)
+            .map_err(|_| PlatformError::Keystore)
+    }
+
+    fn delete(&self, name: &str) -> Result<()> {
+        delete_entry(&Self::entry(name)?)
+    }
+}
+
 pub use crate::session::{CliSessionStore, MemoryCliSessions, OsCliSessions};
 
 #[cfg(test)]
@@ -387,6 +500,36 @@ mod tests {
             pending_service(SERVICE)
         );
         assert_eq!(OsKeystore::for_app().service, SERVICE);
+    }
+
+    #[test]
+    fn agent_pairings_round_trip_and_stay_per_name() {
+        let store = MemoryAgentPairings::default();
+        let id = [7u8; 16];
+        let key = PairingKey::from_bytes(&mut [9u8; 32]);
+        assert!(store.load("Claude Code").unwrap().is_none());
+        store.save("Claude Code", &id, &key).unwrap();
+        let (got_id, got_key) = store.load("Claude Code").unwrap().unwrap();
+        assert_eq!(got_id, id);
+        assert_eq!(got_key.expose_secret(), key.expose_secret());
+        assert!(store.load("Cursor").unwrap().is_none(), "other name");
+        store.delete("Cursor").unwrap();
+        assert!(store.load("Claude Code").unwrap().is_some());
+        store.delete("Claude Code").unwrap();
+        assert!(store.load("Claude Code").unwrap().is_none());
+        assert_eq!(AGENT_PAIRING_PREFIX, "mosaic-agent-pairing-");
+    }
+
+    #[test]
+    fn a_damaged_agent_pairing_reads_as_absent() {
+        let id = [1u8; 16];
+        let key = PairingKey::from_bytes(&mut [2u8; 32]);
+        let text = encode_agent_pairing(&id, &key).unwrap();
+        assert_eq!(text.len(), 64);
+        assert!(decode_agent_pairing(&text).is_some());
+        for bad in ["", "AAAA", &text[..63], &format!("{}A", &*text), "!!!"] {
+            assert!(decode_agent_pairing(bad).is_none(), "{bad}");
+        }
     }
 
     #[test]

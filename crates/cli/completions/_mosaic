@@ -18,6 +18,7 @@ _mosaic() {
     'sync:Sync once with the stores backend.'
     'setup:Give the CLI its own device store.'
     'recover:Recover after a password or key change made elsewhere.'
+    'agent:Pair an AI client and run its MCP server (secrets never enter the model).'
     'completions:Print a shell completion script.'
     'help:Show help or the manual page.'
   )
