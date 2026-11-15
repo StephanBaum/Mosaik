@@ -12,9 +12,12 @@ workspace = true
 
 [features]
 default = []
+# The HTTPS sender of the request path (ADR-0046 stack: blocking reqwest over rustls with the
+# `ring` provider, the OS trust store).
+http = ["dep:reqwest", "dep:rustls", "dep:rustls-platform-verifier"]
 # Test-only constructors and fixtures (a fixture CA for the HTTPS sender, a local TLS server).
 # Debug builds only (see `src/lib.rs`).
-test-util = []
+test-util = ["http"]
 
 [dependencies]
 mosaic-core = { path = "../core" }
@@ -29,6 +32,11 @@ thiserror.workspace = true
 serde = { workspace = true, features = ["derive"] }
 # The checked request URL is the URL that is sent: one WHATWG parse (already in the tree through mosaic-origin).
 url.workspace = true
+# HTTPS client of the request path (ADR-0046, ADR-0159), only with feature `http`; the versions are the
+# workspace's, already in the tree through the sync transport.
+reqwest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-platform-verifier = { workspace = true, optional = true }
 # The Basic header value, in zeroizing buffers (already in the tree through mosaic-core).
 base64ct = { workspace = true, features = ["alloc"] }
 

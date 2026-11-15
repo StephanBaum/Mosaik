@@ -89,6 +89,13 @@ impl fmt::Debug for ValidatedRequest {
 }
 
 /// A request with the secret in place, ready to send. Not `Clone`; `Debug` is redacted.
+#[cfg_attr(
+    all(not(feature = "http"), not(test)),
+    expect(
+        dead_code,
+        reason = "only the HTTPS sender (feature `http`) reads the parts"
+    )
+)]
 pub struct PreparedRequest {
     pub(crate) method: Method,
     pub(crate) url: Url,

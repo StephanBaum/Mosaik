@@ -18,8 +18,13 @@
 
 pub mod binding;
 pub mod error;
+#[cfg(feature = "http")]
+pub mod http;
 pub mod mask;
 pub mod request;
+pub mod response;
+#[cfg(feature = "test-util")]
+pub mod testing;
 
 #[cfg(all(feature = "test-util", not(debug_assertions)))]
 compile_error!(
@@ -28,6 +33,9 @@ compile_error!(
 
 #[cfg(test)]
 mod binding_tests;
+#[cfg(test)]
+#[cfg(feature = "test-util")]
+mod http_tests;
 #[cfg(test)]
 mod mask_tests;
 #[cfg(test)]
