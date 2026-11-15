@@ -22,6 +22,7 @@ import type { Generated, GenerateRequest } from "./generator.ts";
 import type {
   ImportCancelRequest,
   ImportCommitRequest,
+  ImportDeleteRequest,
   ImportDetected,
   ImportDetectRequest,
   ImportFileChoice,
@@ -211,6 +212,7 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   // Import
   import_choose_file: Command<null, ImportFileChoice>;
   import_detect: Command<ImportDetectRequest, ImportDetected>;
+  import_delete_file: Command<ImportDeleteRequest, null>;
   import_preview: Command<ImportPreviewRequest, ImportPreview>;
   import_commit: Command<ImportCommitRequest, ImportResult>;
   import_cancel: Command<ImportCancelRequest, null>;
@@ -359,6 +361,7 @@ const commandSet = {
   security_report: true,
   import_choose_file: true,
   import_detect: true,
+  import_delete_file: true,
   import_preview: true,
   import_commit: true,
   import_cancel: true,

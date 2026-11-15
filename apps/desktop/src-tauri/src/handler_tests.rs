@@ -1504,6 +1504,84 @@ fn import_detect_reports_source_and_format() {
 }
 
 #[test]
+fn import_delete_only_after_commit() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("lastpass.csv");
+    std::fs::write(&file, LASTPASS_CSV).unwrap();
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(file.clone()), Arc::default())));
+    let vault = vault_id(&b);
+    let token = chosen(&b);
+    let delete =
+        |b: &Backend, token: &str| b.import_delete_file(&req(json!({ "fileToken": token })));
+    let preview = preview_of(&b, &token, "csv", Value::Null).unwrap();
+    // A previewed file is not yet in the vault.
+    assert_eq!(
+        code(delete(&b, &token).unwrap_err()),
+        ErrorCode::ImportDeleteNotAllowed
+    );
+    assert!(file.exists());
+    // A token the shell never issued is not a path.
+    assert_eq!(
+        code(delete(&b, "file-999").unwrap_err()),
+        ErrorCode::ImportFileUnreadable
+    );
+    let done = b
+        .import_commit(&req(json!({
+            "previewId": preview.preview_id,
+            "targetVaultId": vault,
+            "skip": [],
+        })))
+        .unwrap();
+    assert_eq!((done.imported, done.failed), (1, 0));
+    delete(&b, &token).unwrap();
+    assert!(!file.exists());
+    assert_eq!(
+        code(delete(&b, &token).unwrap_err()),
+        ErrorCode::ImportFileUnreadable
+    );
+}
+
+#[test]
+fn import_delete_failure_keeps_the_file_and_the_token() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("lastpass.csv");
+    std::fs::write(&file, LASTPASS_CSV).unwrap();
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(file.clone()), Arc::default())));
+    let vault = vault_id(&b);
+    let token = chosen(&b);
+    let preview = preview_of(&b, &token, "csv", Value::Null).unwrap();
+    b.import_commit(&req(json!({
+        "previewId": preview.preview_id,
+        "targetVaultId": vault,
+        "skip": [],
+    })))
+    .unwrap();
+    let mut perms = std::fs::metadata(&file).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&file, perms.clone()).unwrap();
+    let error = b
+        .import_delete_file(&req(json!({ "fileToken": token })))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::ImportDeleteFailed);
+    assert!(file.exists());
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&file, perms).unwrap();
+    // The token survives for a retry.
+    b.import_delete_file(&req(json!({ "fileToken": token })))
+        .unwrap();
+    assert!(!file.exists());
+}
+
+#[test]
 fn import_enpass_fixture_preview_commit_and_lock() {
     let _kdf = crate::test_support::kdf_permit();
     let h = unlocked();

@@ -69,6 +69,7 @@ pub const COMMANDS: &[&str] = &[
     // Import
     "import_choose_file",
     "import_detect",
+    "import_delete_file",
     "import_preview",
     "import_commit",
     "import_cancel",

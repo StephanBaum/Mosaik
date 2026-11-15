@@ -49,7 +49,18 @@ export const importHandlers: MockHandlers = {
     if (request.fileToken !== "file-1") {
       fail("importFileUnreadable");
     }
-    return state.options.importDetected ?? { source: "enpass", format: "enpass" };
+    return state.options.importDetected ?? { source: "enpass", format: "enpass", syncedFolder: null };
+  },
+
+  import_delete_file: (state, request) => {
+    requireUnlocked(state);
+    if (request.fileToken !== "file-1") {
+      fail("importFileUnreadable");
+    }
+    if (state.options.importDeleteFails) {
+      fail("importDeleteFailed");
+    }
+    return null;
   },
 
   import_preview: (state, request) => {

@@ -76,6 +76,14 @@ export type ImportEntryWarning = (typeof importEntryWarnings)[number];
 export const importSkipReasons = ["malformed", "empty", "tooLarge"] as const;
 export type ImportSkipReason = (typeof importSkipReasons)[number];
 
+/** A cloud service whose sync folder holds the file. */
+export const importSyncedFolders = ["oneDrive", "dropbox", "googleDrive", "icloud", "box"] as const;
+export type ImportSyncedFolder = (typeof importSyncedFolders)[number];
+
+export interface ImportDeleteRequest {
+  fileToken: string;
+}
+
 export interface ImportDetectRequest {
   fileToken: string;
 }
@@ -84,6 +92,8 @@ export interface ImportDetectRequest {
 export interface ImportDetected {
   source: ImportDetectedSource | null;
   format: ImportFormat | null;
+  /** The cloud service that syncs the file's folder: deleting it does not remove copies already made. */
+  syncedFolder: ImportSyncedFolder | null;
 }
 
 export type ImportFileChoice =

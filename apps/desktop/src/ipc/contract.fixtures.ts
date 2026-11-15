@@ -60,6 +60,7 @@ export const fixtures = {
     "security_report",
     "import_choose_file",
     "import_detect",
+    "import_delete_file",
     "import_preview",
     "import_commit",
     "import_cancel",
@@ -318,6 +319,8 @@ export const fixtures = {
       "attachmentPreviewTooLarge",
       "clipboardUnavailable",
       "importFileUnreadable",
+      "importDeleteNotAllowed",
+      "importDeleteFailed",
       "importFormatInvalid",
       "importPreviewExpired",
       "importTooLarge",
@@ -495,6 +498,13 @@ export const fixtures = {
       "malformed",
       "empty",
       "tooLarge"
+    ],
+    "importSyncedFolder": [
+      "oneDrive",
+      "dropbox",
+      "googleDrive",
+      "icloud",
+      "box"
     ],
     "importWarning": [
       "unmappedFields",
@@ -962,6 +972,12 @@ export const fixtures = {
     },
     {
       "code": "importFileUnreadable"
+    },
+    {
+      "code": "importDeleteNotAllowed"
+    },
+    {
+      "code": "importDeleteFailed"
     },
     {
       "code": "importFormatInvalid"
@@ -2090,6 +2106,11 @@ export const fixtures = {
           0
         ],
         "targetVaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "import_delete_file": [
+      {
+        "fileToken": "f-1"
       }
     ],
     "import_detect": [
@@ -4141,14 +4162,19 @@ export const fixtures = {
         "skipped": 1
       }
     ],
+    "import_delete_file": [
+      null
+    ],
     "import_detect": [
       {
         "format": "enpass",
-        "source": "enpass"
+        "source": "enpass",
+        "syncedFolder": null
       },
       {
         "format": null,
-        "source": null
+        "source": null,
+        "syncedFolder": "oneDrive"
       }
     ],
     "import_preview": [

@@ -36,9 +36,9 @@ use super::export;
 use super::generator::{self, Strength};
 use super::ids::samples as ids;
 use super::import::{
-    self, ImportCancelRequest, ImportCommitRequest, ImportDetectRequest, ImportDetectedSource,
-    ImportEntryWarning, ImportFormat, ImportPreviewRequest, ImportResult, ImportSkipReason,
-    ImportWarning,
+    self, ImportCancelRequest, ImportCommitRequest, ImportDeleteRequest, ImportDetectRequest,
+    ImportDetectedSource, ImportEntryWarning, ImportFormat, ImportPreviewRequest, ImportResult,
+    ImportSkipReason, ImportSyncedFolder, ImportWarning,
 };
 use super::insights::{self, InsightAction, InsightKind, InsightSeverity};
 use super::items::{
@@ -510,6 +510,13 @@ fn import_commands(f: &mut Fixtures) {
             file_token: "f-1".into(),
         }],
         import::samples::detected(),
+    );
+    f.command(
+        "import_delete_file",
+        vec![ImportDeleteRequest {
+            file_token: "f-1".into(),
+        }],
+        vec![()],
     );
     f.command(
         "import_preview",
@@ -1393,6 +1400,7 @@ fn enums() -> Map<String, Value> {
         ("breachScanError", values(BreachScanError::ALL)),
         ("importFormat", values(ImportFormat::ALL)),
         ("importDetectedSource", values(ImportDetectedSource::ALL)),
+        ("importSyncedFolder", values(ImportSyncedFolder::ALL)),
         ("importWarning", values(ImportWarning::ALL)),
         ("importEntryWarning", values(ImportEntryWarning::ALL)),
         ("importSkipReason", values(ImportSkipReason::ALL)),

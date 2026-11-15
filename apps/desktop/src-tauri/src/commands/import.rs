@@ -8,8 +8,8 @@ use tauri::State;
 
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::import::{
-    ImportCancelRequest, ImportCommitRequest, ImportDetectRequest, ImportDetected,
-    ImportFileChoice, ImportPreview, ImportPreviewRequest, ImportResult,
+    ImportCancelRequest, ImportCommitRequest, ImportDeleteRequest, ImportDetectRequest,
+    ImportDetected, ImportFileChoice, ImportPreview, ImportPreviewRequest, ImportResult,
 };
 use crate::dialogs::FileFilter;
 use crate::state::{AppState, Backend, guard};
@@ -27,6 +27,15 @@ pub async fn import_detect(
     request: ImportDetectRequest,
 ) -> IpcResult<ImportDetected> {
     state.run(move |b| b.import_detect(&request)).await
+}
+
+/// `import_delete_file`.
+#[tauri::command]
+pub async fn import_delete_file(
+    state: State<'_, AppState>,
+    request: ImportDeleteRequest,
+) -> IpcResult<()> {
+    state.run(move |b| b.import_delete_file(&request)).await
 }
 
 /// `import_preview`.
@@ -129,7 +138,9 @@ impl Backend {
         // import is dropped (wiped) here.
         let slot = self.slot()?;
         let session = slot.unlocked()?;
-        self.adapters.import.hold(import, session)
+        self.adapters
+            .import
+            .hold(import, session, &request.file_token)
     }
 
     /// Commits a preview.
@@ -140,9 +151,46 @@ impl Backend {
         self.touch();
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
-        let result = self.adapters.import.commit(request, session)?;
+        let (result, file_token) = self.adapters.import.commit(request, session)?;
         self.items_changed(session);
+        // The file may be deleted only when everything it held that was not
+        // left out on purpose is in the vault.
+        if result.failed == 0 && result.attachments_failed == 0 {
+            guard(&self.import_files)?.mark_committed(&file_token);
+        }
         Ok(result)
+    }
+
+    /// Overwrites the imported export file once and deletes it. Only a file
+    /// this session imported successfully (by token) is touched; the path
+    /// never comes from the webview.
+    ///
+    /// # Errors
+    /// `locked`, `importFileUnreadable` (unknown token),
+    /// `importDeleteNotAllowed` (not imported yet), `importDeleteFailed`
+    /// (the file is still there; the token stays for a retry).
+    pub fn import_delete_file(&self, request: &ImportDeleteRequest) -> IpcResult<()> {
+        self.touch();
+        self.slot()?.unlocked()?;
+        let path = {
+            let files = guard(&self.import_files)?;
+            let path = files
+                .get(&request.file_token)
+                .cloned()
+                .ok_or(IpcError::new(ErrorCode::ImportFileUnreadable))?;
+            if !files.is_committed(&request.file_token) {
+                return Err(IpcError::new(ErrorCode::ImportDeleteNotAllowed));
+            }
+            path
+        };
+        match crate::export_cleanup::overwrite_and_delete(&path) {
+            Ok(()) => {}
+            // Already gone (the user deleted it): nothing is left to delete.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(IpcError::new(ErrorCode::ImportDeleteFailed)),
+        }
+        guard(&self.import_files)?.remove(&request.file_token);
+        Ok(())
     }
 
     /// Drops a preview.

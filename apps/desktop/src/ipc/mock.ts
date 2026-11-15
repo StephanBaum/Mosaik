@@ -179,6 +179,8 @@ export interface MockOptions extends QuickOptions {
   connector?: "foreign";
   /** What `import_detect` reports for the chosen file (default: Enpass). */
   importDetected?: ImportDetected;
+  /** `import_delete_file` fails with `importDeleteFailed` (`&importDeleteFails=1`). */
+  importDeleteFails?: boolean;
   /** Fail `attachment_add` with this code, or cancel the file dialog (`?attachAdd=cancel`). */
   attachAdd?: ErrorCode | "cancel";
   /** Fail `attachment_save` with this code, or cancel the save dialog (`?attachSave=cancel`). */
@@ -437,6 +439,7 @@ function setupOptions(options: MockOptions): MockSetupOptions {
     attachAdd: options.attachAdd ?? null,
     attachSave: options.attachSave ?? null,
     importDetected: options.importDetected ?? null,
+    importDeleteFails: options.importDeleteFails ?? false,
   };
 }
 

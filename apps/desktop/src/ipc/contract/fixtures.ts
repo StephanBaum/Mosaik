@@ -40,6 +40,7 @@ export interface EnumFixtures {
   breachScanError: string[];
   importFormat: string[];
   importDetectedSource: string[];
+  importSyncedFolder: string[];
   importWarning: string[];
   importEntryWarning: string[];
   importSkipReason: string[];

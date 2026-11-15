@@ -28,6 +28,8 @@ use crate::state::guard;
 /// The parsed export kept between `import_preview` and `import_commit`.
 struct Held {
     preview_id: String,
+    /// The file token the import was read from.
+    file_token: String,
     // Dropping the import wipes every value from the file.
     import: mosaic_import::Import,
 }
@@ -67,6 +69,7 @@ impl ImportService {
         Ok(ImportDetected {
             source: found.and_then(|d| wire_source(d.source)),
             format: found.map(|d| wire_format(d.format)),
+            synced_folder: crate::export_cleanup::synced_folder_of(file),
         })
     }
 
@@ -79,19 +82,22 @@ impl ImportService {
         &self,
         import: mosaic_import::Import,
         session: &UnlockedSession,
+        file_token: &str,
     ) -> IpcResult<ImportPreview> {
         let preview = import.preview(&session.items(&ItemFilter::default()));
         let id = format!("preview-{}", self.next.fetch_add(1, Ordering::Relaxed) + 1);
         let wire = to_wire(&id, wire_format(import.format), &preview);
         *guard(&self.held)? = Some(Held {
             preview_id: id,
+            file_token: file_token.to_owned(),
             import,
         });
         Ok(wire)
     }
 
     /// Writes the held entries (minus `skip`) into the target vault and
-    /// drops the import.
+    /// drops the import. Returns the result and the token of the file it was
+    /// read from.
     ///
     /// # Errors
     /// `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable`.
@@ -99,7 +105,7 @@ impl ImportService {
         &self,
         request: &ImportCommitRequest,
         session: &mut UnlockedSession,
-    ) -> IpcResult<ImportResult> {
+    ) -> IpcResult<(ImportResult, String)> {
         let held = guard(&self.held)?
             .take_if(|h| h.preview_id == request.preview_id)
             .ok_or(IpcError::new(ErrorCode::ImportPreviewExpired))?;
@@ -109,13 +115,16 @@ impl ImportService {
             request.target_vault_id.get(),
             &request.skip,
         )?;
-        Ok(ImportResult {
-            imported: report.imported,
-            skipped: report.skipped,
-            failed: report.failed,
-            attachments: report.attachments,
-            attachments_failed: report.attachments_failed,
-        })
+        Ok((
+            ImportResult {
+                imported: report.imported,
+                skipped: report.skipped,
+                failed: report.failed,
+                attachments: report.attachments,
+                attachments_failed: report.attachments_failed,
+            },
+            held.file_token,
+        ))
     }
 
     /// Drops the import if its ID matches (no-op otherwise).

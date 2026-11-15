@@ -5,7 +5,7 @@
 //! event loop, and they lock the session for the whole operation, so two
 //! commands never see a half-changed session.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -98,6 +98,8 @@ pub type UnlockHook = Box<dyn Fn() + Send + Sync>;
 pub struct FileTokens {
     next: u64,
     paths: BTreeMap<String, PathBuf>,
+    /// Tokens whose file was imported into the vault in this session.
+    committed: BTreeSet<String>,
 }
 
 impl FileTokens {
@@ -115,9 +117,29 @@ impl FileTokens {
         self.paths.get(token)
     }
 
+    /// Records that the file behind `token` was imported successfully.
+    pub fn mark_committed(&mut self, token: &str) {
+        if self.paths.contains_key(token) {
+            self.committed.insert(token.to_owned());
+        }
+    }
+
+    /// Whether the file behind `token` was imported successfully.
+    #[must_use]
+    pub fn is_committed(&self, token: &str) -> bool {
+        self.committed.contains(token)
+    }
+
+    /// Forgets `token` and returns its path.
+    pub fn remove(&mut self, token: &str) -> Option<PathBuf> {
+        self.committed.remove(token);
+        self.paths.remove(token)
+    }
+
     /// Forgets every token.
     pub fn clear(&mut self) {
         self.paths.clear();
+        self.committed.clear();
     }
 }
 

@@ -105,6 +105,7 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         insights::security_report,
         import::import_choose_file,
         import::import_detect,
+        import::import_delete_file,
         import::import_preview,
         import::import_commit,
         import::import_cancel,

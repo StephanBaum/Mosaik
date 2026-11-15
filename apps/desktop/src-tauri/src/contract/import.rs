@@ -39,6 +39,22 @@ wire_enum!(
 );
 
 wire_enum!(
+    /// A cloud service whose sync folder holds a file.
+    pub enum ImportSyncedFolder {
+        /// OneDrive (also Windows Known Folder Move).
+        OneDrive,
+        /// Dropbox.
+        Dropbox,
+        /// Google Drive.
+        GoogleDrive,
+        /// iCloud Drive.
+        Icloud,
+        /// Box.
+        Box,
+    }
+);
+
+wire_enum!(
     /// The product an export file comes from, as far as its content tells.
     pub enum ImportDetectedSource {
         /// Chrome, Edge, Brave and other Chromium browsers (CSV).
@@ -180,6 +196,19 @@ pub struct ImportDetected {
     pub source: Option<ImportDetectedSource>,
     /// The format to preview it with.
     pub format: Option<ImportFormat>,
+    /// The cloud service whose sync folder holds the file, if any: deleting
+    /// the file there does not remove copies the service already made.
+    pub synced_folder: Option<ImportSyncedFolder>,
+}
+
+/// `import_delete_file`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportDeleteRequest {
+    /// From `import_choose_file`; only a file imported in this session can
+    /// be deleted.
+    pub file_token: String,
 }
 
 /// The `import_choose_file` response.
@@ -347,10 +376,12 @@ pub(crate) mod samples {
             ImportDetected {
                 source: Some(ImportDetectedSource::Enpass),
                 format: Some(ImportFormat::Enpass),
+                synced_folder: None,
             },
             ImportDetected {
                 source: None,
                 format: None,
+                synced_folder: Some(ImportSyncedFolder::OneDrive),
             },
         ]
     }
