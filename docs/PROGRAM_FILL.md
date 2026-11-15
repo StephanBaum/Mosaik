@@ -233,3 +233,11 @@ a regression test where the fakes can show it.
 - [ ] **Memory**: Mosaic's private bytes with program fill on and both picker windows
       created, against off.
 - [ ] Hotkey examples avoid `Ctrl+Alt+L`, the app's lock key.
+- [ ] **Two-step login after the red-team fixes** (ADR-0164 amendment, R207): a native
+      program whose password screen has one password field continues on its own, once;
+      Slack or another Electron/WebView2 program opens the list with the first step's
+      login preselected, and one Enter fills; a window with two password fields never
+      continues on its own.
+- [ ] **Bounded window walk**: a lone user-name field in a big window (Explorer, a large
+      Electron app) still gets its offer, and the worker does not restart (no "didn't
+      answer in time").
