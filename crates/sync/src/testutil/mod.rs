@@ -28,7 +28,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub use chaos::{ChaosConfig, ChaosTransport};
 pub use cloudsim::{CloudSim, RoundStats, SimConfig};
 #[cfg(feature = "folder-remote")]
-pub use fake_cloud::{AUTHORIZATION_CODE, FakeDav, FakeDropbox, Faults};
+pub use fake_cloud::{
+    AUTHORIZATION_CODE, DRIVE_ID, FakeDav, FakeDropbox, FakeGraph, Faults, id_of,
+};
 pub use fakehttp::{FakeHttp, FakeRequest, FakeResponse};
 pub use malicious::MaliciousTransport;
 pub use refused::{RefusedSharing, RotateStub};

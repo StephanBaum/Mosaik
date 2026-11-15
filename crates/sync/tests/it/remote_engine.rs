@@ -21,7 +21,7 @@ use mosaic_sync::folder::remote::dropbox::DropboxAuth;
 use mosaic_sync::folder::remote::http::RemoteHttp;
 use mosaic_sync::folder::remote::webdav::WebDavStore;
 use mosaic_sync::folder::{self, FolderStore, RelPath};
-use mosaic_sync::testutil::{FakeDav, FakeDropbox, Faults, LocalSession, SimConfig};
+use mosaic_sync::testutil::{FakeDav, FakeDropbox, FakeGraph, Faults, LocalSession, SimConfig};
 use mosaic_sync::transport::TransportError;
 use mosaic_vault::session::LockedSession;
 use mosaic_vault::storage::Store;
@@ -32,6 +32,7 @@ use crate::common::{
 };
 use crate::common::{device_dir, segments};
 use crate::remote_dropbox::{APP_KEY, refreshing_auth, store_with};
+use crate::remote_graph::store_at as graph_store_at;
 
 const DAV_PASSWORD: &str = "phone-app-password";
 const DROPBOX_TOKEN: &str = "sl.access-token-1";
@@ -148,6 +149,33 @@ fn join_phone_dropbox_with(
     server
 }
 
+/// Device 1 (the phone) joins replica 1 through a fake Graph server that serves it.
+fn join_phone_graph(w: &mut World) -> FakeGraph {
+    let server = FakeGraph::serve(w.replica(1), crate::remote_graph::TOKEN);
+    let store = Store::open(w.tmp.path().join("device-1.db")).unwrap();
+    let session = folder::join_from_folder_in(
+        &graph_store_at(&server, "root"),
+        w.account,
+        LockedSession::open(store),
+        &pw(PASSWORD),
+        &w.secret_key,
+    )
+    .unwrap_or_else(|f| panic!("join failed: {:?}", f.error));
+    let access = LocalSession::new(session);
+    let transport = open_remote_transport(
+        &access,
+        Box::new(graph_store_at(&server, "root")),
+        &w.clock,
+        "phone",
+    );
+    w.devs.push(Dev {
+        engine: make_engine_over(transport),
+        access,
+        last: SyncReport::default(),
+    });
+    server
+}
+
 /// Device 1 joins replica 1 as a local directory (the reference).
 fn join_local_phone(w: &mut World) {
     w.join();
@@ -197,6 +225,27 @@ fn phone_joins_and_pulls_desktop_items() {
     );
     // The phone's own writes (its device info, checkpoint) reached the folder.
     assert!(device_dir(&w, 1, 1).read_dir().unwrap().next().is_some());
+    assert!(is_idle(&run(&mut w, 1).unwrap()));
+}
+
+#[test]
+fn phone_joins_and_pulls_desktop_items_graph() {
+    let (mut w, vault, item) = desktop(35);
+    let _server = join_phone_graph(&mut w);
+    let report = run(&mut w, 1).unwrap();
+    assert!(report.pulled >= 1, "{report:?}");
+    assert_eq!(
+        w.devs[1].s().item(vault, item).unwrap().title(),
+        Some("first")
+    );
+    assert!(device_dir(&w, 1, 1).read_dir().unwrap().next().is_some());
+    set_password(&mut w, 1, vault, item, "from the phone");
+    run(&mut w, 1).unwrap();
+    converge(&mut w);
+    assert_eq!(
+        password_of(&w, 0, vault, item).as_deref(),
+        Some("from the phone")
+    );
     assert!(is_idle(&run(&mut w, 1).unwrap()));
 }
 

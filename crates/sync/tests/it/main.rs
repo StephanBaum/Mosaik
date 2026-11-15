@@ -17,5 +17,7 @@ mod remote_dav;
 mod remote_dropbox;
 #[cfg(feature = "folder-remote")]
 mod remote_engine;
+#[cfg(feature = "folder-remote")]
+mod remote_graph;
 mod rotation_folder;
 mod sim_folder;
