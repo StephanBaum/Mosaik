@@ -146,7 +146,7 @@ zune-core = { version = "=0.5.3", default-features = false, features = ["std"] }
 # Windows "Scan screen": GDI capture of the virtual screen; depends only on windows 0.62.2.
 win-screenshot = { version = "=4.0.14", default-features = false }
 # X11 "Scan screen": GetImage of the root window; already in the tree via arboard.
-x11rb = { version = "=0.13.2", default-features = false }
+x11rb = { version = "=0.14.0", default-features = false }
 # Test-only QR encoder for generated scan fixtures (zero dependencies).
 qrcodegen = "=1.8.0"
 # M6 sync server (ADR-0044, ADR-0046)
