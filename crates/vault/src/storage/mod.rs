@@ -85,6 +85,7 @@
 //! ```
 
 mod account;
+mod agent;
 mod attachments;
 mod boot_marker;
 mod credential_rotation;
@@ -109,6 +110,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use account::{AccountRekey, NewUnlockMethod, StoredUnlockMethod};
+pub use agent::AgentLogRow;
 pub use attachments::{AttachmentInfo, validate_attachment_ciphertext};
 pub use boot_marker::{MAX_BOOT_ID_LEN, StoredBootMarker};
 pub use credential_rotation::{BreachRow, QueueRow, ScanRow};

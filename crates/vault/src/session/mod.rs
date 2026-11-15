@@ -60,6 +60,7 @@
 //! # }
 //! ```
 
+mod agent;
 mod attachments;
 mod boot_marker;
 mod cli_session;
@@ -89,6 +90,7 @@ use mosaic_core::{
 
 use crate::storage::{Origin, RecordBody, Store, VaultKeyWrap, VaultState};
 
+pub use agent::{AGENT_LOG_MAX_AGE_MS, AGENT_LOG_MAX_ENTRIES, AgentLogPage};
 pub use attachments::MAX_ACCOUNT_ATTACHMENT_BYTES;
 pub use boot_marker::BootId;
 pub use credential_rotation::{
