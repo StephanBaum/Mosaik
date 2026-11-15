@@ -41,13 +41,13 @@ wire_enum!(
 wire_enum!(
     /// A cloud service whose sync folder holds a file.
     pub enum ImportSyncedFolder {
-        /// OneDrive (also Windows Known Folder Move).
+        /// `OneDrive` (also Windows Known Folder Move).
         OneDrive,
         /// Dropbox.
         Dropbox,
         /// Google Drive.
         GoogleDrive,
-        /// iCloud Drive.
+        /// `iCloud` Drive.
         Icloud,
         /// Box.
         Box,
@@ -71,23 +71,23 @@ wire_enum!(
         Enpass,
         /// A KeePass KDBX file (needs its password).
         Keepass,
-        /// KeePassXC CSV.
+        /// `KeePassXC` CSV.
         KeepassxcCsv,
         /// 1Password 1PUX.
         OnePassword,
         /// FIDO Credential Exchange Format JSON.
         Cxf,
-        /// LastPass CSV.
+        /// `LastPass` CSV.
         Lastpass,
         /// Dashlane CSV.
         Dashlane,
         /// Keeper JSON.
         Keeper,
-        /// NordPass CSV.
+        /// `NordPass` CSV.
         Nordpass,
         /// Proton Pass.
         ProtonPass,
-        /// RoboForm CSV.
+        /// `RoboForm` CSV.
         Roboform,
         /// A CSV with a header row that matches no known product.
         Csv,

@@ -1494,7 +1494,7 @@ fn a_dropped_file_gets_a_token_while_unlocked() {
     h.backend
         .import_file_dropped(&[dir.path().join("missing.csv")]);
     h.backend.import_file_dropped(&[]);
-    assert!(dropped(&h).is_empty());
+    assert_eq!(dropped(&h).len(), 0);
     // One file: a token and the name, never the path.
     h.backend.import_file_dropped(std::slice::from_ref(&file));
     let seen = dropped(&h);
@@ -1605,17 +1605,16 @@ fn import_delete_failure_keeps_the_file_and_the_token() {
         "skip": [],
     })))
     .unwrap();
-    let mut perms = std::fs::metadata(&file).unwrap().permissions();
-    perms.set_readonly(true);
-    std::fs::set_permissions(&file, perms.clone()).unwrap();
+    let original = std::fs::metadata(&file).unwrap().permissions();
+    let mut read_only = original.clone();
+    read_only.set_readonly(true);
+    std::fs::set_permissions(&file, read_only).unwrap();
     let error = b
         .import_delete_file(&req(json!({ "fileToken": token })))
         .unwrap_err();
     assert_eq!(code(error), ErrorCode::ImportDeleteFailed);
     assert!(file.exists());
-    #[allow(clippy::permissions_set_readonly_false)]
-    perms.set_readonly(false);
-    std::fs::set_permissions(&file, perms).unwrap();
+    std::fs::set_permissions(&file, original).unwrap();
     // The token survives for a retry.
     b.import_delete_file(&req(json!({ "fileToken": token })))
         .unwrap();

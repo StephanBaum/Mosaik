@@ -35,21 +35,21 @@ pub fn overwrite_and_delete(path: &Path) -> io::Result<()> {
     // Opened for writing without truncation: a read-only file fails here,
     // before anything is changed.
     let mut file = OpenOptions::new().write(true).open(path)?;
-    let zeros = [0_u8; CHUNK];
+    let zeros = vec![0_u8; CHUNK].into_boxed_slice();
     let mut left = meta.len();
     while left > 0 {
         let n = usize::try_from(left).map_or(CHUNK, |l| l.min(CHUNK));
-        file.write_all(&zeros[..n])?;
-        left -= n as u64;
+        file.write_all(zeros.get(..n).unwrap_or(&zeros))?;
+        left = left.saturating_sub(n as u64);
     }
     file.sync_all()?;
     drop(file);
     std::fs::remove_file(path)
 }
 
-/// The sync roots to compare a file against: the environment's OneDrive
+/// The sync roots to compare a file against: the environment's `OneDrive`
 /// folders (Windows Known Folder Move puts Downloads inside them), and the
-/// usual folders of Dropbox, Google Drive, Box and iCloud under `home`.
+/// usual folders of Dropbox, Google Drive, Box and `iCloud` under `home`.
 #[must_use]
 pub fn sync_roots(
     home: Option<&Path>,
@@ -172,15 +172,14 @@ mod tests {
     fn overwrite_and_delete_refuses_read_only_and_keeps_the_file() {
         let tmp = tempfile::tempdir().unwrap();
         let path = file_in(tmp.path(), "export.csv", b"url,username\n");
-        let mut perms = std::fs::metadata(&path).unwrap().permissions();
-        perms.set_readonly(true);
-        std::fs::set_permissions(&path, perms.clone()).unwrap();
+        let original = std::fs::metadata(&path).unwrap().permissions();
+        let mut read_only = original.clone();
+        read_only.set_readonly(true);
+        std::fs::set_permissions(&path, read_only).unwrap();
         let result = overwrite_and_delete(&path);
         assert!(result.is_err());
         assert!(path.exists());
-        #[allow(clippy::permissions_set_readonly_false)]
-        perms.set_readonly(false);
-        std::fs::set_permissions(&path, perms).unwrap();
+        std::fs::set_permissions(&path, original).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"url,username\n");
     }
 

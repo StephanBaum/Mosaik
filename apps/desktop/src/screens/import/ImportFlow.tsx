@@ -12,6 +12,7 @@ import { Icon } from "../../components/icons.tsx";
 import { Select } from "../../components/Select.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
+import type { MosaicIpc } from "../../ipc/client.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import {
   importFormats,
@@ -183,6 +184,12 @@ function useVaults(): VaultSummary[] {
   return vaults;
 }
 
+/** The format the file's content says it is; `null` (nothing Mosaic reads) keeps the user's pick. */
+async function detectedFormat(ipc: MosaicIpc, fileToken: string): Promise<ImportFormat | null> {
+  const detected = await ipc.call("import_detect", { fileToken });
+  return detected.ok ? detected.value.format : null;
+}
+
 export function ImportFlow({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
   const { t } = useI18n();
   const ipc = useIpc();
@@ -191,20 +198,15 @@ export function ImportFlow({ onClose, embedded = false }: { onClose: () => void;
   const vaults = useVaults();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<IpcError | null>(null);
-
   async function choose() {
     setError(null);
     const result = await ipc.call("import_choose_file", null);
     if (!result.ok) {
       setError(result.error);
     } else if (result.value.kind === "chosen") {
-      const { fileToken, fileName } = result.value;
-      // The content decides the format; the user's pick stays for a file nothing recognises.
-      const detected = await ipc.call("import_detect", { fileToken });
-      if (detected.ok && detected.value.format !== null) {
-        setFormat(detected.value.format);
-      }
-      setStep({ name: "file", token: fileToken, fileName });
+      const { fileToken: token, fileName } = result.value;
+      setFormat((await detectedFormat(ipc, token)) ?? format);
+      setStep({ name: "file", token, fileName });
     }
   }
 

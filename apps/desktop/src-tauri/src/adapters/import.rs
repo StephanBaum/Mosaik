@@ -190,8 +190,7 @@ const fn wire_format(format: Format) -> ImportFormat {
         Format::Keeper => ImportFormat::Keeper,
         Format::KeeperCsv => ImportFormat::KeeperCsv,
         Format::ProtonPass => ImportFormat::ProtonPass,
-        // `Format` is non-exhaustive: a later format reads as generic CSV.
-        _ => ImportFormat::Csv,
+        Format::Csv => ImportFormat::Csv,
     }
 }
 
