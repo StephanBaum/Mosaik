@@ -25,17 +25,29 @@
 //! is for), [`fields`] (which fields of a view tree to fill, never those of a
 //! cross-origin frame) and [`assetlinks`] (Digital Asset Links parsing).
 //!
+//! Agent access (ADR-0159): [`AgentOrigin`], [`parse_agent_url`] and
+//! [`agent_destination_allowed`] decide where a vault secret may be sent for an
+//! agent: exact `https` origin only, one WHATWG parse, no userinfo, no IP
+//! literal.
+//!
 //! The public suffix list is a build-time snapshot of the `psl` crate.
 #![forbid(unsafe_code)]
 
+mod agent;
 pub mod android_browsers;
 pub mod app;
 pub mod assetlinks;
 pub mod fields;
 pub mod target;
 
+pub use agent::{
+    AgentOrigin, AgentOriginError, AgentRefusal, MAX_AGENT_URL_LEN, agent_destination_allowed,
+    parse_agent_url,
+};
+
 use mosaic_core::model::{LoginUrl, UrlMatch};
-use url::{Host, Origin, Url};
+pub use url::Url;
+use url::{Host, Origin};
 
 /// The longest origin string [`PageOrigin::parse`] accepts, in bytes.
 pub const MAX_ORIGIN_LEN: usize = 2048;
@@ -505,6 +517,8 @@ fn is_one_deletion(long: &[char], short: &[char]) -> bool {
     long.get(common + 1..) == short.get(common..)
 }
 
+#[cfg(test)]
+mod agent_tests;
 #[cfg(test)]
 mod mobile_tests;
 #[cfg(test)]
