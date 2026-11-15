@@ -113,6 +113,36 @@ pub enum EntryWarning {
     /// A note did not fit under the item size limit and was left out (or
     /// cut off at a note boundary): the entry's notes are incomplete.
     NotesTruncated,
+    /// A URL that is not a web address or an Android app link was kept as a
+    /// text field; it is not used for filling.
+    UrlKeptAsText,
+    /// A login URL's host has punycode (`xn--`) labels: it may look like
+    /// another site. The entry is imported as it is; the user should check
+    /// the address.
+    IdnHost,
+}
+
+impl EntryWarning {
+    /// Whether the warning means data of the source entry did not come
+    /// across (left out, cut off or unreadable), as opposed to data that was
+    /// kept in another shape or only noted.
+    #[must_use]
+    pub const fn loses_data(&self) -> bool {
+        matches!(
+            self,
+            Self::AttachmentTooLarge
+                | Self::AttachmentMissing
+                | Self::AttachmentQuota
+                | Self::TagsDropped
+                | Self::HistoryTruncated
+                | Self::PasskeysNotImported
+                | Self::PasskeyUnreadable
+                | Self::PasskeyUnsupported
+                | Self::PasskeysLimit
+                | Self::FieldsDropped
+                | Self::NotesTruncated
+        )
+    }
 }
 
 /// An attachment file of an entry.
@@ -369,6 +399,22 @@ pub(crate) enum Kind {
     Date,
 }
 
+impl Kind {
+    /// `Hidden` if a field name suggests a secret (it contains `password`,
+    /// `number`, `pin`, `code`, `key` or `secret`, any case), else `Text`.
+    pub(crate) fn for_key(key: &str) -> Self {
+        let k = key.to_lowercase();
+        if ["password", "number", "pin", "code", "key", "secret"]
+            .iter()
+            .any(|w| k.contains(w))
+        {
+            Self::Hidden
+        } else {
+            Self::Text
+        }
+    }
+}
+
 /// Builds one [`ItemDraft`] from source fields, collecting warnings.
 pub(crate) struct Builder {
     draft: ItemDraft,
@@ -409,6 +455,17 @@ impl Builder {
         }
     }
 
+    /// Whether the entry already holds [`MAX_FIELDS_PER_ENTRY`] fields (the
+    /// warning is set). Checked before any scan or parse of a new value, so
+    /// an entry full of fields costs nothing more per extra value.
+    fn full(&mut self) -> bool {
+        if self.fields >= MAX_FIELDS_PER_ENTRY {
+            self.warn(EntryWarning::FieldsDropped);
+            return true;
+        }
+        false
+    }
+
     /// Counts one field against [`MAX_FIELDS_PER_ENTRY`].
     fn room(&mut self) -> bool {
         if self.fields >= MAX_FIELDS_PER_ENTRY {
@@ -439,6 +496,21 @@ impl Builder {
         }
         if self.room() {
             self.draft.texts.push((field, Text::new(value)));
+        }
+    }
+
+    /// Sets the first and last name from a full name: the last word is the
+    /// last name, the words before it the first name (one word is a first
+    /// name).
+    pub(crate) fn full_name(&mut self, value: &str) {
+        let words: Vec<&str> = value.split_whitespace().collect();
+        match words.split_last() {
+            None => {}
+            Some((last, first)) if !first.is_empty() => {
+                self.text(TextField::FirstName, &first.join(" "), "First name");
+                self.text(TextField::LastName, last, "Last name");
+            }
+            Some((only, _)) => self.text(TextField::FirstName, only, "First name"),
         }
     }
 
@@ -505,15 +577,29 @@ impl Builder {
     /// Adds a login URL (a URL custom field on other types).
     pub(crate) fn url(&mut self, value: &str, label: &str) {
         let v = value.trim();
-        if v.is_empty() {
+        if v.is_empty() || self.full() {
             return;
         }
         if self.draft.item_type == ItemType::Login {
+            if is_scheme_only(v) {
+                return;
+            }
             if self.draft.urls.iter().any(|u| u.as_str() == v) {
                 return;
             }
-            if self.room() {
-                self.draft.urls.push(Text::new(v));
+            // A login URL is used for matching, so only a web origin or an
+            // Android app link is kept as one (spec 7).
+            let origin = mosaic_origin::saved_origin(v);
+            if origin.is_some() || mosaic_origin::app::AndroidAppUrl::parse(v).is_ok() {
+                if origin.is_some_and(|o| mosaic_origin::idn_unicode(&o.host_str()).is_some()) {
+                    self.warn(EntryWarning::IdnHost);
+                }
+                if self.room() {
+                    self.draft.urls.push(Text::new(v));
+                }
+            } else {
+                self.custom(label, Kind::Text, v);
+                self.warn(EntryWarning::UrlKeptAsText);
             }
         } else {
             self.custom(label, Kind::Url, v);
@@ -641,6 +727,9 @@ impl Builder {
     /// result is trimmed and cut to [`MAX_TAG_LEN`] bytes at a character
     /// boundary. Blank tags are dropped ([`EntryWarning::TagsDropped`]).
     pub(crate) fn tag(&mut self, name: &str) {
+        if self.full() {
+            return;
+        }
         let mut clean = Str::default();
         clean.extend(name.chars().map(|c| if c.is_control() { ' ' } else { c }));
         let mut t = clean.trim();
@@ -802,6 +891,19 @@ impl Builder {
         self.warnings.sort_unstable();
         Some((self.draft, self.warnings))
     }
+}
+
+/// `scheme://` and nothing else (for example `http://`).
+fn is_scheme_only(v: &str) -> bool {
+    v.strip_suffix("://").is_some_and(|scheme| {
+        scheme
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic())
+            && scheme
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+    })
 }
 
 fn label_or<'a>(label: &'a str, default: &'a str) -> &'a str {
@@ -994,6 +1096,57 @@ mod tests {
     }
 
     #[test]
+    fn login_urls_must_be_web_origins_or_android_apps() {
+        let mut b = Builder::new(ItemType::Login);
+        for u in [
+            "https://a.example/login",
+            "example.org",
+            "androidapp://com.example.app",
+            "http://",
+            "ftp://files.example",
+            "my bank",
+        ] {
+            b.url(u, "URL");
+        }
+        let (d, w) = b.finish().unwrap();
+        let urls: Vec<&str> = d.urls.iter().map(Text::as_str).collect();
+        assert_eq!(
+            urls,
+            [
+                "https://a.example/login",
+                "example.org",
+                "androidapp://com.example.app"
+            ]
+        );
+        let labels: Vec<&str> = d.custom_fields.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["URL", "URL"]);
+        let values: Vec<&str> = d
+            .custom_fields
+            .iter()
+            .map(|c| match &c.value {
+                CustomFieldValue::Text(t) => t.as_str(),
+                _ => "",
+            })
+            .collect();
+        assert_eq!(values, ["ftp://files.example", "my bank"]);
+        assert!(w.contains(&EntryWarning::UrlKeptAsText));
+    }
+
+    #[test]
+    fn full_name_splits_at_the_last_word() {
+        let mut b = Builder::new(ItemType::Identity);
+        b.full_name("Maria de la Cruz");
+        let (d, _) = b.finish().unwrap();
+        assert_eq!(d.text(TextField::FirstName), Some("Maria de la"));
+        assert_eq!(d.text(TextField::LastName), Some("Cruz"));
+        let mut b = Builder::new(ItemType::Identity);
+        b.full_name("Cher");
+        let (d, _) = b.finish().unwrap();
+        assert_eq!(d.text(TextField::FirstName), Some("Cher"));
+        assert_eq!(d.text(TextField::LastName), None);
+    }
+
+    #[test]
     fn urls_on_other_types_and_otp_slot() {
         let mut b = Builder::new(ItemType::SecureNote);
         b.url("https://x", "Website");
@@ -1101,6 +1254,28 @@ mod tests {
         let (d, w) = b.finish().unwrap();
         assert_eq!(w, [EntryWarning::NotesTruncated]);
         assert_eq!(d.text(TextField::Notes), Some("first"));
+    }
+
+    #[test]
+    fn a_punycode_host_is_flagged_and_still_kept() {
+        let mut b = Builder::new(ItemType::Login);
+        b.url("https://xn--pple-43d.example/", "u");
+        b.url("https://plain.example/", "u");
+        let (d, w) = b.finish().unwrap();
+        assert_eq!(d.urls.len(), 2);
+        assert_eq!(w, [EntryWarning::IdnHost]);
+    }
+
+    #[test]
+    fn urls_and_tags_stop_at_the_field_cap_without_scanning() {
+        let mut b = Builder::new(ItemType::Login);
+        for i in 0..100_000 {
+            b.url(&format!("https://h{i}.example.com/"), "u");
+            b.tag(&format!("tag{i}"));
+        }
+        let (d, w) = b.finish().unwrap();
+        assert_eq!(d.urls.len() + d.tags.len(), MAX_FIELDS_PER_ENTRY);
+        assert_eq!(w, [EntryWarning::FieldsDropped]);
     }
 
     #[test]

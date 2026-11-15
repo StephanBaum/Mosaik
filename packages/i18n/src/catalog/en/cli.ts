@@ -41,6 +41,7 @@ export const cli = {
     "{name} is set but ignored. Mosaic never reads secrets from the environment.",
   "cli.err.exportUnreadable": "The file cannot be read: wrong passphrase or damaged file.",
   "cli.err.importFailed": "The file could not be imported.",
+  "cli.err.importTooLarge": "The file is too large to import.",
   "cli.err.syncNotConfigured": "Sync is not set up for this store.",
   "cli.err.syncHalted": "Sync is stopped. Run `mosaic sync --status`.",
   "cli.err.syncFailed": "Sync failed: {reason}.",

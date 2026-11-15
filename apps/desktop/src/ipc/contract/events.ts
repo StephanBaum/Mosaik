@@ -64,6 +64,8 @@ export type AppEvent =
   | { type: "agentActivity"; inFlight: number }
   /** Agent pairings, grants or the endpoint changed: read `agent_access_status` again. */
   | { type: "agentStateChanged" }
+  /** A file was dropped onto the window: Rust holds the path behind this token (as from `import_choose_file`). */
+  | { type: "importFileDropped"; fileToken: string; fileName: string }
   /** A browser asks to be paired: show the code and wait for the user. */
   | { type: "browserPairingRequested"; request: BrowserPairingRequest }
   | { type: "browserPairingClosed"; requestId: string; reason: BrowserCloseReason }

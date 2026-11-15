@@ -2757,6 +2757,30 @@ parsers, release, iOS and Android. Each fix was adversarially re-verified. Round
 (chained attacks across components) is in PR #80 and not yet merged. Counts per surface:
 `docs/SECURITY_REVIEW_LOG.md` ("Red-team campaign 2026-11").
 
+## Onboarding import: launch gate
+
+Branch `feat/onboarding-import` (spec `docs/superpowers/specs/2026-11-15-onboarding-import-design.md`, ADR-0165,
+R194 to R196). Built: nine new formats and presets, content-based detection, six fuzz targets, the CLI `auto`
+format, `import_detect`, `import_delete_file` and the drop handler, the guided import screens (source grid,
+per-source guides, "won't come across", cleanup) in first run and Settings, and the website text. The presets and
+guides were written from public descriptions. Each item below needs one real, current export with synthetic content
+(from the owner or a test account) before the matching `// unverified against a current export (launch gate)`
+comment is removed.
+
+- [ ] LastPass CSV: header `url,username,password,totp,extra,name,grouping,fav`; `http://sn`; NoteType names and keys for Credit Card, Address, Wi-Fi Password; expiry format; grouping separator; HTML entities or not; the export menu path.
+- [ ] Dashlane: ZIP member names and headers (`credentials.csv` incl. `otpSecret` vs `otpUrl`, `securenotes.csv`, `payments.csv`, `ids.csv`, `personalInfo.csv`); the web-app menu path.
+- [ ] Keeper JSON: `records`, `$type` values, `custom_fields` key forms (`$text:Label`, `$paymentCard`, `$name`, `$phone`, `$address`, `$oneTimeCode`), `folders`/`shared_folder`; Keeper CSV column order and whether a header row now exists; the menu path.
+- [ ] NordPass CSV: header incl. `additional_urls` and `custom_fields` encodings, `type` values, folder rows; the menu path.
+- [ ] Proton Pass: ZIP layout (`Proton Pass/data.json`), item `type` values, `content` keys per type, `extraFields`, `state`, `pinned`, passkeys and files; the export options (ZIP vs PGP vs CSV); the menu path.
+- [ ] RoboForm: logins CSV header and `RfFieldsV2` content, folder form, encoding (UTF-8 or UTF-16); identity and safenote exports; the menu path.
+- [ ] KeePassXC CSV: header incl. `TOTP`, `Icon`, `Last Modified`, `Created`; root group name; recycle bin entries.
+- [ ] Every browser guide (Chrome, Edge, Brave, Opera, Vivaldi, Arc, Firefox, Safari, Apple Passwords) and every manager guide checked against the current product, EN and DE UI; every internal URL opens the right page.
+- [ ] Each browser's "turn off saving" path in the checklist.
+- [ ] Synced-folder detection checked on Windows (OneDrive Known Folder Move) and macOS (`~/Library/CloudStorage`).
+- [ ] Overwrite-and-delete checked on Windows, macOS and Linux with a real symlink and a read-only file (the symlink unit test returns early where symlinks cannot be created).
+- [ ] Red-team pass on the importers (spec §7): zip bombs, homoglyph URLs, huge notes, malformed UTF-8, duplicate JSON keys; fuzz targets run in CI without findings.
+- [ ] Remove each `// unverified against a current export (launch gate)` comment only after its item above is checked.
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

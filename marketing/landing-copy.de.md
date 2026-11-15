@@ -136,7 +136,7 @@ Kein Generalschlüssel, kein Support-Zugang, keine „Kontowiederherstellung“,
 | Passkeys (3×1) | **Passkeys, überall.** | Erstelle und nutze Passkeys im Browser und auf dem Handy, synchronisiert und Ende-zu-Ende-verschlüsselt. |
 | Einmalcodes (3×1, TOTP-Ring) | **Codes, die sich selbst eintragen.** | TOTP, HOTP und Steam Guard. QR-Code vom Bildschirm scannen, und der Code landet direkt nach dem Passwort im Feld. Noch sicherer: in einem Tresor, den nur dein Hardware-Schlüssel öffnet. |
 | SSH-Agent | **Deine SSH-Schlüssel an der kurzen Leine.** | Ein eingebauter SSH-Agent liefert Schlüssel aus deinem Tresor. Vor jeder Nutzung fragt er dich. |
-| Import | **In Minuten umgezogen.** | Enpass, Bitwarden, KeePass, 1Password und CSV, mit Vorschau und Dublettenprüfung. Passkeys ziehen über das FIDO-Austauschformat mit um. |
+| Import | **In Minuten umgezogen.** | Chrome, Edge, Brave, Opera, Vivaldi, Arc, Firefox, Safari und Apple Passwörter, oder 1Password, Bitwarden, KeePass und KeePassXC, Enpass, LastPass, Dashlane, Keeper, NordPass, Proton Pass, RoboForm und CSV. Öffne Mosaic, dann Einstellungen → Import: Du siehst die Export-Schritte für deine App, eine Vorschau mit Dublettenprüfung und was nicht mitkommt. Mosaic hilft dir danach, die Exportdatei zu löschen. Passkeys ziehen über das FIDO-Austauschformat mit um. |
 | Synchronisierung | **Deine Cloud oder unsere.** | Dropbox, iCloud Drive, OneDrive, Nextcloud, ein NAS oder ein Team-Ordner. Oder unser Server. Oder dein eigener, mit einem einzigen Docker-Compose-Befehl. Funktioniert offline, führt sauber zusammen und verliert nie stillschweigend eine Änderung. |
 | Teilen | **Teilen, ohne dem Mittelsmann zu trauen.** | Geteilte Tresore, für jede Person einzeln versiegelt. Einmal den Sicherheitscode vergleichen, und kein untergeschobener Schlüssel kommt an dir vorbei. Entfernst du jemanden, wird der Tresor neu verschlüsselt. |
 | Notfallzugriff | **Ein Weg rein für die Menschen, denen du vertraust.** | Benenne jemanden. Bist du nicht erreichbar, bekommt die Person nach deiner Wartezeit Zugriff, außer du lehnst ab. |
@@ -255,7 +255,7 @@ Ja, kostenlos. Richte {NAME} auf einen Ordner in Dropbox, iCloud Drive, OneDrive
 Dann kann niemand deine Daten wiederherstellen. Wir nicht, und auch nicht, wer deinen Server betreibt. Dein Emergency Kit enthält den Secret Key für neue Geräte, und über den Notfallzugriff kommt eine Person deines Vertrauens nach einer Wartezeit an deine Daten, wenn du das vorher einrichtest. Einen dritten Weg gibt es nicht, mit Absicht.
 
 **6. Kann ich aus meinem bisherigen Passwortmanager importieren?**
-Ja: Enpass, Bitwarden, KeePass (KDBX 4), 1Password (1PUX) und CSV, LastPass und andere also über CSV. Passkeys kommen aus Bitwarden, KeePassXC und dem FIDO-Austauschformat mit.
+Ja. Browser: Chrome, Edge, Brave, Opera, Vivaldi, Arc, Firefox, Safari und Apple Passwörter. Manager: 1Password, Bitwarden (unverschlüsselter Export), KeePass und KeePassXC, Enpass, LastPass, Dashlane, Keeper, NordPass, Proton Pass (unverschlüsselter Export), RoboForm und jede CSV mit Kopfzeile. Öffne Mosaic, dann Einstellungen → Import, und du wirst durch den Export geführt. Eine Exportdatei enthält deine Passwörter im Klartext, deshalb hilft dir Mosaic, sie danach zu löschen. Passkeys kommen aus Bitwarden, KeePassXC und dem FIDO-Austauschformat mit; Browser und die meisten Manager lassen sie im Export weg, behalte deine alte App also, bis du neue Passkeys eingerichtet hast.
 
 **7. Läuft es auf meinem Handy?**
 Ja. iOS und Android, mit System-Autofill und Passkeys.

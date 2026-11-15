@@ -44,6 +44,25 @@ export const importHandlers: MockHandlers = {
     return { kind: "chosen", fileToken: "file-1", fileName: "enpass-export.json" };
   },
 
+  import_detect: (state, request) => {
+    requireUnlocked(state);
+    if (request.fileToken !== "file-1") {
+      fail("importFileUnreadable");
+    }
+    return state.options.importDetected ?? { source: "enpass", format: "enpass", syncedFolder: null };
+  },
+
+  import_delete_file: (state, request) => {
+    requireUnlocked(state);
+    if (request.fileToken !== "file-1") {
+      fail("importFileUnreadable");
+    }
+    if (state.options.importDeleteFails) {
+      fail("importDeleteFailed");
+    }
+    return null;
+  },
+
   import_preview: (state, request) => {
     requireUnlocked(state);
     if (request.fileToken !== "file-1") {
@@ -87,6 +106,7 @@ export const importHandlers: MockHandlers = {
       failed: 0,
       attachments: 0,
       attachmentsFailed: 0,
+      clean: true,
     };
   },
 

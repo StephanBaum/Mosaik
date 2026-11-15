@@ -26,6 +26,7 @@ use crate::contract::events::{AppEvent, LockReason};
 use crate::contract::settings::Settings;
 use crate::dialogs::{Dialogs, NoDialogs};
 use crate::events::Events;
+use crate::export_cleanup::FileIdentity;
 use crate::keystore::{
     LayeredSyncTokens, MemorySyncTokens, OsSyncTokens, SecretKeyStore, SyncTokenStore,
 };
@@ -99,6 +100,10 @@ pub type UnlockHook = Box<dyn Fn() + Send + Sync>;
 pub struct FileTokens {
     next: u64,
     paths: BTreeMap<String, PathBuf>,
+    /// Tokens whose file was imported into the vault in this session, with
+    /// the identity the file had when it was read: only that file may be
+    /// deleted (a file replaced or edited since is refused).
+    committed: BTreeMap<String, FileIdentity>,
 }
 
 impl FileTokens {
@@ -116,9 +121,31 @@ impl FileTokens {
         self.paths.get(token)
     }
 
+    /// Records that the file behind `token` was imported completely;
+    /// `identity` is what it was when it was read.
+    pub fn mark_committed(&mut self, token: &str, identity: FileIdentity) {
+        if self.paths.contains_key(token) {
+            self.committed.insert(token.to_owned(), identity);
+        }
+    }
+
+    /// The identity of the file behind `token` if it was imported
+    /// completely (so it may be deleted).
+    #[must_use]
+    pub fn committed_identity(&self, token: &str) -> Option<&FileIdentity> {
+        self.committed.get(token)
+    }
+
+    /// Forgets `token` and returns its path.
+    pub fn remove(&mut self, token: &str) -> Option<PathBuf> {
+        self.committed.remove(token);
+        self.paths.remove(token)
+    }
+
     /// Forgets every token.
     pub fn clear(&mut self) {
         self.paths.clear();
+        self.committed.clear();
     }
 }
 

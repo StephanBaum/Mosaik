@@ -45,6 +45,7 @@ export const cli: Record<keyof typeof en, string> = {
   "cli.err.exportUnreadable":
     "Die Datei kann nicht gelesen werden: falsche Passphrase oder beschädigte Datei.",
   "cli.err.importFailed": "Die Datei konnte nicht importiert werden.",
+  "cli.err.importTooLarge": "Die Datei ist zu groß zum Importieren.",
   "cli.err.syncNotConfigured": "Für diesen Speicher ist keine Synchronisierung eingerichtet.",
   "cli.err.syncHalted": "Die Synchronisierung ist gestoppt. Führe `mosaic sync --status` aus.",
   "cli.err.syncFailed": "Synchronisierung fehlgeschlagen: {reason}.",

@@ -257,13 +257,7 @@ fn check_locked_commands_refuse(b: &Backend, ids: (&str, &str)) {
         code(b.copy_to_clipboard(copy_request(vault, item)).unwrap_err()),
         locked
     );
-    assert_eq!(
-        code(
-            b.import_choose_file(req(json!({ "format": "csv" })))
-                .unwrap_err()
-        ),
-        locked
-    );
+    assert_eq!(code(b.import_choose_file().unwrap_err()), locked);
 }
 
 fn check_locked_leaves_no_secrets(

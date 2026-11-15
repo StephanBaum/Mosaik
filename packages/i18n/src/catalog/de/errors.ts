@@ -63,6 +63,10 @@ export const errors = {
     "Mosaic konnte die Zwischenablage nicht verwenden. Schließe Apps, die sie blockieren könnten, und versuche es dann noch einmal.",
   "error.importFileUnreadable":
     "Mosaic konnte die Datei nicht lesen. Prüfe, ob sie noch existiert und nicht in einer anderen App geöffnet ist, und versuche es dann noch einmal.",
+  "error.importDeleteNotAllowed":
+    "Importiere die Datei zuerst. Mosaic löscht einen Export erst, wenn seine Einträge in deinem Tresor sind.",
+  "error.importDeleteFailed":
+    "Die Datei ließ sich nicht löschen. Sie ist vielleicht in einer anderen App geöffnet oder schreibgeschützt. Lösche sie selbst und leere dann den Papierkorb.",
   "error.importFormatInvalid":
     "Die Datei hat nicht das gewählte Format. Wähle das passende Format oder exportiere die Datei noch einmal.",
   "error.importPreviewExpired":

@@ -1,0 +1,11 @@
+{"shared_folders":[],"records":[
+  {"title":"Site","login":"alice","password":"pw1","login_url":"https://a.example","notes":"n",
+   "custom_fields":{"$oneTimeCode":"otpauth://totp/x?secret=GEZDGNBVGY3TQOJQ","$text:Recovery":"abc"},
+   "folders":[{"folder":"Personal"},{"shared_folder":"Team","folder":"Ops"}]},
+  {"title":"Card","$type":"bankCard","custom_fields":{
+   "$paymentCard":{"cardNumber":"4111111111111111","cardExpirationDate":"04/2030","cardSecurityCode":"123"},
+   "$pinCode":"0000"}},
+  {"title":"Me","$type":"contact","custom_fields":{"$name":{"first":"Alice","last":"Doe"},
+   "$email":"alice@example.com","$phone":[{"number":"123"}],"$address":{"city":"Springfield"}}},
+  {"title":"License","$type":"softwareLicense","custom_fields":{"$licenseNumber":"ABC-1"}}
+]}

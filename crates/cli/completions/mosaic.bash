@@ -16,7 +16,7 @@ _mosaic() {
     run) COMPREPLY=($(compgen -W "--env --env-file --store --profile --json --lang --no-input --quiet" -- "$cur")) ;;
     inject) COMPREPLY=($(compgen -W "--in --out --reveal --i-know --store --profile --json --lang --no-input --quiet" -- "$cur")) ;;
     ssh) COMPREPLY=($(compgen -W "--store --profile --json --lang --no-input --quiet list public-key agent-status" -- "$cur")) ;;
-    import) COMPREPLY=($(compgen -W "--vault --dry-run --file-password-prompt --store --profile --json --lang --no-input --quiet enpass bitwarden keepass 1password cxf csv mosaicx" -- "$cur")) ;;
+    import) COMPREPLY=($(compgen -W "--vault --dry-run --file-password-prompt --store --profile --json --lang --no-input --quiet enpass bitwarden keepass 1password cxf csv dashlane keeper keeper-csv protonpass auto mosaicx" -- "$cur")) ;;
     export) COMPREPLY=($(compgen -W "--vault --include-attachments --store --profile --json --lang --no-input --quiet" -- "$cur")) ;;
     sync) COMPREPLY=($(compgen -W "--status --acknowledge --store --profile --json --lang --no-input --quiet" -- "$cur")) ;;
     setup) COMPREPLY=($(compgen -W "--folder --server --email --store --profile --json --lang --no-input --quiet own-store" -- "$cur")) ;;
