@@ -18,5 +18,6 @@
 
 pub mod export;
 pub mod otp;
+pub mod refs;
 pub mod session;
 pub mod storage;

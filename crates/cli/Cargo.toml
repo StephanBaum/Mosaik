@@ -27,7 +27,6 @@ mosaic-generator = { path = "../generator" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 zeroize.workspace = true
-unicode-normalization.workspace = true
 lexopt.workspace = true
 rpassword.workspace = true
 ctrlc.workspace = true
