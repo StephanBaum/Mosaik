@@ -193,7 +193,16 @@ mobile_error_mirror!(
     SyncServerMismatch,
     SyncServerIncompatible,
     PasswordInApp,
-    FolderAccountUnsupported,
+    FolderProviderUnsupported,
+    FolderProviderSignedOut,
+    FolderNotFound,
+    FolderStorageFull,
+    FolderLinkExpired,
+    FolderLinkInvalid,
+    FolderServerTlsTooOld,
+    SyncFolderNoAccount,
+    SyncFolderDamaged,
+    SyncPasswordRollback,
     SetupCodeInvalid,
     NotEnoughMemory,
     NoMatch,
@@ -728,6 +737,11 @@ mod tests {
             configured: true,
             signed_in: true,
             server_url: Some(s("https://sync.example.com")),
+            folder: Some(f::FolderOverview {
+                provider: f::FolderProvider::OneDrive,
+                path: s("/Mosaic"),
+            }),
+            reset_phrase: s("0123abcd"),
             pending_uploads: 3,
             last_synced_at_ms: Some(1),
             last_error: Some(s("syncPasswordChanged")),
@@ -737,6 +751,48 @@ mod tests {
                 since_ms: Some(5),
                 count: Some(2),
             }],
+        });
+        for provider in [
+            f::FolderProvider::Dropbox,
+            f::FolderProvider::OneDrive,
+            f::FolderProvider::WebDav,
+        ] {
+            rt::<f::FolderProvider, m::FolderProvider>(provider);
+        }
+        for kind in [f::LinkKind::Redirect, f::LinkKind::Poll] {
+            rt::<f::LinkKind, m::LinkKind>(kind);
+        }
+        for status in [
+            f::LinkStatus::Waiting,
+            f::LinkStatus::Linked,
+            f::LinkStatus::Expired,
+        ] {
+            rt::<f::LinkStatus, m::LinkStatus>(status);
+        }
+        rt::<f::LinkInfo, m::LinkInfo>(f::LinkInfo {
+            url: s("https://login.example/start"),
+            kind: f::LinkKind::Poll,
+        });
+        rt::<f::FolderSetupInfo, m::FolderSetupInfo>(f::FolderSetupInfo {
+            account: s("ab01ab01ab01ab01ab01ab01ab01ab01"),
+            provider: Some(f::FolderProvider::WebDav),
+            server: Some(s("https://cloud.example.com")),
+            path: Some(s("/Mosaic/Family")),
+        });
+        rt::<f::FolderCandidate, m::FolderCandidate>(f::FolderCandidate {
+            path: s("Mosaic/Family"),
+            accounts: vec![s("ab01ab01ab01ab01ab01ab01ab01ab01")],
+        });
+        rt::<f::FolderDirEntry, m::FolderDirEntry>(f::FolderDirEntry {
+            name: s("Family"),
+            path: s("Mosaic/Family"),
+        });
+        rt::<f::JoinFolderRequest, m::JoinFolderRequest>(f::JoinFolderRequest {
+            path: s("Mosaic"),
+            account: s("ab01ab01ab01ab01ab01ab01ab01ab01"),
+            password: vec![1, 2],
+            secret_key: vec![3],
+            device_name: Some(s("Pixel")),
         });
         rt::<f::ResetConfirm, m::ResetConfirm>(f::ResetConfirm {
             typed_email: s("a@example.com"),
@@ -961,8 +1017,15 @@ mod tests {
             server: s("https://sync.example.com"),
             email: s("a@example.com"),
             secret_key: Arc::clone(&secret),
+            folder: Some(m::FolderSetupInfo {
+                account: "ab".repeat(16),
+                provider: None,
+                server: None,
+                path: Some(s("/Mosaic")),
+            }),
         }
         .conv();
+        assert_eq!(setup.folder.map(|f| f.path), Some(Some(s("/Mosaic"))));
         assert_eq!(setup.secret_key.expose_bytes(), b"s3cret");
         assert_eq!(format!("{:?}", setup.secret_key), "SecretValue([REDACTED])");
         // The wrapper shares the value: wiping it wipes the core's.

@@ -160,6 +160,42 @@ record_out!(SetupCode <=> m::SetupCode {
     server: String,
     email: String,
     secret_key: Arc<SecretValue>,
+    folder: Option<FolderSetupInfo>,
+});
+
+// ---- folder accounts ----------------------------------------------------------------------------
+
+unit_enum!(FolderProvider <=> m::FolderProvider { Dropbox, OneDrive, WebDav });
+unit_enum!(LinkKind <=> m::LinkKind { Redirect, Poll });
+unit_enum!(LinkStatus <=> m::LinkStatus { Waiting, Linked, Expired });
+record!(LinkInfo <=> m::LinkInfo {
+    url: String,
+    kind: LinkKind,
+});
+record!(FolderSetupInfo <=> m::FolderSetupInfo {
+    account: String,
+    provider: Option<FolderProvider>,
+    server: Option<String>,
+    path: Option<String>,
+});
+record!(FolderCandidate <=> m::FolderCandidate {
+    path: String,
+    accounts: Vec<String>,
+});
+record!(FolderDirEntry <=> m::FolderDirEntry {
+    name: String,
+    path: String,
+});
+record!(JoinFolderRequest <=> m::JoinFolderRequest {
+    path: String,
+    account: String,
+    password: Vec<u8>,
+    secret_key: Vec<u8>,
+    device_name: Option<String>,
+});
+record!(FolderOverview <=> m::FolderOverview {
+    provider: FolderProvider,
+    path: String,
 });
 
 /// How a join went.
@@ -363,6 +399,8 @@ record!(SyncOverview <=> m::SyncOverview {
     configured: bool,
     signed_in: bool,
     server_url: Option<String>,
+    folder: Option<FolderOverview>,
+    reset_phrase: String,
     pending_uploads: u32,
     last_synced_at_ms: Option<u64>,
     last_error: Option<String>,
