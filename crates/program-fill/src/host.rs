@@ -55,6 +55,8 @@ pub enum HostEvent {
     Continue {
         /// The new capture's token.
         token: Token,
+        /// The field's rectangle, for a notice should the write fail.
+        near: Rect,
     },
     /// An armed continuation matched, but the second step may not be written
     /// without a new pick (web content, or more than one password field in the

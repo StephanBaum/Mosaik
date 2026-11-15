@@ -107,11 +107,16 @@ pub fn container_rules_out_lone_text(container_edits: &[EditInfo]) -> bool {
     container_edits.iter().filter(|e| usable(e)).take(2).count() > 1
 }
 
-/// Whether the focused element belongs to web content: a browser engine
-/// inside the program (Electron, CEF, `WebView2`: framework `Chrome`, `WebView`,
-/// `Edge`, `Gecko`), or an element owned by another process than the window's.
-/// Such a program draws its own fields and may show another page under the
-/// same root window, so a second step is never written without a new pick.
+/// UI frameworks whose windows are native: the only ones a second step may be
+/// written into without a pick. Everything else, including an empty or unknown
+/// framework (`InternetExplorer`, `Qt`, `Chrome`, ...), counts as web content.
+pub const NATIVE_FRAMEWORKS: &[&str] = &["Win32", "WinForm", "WPF", "XAML", "DirectUI"];
+
+/// Whether the focused element may be web content. An allowlist: native only
+/// when the framework is exactly one of [`NATIVE_FRAMEWORKS`] (ignoring case),
+/// the element's process owns the window, and the program is not a `WebView2`
+/// host. Such a program may show another page under the same root window, so a
+/// second step is never written without a new pick.
 #[must_use]
 pub fn is_web_content(
     framework_id: &str,
@@ -119,14 +124,10 @@ pub fn is_web_content(
     window_pid: u32,
     webview_host: bool,
 ) -> bool {
-    let framework = framework_id.to_ascii_lowercase();
-    webview_host
-        || element_pid != window_pid
-        || [
-            "chrome", "webview", "edge", "gecko", "mozilla", "cef", "electron",
-        ]
+    let native = NATIVE_FRAMEWORKS
         .iter()
-        .any(|name| framework.contains(name))
+        .any(|name| name.eq_ignore_ascii_case(framework_id));
+    webview_host || element_pid != window_pid || !native
 }
 
 /// Whether the second step of a two-step login is written without a new pick:
@@ -259,9 +260,14 @@ mod tests {
 
     #[test]
     fn web_content_is_told_by_framework_process_or_webview_host() {
-        assert!(!is_web_content("WPF", 5, 5, false));
-        assert!(!is_web_content("Win32", 5, 5, false));
+        for native in ["WPF", "Win32", "WinForm", "XAML", "DirectUI", "wpf"] {
+            assert!(!is_web_content(native, 5, 5, false), "{native}");
+        }
         assert!(is_web_content("Chrome", 5, 5, false));
+        // Unknown frameworks fail closed.
+        for other in ["", "InternetExplorer", "Qt", "Win32x", "Gecko", "Java"] {
+            assert!(is_web_content(other, 5, 5, false), "{other:?}");
+        }
         assert!(is_web_content("WebView2", 5, 5, false));
         assert!(is_web_content("Win32", 6, 5, false));
         assert!(is_web_content("Win32", 5, 5, true));

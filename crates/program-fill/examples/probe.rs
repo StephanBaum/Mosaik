@@ -101,7 +101,7 @@ mod harness {
                     HostEvent::Field(offer) | HostEvent::ContinueOffer(offer) => {
                         *slot = Some(offer.token);
                     }
-                    HostEvent::Continue { token } => *slot = Some(*token),
+                    HostEvent::Continue { token, .. } => *slot = Some(*token),
                     _ => {}
                 }
             }

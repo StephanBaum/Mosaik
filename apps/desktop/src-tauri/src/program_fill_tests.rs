@@ -443,7 +443,10 @@ fn no_fill_without_a_pick() {
     for i in 0..100 {
         e.host
             .emit(HostEvent::Field(password_field(i, Env::slack_identity())));
-        e.host.emit(HostEvent::Continue { token: i + 1000 });
+        e.host.emit(HostEvent::Continue {
+            token: i + 1000,
+            near: FIELD,
+        });
         e.host.emit(HostEvent::Gone);
     }
     e.host
@@ -807,7 +810,10 @@ fn two_step_login_continues_once_in_the_same_session() {
 
     // The password field of the second step.
     e.advance(5_000);
-    e.host.emit(HostEvent::Continue { token: 2 });
+    e.host.emit(HostEvent::Continue {
+        token: 2,
+        near: FIELD,
+    });
     let fills = e.fills();
     assert_eq!(fills.len(), 2);
     assert_eq!(
@@ -821,7 +827,10 @@ fn two_step_login_continues_once_in_the_same_session() {
         }
     );
     // Once.
-    e.host.emit(HostEvent::Continue { token: 3 });
+    e.host.emit(HostEvent::Continue {
+        token: 3,
+        near: FIELD,
+    });
     assert_eq!(e.fills().len(), 2);
 
     // A second login, and a minute later: nothing.
@@ -829,10 +838,16 @@ fn two_step_login_continues_once_in_the_same_session() {
     e.b().picker_choose(&e.item_request(items.slack)).unwrap();
     assert_eq!(e.fills().len(), 3);
     e.advance(61_000);
-    e.host.emit(HostEvent::Continue { token: 11 });
+    e.host.emit(HostEvent::Continue {
+        token: 11,
+        near: FIELD,
+    });
     assert_eq!(e.fills().len(), 3);
     // Nothing armed at all: nothing.
-    e.host.emit(HostEvent::Continue { token: 12 });
+    e.host.emit(HostEvent::Continue {
+        token: 12,
+        near: FIELD,
+    });
     assert_eq!(e.fills().len(), 3);
 }
 
@@ -1113,7 +1128,10 @@ fn lock_ends_offers_links_and_continuations() {
         .picker_link_confirm(&PickerGenerationRequest { generation })
         .unwrap_err();
     assert_eq!(refused.code, ErrorCode::PickerStale);
-    e.host.emit(HostEvent::Continue { token: 5 });
+    e.host.emit(HostEvent::Continue {
+        token: 5,
+        near: FIELD,
+    });
     assert_eq!(e.fills().len(), fills, "no continuation after a lock");
 }
 

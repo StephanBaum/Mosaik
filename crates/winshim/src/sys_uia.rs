@@ -368,8 +368,8 @@ impl Uia {
 
     /// The Edit controls of the window `root` in tree order, found by a walk
     /// that checks `deadline` before every element and stops as soon as
-    /// `stop_after` edits satisfy `counts` (or `max` edits are held). A
-    /// window larger than [`MAX_WALK_NODES`] elements is a timeout, never a
+    /// `stop_after` edits satisfy `counts`. Holding `max` edits first, or a
+    /// window larger than [`MAX_WALK_NODES`] elements, is a timeout, never a
     /// silently truncated list.
     ///
     /// # Errors
@@ -424,8 +424,13 @@ impl Uia {
                     facts,
                     _com: Rc::clone(&self.com),
                 });
-                if counted >= stop_after || out.len() >= max {
+                if counted >= stop_after {
                     break;
+                }
+                if out.len() >= max {
+                    // The limit came before the answer: not decided, so a
+                    // field past it can never be taken for absent.
+                    return Err(ShimError::Timeout);
                 }
             }
             if let Some(child) = self.first_child_of(&node)? {

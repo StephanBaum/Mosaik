@@ -26,7 +26,7 @@ use crate::fill::{Continuation, FillOutcome, FillPlan, FillSecrets, continues, r
 use crate::host::{
     FieldOffer, FillRequest, Host, HostEvent, HostSink, SystemClock, Token, monotonic_ms,
 };
-use crate::verify::{CONTINUATION_TTL_MS, ProbeError, Rect};
+use crate::verify::{CONTINUATION_TTL_MS, PICK_TTL_MS, ProbeError, Rect};
 
 /// Focus events are acted on after this long without another.
 pub const DEBOUNCE_MS: u64 = 150;
@@ -49,7 +49,9 @@ const PING_QUEUE: usize = 64;
 enum Command {
     CaptureNow(Sender<Result<HostEvent, ProbeError>>),
     LoneText(Token, Sender<Result<bool, ProbeError>>),
-    Fill(FillRequest, Sender<Result<FillOutcome, ProbeError>>),
+    /// The `u64` is the call's deadline on [`monotonic_ms`]: the worker never starts a fill
+    /// past it, and the fill's session expires at it.
+    Fill(FillRequest, Sender<Result<FillOutcome, ProbeError>>, u64),
     Refocus(Token, Sender<Result<(), ProbeError>>),
     FieldRect(Token, Sender<Result<Option<Rect>, ProbeError>>),
     Arm(Token, Continuation),
@@ -161,6 +163,9 @@ impl WindowsHost {
             let mut state = self.lock();
             if state.worker.is_none() && state.sink.is_some() {
                 state.worker = Some(worker);
+            } else {
+                // Stopped (or restarted) meanwhile: the new worker must not survive.
+                self.current.fetch_add(1, Ordering::SeqCst);
             }
         }
     }
@@ -261,7 +266,12 @@ impl Host for WindowsHost {
     }
 
     fn fill(&self, request: FillRequest) -> Result<FillOutcome, ProbeError> {
-        self.call(FILL_CALL_TIMEOUT_MS, |tx| Command::Fill(request, tx))?
+        {
+            let deadline = fill_deadline(monotonic_ms());
+            self.call(FILL_CALL_TIMEOUT_MS, |tx| {
+                Command::Fill(request, tx, deadline)
+            })?
+        }
     }
 
     fn refocus(&self, token: Token) -> Result<(), ProbeError> {
@@ -323,6 +333,29 @@ fn dispatcher_main(events: &Receiver<Stamped>, sink: &HostSink, current: &Atomic
     }
 }
 
+/// When a fill sent at `sent_ms` must be over: a second before its caller gives up.
+fn fill_deadline(sent_ms: u64) -> u64 {
+    sent_ms.saturating_add(FILL_CALL_TIMEOUT_MS.saturating_sub(1_000))
+}
+
+/// The pick time to give a session so that it expires no later than `deadline`
+/// (the pick's own time when that is earlier). Never in the future of `now_ms`.
+fn capped_pick_start(picked_at_ms: u64, deadline_ms: u64, ttl_ms: u64, now_ms: u64) -> u64 {
+    picked_at_ms.max(deadline_ms.saturating_sub(ttl_ms).min(now_ms))
+}
+
+/// What a focus change reports: an offer or a continuation goes on to the
+/// desktop, anything else means the field is gone.
+fn focus_report(captured: Result<HostEvent, ProbeError>) -> Option<HostEvent> {
+    match captured {
+        Ok(
+            event
+            @ (HostEvent::Field(_) | HostEvent::Continue { .. } | HostEvent::ContinueOffer(_)),
+        ) => Some(event),
+        _ => None,
+    }
+}
+
 /// What a pass over the command queue ended with.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Drain {
@@ -345,6 +378,10 @@ fn drain_commands(
             return Drain::Leave;
         }
         match commands.try_recv() {
+            Ok(Command::Fill(_, reply, deadline)) if monotonic_ms() >= deadline => {
+                // Its caller gave up (or is about to): a late fill is never started.
+                reply.send(Err(ProbeError::Timeout)).ok();
+            }
             Ok(command) => handle(command),
             Err(TryRecvError::Empty) => return Drain::Idle,
             Err(TryRecvError::Disconnected) => return Drain::Leave,
@@ -464,8 +501,8 @@ impl WorkerState {
             Command::LoneText(token, reply) => {
                 reply.send(self.lone_text(token)).ok();
             }
-            Command::Fill(request, reply) => {
-                reply.send(self.fill(&request)).ok();
+            Command::Fill(request, reply, deadline) => {
+                reply.send(self.fill(&request, deadline)).ok();
             }
             Command::Refocus(token, reply) => {
                 reply.send(self.refocus(token)).ok();
@@ -482,8 +519,7 @@ impl WorkerState {
 
     /// What a focus change means: an offer, a continuation, or nothing.
     fn focus_event(&mut self) -> HostEvent {
-        if let Ok(event @ (HostEvent::Field(_) | HostEvent::Continue { .. })) = self.capture_event()
-        {
+        if let Some(event) = focus_report(self.capture_event()) {
             return event;
         }
         self.current = None;
@@ -549,7 +585,10 @@ impl WorkerState {
             };
             self.current = Some(Current { token, captured });
             return Ok(if automatic {
-                HostEvent::Continue { token }
+                HostEvent::Continue {
+                    token,
+                    near: offer.rect,
+                }
             } else {
                 HostEvent::ContinueOffer(offer)
             });
@@ -639,7 +678,7 @@ impl WorkerState {
         }
     }
 
-    fn fill(&mut self, request: &FillRequest) -> Result<FillOutcome, ProbeError> {
+    fn fill(&mut self, request: &FillRequest, deadline_ms: u64) -> Result<FillOutcome, ProbeError> {
         let probe = &self.probe;
         let pings = &self.pings;
         let current = self
@@ -647,7 +686,14 @@ impl WorkerState {
             .as_mut()
             .filter(|c| c.token == request.token)
             .ok_or(ProbeError::Gone)?;
-        current.captured.session.picked_at_ms = request.picked_at_ms;
+        let ttl = if request.continuation {
+            CONTINUATION_TTL_MS
+        } else {
+            PICK_TTL_MS
+        };
+        // A continuation may outlive its call: the session ends with the call.
+        current.captured.session.picked_at_ms =
+            capped_pick_start(request.picked_at_ms, deadline_ms, ttl, monotonic_ms());
         current.captured.session.continuation = request.continuation;
         // The role is read again from the window as it is now.
         let (edits, focused) = probe.field_set_attached(&mut current.captured)?;
@@ -806,7 +852,7 @@ mod tests {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (reply_tx, reply_rx) = mpsc::channel();
         cmd_tx
-            .send(Command::Fill(fill_request(), reply_tx))
+            .send(Command::Fill(fill_request(), reply_tx, u64::MAX))
             .unwrap();
         // The host gave up on this worker (a new epoch) while it was busy.
         current.fetch_add(1, Ordering::SeqCst);
@@ -820,6 +866,83 @@ mod tests {
     }
 
     #[test]
+    fn a_queued_fill_past_its_call_deadline_is_never_started() {
+        let current = Arc::new(AtomicU64::new(1));
+        let context = context(1, &current);
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (late_tx, late_rx) = mpsc::channel();
+        let (ok_tx, _ok_rx) = mpsc::channel();
+        cmd_tx
+            .send(Command::Fill(fill_request(), late_tx, 0))
+            .unwrap();
+        cmd_tx
+            .send(Command::Fill(fill_request(), ok_tx, u64::MAX))
+            .unwrap();
+        let mut ran = 0;
+        assert_eq!(drain_commands(&context, &cmd_rx, |_| ran += 1), Drain::Idle);
+        assert_eq!(ran, 1, "only the fill inside its deadline runs");
+        assert_eq!(late_rx.recv(), Ok(Err(ProbeError::Timeout)));
+    }
+
+    #[test]
+    fn a_session_never_outlives_its_call() {
+        // A continuation picked 50 s ago, called with 34 s to go: it ends with the call.
+        let now = 100_000;
+        let picked = now - 50_000;
+        let deadline = now + 34_000;
+        let start = capped_pick_start(picked, deadline, CONTINUATION_TTL_MS, now);
+        assert_eq!(start + CONTINUATION_TTL_MS, deadline);
+        // A fresh pick inside its limits is unchanged.
+        assert_eq!(
+            capped_pick_start(now, deadline, CONTINUATION_TTL_MS, now),
+            now
+        );
+        // Never in the future.
+        assert!(capped_pick_start(now, now + 50_000, 30_000, now) <= now);
+        assert_eq!(fill_deadline(10), 10 + FILL_CALL_TIMEOUT_MS - 1_000);
+    }
+
+    #[test]
+    fn a_focus_change_forwards_offers_and_both_continuations() {
+        let rect = Rect {
+            left: 0,
+            top: 0,
+            right: 10,
+            bottom: 10,
+        };
+        let continue_ = HostEvent::Continue {
+            token: 2,
+            near: rect,
+        };
+        assert_eq!(focus_report(Ok(continue_.clone())), Some(continue_));
+        let offer = crate::host::FieldOffer {
+            token: 3,
+            identity: crate::identity::CapturedIdentity {
+                pid: 1,
+                final_path: String::new(),
+                exe_name: "a.exe".to_owned(),
+                package_family: None,
+                signer_id: None,
+                signer_display: None,
+                file_sha256: None,
+                class: mosaic_origin::program::ProgramClass::Ordinary,
+            },
+            role: FieldRole::Password { username: None },
+            rect,
+            target: crate::verify::RuntimeId(vec![1]),
+        };
+        for event in [
+            HostEvent::Field(offer.clone()),
+            HostEvent::ContinueOffer(offer),
+        ] {
+            assert_eq!(focus_report(Ok(event.clone())), Some(event));
+        }
+        assert_eq!(focus_report(Ok(HostEvent::Gone)), None);
+        assert_eq!(focus_report(Ok(HostEvent::NoField { near: None })), None);
+        assert_eq!(focus_report(Err(ProbeError::Timeout)), None);
+    }
+
+    #[test]
     fn a_current_worker_runs_its_queue_and_leaves_when_the_epoch_ends_midway() {
         let current = Arc::new(AtomicU64::new(1));
         let context = context(1, &current);
@@ -827,7 +950,9 @@ mod tests {
         let replies: Vec<_> = (0..3)
             .map(|_| {
                 let (tx, rx) = mpsc::channel();
-                cmd_tx.send(Command::Fill(fill_request(), tx)).unwrap();
+                cmd_tx
+                    .send(Command::Fill(fill_request(), tx, u64::MAX))
+                    .unwrap();
                 rx
             })
             .collect();

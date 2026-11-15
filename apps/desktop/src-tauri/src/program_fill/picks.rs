@@ -14,7 +14,7 @@ use mosaic_program_fill::policy::{
     ConfirmStep, Confirmations, LinkAgain, LinkConfirmation, LinkWarning, link_again_needed,
     propose_binding, propose_relink,
 };
-use mosaic_program_fill::verify::{CONTINUATION_TTL_MS, ProbeError};
+use mosaic_program_fill::verify::{CONTINUATION_TTL_MS, ProbeError, Rect};
 
 use super::offer::{self, Credentials};
 use super::{
@@ -227,7 +227,7 @@ impl Backend {
 
     /// The second step of a two-step login: the host found the password field of the same
     /// window. Fills it once, within a minute of the first step; anything else is ignored.
-    pub(crate) fn program_fill_second_step(&self, token: Token) {
+    pub(crate) fn program_fill_second_step(&self, token: Token, near: Rect) {
         let svc = &self.program_fill;
         let now = svc.now();
         let cont = {
@@ -273,8 +273,10 @@ impl Backend {
             Ok(_) => None,
         };
         if let Some(notice) = notice {
-            let near = host.field_rect(token).ok().flatten();
-            self.program_fill_notice(notice, near);
+            // After a timeout the host has a new worker that does not know the token: the
+            // rectangle of the event is the fallback.
+            let near = host.field_rect(token).ok().flatten().unwrap_or(near);
+            self.program_fill_notice(notice, Some(near));
         }
     }
 

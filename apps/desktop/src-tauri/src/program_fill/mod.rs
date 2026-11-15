@@ -477,18 +477,23 @@ impl Backend {
             svc.host_failed.store(false, Ordering::SeqCst);
             let weak = svc.weak_backend();
             let sink: HostSink = Arc::new(move |event| {
-                if let Some(backend) = weak.upgrade() {
+                // The host checks its epoch before calling, but not atomically with the
+                // call: an event that raced a stop is dropped here.
+                if let Some(backend) = weak.upgrade()
+                    && backend.program_fill.running.load(Ordering::SeqCst)
+                {
                     backend.program_fill_on_event(event);
                 }
             });
-            if host.start(sink).is_ok() {
-                svc.running.store(true, Ordering::SeqCst);
-            } else {
+            // Set first: the sink drops events while it is false.
+            svc.running.store(true, Ordering::SeqCst);
+            if host.start(sink).is_err() {
+                svc.running.store(false, Ordering::SeqCst);
                 svc.host_failed.store(true, Ordering::SeqCst);
             }
         } else if !wanted && running {
-            host.stop();
             svc.running.store(false, Ordering::SeqCst);
+            host.stop();
             let effects = {
                 let mut m = svc.model();
                 m.cont = None;
@@ -578,7 +583,7 @@ impl Backend {
             HostEvent::Gone | HostEvent::NoField { .. } | HostEvent::Refused { .. } => {
                 self.program_fill_hide_chip();
             }
-            HostEvent::Continue { token } => self.program_fill_second_step(token),
+            HostEvent::Continue { token, near } => self.program_fill_second_step(token, near),
             HostEvent::ContinueOffer(offer) => self.program_fill_continue_offer(offer),
         }
     }
