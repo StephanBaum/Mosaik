@@ -22,9 +22,13 @@ mosaic-core = { path = "../core" }
 mosaic-origin = { path = "../origin" }
 # The binding digest is the SHA-256 of its canonical JSON (already in the tree through mosaic-core).
 sha2.workspace = true
+# The patterns and the stream carry are secrets (already in the tree through mosaic-core).
+zeroize.workspace = true
 thiserror.workspace = true
 # Derive for the error codes and the wire types (the desktop crate enables the same feature).
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 serde_json.workspace = true
+# An independent base64 encoder to cross-check the masker patterns (already in the tree through mosaic-core).
+base64ct = { workspace = true, features = ["alloc"] }

@@ -3202,12 +3202,14 @@ dependencies = [
 name = "mosaic-agent"
 version = "0.0.0"
 dependencies = [
+ "base64ct",
  "mosaic-core",
  "mosaic-origin",
  "serde",
  "serde_json",
  "sha2 0.11.1",
  "thiserror 2.0.21",
+ "zeroize",
 ]
 
 [[package]]

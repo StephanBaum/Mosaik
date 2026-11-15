@@ -6,6 +6,7 @@
 //!
 //! - [`error`]: the error codes every layer reports (a code and a fixed
 //!   sentence, never a value).
+//! - [`mask`]: the masking engine for responses and, later, command output.
 //! - [`binding`]: the policy of one agent-usable secret (`agent:<id>` of an
 //!   item), validated: field, destinations, injection, environment name.
 //!
@@ -15,6 +16,7 @@
 
 pub mod binding;
 pub mod error;
+pub mod mask;
 
 #[cfg(all(feature = "test-util", not(debug_assertions)))]
 compile_error!(
@@ -23,3 +25,5 @@ compile_error!(
 
 #[cfg(test)]
 mod binding_tests;
+#[cfg(test)]
+mod mask_tests;
