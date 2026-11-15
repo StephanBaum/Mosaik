@@ -226,7 +226,10 @@ class RedTeamG3Test {
         assertEquals(1, data.length)
         val element = data.item(0) as Element
         assertEquals("io.github.stephanbaum.mosaic.oauth", element.android("scheme"))
-        assertEquals("/cb", element.android("path"))
+        // Scheme only: Android ignores a path without a host (lint AppLinkUrlError), so the exact
+        // redirect io.github.stephanbaum.mosaic.oauth:/cb is checked by the core (crates/sync oauth.rs).
+        assertEquals("", element.android("host"))
+        assertEquals("", element.android("path"))
     }
 
     /**
