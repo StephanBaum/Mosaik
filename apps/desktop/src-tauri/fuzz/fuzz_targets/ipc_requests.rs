@@ -38,7 +38,8 @@ use contract::credential_rotation::{
 use contract::errors::ErrorCode;
 use contract::generator::GenerateRequest;
 use contract::import::{
-    ImportCancelRequest, ImportChooseRequest, ImportCommitRequest, ImportPreviewRequest,
+    ImportCancelRequest, ImportCommitRequest, ImportDeleteRequest, ImportDetectRequest,
+    ImportPreviewRequest,
 };
 use contract::otp::{OtpParseRequest, OtpPendingRequest, OtpScanRequest};
 use contract::items::{
@@ -86,7 +87,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 73;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 74;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -124,7 +125,7 @@ fuzz_target!(|data: &[u8]| {
         13 => drop(parse::<CopyRequest>(json)),
         14 => drop(parse::<GenerateRequest>(json)),
         15 => drop(parse::<UpdateSettingsRequest>(json)),
-        16 => drop(parse::<ImportChooseRequest>(json)),
+        16 => drop(parse::<ImportDetectRequest>(json)),
         17 => drop(parse::<ImportPreviewRequest>(json)),
         18 => drop(parse::<ImportCommitRequest>(json)),
         19 => drop(parse::<ImportCancelRequest>(json)),
@@ -205,6 +206,8 @@ fuzz_target!(|data: &[u8]| {
         69 => drop(parse::<RotationCloseRequest>(json)),
         70 => drop(parse::<HistoryRestoreRequest>(json)),
         71 => drop(parse::<RotationSnoozeRequest>(json)),
+        // Onboarding import (ADR-0165): the token-bound delete (import_choose_file takes no request).
+        72 => drop(parse::<ImportDeleteRequest>(json)),
         _ => drop(parse::<RotationPolicyRequest>(json)),
     }
 });
