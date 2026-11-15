@@ -4,6 +4,7 @@ mod commit;
 mod dashlane;
 mod csv_presets;
 mod formats;
+mod keeper;
 mod lastpass;
 mod mosaic_export;
 mod nordpass;

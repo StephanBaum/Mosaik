@@ -74,6 +74,7 @@ pub mod cxf;
 pub mod dashlane;
 pub mod enpass;
 pub mod kdbx;
+pub mod keeper;
 pub mod mosaic_export;
 pub mod onepux;
 
@@ -106,6 +107,8 @@ pub enum Format {
     Cxf,
     /// Dashlane CSV export: a zip of CSV files.
     Dashlane,
+    /// Keeper JSON export.
+    Keeper,
     /// CSV with a header row; columns are mapped automatically
     /// ([`csv::CsvMapping::detect`]).
     Csv,
@@ -128,6 +131,7 @@ pub fn parse(format: Format, input: &[u8], password: Option<&SecretString>) -> R
         Format::OnePassword => onepux::parse(input),
         Format::Cxf => cxf::parse(input),
         Format::Dashlane => dashlane::parse(input),
+        Format::Keeper => keeper::parse_json(input),
         Format::Csv => csv::parse(input, None),
     }
 }
