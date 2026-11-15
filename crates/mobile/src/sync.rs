@@ -9,6 +9,7 @@ use mosaic_core::MasterPassword;
 use mosaic_sync::engine::{EngineConfig, SyncEngine, SyncError, SyncWarning as EngineWarning};
 use mosaic_sync::http::{HttpTransport, StoredToken, Token as _, hosted};
 use mosaic_sync::transport::{Rejection, TransportError, TransportKind};
+use mosaic_vault::session::{SharingFinding, UnlockedSession};
 use mosaic_vault::storage::{SyncHalt, SyncKind, VaultFlag};
 use zeroize::Zeroizing;
 
@@ -62,6 +63,10 @@ pub enum SyncWarningKind {
     Undecryptable,
     /// The account key epoch on the server is below this phone's.
     AccountRollback,
+    /// A shared vault needs attention: a revocation rotation is waiting or
+    /// blocked, or sharing recorded a finding. The phone has no sharing
+    /// screen; the text sends the user to the computer.
+    SharingAttention,
 }
 
 /// One sync warning. It carries no secret and no name: a kind, since when
@@ -108,6 +113,9 @@ impl SyncWarning {
                 ..Self::plain(SyncWarningKind::Undecryptable)
             },
             EngineWarning::AccountRollback { .. } => Self::plain(SyncWarningKind::AccountRollback),
+            // A key change the owner's device could not make (CRYPTO_SPEC
+            // §8.3): never dropped on the phone (SYNC-3).
+            EngineWarning::RotationBlocked { .. } => Self::plain(SyncWarningKind::SharingAttention),
             _ => return None,
         })
     }
@@ -125,8 +133,12 @@ fn merge_warnings(into: &mut Vec<SyncWarning>, new: impl IntoIterator<Item = Syn
     }
 }
 
-/// The warnings the stored findings stand for.
-fn finding_warnings(findings: &mosaic_vault::session::SyncFindings) -> Vec<SyncWarning> {
+/// The warnings the stored findings stand for. `sharing` says whether sharing
+/// findings are stored: the phone shows them as one generic warning.
+fn finding_warnings(
+    findings: &mosaic_vault::session::SyncFindings,
+    sharing: bool,
+) -> Vec<SyncWarning> {
     let mut out = Vec::new();
     match findings.halt {
         Some(SyncHalt::Rollback) => out.push(SyncWarning::plain(SyncWarningKind::RollbackDetected)),
@@ -147,7 +159,29 @@ fn finding_warnings(findings: &mosaic_vault::session::SyncFindings) -> Vec<SyncW
             ..SyncWarning::plain(SyncWarningKind::NoCommonView)
         });
     }
+    if sharing {
+        out.push(SyncWarning::plain(SyncWarningKind::SharingAttention));
+    }
     out
+}
+
+/// Clears the halt and the vault findings and, of the sharing findings, only
+/// what the phone showed (`shown`): one recorded since the last overview stays
+/// and is shown next. One session step, so a sync cannot add a finding between
+/// the check and the clear (SYNC-3).
+fn clear_findings(s: &mut UnlockedSession, shown: &[SharingFinding]) -> Result<()> {
+    let findings = s.sync_findings()?;
+    if findings.halt.is_some() {
+        s.clear_sync_halt()?;
+    }
+    let vaults = findings.vaults();
+    if !vaults.is_empty() {
+        s.clear_vault_findings(&vaults)?;
+    }
+    if s.sharing_findings()?.iter().all(|f| shown.contains(f)) {
+        s.clear_sharing_findings()?;
+    }
+    Ok(())
 }
 
 /// The confirmation of a device reset: the account email, typed.
@@ -254,15 +288,22 @@ impl Core {
         if unlocked {
             let facts = self.with_session(|s| {
                 let findings = s.sync_findings()?;
+                let sharing = s.sharing_findings()?;
                 let pending = s.pending_uploads(1000)?.len();
                 Ok((
                     s.sync_config()?,
-                    !findings.is_clear(),
+                    !findings.is_clear() || !sharing.is_empty(),
                     pending,
-                    finding_warnings(&findings),
+                    finding_warnings(&findings, !sharing.is_empty()),
+                    sharing,
                 ))
             });
-            if let Ok((c, halted, pending, stored)) = facts {
+            if let Ok((c, halted, pending, stored, sharing)) = facts {
+                // What this overview shows: an acknowledgement clears only
+                // these sharing findings (SYNC-3).
+                if let Ok(mut guard) = self.guard() {
+                    guard.shown_sharing = sharing;
+                }
                 config = c;
                 overview.halted = halted;
                 let mut warnings = stored;
@@ -367,23 +408,19 @@ impl Core {
     /// or the store's code.
     pub fn acknowledge_sync_findings(&self) -> Result<SyncOverview> {
         self.require_app()?;
+        let shown = self.guard()?.shown_sharing.clone();
         self.with_session(|s| {
             if s.sync_config()?.is_none() {
                 return Err(MobileError::SyncNotConfigured);
             }
-            let findings = s.sync_findings()?;
-            if findings.halt.is_some() {
-                s.clear_sync_halt()?;
-            }
-            let vaults = findings.vaults();
-            if !vaults.is_empty() {
-                s.clear_vault_findings(&vaults)?;
-            }
-            s.clear_sharing_findings()?;
-            Ok(())
+            clear_findings(s, &shown)
         })?;
         // Dropped under the mutex, after the findings are cleared.
-        self.guard()?.sync_warnings.clear();
+        {
+            let mut guard = self.guard()?;
+            guard.sync_warnings.clear();
+            guard.shown_sharing.clear();
+        }
         Ok(self.sync_overview())
     }
 
@@ -566,6 +603,55 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn session(dir: &std::path::Path) -> UnlockedSession {
+        let store = mosaic_vault::storage::Store::open(dir.join("phone.db")).unwrap();
+        mosaic_vault::session::LockedSession::open(store)
+            .create_account(
+                &MasterPassword::new("pw-correct horse".to_owned()),
+                mosaic_core::Argon2Profile::Baseline,
+            )
+            .unwrap()
+            .0
+    }
+
+    /// SYNC-3: an acknowledgement clears only the sharing findings the phone
+    /// showed. One recorded after the last overview stays until it was shown.
+    #[test]
+    fn acknowledge_keeps_sharing_findings_the_phone_never_showed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = session(dir.path());
+        let vault = s.create_vault("Shared").unwrap();
+        let shown = SharingFinding::VaultHeld { vault };
+        s.record_sharing_finding(shown).unwrap();
+        let unseen = SharingFinding::RosterInvalid { vault };
+        s.record_sharing_finding(unseen).unwrap();
+        // The overview showed only the first one.
+        clear_findings(&mut s, &[shown]).unwrap();
+        assert_eq!(s.sharing_findings().unwrap().len(), 2, "nothing is cleared");
+        // Once both were shown, the acknowledgement clears them.
+        clear_findings(&mut s, &[shown, unseen]).unwrap();
+        assert_eq!(s.sharing_findings().unwrap().len(), 0);
+    }
+
+    /// SYNC-3: a blocked revocation rotation (and a sharing finding) is a
+    /// warning on the phone, not dropped.
+    #[test]
+    fn rotation_blocked_and_sharing_findings_show_on_the_phone() {
+        let vault = mosaic_core::VaultId::new_random().unwrap();
+        let blocked = SyncWarning::from_engine(&EngineWarning::RotationBlocked { vault });
+        assert_eq!(
+            blocked.map(|w| w.kind),
+            Some(SyncWarningKind::SharingAttention)
+        );
+        let none = mosaic_vault::session::SyncFindings::default();
+        let kinds: Vec<_> = finding_warnings(&none, true)
+            .into_iter()
+            .map(|w| w.kind)
+            .collect();
+        assert_eq!(kinds, vec![SyncWarningKind::SharingAttention]);
+        assert_eq!(finding_warnings(&none, false).len(), 0);
+    }
 
     fn warning(kind: SyncWarningKind, since_ms: Option<u64>, count: Option<u32>) -> SyncWarning {
         SyncWarning {

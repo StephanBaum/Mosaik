@@ -409,6 +409,7 @@
   <string name="mobile_sync_warning_rollbackDetected">Your sync data looks older than this phone. Open Mosaic on another device and check that your latest changes are there. Then choose “I\'ve checked”.</string>
   <string name="mobile_sync_warning_serverInconsistent">The server showed this phone different data than another device. Open Mosaic on another device and check that your latest changes are there. Then choose “I\'ve checked”.</string>
   <string name="mobile_sync_warning_serverRollback">The server\'s copy of one of your vaults is older than this phone\'s. Open Mosaic on another device and check that your latest changes are there. Then choose “I\'ve checked”.</string>
+  <string name="mobile_sync_warning_sharingAttention">A shared vault needs attention: a key change is waiting, or a member could not be checked. Open Mosaic on your computer to see which one. Then choose “I\'ve checked”.</string>
   <plurals name="mobile_sync_warning_undecryptable">
     <item quantity="one">%1$d received item couldn\'t be read on this phone. Update Mosaic on all your devices, then sync again.</item>
     <item quantity="other">%1$d received items couldn\'t be read on this phone. Update Mosaic on all your devices, then sync again.</item>

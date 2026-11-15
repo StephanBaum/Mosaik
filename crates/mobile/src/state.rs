@@ -179,6 +179,11 @@ pub(crate) struct Inner {
     /// (a later run does not clear it; G5b-1). No secrets: kinds, counts and
     /// times only.
     pub sync_warnings: Vec<crate::SyncWarning>,
+    /// The sharing findings the last sync overview showed. The phone shows
+    /// them only as one generic warning, and an acknowledgement clears only
+    /// what was shown: a finding recorded since stays until it was shown
+    /// (SYNC-3, R156).
+    pub shown_sharing: Vec<mosaic_vault::session::SharingFinding>,
     /// The Secret Key of the account is in secure storage. Cached: asked of the
     /// platform (`contains`, never `get`) outside the mutex at open and set
     /// where the core stores or deletes it, so `state()` never calls the

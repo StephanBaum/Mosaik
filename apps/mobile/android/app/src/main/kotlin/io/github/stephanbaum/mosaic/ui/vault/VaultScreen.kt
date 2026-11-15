@@ -84,6 +84,7 @@ fun syncWarningTexts(r: Resources, overview: SyncOverview?): List<String> =
             SyncWarningKind.SERVER_ROLLBACK -> L10n.syncWarningServerRollback(r)
             SyncWarningKind.UNDECRYPTABLE -> L10n.syncWarningUndecryptable(r, (warning.count ?: 1u).toInt())
             SyncWarningKind.ACCOUNT_ROLLBACK -> L10n.syncWarningAccountRollback(r)
+            SyncWarningKind.SHARING_ATTENTION -> L10n.syncWarningSharingAttention(r)
         }
     }.distinct()
 
