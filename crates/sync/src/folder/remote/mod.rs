@@ -13,7 +13,10 @@
 //! Nothing here logs. A `TransportError` carries no data from a provider, and
 //! secrets live in zeroizing types that are never `Clone`.
 
+pub mod credential;
 pub mod http;
+pub mod location;
+pub mod oauth;
 pub mod time;
 
 /// The largest listing response that is read.
