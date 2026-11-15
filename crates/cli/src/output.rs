@@ -126,7 +126,7 @@ impl Output {
 
     /// One fixed line on stderr (the MCP relay's startup failure; nothing else is ever printed
     /// there).
-    pub fn stderr_line(&self, line: &str) {
+    pub fn stderr_line(line: &str) {
         eprintln!("{line}");
     }
 

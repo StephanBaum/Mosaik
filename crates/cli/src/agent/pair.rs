@@ -23,7 +23,7 @@ const WAIT: Duration = Duration::from_secs(130);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Paired<'a> {
+struct Done<'a> {
     paired: bool,
     name: &'a str,
     code: &'a str,
@@ -69,7 +69,7 @@ pub(super) fn run(p: &Parsed, out: &Output) -> Result<()> {
         .map_err(|_| CliError::new("agentIo", EXIT_OTHER, Msg::ErrAgentIo))?;
     drop(key);
     out.data(
-        &Paired {
+        &Done {
             paired: true,
             name,
             code: &code,

@@ -379,8 +379,9 @@ pub trait AgentPairingStore: Send + Sync {
 /// [`PlatformError::Keystore`] if encoding fails (it cannot with these sizes).
 pub fn encode_agent_pairing(id: &[u8; 16], key: &PairingKey) -> Result<Zeroizing<String>> {
     let mut raw = Zeroizing::new([0u8; 48]);
-    raw[..16].copy_from_slice(id);
-    raw[16..].copy_from_slice(key.expose_secret());
+    let (head, tail) = raw.split_at_mut(16);
+    head.copy_from_slice(id);
+    tail.copy_from_slice(key.expose_secret());
     let mut buffer = Zeroizing::new([0u8; 64]);
     let text = Base64UrlUnpadded::encode(raw.as_slice(), buffer.as_mut_slice())
         .map_err(|_| PlatformError::Keystore)?;
@@ -393,10 +394,11 @@ pub fn decode_agent_pairing(text: &str) -> Option<([u8; 16], PairingKey)> {
     let mut raw = Zeroizing::new([0u8; 48]);
     match Base64UrlUnpadded::decode(text, raw.as_mut_slice()) {
         Ok(decoded) if decoded.len() == 48 => {
+            let (head, tail) = raw.split_at(16);
             let mut id = [0u8; 16];
-            id.copy_from_slice(&raw[..16]);
+            id.copy_from_slice(head);
             let mut key = Zeroizing::new([0u8; 32]);
-            key.copy_from_slice(&raw[16..]);
+            key.copy_from_slice(tail);
             Some((id, PairingKey::from_bytes(&mut key)))
         }
         _ => None,
@@ -527,7 +529,7 @@ mod tests {
         let text = encode_agent_pairing(&id, &key).unwrap();
         assert_eq!(text.len(), 64);
         assert!(decode_agent_pairing(&text).is_some());
-        for bad in ["", "AAAA", &text[..63], &format!("{}A", &*text), "!!!"] {
+        for bad in ["", "AAAA", &text[..63], &format!("{}A", *text), "!!!"] {
             assert!(decode_agent_pairing(bad).is_none(), "{bad}");
         }
     }

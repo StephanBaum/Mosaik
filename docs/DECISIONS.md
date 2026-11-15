@@ -6000,7 +6000,7 @@ Decisions made on top of the spec (D = spec decision, Q = spec open question, B 
 - **The log** never keeps a value, a header, a body or a query string.
 - **Copies in buffers.** The injected value may leave copies inside `reqwest` and `hyper` buffers that this code cannot zeroize, as serde's buffers in
   ADR-0009 (THREAT_MODEL R184).
-- **MCP protocol versions** supported: confirmed in the task that implements the relay (`mosaic agent mcp`) and recorded here then.
+- **MCP protocol versions** supported by `mosaic agent mcp`: `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05` (all with the `initialize` handshake over newline-delimited JSON-RPC on stdio; checked against modelcontextprotocol.io on 2026-11-15). `initialize` echoes the client's version if it is in the list, else the newest. `structuredContent` is sent from `2025-06-18`, tool `annotations` from `2025-03-26`; no `outputSchema`. The current revision `2026-07-28` is stateless (no `initialize`, `server/discover`) and is not implemented: its clients fall back to the revisions above. Tools only; no resources, prompts, sampling, elicitation, roots or logging.
 - **Tests** reach a TLS server through a fixture CA and a test-only sender constructor, because the sync tests use plain-http loopback and there was
   nothing to reuse. Agent requests use `no_proxy()` (the sync client uses the system proxy for https).
 

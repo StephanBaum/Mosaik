@@ -47,15 +47,15 @@ impl AgentHost for Host {
         async move { outcome }
     }
 
-    async fn handle(
+    fn handle(
         &self,
         _pairing: [u8; 16],
         _conn: u64,
         _op: OpRequest,
-    ) -> Result<OpResponse, WireError> {
-        Err(WireError::code(
+    ) -> impl Future<Output = Result<OpResponse, WireError>> + Send {
+        std::future::ready(Err(WireError::code(
             mosaic_agent::error::AgentErrorCode::Internal,
-        ))
+        )))
     }
 
     fn note_used(&self, _pairing: &[u8; 16]) {}
@@ -357,7 +357,7 @@ fn reveal_refuses_in_an_agent_context() {
         .env("CLAUDECODE", "1")
         .run();
     assert_eq!(allowed.code, 0, "{}", allowed.stderr);
-    assert!(!allowed.stdout.is_empty());
+    assert!(allowed.stdout.len() > 1, "a value was printed");
     // Without the variable nothing changes.
     let plain = f
         .cmd(&[

@@ -6,8 +6,10 @@
 //!
 //! - [`conn`]: connect, handshake and a multiplexed request channel.
 //! - `pair`, `status`: the terminal commands.
+//! - [`mcp`]: the stdio MCP server. A relay that never holds a secret value.
 
 pub mod conn;
+pub mod mcp;
 mod pair;
 mod status;
 
@@ -94,7 +96,32 @@ pub fn run(p: &Parsed, out: &Output) -> Result<u8> {
     match p.args.first().map(String::as_str) {
         Some("pair") => pair::run(p, out).map(|()| 0),
         Some("status") => status::run(p, out).map(|()| 0),
-        Some("mcp") => Err(CliError::not_supported("agent mcp")),
+        Some("mcp") => Ok(run_mcp(p)),
         _ => Err(CliError::internal()),
+    }
+}
+
+/// `mosaic agent mcp --client NAME`: serves MCP on stdin and stdout until stdin closes.
+fn run_mcp(p: &Parsed) -> u8 {
+    let Ok(name) = client_name(p, "client").map(str::to_owned) else {
+        Output::stderr_line("mosaic agent mcp: startup failed (invalidClient)");
+        return 2;
+    };
+    let connector = std::rc::Rc::new(conn::RealConnector {
+        client: name.clone(),
+        store: backends::agent_pairings(),
+    });
+    let served = mcp::run_mcp(
+        &name,
+        std::io::BufReader::new(std::io::stdin()),
+        std::io::stdout(),
+        connector,
+    );
+    match served {
+        Ok(code) => code,
+        Err(reason) => {
+            Output::stderr_line(&format!("mosaic agent mcp: startup failed ({reason})"));
+            1
+        }
     }
 }

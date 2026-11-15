@@ -254,13 +254,11 @@ impl Drop for Connection {
 
 async fn read_loop(mut reader: tokio::io::ReadHalf<ClientStream>, inner: Rc<Inner>) {
     loop {
-        let frame = match read_frame(&mut reader, ByteOrder::Big).await {
-            Ok(Some(frame)) => frame,
-            _ => break,
+        let Ok(Some(frame)) = read_frame(&mut reader, ByteOrder::Big).await else {
+            break;
         };
-        let plain = match inner.session.borrow_mut().open(&frame) {
-            Ok(plain) => plain,
-            Err(_) => break,
+        let Ok(plain) = inner.session.borrow_mut().open(&frame) else {
+            break;
         };
         drop(frame);
         match DesktopFrame::parse(plain.expose_secret()) {
