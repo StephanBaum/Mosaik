@@ -560,7 +560,17 @@ fn turning_agent_access_off_closes_the_endpoint() {
         );
         env.disable();
         assert_eq!(client.recv().await, None, "the connection closes");
-        assert!(connect(&env.endpoint).await.is_err(), "nothing listens");
+        // Stopping aborts the accept task, which drops the listener (and removes a Unix socket) when it
+        // is next polled: allow that moment, then nothing may listen.
+        let mut closed = false;
+        for _ in 0..100 {
+            if connect(&env.endpoint).await.is_err() {
+                closed = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(closed, "nothing listens");
         let status = env.backend().agent_access_status();
         assert!(!status.enabled);
         assert_eq!(status.endpoint, AgentEndpointState::Stopped);

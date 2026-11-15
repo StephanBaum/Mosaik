@@ -11,6 +11,7 @@ import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
 import io.github.stephanbaum.mosaic.R
 import io.github.stephanbaum.mosaic.ffi.FillCandidate
+import io.github.stephanbaum.mosaic.ffi.LinkCandidate
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 
 /** What one dataset of the last response held, kept in debug builds only: counts, never a value. */
@@ -57,13 +58,16 @@ class FillResponseFactory(private val context: Context, private val linkTokens: 
      * One authenticated dataset per matching login (and per one-time code for a field that takes one). With no match
      * in an app: the "No login for ..." entry. With no match in a browser page ([noLoginLabel] null, which
      * [FillPlanner.linkLabel] also gives for a browser package): no response, so the browser keeps its own
-     * suggestions. [warning] adds the address warning to every line.
+     * suggestions. [warning] adds the address warning to every line. In an app with no match, [linkCandidates] (at
+     * most [LinkFlow.MAX_ENTRIES], already filtered by the caller) come first as "Link <title> and fill" entries:
+     * value-less and authenticated like every dataset; the tap opens [FillAuthActivity] in link mode.
      */
     fun candidatesResponse(
         info: FillRequestInfo,
         candidates: List<FillCandidate>,
         warning: Boolean,
         noLoginLabel: String?,
+        linkCandidates: List<LinkCandidate> = emptyList(),
     ): FillResponse? {
         val builder = FillResponse.Builder()
         val audits = ArrayList<DatasetAudit>()
@@ -83,8 +87,18 @@ class FillResponseFactory(private val context: Context, private val linkTokens: 
         }
         if (audits.isEmpty()) {
             if (noLoginLabel == null) return null
-            FillAudit.record(context, listOf(DatasetAudit("noLogin", true, 0)))
-            return FillResponse.Builder().addDataset(noLoginDataset(info, noLoginLabel)).build()
+            if (info.fields.hasLogin) {
+                val ids = listOfNotNull(info.fields.username, info.fields.password)
+                for (candidate in linkCandidates.take(LinkFlow.MAX_ENTRIES)) {
+                    val intent = FillIntents.withItem(info.toIntent(context, FillIntents.MODE_LINK), candidate.key, FillIntents.KIND_LOGIN)
+                    val title = L10n.autofillLinkEntry(resources, candidate.title)
+                    builder.addDataset(authenticated(ids, title, linkReasonText(resources, candidate.reason, false), intent))
+                    audits.add(DatasetAudit("link", true, 0))
+                }
+            }
+            // The "No login" entry stays last: it opens the full link screen for any app and login.
+            builder.addDataset(noLoginDataset(info, noLoginLabel))
+            audits.add(DatasetAudit("noLogin", true, 0))
         }
         FillAudit.record(context, audits)
         return builder.build()

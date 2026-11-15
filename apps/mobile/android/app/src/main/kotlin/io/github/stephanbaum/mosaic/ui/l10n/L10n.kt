@@ -429,6 +429,9 @@ object L10n {
     fun autofillCannotCheck(r: Resources): String =
         r.getString(R.string.mobile_autofill_cannotCheck)
 
+    fun autofillLinkEntry(r: Resources, login: String): String =
+        r.getString(R.string.mobile_autofill_linkEntry, login)
+
     fun autofillNoLogin(r: Resources, app: String): String =
         r.getString(R.string.mobile_autofill_noLogin, app)
 
@@ -807,11 +810,26 @@ object L10n {
     fun linkConfirm(r: Resources, login: String): String =
         r.getString(R.string.mobile_link_confirm, login)
 
+    fun linkConfirmFallbackHint(r: Resources): String =
+        r.getString(R.string.mobile_link_confirmFallbackHint)
+
+    fun linkConfirmSubtitle(r: Resources, appId: String, fingerprint: String): String =
+        r.getString(R.string.mobile_link_confirmSubtitle, appId, fingerprint)
+
+    fun linkConfirmTitle(r: Resources, login: String, app: String): String =
+        r.getString(R.string.mobile_link_confirmTitle, login, app)
+
     fun linkDone(r: Resources, login: String): String =
         r.getString(R.string.mobile_link_done, login)
 
     fun linkFilter(r: Resources): String =
         r.getString(R.string.mobile_link_filter)
+
+    fun linkImported(r: Resources): String =
+        r.getString(R.string.mobile_link_imported)
+
+    fun linkImportedNotVerified(r: Resources): String =
+        r.getString(R.string.mobile_link_importedNotVerified)
 
     fun linkInstaller(r: Resources): String =
         r.getString(R.string.mobile_link_installer)

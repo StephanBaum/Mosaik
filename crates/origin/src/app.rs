@@ -9,7 +9,7 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use mosaic_core::model::LoginUrl;
 
 use crate::android_browsers::is_browser_package;
-use crate::{MatchKind, Refusal};
+use crate::{MatchKind, Refusal, registrable_domain};
 
 /// The longest Android package name accepted, in bytes.
 pub const MAX_PACKAGE_LEN: usize = 255;
@@ -146,4 +146,27 @@ pub fn app_fill_allowed(
     } else {
         Err(Refusal::NoMatch)
     }
+}
+
+/// The web domain an Android package name conventionally points at: the first
+/// three labels reversed (`com.google.android.gm` gives `android.google.com`),
+/// reduced to the registrable domain (`google.com`).
+///
+/// The result only chooses which hosts may be asked for `assetlinks.json`; it
+/// never decides a match. `None` for an invalid package, fewer than two labels,
+/// an empty label, a label with `_` or a package that is itself a public suffix.
+#[must_use]
+pub fn package_web_domain(package: &str) -> Option<String> {
+    if !is_valid_package_name(package) {
+        return None;
+    }
+    let labels: Vec<&str> = package.split('.').collect();
+    if labels.len() < 2 || labels.iter().any(|l| l.is_empty() || l.contains('_')) {
+        return None;
+    }
+    // A package that is itself a public suffix (`co.uk`) names no domain.
+    registrable_domain(&package.to_ascii_lowercase())?;
+    let mut head: Vec<&str> = labels.into_iter().take(3).collect();
+    head.reverse();
+    registrable_domain(&head.join(".").to_ascii_lowercase())
 }
