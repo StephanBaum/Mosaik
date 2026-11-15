@@ -1,17 +1,18 @@
 package io.github.stephanbaum.mosaic.ui
 
-import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import io.github.stephanbaum.mosaic.MosaicApp
+import io.github.stephanbaum.mosaic.security.SecureActivity
 import io.github.stephanbaum.mosaic.session.OAuthCallback
 
 /**
  * Catches the redirect of a cloud-folder sign-in and hands it to the core, then brings the app back. It draws
  * nothing (translucent theme), is not kept in the history, never logs, and never puts the address into saved
  * state: the address holds a one-time authorization code, valid only together with the verifier the core keeps.
+ * Like every window of the app it is a [SecureActivity] (FLAG_SECURE, no overlays, ADR-0094).
  */
-class OAuthRedirectActivity : Activity() {
+class OAuthRedirectActivity : SecureActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // No saved state in, none out.
         super.onCreate(null)
