@@ -7,6 +7,7 @@
 use tauri::State;
 
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
+use crate::contract::events::AppEvent;
 use crate::contract::import::{
     ImportCancelRequest, ImportCommitRequest, ImportDeleteRequest, ImportDetectRequest,
     ImportDetected, ImportFileChoice, ImportPreview, ImportPreviewRequest, ImportResult,
@@ -191,6 +192,41 @@ impl Backend {
         }
         guard(&self.import_files)?.remove(&request.file_token);
         Ok(())
+    }
+
+    /// A file was dropped onto the window: while unlocked, and only for one
+    /// regular file (no link, no folder, no batch), keep its path behind a
+    /// token and tell the webview the token and the file name. Anything else
+    /// is ignored without a sound.
+    pub fn import_file_dropped(&self, paths: &[std::path::PathBuf]) {
+        let [path] = paths else {
+            return;
+        };
+        let regular = std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file());
+        if !regular {
+            return;
+        }
+        self.touch();
+        let Ok(slot) = self.slot() else {
+            return;
+        };
+        if slot.unlocked().is_err() {
+            return;
+        }
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let Ok(mut files) = guard(&self.import_files) else {
+            return;
+        };
+        let file_token = files.insert(path.clone());
+        drop(files);
+        drop(slot);
+        self.emit(&AppEvent::ImportFileDropped {
+            file_token,
+            file_name,
+        });
     }
 
     /// Drops a preview.

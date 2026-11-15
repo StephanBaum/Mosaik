@@ -247,6 +247,13 @@ pub fn run() -> tauri::Result<()> {
             {
                 state.backend().touch();
             }
+            // The webview never listens to drops (paths): Rust takes the file
+            // and sends the webview a token (`importFileDropped`).
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event
+                && let Some(state) = window.app_handle().try_state::<AppState>()
+            {
+                state.backend().import_file_dropped(paths);
+            }
         })
         .invoke_handler(commands::handler())
         .build(context())?;

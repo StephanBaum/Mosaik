@@ -15,6 +15,11 @@ import { useNoticeEvents, type NoticeEvents } from "./useNoticeEvents.ts";
 import { useSharingEvents, type SharingEvents } from "./useSharingEvents.ts";
 import { useSecrets } from "./SecretsContext.tsx";
 
+interface ImportDrop {
+  fileToken: string;
+  fileName: string;
+}
+
 interface EventsContextValue {
   /** Open SSH approval requests, oldest first. */
   ssh: readonly SshApprovalRequest[];
@@ -32,6 +37,9 @@ interface EventsContextValue {
   syncDataVersion: number;
   /** Invites and emergency-access requests that wait for this account. */
   sharing: SharingEvents;
+  /** A file dropped onto the window, as a token Rust holds (never a path), until the import flow takes it. */
+  importDrop: ImportDrop | null;
+  clearImportDrop: () => void;
   /** Notices the user dismisses (vault details that were shortened in a merge). */
   notices: NoticeEvents;
 }
@@ -59,6 +67,7 @@ export function EventsProvider({
   const [lockReason, setLockReason] = useState<LockReason | null>(null);
   const [sync, setSync] = useState<SyncState | null>(null);
   const [syncDataVersion, setSyncDataVersion] = useState(0);
+  const [importDrop, setImportDrop] = useState<ImportDrop | null>(null);
   const sharing = useSharingEvents();
   const notices = useNoticeEvents();
 
@@ -73,6 +82,7 @@ export function EventsProvider({
         browser.clear();
         notices.clear();
         setPaletteOpen(false);
+        setImportDrop(null);
         setLockReason(event.reason);
         onLocked();
         break;
@@ -81,6 +91,9 @@ export function EventsProvider({
         break;
       case "settingsReset":
         toast(t("toast.settingsReset"));
+        break;
+      case "importFileDropped":
+        setImportDrop({ fileToken: event.fileToken, fileName: event.fileName });
         break;
       case "sshApprovalRequested":
         setSsh((queue) => [...queue, event.request]);
@@ -121,10 +134,14 @@ export function EventsProvider({
       },
       sync,
       syncDataVersion,
+      importDrop,
+      clearImportDrop: () => {
+        setImportDrop(null);
+      },
       sharing,
       notices,
     }),
-    [ssh, browser, paletteOpen, lockReason, sync, syncDataVersion, sharing, notices],
+    [ssh, browser, paletteOpen, lockReason, sync, syncDataVersion, importDrop, sharing, notices],
   );
   return <EventsContext value={value}>{children}</EventsContext>;
 }

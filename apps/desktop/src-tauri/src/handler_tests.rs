@@ -1475,6 +1475,47 @@ fn detect_of(b: &Backend, token: &str) -> IpcResult<crate::contract::import::Imp
 }
 
 #[test]
+fn a_dropped_file_gets_a_token_while_unlocked() {
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("export.csv");
+    std::fs::write(&file, LASTPASS_CSV).unwrap();
+    let other = dir.path().join("other.csv");
+    std::fs::write(&other, b"x").unwrap();
+    let dropped = |h: &Harness| -> Vec<Value> {
+        events(&h.events)
+            .into_iter()
+            .filter(|e| e["type"] == "importFileDropped")
+            .collect()
+    };
+    // Two files, a folder and a missing file: nothing happens.
+    h.backend.import_file_dropped(&[file.clone(), other]);
+    h.backend.import_file_dropped(&[dir.path().to_path_buf()]);
+    h.backend
+        .import_file_dropped(&[dir.path().join("missing.csv")]);
+    h.backend.import_file_dropped(&[]);
+    assert!(dropped(&h).is_empty());
+    // One file: a token and the name, never the path.
+    h.backend.import_file_dropped(std::slice::from_ref(&file));
+    let seen = dropped(&h);
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0]["fileName"], "export.csv");
+    assert!(!seen[0].to_string().contains(dir.path().to_str().unwrap()));
+    let token = seen[0]["fileToken"].as_str().unwrap();
+    assert_eq!(
+        h.backend.import_files.lock().unwrap().get(token),
+        Some(&file)
+    );
+    // The token works with the import commands.
+    let d = detect_of(&h.backend, token).unwrap();
+    assert!(d.format.is_some());
+    // Locked: no event, no token.
+    h.backend.lock(LockReason::Manual).unwrap();
+    h.backend.import_file_dropped(&[file]);
+    assert_eq!(dropped(&h).len(), 1);
+}
+
+#[test]
 fn import_detect_reports_source_and_format() {
     use crate::contract::import::{ImportDetectedSource as S, ImportFormat as F};
     let h = unlocked();

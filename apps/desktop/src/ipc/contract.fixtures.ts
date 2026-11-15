@@ -1320,6 +1320,11 @@ export const fixtures = {
       "type": "settingsReset"
     },
     {
+      "fileName": "export.csv",
+      "fileToken": "file-9",
+      "type": "importFileDropped"
+    },
+    {
       "request": {
         "browser": "chromium",
         "code": "4F7K2Q",

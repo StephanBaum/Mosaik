@@ -53,6 +53,8 @@ export type AppEvent =
   | { type: "hardwareVaultClosed"; vaultId: VaultId }
   /** Protection settings in the settings file failed their integrity check and were reset. */
   | { type: "settingsReset" }
+  /** A file was dropped onto the window: Rust holds the path behind this token (as from `import_choose_file`). */
+  | { type: "importFileDropped"; fileToken: string; fileName: string }
   /** A browser asks to be paired: show the code and wait for the user. */
   | { type: "browserPairingRequested"; request: BrowserPairingRequest }
   | { type: "browserPairingClosed"; requestId: string; reason: BrowserCloseReason }
