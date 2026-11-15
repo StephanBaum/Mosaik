@@ -22,14 +22,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
-use super::credential::{CredentialSink, Provider};
+use super::credential::{CredentialSink, Provider, ProviderCredential};
 use super::http::{RemoteBody, RemoteHttp, RemoteReply, RemoteRequest, status_error};
 use super::location::FolderLocation;
-use super::oauth::{Endpoints, path_segment};
+use super::oauth::{AuthState, Endpoints, Pkce, REDIRECT_URI, path_segment};
 use super::time::parse_rfc3339;
-use super::tokens::bearer;
+use super::tokens::{bearer, grant_is_gone, parse_tokens, post_form};
 use super::{MAX_LISTING_BYTES, MAX_PAGES, MAX_SMALL_JSON};
-use crate::folder::store::{Entry, EntryKind, FolderStore, MAX_SCANNED, RelPath};
+use crate::folder::store::{Entry, EntryKind, FolderStore, MAX_SCANNED, RelPath, valid_component};
 use crate::http::client::{ATTACHMENT_TIMEOUT, REQUEST_TIMEOUT};
 use crate::transport::TransportError;
 
@@ -44,10 +44,25 @@ const SELECT: &str = "name,size,lastModifiedDateTime,eTag,file,folder,package,re
 /// The longest id of a drive or an item.
 const MAX_ID: usize = 512;
 
-/// What authorises the requests of a [`GraphStore`]: an access token.
+/// What authorises the requests of a [`GraphStore`]: the refresh token of the
+/// account and the access token that came from it (kept in memory only).
+///
+/// Microsoft rotates the refresh token: when an answer carries a new one it is
+/// handed to the [`CredentialSink`] and must be stored (`Ok`) **before** the
+/// new access token is used. If the sink fails the request fails with
+/// [`TransportError::Io`] and the old credential stays in place. A refresh the
+/// server refuses (`invalid_grant`, 401) is [`TransportError::Unauthorized`].
 pub struct GraphAuth {
-    access: Mutex<Option<Zeroizing<String>>>,
-    _sink: Option<Arc<dyn CredentialSink>>,
+    client_id: String,
+    sink: Option<Arc<dyn CredentialSink>>,
+    inner: Mutex<AuthInner>,
+    /// The client and the token endpoint, set by whatever uses this.
+    net: Mutex<Option<(RemoteHttp, String)>>,
+}
+
+struct AuthInner {
+    access: Option<Zeroizing<String>>,
+    refresh: Option<Zeroizing<String>>,
 }
 
 impl core::fmt::Debug for GraphAuth {
@@ -57,32 +72,362 @@ impl core::fmt::Debug for GraphAuth {
 }
 
 impl GraphAuth {
+    /// An authorisation from the stored credential; `sink` stores the
+    /// refresh token the provider replaces.
+    #[must_use]
+    pub fn new(
+        client_id: String,
+        credential: ProviderCredential,
+        sink: Arc<dyn CredentialSink>,
+    ) -> Self {
+        let refresh = match credential {
+            ProviderCredential::Graph { refresh_token } => Some(refresh_token),
+            _ => None,
+        };
+        Self {
+            client_id,
+            sink: Some(sink),
+            inner: Mutex::new(AuthInner {
+                access: None,
+                refresh,
+            }),
+            net: Mutex::new(None),
+        }
+    }
+
     /// An authorisation with one fixed access token that is never refreshed.
     #[cfg(any(test, feature = "test-util"))]
     #[must_use]
     pub fn fixed_for_test(token: &str) -> Self {
         Self {
-            access: Mutex::new(Some(Zeroizing::new(token.to_owned()))),
-            _sink: None,
+            client_id: String::new(),
+            sink: None,
+            inner: Mutex::new(AuthInner {
+                access: Some(Zeroizing::new(token.to_owned())),
+                refresh: None,
+            }),
+            net: Mutex::new(None),
         }
     }
 
-    /// The `Authorization` header value (marked sensitive).
-    ///
-    /// # Errors
-    /// [`TransportError::Unauthorized`] without an access token;
-    /// [`TransportError::Io`] for a token that cannot be a header value.
-    pub fn bearer(&self) -> Result<HeaderValue, TransportError> {
-        let guard = self.access.lock().map_err(|_| TransportError::Io)?;
-        bearer(guard.as_ref().ok_or(TransportError::Unauthorized)?)
+    /// Where the refresh goes.
+    fn bind(&self, http: &RemoteHttp, endpoints: &Endpoints) {
+        if let Ok(mut net) = self.net.lock() {
+            *net = Some((
+                http.clone(),
+                format!("{}/token", endpoints.ms_login.trim_end_matches('/')),
+            ));
+        }
     }
 
-    /// Gets a new access token after a 401.
-    pub(crate) fn refresh(&self) -> Result<(), TransportError> {
-        // Nothing to refresh with: the token that was refused is dropped.
-        *self.access.lock().map_err(|_| TransportError::Io)? = None;
-        Err(TransportError::Unauthorized)
+    /// The `Authorization` header value (marked sensitive); an access token
+    /// is fetched first if there is none.
+    ///
+    /// # Errors
+    /// [`TransportError::Unauthorized`] without an access token and a usable
+    /// refresh token; [`TransportError::Io`] for a token that cannot be a
+    /// header value; the errors of the refresh.
+    pub fn bearer(&self) -> Result<HeaderValue, TransportError> {
+        let has_token = self
+            .inner
+            .lock()
+            .map_err(|_| TransportError::Io)?
+            .access
+            .is_some();
+        if !has_token {
+            self.refresh()?;
+        }
+        let guard = self.inner.lock().map_err(|_| TransportError::Io)?;
+        bearer(guard.access.as_ref().ok_or(TransportError::Unauthorized)?)
     }
+
+    /// Gets a new access token with the refresh token (after a 401, or when
+    /// there is none yet).
+    pub(crate) fn refresh(&self) -> Result<(), TransportError> {
+        let (http, url) = self
+            .net
+            .lock()
+            .map_err(|_| TransportError::Io)?
+            .clone()
+            .ok_or(TransportError::Unauthorized)?;
+        let mut inner = self.inner.lock().map_err(|_| TransportError::Io)?;
+        let refresh = inner.refresh.clone().ok_or(TransportError::Unauthorized)?;
+        inner.access = None;
+        let reply = post_form(
+            &http,
+            &url,
+            &[
+                ("client_id", &self.client_id),
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh.as_str()),
+                ("scope", SCOPES),
+            ],
+        )?;
+        if !reply.is_success() {
+            return Err(if grant_is_gone(&reply) {
+                TransportError::Unauthorized
+            } else {
+                status_error(&reply)
+            });
+        }
+        let tokens = parse_tokens(reply.body)?;
+        if let Some(new) = tokens.refresh
+            && *new != *refresh
+        {
+            // Stored before the new access token is used. If it cannot be
+            // stored, the old credential stays and the request fails.
+            let sink = self.sink.as_ref().ok_or(TransportError::Io)?;
+            sink.rotated(&ProviderCredential::Graph {
+                refresh_token: new.clone(),
+            })
+            .map_err(|_| TransportError::Io)?;
+            inner.refresh = Some(new);
+        }
+        inner.access = Some(tokens.access);
+        Ok(())
+    }
+}
+
+/// The scopes the app asks for, separated by spaces.
+const SCOPES: &str = "Files.ReadWrite offline_access";
+
+/// The page the user signs in on: `S256` PKCE, the app's one redirect URI,
+/// `Files.ReadWrite` and `offline_access`.
+#[must_use]
+pub fn graph_authorize_url(
+    endpoints: &Endpoints,
+    client_id: &str,
+    pkce: &Pkce,
+    state: &AuthState,
+) -> String {
+    format!(
+        "{}/authorize?client_id={}&response_type=code&redirect_uri={}&response_mode=query\
+         &scope={}&state={}&code_challenge={}&code_challenge_method=S256",
+        endpoints.ms_login.trim_end_matches('/'),
+        path_segment(client_id),
+        path_segment(REDIRECT_URI),
+        path_segment(SCOPES),
+        path_segment(&state.as_param()),
+        path_segment(&pkce.challenge()),
+    )
+}
+
+/// Trades the code of the redirect for a refresh credential.
+///
+/// # Errors
+/// [`TransportError::Unauthorized`] for a code the server refuses;
+/// [`TransportError::Protocol`] for an answer without a refresh token; the
+/// usual transport errors.
+pub fn graph_exchange(
+    http: &RemoteHttp,
+    endpoints: &Endpoints,
+    client_id: &str,
+    code: &str,
+    pkce: &Pkce,
+) -> Result<ProviderCredential, TransportError> {
+    let reply = post_form(
+        http,
+        &format!("{}/token", endpoints.ms_login.trim_end_matches('/')),
+        &[
+            ("client_id", client_id),
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", REDIRECT_URI),
+            ("code_verifier", pkce.verifier()),
+            ("scope", SCOPES),
+        ],
+    )?;
+    if !reply.is_success() {
+        return Err(if grant_is_gone(&reply) {
+            TransportError::Unauthorized
+        } else {
+            status_error(&reply)
+        });
+    }
+    let tokens = parse_tokens(reply.body)?;
+    let refresh_token = tokens.refresh.ok_or(TransportError::Protocol)?;
+    Ok(ProviderCredential::Graph { refresh_token })
+}
+
+/// A `GET` with the bearer (one refresh and retry after a 401).
+fn authed_get(
+    http: &RemoteHttp,
+    endpoints: &Endpoints,
+    auth: &GraphAuth,
+    url: &str,
+) -> Result<RemoteReply, TransportError> {
+    auth.bind(http, endpoints);
+    let mut refreshed = false;
+    loop {
+        let reply = http.send(RemoteRequest {
+            method: Method::GET,
+            url,
+            headers: &[(AUTHORIZATION, auth.bearer()?)],
+            body: RemoteBody::None,
+            timeout: REQUEST_TIMEOUT,
+            cap: MAX_LISTING_BYTES,
+        })?;
+        if reply.status == 401 && !refreshed {
+            refreshed = true;
+            auth.refresh()?;
+            continue;
+        }
+        return Ok(reply);
+    }
+}
+
+#[derive(Deserialize)]
+struct WireRoot {
+    id: String,
+    #[serde(default)]
+    folder: Option<Value>,
+    #[serde(default)]
+    package: Option<Value>,
+    #[serde(rename = "remoteItem", default)]
+    remote_item: Option<Value>,
+    #[serde(rename = "parentReference", default)]
+    parent: Option<WireParent>,
+}
+
+#[derive(Deserialize)]
+struct WireParent {
+    #[serde(rename = "driveId", default)]
+    drive_id: String,
+}
+
+/// Finds the folder at `path` (below the root of the user's own drive) and
+/// returns the ids that address it from then on.
+///
+/// # Errors
+/// [`TransportError::Protocol`] for a path with an invalid component;
+/// [`TransportError::FolderUnavailable`] if there is no folder at `path`; the
+/// usual transport errors.
+pub fn graph_resolve_root(
+    http: &RemoteHttp,
+    endpoints: &Endpoints,
+    auth: &GraphAuth,
+    path: &str,
+) -> Result<FolderLocation, TransportError> {
+    let comps: Vec<&str> = path.split('/').filter(|c| !c.is_empty()).collect();
+    if comps.iter().any(|c| !valid_component(c)) {
+        return Err(TransportError::Protocol);
+    }
+    let graph = endpoints.graph.trim_end_matches('/');
+    let url = if comps.is_empty() {
+        format!("{graph}/me/drive/root")
+    } else {
+        let parts: Vec<String> = comps.iter().map(|c| path_segment(c)).collect();
+        format!("{graph}/me/drive/root:/{}:", parts.join("/"))
+    };
+    let reply = authed_get(
+        http,
+        endpoints,
+        auth,
+        &format!("{url}?$select=id,folder,package,remoteItem,parentReference"),
+    )?;
+    if reply.status == 404 {
+        return Err(TransportError::FolderUnavailable);
+    }
+    if !reply.is_success() {
+        return Err(status_error(&reply));
+    }
+    let item: WireRoot =
+        serde_json::from_slice(&reply.body).map_err(|_| TransportError::Protocol)?;
+    let drive_id = item.parent.map(|p| p.drive_id).unwrap_or_default();
+    if item.folder.is_none()
+        || item.package.is_some()
+        || item.remote_item.is_some()
+        || !valid_id(&item.id)
+        || !valid_id(&drive_id)
+    {
+        return Err(TransportError::FolderUnavailable);
+    }
+    Ok(FolderLocation {
+        provider: Provider::OneDrive,
+        root: format!("/{}", comps.join("/")),
+        server: None,
+        drive_id: Some(drive_id),
+        item_id: Some(item.id),
+        path_root: None,
+    })
+}
+
+/// The most folders `graph_browse` returns.
+pub const MAX_BROWSE: usize = 200;
+
+#[derive(Deserialize)]
+struct WireBrowse {
+    #[serde(default)]
+    value: Vec<WireFolder>,
+}
+
+#[derive(Deserialize)]
+struct WireFolder {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    folder: Option<Value>,
+    #[serde(default)]
+    package: Option<Value>,
+    #[serde(rename = "remoteItem", default)]
+    remote_item: Option<Value>,
+}
+
+/// The folders (name and item id) directly below an item: the root of the
+/// user's drive without ids, else the item `item_id` of `drive_id`. At most
+/// [`MAX_BROWSE`], sorted by name; shortcuts and packages are left out.
+///
+/// # Errors
+/// [`TransportError::Protocol`] for an id that is not usable;
+/// [`TransportError::FolderUnavailable`] if the item is gone; the usual
+/// transport errors.
+pub fn graph_browse(
+    http: &RemoteHttp,
+    endpoints: &Endpoints,
+    auth: &GraphAuth,
+    drive_id: Option<&str>,
+    item_id: Option<&str>,
+) -> Result<Vec<(String, String)>, TransportError> {
+    let graph = endpoints.graph.trim_end_matches('/');
+    let base = match (drive_id, item_id) {
+        (None, None) => format!("{graph}/me/drive/root"),
+        (Some(d), Some(i)) if valid_id(d) && valid_id(i) => {
+            format!(
+                "{graph}/drives/{}/items/{}",
+                path_segment(d),
+                path_segment(i)
+            )
+        }
+        _ => return Err(TransportError::Protocol),
+    };
+    let url =
+        format!("{base}/children?$select=id,name,folder,package,remoteItem&$top={MAX_BROWSE}");
+    let reply = authed_get(http, endpoints, auth, &url)?;
+    if reply.status == 404 {
+        return Err(TransportError::FolderUnavailable);
+    }
+    if !reply.is_success() {
+        return Err(status_error(&reply));
+    }
+    let page: WireBrowse =
+        serde_json::from_slice(&reply.body).map_err(|_| TransportError::Protocol)?;
+    let mut out: Vec<(String, String)> = page
+        .value
+        .into_iter()
+        .filter(|f| {
+            f.folder.is_some()
+                && f.package.is_none()
+                && f.remote_item.is_none()
+                && valid_component(&f.name)
+                && valid_id(&f.id)
+        })
+        .map(|f| (f.name, f.id))
+        .take(MAX_BROWSE)
+        .collect();
+    out.sort();
+    Ok(out)
 }
 
 #[derive(Default)]
@@ -226,6 +571,7 @@ impl GraphStore {
         if !valid_id(&drive) || !valid_id(&item) {
             return Err(TransportError::Protocol);
         }
+        auth.bind(&http, endpoints);
         Ok(Self {
             http,
             graph: endpoints.graph.trim_end_matches('/').to_owned(),

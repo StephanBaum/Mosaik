@@ -9,4 +9,4 @@ mod graph;
 
 pub use dav::{FakeDav, Faults};
 pub use dropbox::{AUTHORIZATION_CODE, FakeDropbox};
-pub use graph::{DRIVE_ID, FakeGraph, id_of};
+pub use graph::{DRIVE_ID, FakeGraph, GRAPH_AUTHORIZATION_CODE, id_of};

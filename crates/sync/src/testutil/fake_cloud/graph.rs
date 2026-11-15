@@ -11,11 +11,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64ct::{Base64UrlUnpadded, Encoding};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::Faults;
 use super::dav::{children_of, empty, etag_of, json, rfc3339};
-use crate::folder::remote::oauth::{path_segment, percent_decode};
+use crate::folder::remote::oauth::{REDIRECT_URI, path_segment, percent_decode};
 use crate::folder::store::valid_component;
 use crate::testutil::{FakeHttp, FakeRequest, FakeResponse};
 
@@ -30,9 +32,29 @@ struct Session {
     data: Vec<u8>,
 }
 
+/// The code the fake accepts at the token endpoint.
+pub const GRAPH_AUTHORIZATION_CODE: &str = "ms-auth-code";
+
+#[derive(Default)]
+struct Auth {
+    /// The access token that is valid now.
+    access: Option<String>,
+    /// The refresh tokens that are valid (all but the newest only unless the
+    /// rotation is strict).
+    refresh: Vec<String>,
+    /// The newest refresh token.
+    newest: String,
+    strict: bool,
+    /// The `client_id` the token endpoint expects, if set.
+    client_id: Option<String>,
+    /// The PKCE challenge the code was issued for, if set.
+    challenge: Option<String>,
+    issued: usize,
+}
+
 struct Shared {
     dir: PathBuf,
-    token: String,
+    auth: Mutex<Auth>,
     origin: OnceLock<String>,
     download_origin: OnceLock<String>,
     faults: Mutex<Faults>,
@@ -83,7 +105,12 @@ impl FakeGraph {
     pub fn serve(dir: PathBuf, token: &str) -> Self {
         let shared = Arc::new(Shared {
             dir,
-            token: token.to_owned(),
+            auth: Mutex::new(Auth {
+                access: Some(token.to_owned()),
+                refresh: vec!["ms-rt-0".to_owned()],
+                newest: "ms-rt-0".to_owned(),
+                ..Auth::default()
+            }),
             origin: OnceLock::new(),
             download_origin: OnceLock::new(),
             faults: Mutex::new(Faults::default()),
@@ -111,6 +138,55 @@ impl FakeGraph {
     #[must_use]
     pub fn origin(&self) -> &str {
         self.server.origin()
+    }
+
+    /// The newest refresh token.
+    #[must_use]
+    pub fn refresh_token(&self) -> String {
+        self.shared
+            .auth
+            .lock()
+            .map(|a| a.newest.clone())
+            .unwrap_or_default()
+    }
+
+    /// The access token that is valid now.
+    #[must_use]
+    pub fn access_token(&self) -> String {
+        self.shared
+            .auth
+            .lock()
+            .ok()
+            .and_then(|a| a.access.clone())
+            .unwrap_or_default()
+    }
+
+    /// The token endpoint expects this `client_id`.
+    pub fn expect_client_id(&self, id: &str) {
+        if let Ok(mut a) = self.shared.auth.lock() {
+            a.client_id = Some(id.to_owned());
+        }
+    }
+
+    /// The token endpoint checks the code verifier against this challenge.
+    pub fn expect_challenge(&self, challenge: &str) {
+        if let Ok(mut a) = self.shared.auth.lock() {
+            a.challenge = Some(challenge.to_owned());
+        }
+    }
+
+    /// With `true` a refresh token stops working once it was used; otherwise
+    /// it stays valid next to the new one (as Microsoft keeps it for a while).
+    pub fn strict_rotation(&self, strict: bool) {
+        if let Ok(mut a) = self.shared.auth.lock() {
+            a.strict = strict;
+        }
+    }
+
+    /// How many token answers were issued.
+    #[must_use]
+    pub fn token_answers(&self) -> usize {
+        self.shared.auth.lock().map_or(0, |a| a.issued)
     }
 
     /// The requests the download server saw (they must carry no `Authorization`).
@@ -200,6 +276,18 @@ struct Target {
 }
 
 fn parse_target(path: &str) -> Option<Target> {
+    if let Some(rest) = path.strip_prefix("/v1.0/me/drive/root") {
+        return match rest.strip_prefix(':') {
+            Some(after) => parse_after(Vec::new(), after),
+            None => Some(Target {
+                rel: Vec::new(),
+                tail: rest
+                    .strip_prefix('/')
+                    .map(str::to_owned)
+                    .filter(|t| !t.is_empty()),
+            }),
+        };
+    }
     let rest = path.strip_prefix("/v1.0/drives/")?;
     let (drive, rest) = rest.split_once("/items/")?;
     if percent_decode(drive, false)? != DRIVE_ID {
@@ -222,7 +310,11 @@ fn parse_target(path: &str) -> Option<Target> {
             }
         },
     };
-    let mut rel = rel_of_id(&percent_decode(id, false)?)?;
+    parse_after(rel_of_id(&percent_decode(id, false)?)?, after)
+}
+
+/// `after` is what follows the first `:` of `<item>:/a/b:/tail`.
+fn parse_after(mut rel: Vec<String>, after: &str) -> Option<Target> {
     let inner = after.strip_prefix('/')?;
     let (path_part, tail) = inner.split_once(':')?;
     for c in path_part.split('/').filter(|c| !c.is_empty()) {
@@ -258,7 +350,15 @@ fn handle(s: &Shared, r: &FakeRequest) -> FakeResponse {
     if let Some(id) = path.strip_prefix("/upload/") {
         return upload_chunk(s, r, id);
     }
-    if r.header("authorization") != Some(format!("Bearer {}", s.token).as_str()) {
+    if path == "/common/oauth2/v2.0/token" {
+        return token_route(s, r);
+    }
+    let valid = s.auth.lock().is_ok_and(|a| {
+        a.access
+            .as_ref()
+            .is_some_and(|t| r.header("authorization") == Some(format!("Bearer {t}").as_str()))
+    });
+    if !valid {
         return graph_error(401, "InvalidAuthenticationToken");
     }
     let Some(target) = parse_target(path) else {
@@ -550,4 +650,66 @@ fn download_route(s: &Shared, r: &FakeRequest) -> FakeResponse {
         Ok(bytes) => FakeResponse::new(200, &[], bytes),
         Err(_) => empty(404),
     }
+}
+
+fn bad_grant() -> FakeResponse {
+    json(400, &json!({ "error": "invalid_grant" }).to_string())
+}
+
+/// `POST /common/oauth2/v2.0/token`: the code exchange and the refresh. Every
+/// answer carries a new refresh token.
+fn token_route(s: &Shared, r: &FakeRequest) -> FakeResponse {
+    let body = String::from_utf8_lossy(&r.body).into_owned();
+    let field = |name: &str| -> Option<String> {
+        body.split('&').find_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            (k == name).then(|| percent_decode(v, true)).flatten()
+        })
+    };
+    let Ok(mut a) = s.auth.lock() else {
+        return empty(500);
+    };
+    if let Some(id) = &a.client_id
+        && field("client_id").as_deref() != Some(id.as_str())
+    {
+        return bad_grant();
+    }
+    match field("grant_type").as_deref() {
+        Some("refresh_token") => {
+            let Some(given) = field("refresh_token").filter(|t| a.refresh.contains(t)) else {
+                return bad_grant();
+            };
+            if a.strict {
+                a.refresh.retain(|t| *t != given);
+            }
+        }
+        Some("authorization_code") => {
+            let verifier = field("code_verifier").unwrap_or_default();
+            let challenge = Base64UrlUnpadded::encode_string(&Sha256::digest(verifier.as_bytes()));
+            if field("code").as_deref() != Some(GRAPH_AUTHORIZATION_CODE)
+                || field("redirect_uri").as_deref() != Some(REDIRECT_URI)
+                || a.challenge.as_ref().is_some_and(|c| *c != challenge)
+            {
+                return bad_grant();
+            }
+        }
+        _ => return bad_grant(),
+    }
+    a.issued += 1;
+    let n = a.issued;
+    let (access, refresh) = (format!("ms-at-{n}"), format!("ms-rt-{n}"));
+    a.access = Some(access.clone());
+    a.refresh.push(refresh.clone());
+    a.newest.clone_from(&refresh);
+    json(
+        200,
+        &json!({
+            "access_token": access,
+            "token_type": "Bearer",
+            "expires_in": 3599,
+            "scope": "Files.ReadWrite",
+            "refresh_token": refresh,
+        })
+        .to_string(),
+    )
 }

@@ -4,15 +4,24 @@
 #![expect(clippy::unwrap_used, reason = "integration tests")]
 
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
-use mosaic_sync::folder::remote::credential::Provider;
-use mosaic_sync::folder::remote::graph::{GRAPH_CHUNK, GraphAuth, GraphStore};
+use mosaic_sync::folder::remote::credential::{CredentialSink, Provider, ProviderCredential};
+use mosaic_sync::folder::remote::graph::{
+    GRAPH_CHUNK, GraphAuth, GraphStore, graph_authorize_url, graph_browse, graph_exchange,
+    graph_resolve_root,
+};
 use mosaic_sync::folder::remote::http::RemoteHttp;
 use mosaic_sync::folder::remote::location::FolderLocation;
-use mosaic_sync::folder::remote::oauth::Endpoints;
+use mosaic_sync::folder::remote::oauth::{AuthState, Endpoints, Pkce};
 use mosaic_sync::folder::{FolderStore, RelPath};
-use mosaic_sync::testutil::{DRIVE_ID, FakeGraph, FakeHttp, FakeResponse, Faults, id_of};
+use mosaic_sync::testutil::{
+    DRIVE_ID, FakeGraph, FakeHttp, FakeResponse, Faults, GRAPH_AUTHORIZATION_CODE, id_of,
+};
 use mosaic_sync::transport::TransportError;
+
+use zeroize::Zeroizing;
 
 use crate::common::store_contract;
 
@@ -139,7 +148,9 @@ fn graph_download_redirect_drops_authorization() {
 fn large_blob_uses_upload_session_with_320k_multiple_chunks() {
     let (dir, server, store) = graph();
     assert_eq!(GRAPH_CHUNK, 3_276_800);
-    let blob: Vec<u8> = (0..7 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+    let blob: Vec<u8> = (0u32..7 * 1024 * 1024)
+        .map(|i| u8::try_from(i % 251).unwrap())
+        .collect();
     let d = rel(&["d"]);
     store.write_atomic(&d, "big.bin", &blob, false).unwrap();
     assert_eq!(server.upload_chunks(), [3_276_800, 3_276_800, 786_432]);
@@ -281,4 +292,288 @@ fn locations_are_checked() {
         GraphStore::new(RemoteHttp::new().unwrap(), &e, &location("root"), auth()).err(),
         Some(TransportError::InsecureUrl)
     );
+}
+
+// ---- OAuth ---------------------------------------------------------------------------------
+
+pub const CLIENT_ID: &str = "00000000-0000-0000-0000-00000000aaaa";
+
+/// Keeps the refresh tokens it is given, and can be made to fail. Each call
+/// also records how many requests already used the access token that goes with
+/// the new refresh token (it must be none).
+pub struct RecordingSink {
+    pub stored: Mutex<Vec<String>>,
+    pub fail: AtomicBool,
+    server: Arc<FakeGraph>,
+    /// For each call: the number of requests that carried the newest access
+    /// token at that moment.
+    pub used_before_store: Mutex<Vec<usize>>,
+}
+
+impl RecordingSink {
+    pub fn new(server: &Arc<FakeGraph>) -> Arc<Self> {
+        Arc::new(Self {
+            stored: Mutex::new(Vec::new()),
+            fail: AtomicBool::new(false),
+            server: Arc::clone(server),
+            used_before_store: Mutex::new(Vec::new()),
+        })
+    }
+}
+
+fn requests_with_access(server: &FakeGraph, access: &str) -> usize {
+    server
+        .requests()
+        .iter()
+        .filter(|r| r.header("authorization") == Some(format!("Bearer {access}").as_str()))
+        .count()
+}
+
+impl CredentialSink for RecordingSink {
+    fn rotated(&self, credential: &ProviderCredential) -> Result<(), TransportError> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(TransportError::Io);
+        }
+        let ProviderCredential::Graph { refresh_token } = credential else {
+            return Err(TransportError::Protocol);
+        };
+        self.stored.lock().unwrap().push(refresh_token.to_string());
+        // The newest access token is the one the answer carried.
+        let used = requests_with_access(&self.server, &self.server.access_token());
+        self.used_before_store.lock().unwrap().push(used);
+        Ok(())
+    }
+}
+
+pub fn refreshing_auth(server: &FakeGraph, sink: Arc<RecordingSink>) -> GraphAuth {
+    GraphAuth::new(
+        CLIENT_ID.to_owned(),
+        ProviderCredential::Graph {
+            refresh_token: Zeroizing::new(server.refresh_token()),
+        },
+        sink,
+    )
+}
+
+#[test]
+fn authorize_url_has_pkce_and_scopes() {
+    let pkce = Pkce::new().unwrap();
+    let state = AuthState::new().unwrap();
+    let url = graph_authorize_url(&Endpoints::production(), CLIENT_ID, &pkce, &state);
+    assert!(
+        url.starts_with("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"),
+        "{url}"
+    );
+    let q: Vec<(&str, &str)> = url
+        .split_once('?')
+        .unwrap()
+        .1
+        .split('&')
+        .map(|p| p.split_once('=').unwrap())
+        .collect();
+    let get = |k: &str| q.iter().find(|(n, _)| *n == k).map(|(_, v)| *v).unwrap();
+    assert_eq!(get("client_id"), CLIENT_ID);
+    assert_eq!(get("response_type"), "code");
+    assert_eq!(get("response_mode"), "query");
+    assert_eq!(get("scope"), "Files.ReadWrite%20offline_access");
+    assert_eq!(
+        get("redirect_uri"),
+        "io.github.stephanbaum.mosaic.oauth%3A%2Fcb"
+    );
+    assert_eq!(get("code_challenge"), pkce.challenge());
+    assert_eq!(get("code_challenge_method"), "S256");
+    assert_eq!(get("state"), state.as_param());
+    assert_eq!(q.len(), 8, "{url}");
+    assert!(!url.contains(pkce.verifier()));
+}
+
+#[test]
+fn exchange_returns_a_refresh_credential() {
+    let (_dir, server, _store) = graph();
+    server.expect_client_id(CLIENT_ID);
+    let pkce = Pkce::new().unwrap();
+    server.expect_challenge(&pkce.challenge());
+    let http = RemoteHttp::new_loopback().unwrap();
+    let endpoints = Endpoints::loopback(server.origin());
+    let credential = graph_exchange(
+        &http,
+        &endpoints,
+        CLIENT_ID,
+        GRAPH_AUTHORIZATION_CODE,
+        &pkce,
+    )
+    .unwrap();
+    let ProviderCredential::Graph { refresh_token } = credential else {
+        panic!("not a Graph credential");
+    };
+    assert_eq!(*refresh_token, server.refresh_token());
+    assert_eq!(
+        graph_exchange(&http, &endpoints, CLIENT_ID, "other", &pkce).err(),
+        Some(TransportError::Unauthorized)
+    );
+    assert_eq!(
+        graph_exchange(
+            &http,
+            &endpoints,
+            CLIENT_ID,
+            GRAPH_AUTHORIZATION_CODE,
+            &Pkce::new().unwrap()
+        )
+        .err(),
+        Some(TransportError::Unauthorized)
+    );
+}
+
+/// Review focus 3: a rotated refresh token is stored before it matters.
+#[test]
+fn rotated_refresh_token_is_stored_before_use() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("Mosaic")).unwrap();
+    let server = Arc::new(FakeGraph::serve(dir.path().to_path_buf(), TOKEN));
+    server.expect_client_id(CLIENT_ID);
+    server.strict_rotation(true);
+    let sink = RecordingSink::new(&server);
+    let old = server.refresh_token();
+    let store = store_with(
+        &server,
+        &id_of("Mosaic"),
+        refreshing_auth(&server, Arc::clone(&sink)),
+    );
+    // The first request signs in: the answer rotates the refresh token.
+    store.list(&RelPath::root()).unwrap();
+    let stored = sink.stored.lock().unwrap().clone();
+    assert_eq!(stored, [server.refresh_token()]);
+    assert_ne!(stored[0], old);
+    // When the sink was called, no request had used the new access token.
+    assert_eq!(*sink.used_before_store.lock().unwrap(), [0]);
+    assert!(requests_with_access(&server, &server.access_token()) >= 1);
+    // The next sign-in (the server expires the token) uses the stored one.
+    let again = store_with(
+        &server,
+        &id_of("Mosaic"),
+        refreshing_auth(&server, Arc::clone(&sink)),
+    );
+    again.list(&RelPath::root()).unwrap();
+    assert_eq!(sink.stored.lock().unwrap().len(), 2);
+    // The old token is dead on a strict server; the stored one is not.
+    let stale = GraphAuth::new(
+        CLIENT_ID.to_owned(),
+        ProviderCredential::Graph {
+            refresh_token: Zeroizing::new(old),
+        },
+        sink,
+    );
+    let bad = store_with(&server, &id_of("Mosaic"), stale);
+    assert_eq!(
+        bad.list(&RelPath::root()).err(),
+        Some(TransportError::Unauthorized)
+    );
+}
+
+#[test]
+fn sink_failure_keeps_old_credential_and_fails_io() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("Mosaic")).unwrap();
+    let server = Arc::new(FakeGraph::serve(dir.path().to_path_buf(), TOKEN));
+    server.expect_client_id(CLIENT_ID);
+    let sink = RecordingSink::new(&server);
+    let original = server.refresh_token();
+    let store = store_with(
+        &server,
+        &id_of("Mosaic"),
+        refreshing_auth(&server, Arc::clone(&sink)),
+    );
+    sink.fail.store(true, Ordering::SeqCst);
+    assert_eq!(store.list(&RelPath::root()).err(), Some(TransportError::Io));
+    // Nothing was stored, and no request used the new access token.
+    assert!(sink.stored.lock().unwrap().is_empty());
+    assert_eq!(requests_with_access(&server, &server.access_token()), 0);
+    // The old refresh token is still the one in use: a retry presents it.
+    sink.fail.store(false, Ordering::SeqCst);
+    assert!(store.list(&RelPath::root()).unwrap().is_empty());
+    let token_calls: Vec<String> = server
+        .requests()
+        .into_iter()
+        .filter(|r| r.path_and_query.ends_with("/token"))
+        .map(|r| String::from_utf8(r.body).unwrap())
+        .collect();
+    assert_eq!(token_calls.len(), 2);
+    assert!(
+        token_calls
+            .iter()
+            .all(|b| b.contains(&format!("refresh_token={original}")))
+    );
+}
+
+#[test]
+fn resolve_root_by_path_returns_drive_and_item_ids() {
+    let (dir, server, _store) = graph();
+    fs::create_dir_all(dir.path().join("Mosaic/Family")).unwrap();
+    fs::write(dir.path().join("note.txt"), b"x").unwrap();
+    let http = RemoteHttp::new_loopback().unwrap();
+    let endpoints = Endpoints::loopback(server.origin());
+    let auth = GraphAuth::fixed_for_test(TOKEN);
+    let location = graph_resolve_root(&http, &endpoints, &auth, "/Mosaic/Family").unwrap();
+    assert_eq!(location.provider, Provider::OneDrive);
+    assert_eq!(location.drive_id.as_deref(), Some(DRIVE_ID));
+    assert_eq!(location.item_id, Some(id_of("Mosaic/Family")));
+    assert_eq!(location.root, "/Mosaic/Family");
+    // The ids address the folder: a store on them sees what is in it.
+    fs::write(dir.path().join("Mosaic/Family/x.bin"), b"x").unwrap();
+    let store = store_with(
+        &server,
+        location.item_id.as_deref().unwrap(),
+        GraphAuth::fixed_for_test(TOKEN),
+    );
+    assert_eq!(names_in(&store, &RelPath::root()), ["x.bin"]);
+    // Missing, a file, and a path with a bad component are refused.
+    for missing in ["/Nope", "/note.txt"] {
+        assert_eq!(
+            graph_resolve_root(&http, &endpoints, &auth, missing).err(),
+            Some(TransportError::FolderUnavailable),
+            "{missing}"
+        );
+    }
+    assert_eq!(
+        graph_resolve_root(&http, &endpoints, &auth, "/a/../b").err(),
+        Some(TransportError::Protocol)
+    );
+    // Browsing lists folders only, with their ids.
+    let top = graph_browse(&http, &endpoints, &auth, None, None).unwrap();
+    assert_eq!(top, [("Mosaic".to_owned(), id_of("Mosaic"))]);
+    let below = graph_browse(
+        &http,
+        &endpoints,
+        &auth,
+        Some(DRIVE_ID),
+        Some(&id_of("Mosaic")),
+    )
+    .unwrap();
+    assert_eq!(below, [("Family".to_owned(), id_of("Mosaic/Family"))]);
+}
+
+#[test]
+fn token_never_in_debug_or_error() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("Mosaic")).unwrap();
+    let server = Arc::new(FakeGraph::serve(dir.path().to_path_buf(), TOKEN));
+    server.expect_client_id(CLIENT_ID);
+    let sink = RecordingSink::new(&server);
+    let refresh = server.refresh_token();
+    let auth = refreshing_auth(&server, Arc::clone(&sink));
+    assert!(!format!("{auth:?}").contains(&refresh));
+    let stale = GraphAuth::new(
+        CLIENT_ID.to_owned(),
+        ProviderCredential::Graph {
+            refresh_token: Zeroizing::new("ms-stale-secret".to_owned()),
+        },
+        sink,
+    );
+    let bad = store_with(&server, &id_of("Mosaic"), stale);
+    let err = bad.list(&RelPath::root()).err().unwrap();
+    assert_eq!(err, TransportError::Unauthorized);
+    assert!(!format!("{err:?} {err}").contains("stale-secret"));
+    assert!(server.requests().iter().all(|r| {
+        !r.path_and_query.contains("stale-secret") && !r.path_and_query.contains(&refresh)
+    }));
 }
