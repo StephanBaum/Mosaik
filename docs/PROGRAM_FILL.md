@@ -1,8 +1,8 @@
 # Windows program fill
 
-Design notes for phase 1 and the manual Windows checklist. Decisions: ADR-0157
-(vetting, the `mosaic-winshim` exception) and ADR-0158 (program identity and
-binding). Threats: `docs/THREAT_MODEL.md` §4.10, R177, R178.
+Design notes for phases 1 and 2 and the manual Windows checklists. Decisions: ADR-0157
+(vetting, the `mosaic-winshim` exception), ADR-0158 (program identity and
+binding), ADR-0163 (shim writes and input) and ADR-0164 (the desktop picker). Threats: `docs/THREAT_MODEL.md` §4.10, R177, R178.
 
 ## Phase 1 scope
 
@@ -27,19 +27,44 @@ What exists:
 - **Windows probe and harness.** `crates/program-fill/src/windows` reads the
   real system through the shim; `examples/probe.rs` runs it by hand.
 
-What waits for phase 2: the picker, the chip, the hotkey, typing, submit, the
-`programFill` setting and focus events. Phase 1 writes nothing into any program.
+Phase 1 wrote nothing into any program. Phase 2 (below) adds the writes.
+
+## Phase 2 scope (ADR-0163, ADR-0164)
+
+- **Offer at the field.** A focused login field of a linked or linkable program gets a
+  small chip next to it (it never takes focus); a click opens the picker list. An
+  optional hotkey (none by default) opens the list for the focused field.
+- **One pick fills.** The user name by UI Automation `SetValue` (read back), the password
+  typed as Unicode input, then Enter unless submit is off (per binding or globally). A
+  second step (password on its own screen) continues once, within 60 s, in the same
+  window and process. Nothing is written without a pick.
+- **Linking** is one decision on the login (two, at least 1 s apart, for an unsigned
+  program). WebView2 content counts as its signed host program (owner decision
+  2026-11-15); an unsigned WebView2 host is refused.
+- **Settings.** `programFill` is off by default (a card offers it after the first
+  unlock), a block list, the hotkey, the submit switch.
+- **Secrets never reach a webview.** The chip and list windows get titles and user
+  names only; the password goes vault → `SecretString` → the host.
+
+### How a fill runs
+
+1. The host (an MTA worker, abandoned and restarted when UI Automation hangs) sees a
+   focus change, waits about 150 ms and classifies the field.
+2. The desktop matches the program identity against `winapp://` URLs and shows the chip.
+3. A pick re-verifies everything (process, focus, foreground, image, field, occlusion,
+   elevation) right before each write; any change aborts with a notice.
+4. Held modifier keys delay typing up to 2 s, then the fill stops (`ModifiersHeld`).
 
 ## Open items for phase 2
 
-- **Renamed browsers.** Exclusion is by file name, so `chrome.exe` copied to
+- **Renamed browsers** (done in phase 2: also by the version resource's product name). Exclusion is by file name, so `chrome.exe` copied to
   `x.exe` (still signed by Google) is `Ordinary` and could be linked. Phase 2
   must exclude by signer plus product name (version resource) as well, and keep
   the file-name lists.
-- **Worker recovery.** A dedicated MTA worker thread that is abandoned and
+- **Worker recovery** (done in phase 2, `windows/host.rs`). A dedicated MTA worker thread that is abandoned and
   respawned when a UI Automation call blocks (ADR-0157 D5). Phase 1 only has the
   deadlines. `WindowsProbe::new` must run on an MTA thread, not a UI (STA) thread.
-- **Image path re-check.** `QueryFullProcessImageNameW` may report the name
+- **Image path re-check** (still open after phase 2). `QueryFullProcessImageNameW` may report the name
   recorded at process start, so renaming a running exe and copying a signed
   program into the old path defeats the path re-check (R178, covered by R177's
   same-user assumption). Phase 2 compares file IDs against `GetMappedFileNameW`
@@ -152,3 +177,50 @@ value; `f` + Enter fills the latest offer with the user name `mosaic-test` and t
       reports a `field` for the host's exe and signer, never `msedgewebview2.exe`. A WebView2
       sample app that is unsigned reports `Refused(UnsignedWebViewHost)`.
 - [ ] A copy of Chrome or Edge renamed to another file name: `Refused(Excluded(Browser))`.
+
+### Phase 2: the app (desktop chip, list, hotkey; owner run on Windows)
+
+Run `pnpm tauri dev` (a debug build) with program fill on in Settings and record each
+result (pass / fail / what was seen) in `docs/PROGRESS.md`. A failure is a bug to fix with
+a regression test where the fakes can show it.
+
+- [ ] **Slack** (Electron, signed): chip at the e-mail field; link a login (one
+      confirmation, "Signed by Slack Technologies"); pick → e-mail typed, Enter; the
+      password step gets the password once through the continuation. Second visit: the
+      single match is preselected, one Enter fills.
+- [ ] **New Teams** (WebView2) and its sign-in window: a chip on the sign-in fields; the
+      AAD broker window shows no chip (`Broker`). Record which windows behave how.
+- [ ] **A Java/Swing app** (JMeter or a `jpackage` demo): no chip; the hotkey says
+      "Mosaic can't see a login field here".
+- [ ] **An Electron app with a plain login form** (Discord or a local test app): chip,
+      link, both fields filled, Enter. Measure the Chromium accessibility cost with VS Code
+      (one folder) and a heavy page in Edge (ADR-0157 Step 4 method); over 5 % CPU or
+      150 MB is a bug.
+- [ ] **A program run as administrator**: no chip; the hotkey shows the administrator
+      notice; nothing typed.
+- [ ] **Notepad, PowerShell ISE, `Get-Credential`**: no chip in any of them.
+- [ ] **A Win32 or WinForms login dialog** (WinSCP): user name by `SetValue`, password
+      typed; `Pässwörd-😀-12345678` arrives exactly.
+- [ ] **A WPF login window** (`PasswordBox`): the typed password is correct.
+- [ ] **An unsigned program renamed `Discord.exe` in `%TEMP%`**: two confirmations at
+      least 1 s apart, "Not signed" with the path, look-alike warning when `discord.exe`
+      is already linked; change one byte → "This program changed since you linked it";
+      link again → still one binding.
+- [ ] **Attacks** (spec §6.3 test programs in `%TEMP%`): field moves under the cursor on
+      focus → abort; foreground swap 100 ms after focus → abort; a topmost click-through
+      window over the field → no write (`Occluded`); a window dragged over the list or the
+      list moved by `SetWindowPos` → pick refused; Ctrl held while typing → waits, then
+      the modifiers notice.
+- [ ] **Chip behaviour**: never takes focus (keep typing after it shows); hides on focus
+      loss, on lock and while the window moves; a field on a second monitor at 150 %; chip
+      and list never cover the field.
+- [ ] **Locked vault**: the lock chip; click → unlock in the main window → the list opens
+      for the same field.
+- [ ] **Hung program** (phase 1 test window): Mosaic stays responsive; "didn't answer in
+      time" after about 5 s at most.
+- [ ] **Narrator**: the list reads titles and user names; a keyboard-only pick works.
+- [ ] **Offline revocation**: network off, a signed program's link still shows "checked by
+      Windows" or is refused; record which.
+- [ ] **Memory**: Mosaic's private bytes with program fill on and both picker windows
+      created, against off.
+- [ ] Hotkey examples avoid `Ctrl+Alt+L`, the app's lock key.
