@@ -9,6 +9,9 @@
 //! - [`mask`]: the masking engine for responses and, later, command output.
 //! - [`request`]: validation of an agent request against its binding and the single-slot
 //!   injection of the value.
+//! - [`engine`]: the policy engine (grants, limits, masking of answers, log entries); [`source`]
+//!   is the vault side it talks to, [`vault_source`] the implementation over an unlocked
+//!   session, and [`http`] (feature `http`) the HTTPS sender.
 //! - [`binding`]: the policy of one agent-usable secret (`agent:<id>` of an
 //!   item), validated: field, destinations, injection, environment name.
 //!
@@ -29,6 +32,7 @@ pub mod response;
 pub mod source;
 #[cfg(feature = "test-util")]
 pub mod testing;
+pub mod vault_source;
 
 #[cfg(all(feature = "test-util", not(debug_assertions)))]
 compile_error!(
@@ -47,3 +51,5 @@ mod http_tests;
 mod mask_tests;
 #[cfg(test)]
 mod request_tests;
+#[cfg(test)]
+mod vault_source_tests;
