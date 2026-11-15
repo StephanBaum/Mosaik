@@ -90,8 +90,23 @@ class AutofillTestKit(private val instrumentation: Instrumentation) {
         shell("input tap ${bounds.centerX()} ${bounds.centerY()}")
     }
 
+    /**
+     * A leftover system dialog ("Application Error", "isn't responding") hides the client app. Dismisses it and
+     * returns its title line, or null when none was in front. The caller reports it, so a crash stays visible.
+     */
+    fun dismissCrashDialog(): String? {
+        val focus = shell("dumpsys window").lines().firstOrNull { it.contains("mCurrentFocus") } ?: return null
+        if (!focus.contains("Application Error") && !focus.contains("Application Not Responding")) return null
+        for (label in listOf("Close app", "OK")) findText(label)?.let { tap(it) }
+        shell("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
+        shell("input keyevent KEYCODE_BACK")
+        Thread.sleep(500)
+        return focus.trim()
+    }
+
     /** Starts the client app, enables the service, and focuses the user name field the way a user would. */
     fun showClientAndFocusUsername() {
+        val dialog = dismissCrashDialog()
         shell("settings put secure autofill_service $service")
         val start = "am start -n $clientPackage/${AutofillClientActivity::class.java.name}"
         shell(start)
@@ -103,7 +118,8 @@ class AutofillTestKit(private val instrumentation: Instrumentation) {
             field = waitFor(30_000) { findText("client-username") }
         }
         val state = shell("dumpsys window").lines().filter { it.contains("mCurrentFocus") || it.contains("isKeyguardShowing") }
-        assertNotNull("the client app did not show; focus: $state; the screen shows: ${screenTexts()}", field)
+        val dismissed = dialog ?: dismissCrashDialog()
+        assertNotNull("the client app did not show; crash dialog dismissed: $dismissed; focus: $state; the screen shows: ${screenTexts()}", field)
         tap(field!!)
     }
 

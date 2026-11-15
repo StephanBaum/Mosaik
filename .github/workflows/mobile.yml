@@ -201,12 +201,17 @@ jobs:
             adb install -r apk/app-debug.apk
             adb install -r apk/app-debug-androidTest.apk
             adb shell am instrument -w io.github.stephanbaum.mosaic.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt
+            adb logcat -d -v threadtime > logcat.txt || true
+            adb shell dumpsys window | head -n 200 > window.txt || true
             grep -q '^OK (' instrument.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: android-instrumented-output
-          path: instrument.txt
+          path: |
+            instrument.txt
+            logcat.txt
+            window.txt
           if-no-files-found: warn
 
   ios:
