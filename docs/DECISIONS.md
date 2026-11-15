@@ -5911,12 +5911,14 @@ cleartext.
   derivation and the frame AAD carry the channel's labels, so a key of one channel fails the other's handshake. The agent `K_pair` is stored by the
   desktop in `agent-pairings.json` as §4 stores browser pairings, and by the client only in the OS keystore. The browser golden vector stays
   byte-identical; a second vector pins the agent labels.
-- **Device marks.** `K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)`; `mark = HMAC-SHA-256(K_agent_mark, item_id[16] || canonical(binding))`;
+- **Device marks.** `K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)`; `mark = HMAC-SHA-256(K_agent_mark, item_id[16] || u32(len(binding_id)) || binding_id || canonical(v))` (the binding ID is in the mark, a binding with
+  concurrent register entries is unconfirmed, numbers are integers only);
   local-only table `agent_marks(vault_id, item_id, mark)`; no binding content in cleartext. A binding is usable on a device when a mark of its item
   matches its canonical form, so a binding that arrives by sync, or is changed by another writer, needs the user's confirmation on this device.
 - **Agent log.** `K_agent_log = HKDF(AK, "", ctx("agent-log-key"), 32)`; each record
-  `0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, random nonce, plaintext, AAD = header || aad("agent-log", entry_id))`; local-only table
-  `agent_log(entry_id, at_ms, sealed)` with the time in cleartext for pruning (90 days or 10,000 entries). Never synced, never in the outbox.
+  `0x01 || 0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, random nonce, plaintext, AAD = header || aad("agent-log", entry_id, at_ms))`; local-only
+  table `agent_log(entry_id, at_ms, sealed)` with the time in cleartext for pruning (90 days or 10,000 entries) and bound into the AAD. Never synced,
+  never in the outbox. When the count cap removes an entry younger than 90 days, the log screen says so.
 - **Labels are not reused.** The plan text of the spec used `agent-log` as the HKDF info and as the AAD label. §3 says every derived key and every AEAD
   use has a unique label, so the HKDF info is `agent-log-key` and `agent-log` stays the AAD label (the `export` / `export-key` precedent).
 - **Settings (B2).** `canonical(settings)` gains the key `agentAccessEnabled`, which sorts first. It is written as `"agentAccessEnabled":true,` only

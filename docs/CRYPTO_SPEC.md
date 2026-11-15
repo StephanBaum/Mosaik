@@ -2682,28 +2682,46 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 
   ```text
   K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)
-  mark         = HMAC-SHA-256(K_agent_mark, item_id[16] || canonical(binding))
+  mark         = HMAC-SHA-256(K_agent_mark, item_id[16] || u32(len(binding_id)) || binding_id || canonical(v))
   K_agent_log  = HKDF(AK, "", ctx("agent-log-key"), 32)
   entry_id     = random(16)
-  sealed       = 0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, nonce = random(24), plaintext,
-                                                         AAD = 0x01 || 0x01 || aad("agent-log", entry_id))
+  sealed       = 0x01 || 0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, nonce = random(24), plaintext,
+                                                 AAD = sealed[0..2] || aad("agent-log", entry_id[16], at_ms:u64))
   ```
 
-  `canonical(binding)` is the `agent:<id>` value of the item (a record of the item plaintext, §7.5)
-  serialized as UTF-8 JSON with object keys in ascending byte order at every level, no whitespace, and
-  JSON string escapes as in §7.5. Members this build does not know are included, so a change made by a
-  newer build changes the mark. `item_id` is the 16 raw bytes of the item ID (fixed length, so the HMAC
-  input is injective). `agent_marks(vault_id, item_id, mark)` is the set of confirmed marks: no element
-  ID, origin, field or other binding content is stored in cleartext, only the 32-byte mark. A binding is
-  confirmed on this device when a mark of its item matches. Rows go with purged or tombstoned items and
-  removed vaults. `agent_log(entry_id, at_ms, sealed)`: `at_ms` is the wall-clock time of the entry in
-  milliseconds. It is cleartext because the 90-day pruning needs it, and it is not derived from item
-  plaintext (it is the time of the user's or agent's action; THREAT_MODEL R179). Everything else (pairing
-  name, item title, field label, origin, path, status, command line, exit code) is inside `sealed`. The
-  AAD binds a record to its `entry_id`, so a row cannot be moved to another ID. The version byte is
-  `0x01` and a reader refuses any other value. Both keys are derived on use and dropped; neither is
-  stored. Every record uses a fresh random 24-byte nonce (§7.2); the record count stays far below the
-  random-nonce bound of §7.2.
+  The first two bytes of `sealed` are the version (`0x01`) and the algorithm (`0x01`, XChaCha20-Poly1305),
+  the header of §3, and a reader refuses any other value of either.
+
+  **The binding and its canonical form.** A binding is the entry `agent:<binding_id>` of the item plaintext
+  (§7.5); `binding_id` is the element ID in the key, as the UTF-8 bytes of its stored text, and `v` is the
+  value of that entry. The mark covers the item, the binding ID **and** the value, so two confirmed
+  bindings cannot swap contents. A register that holds more than one concurrent entry for the binding (a
+  conflict, §7.5) has no `v` to confirm: such a binding is **unconfirmed and unusable** until the user
+  resolves it, and the code that sends a request computes the mark over the same parsed value it executes.
+  `canonical(v)` is `v` serialized as UTF-8 JSON with object keys in ascending byte order at every level,
+  no whitespace, strings escaped as in §11.1 (`"` and `\` escaped, U+0000 to U+001F as `\b \t \n \f \r` or
+  `\u00xx` in lowercase hex, everything else raw UTF-8), `true`, `false` and `null` as such, and numbers only
+  as integers in plain decimal without a plus sign, leading zeros or exponent. A value with any other number
+  is not canonicalizable and its binding is unusable. Members this build does not know are included, so a
+  change made by a newer build changes the mark. `item_id` is the 16 raw bytes of the item ID and
+  `u32(len(binding_id))` is a big-endian length, so the HMAC input is injective.
+
+  `agent_marks(vault_id, item_id, mark)` is the set of confirmed marks: no binding ID, origin, field or
+  other binding content is stored in cleartext, only the 32-byte mark. A binding is confirmed on this device
+  when a mark of its item matches. Rows go with purged or tombstoned items and removed vaults. A full
+  re-key (§6.6), which replaces `AK`, makes every mark and every log record unverifiable under the new
+  `K_agent_mark` and `K_agent_log`: the user confirms bindings again, and the old log records, which are not
+  re-sealed, are dropped when found unreadable.
+
+  `agent_log(entry_id, at_ms, sealed)`: `at_ms` is the wall-clock time of the entry in milliseconds. It is
+  cleartext because the 90-day pruning needs it, and it is not derived from item plaintext (it is the time
+  of the user's or agent's action; THREAT_MODEL R179). It is also bound into the AAD, and a reader shows only
+  an entry whose sealed record opens under the stored `at_ms`, so someone who can write the file cannot
+  change a displayed time without breaking the record (deleting records or rows is not preventable, R179).
+  Everything else (pairing name, item title, field label, origin, path, status, command line, exit code) is
+  inside `sealed`. The AAD binds a record to its `entry_id` and `at_ms`, so a row cannot be moved to another
+  ID or time. Both keys are derived on use and dropped; neither is stored. Every record uses a fresh random
+  24-byte nonce (§7.2); the record count stays far below the random-nonce bound of §7.2.
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its
@@ -2762,7 +2780,9 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   flag is true** and is omitted while it is false (an absent key means false). The canonical bytes of
   every settings file written before this key existed are therefore unchanged, and every existing MAC
   still verifies: no migration and no version bump. A verifier computes the canonical form from the
-  parsed flag, so a file that carries `false` is read as false and is checked against the omitted form.
+  parsed flag, so a file that carries `false` is read as false and is checked against the omitted form. A
+  file in which `agentAccessEnabled` is present but not a JSON boolean, or appears more than once, is an
+  invalid file and takes the reset path below; it is never read as "absent".
 - While locked, the app uses for each protection setting the stricter of the
   file value and the default (10 min, 30 s, 14 days, both lock-on switches
   on), `sshAgentEnabled` and `agentAccessEnabled` read `false`, and the quick-unlock expiry at the
@@ -3051,6 +3071,20 @@ size buckets), tags, vault names, or attachment names.
   - On the CI emulator: the secure-store round trip with its AAD binding, the quick-unlock key's `KeyInfo`
     (authentication required, invalidated by enrollment, enforced by secure hardware), and trust anchors that
     contain ISRG Root X1 and no user CA.
+- Agent access (ADR-0160):
+  - The label uniqueness test covers the seven agent labels (the reviewed prefix pair is `agent-log` and
+    `agent-log-key`).
+  - Channel: the browser vector is unchanged; an agent vector with the same inputs and the `agent/*` labels is
+    pinned from a Python standard-library script; a browser proof does not verify on the agent channel and an
+    agent proof does not verify on the browser channel; an agent frame does not open in a browser session and the
+    reverse.
+  - Marks: a known-answer vector from a Python standard-library script (HKDF, HMAC, the canonical form); one byte
+    changed in the item ID, the binding ID or the canonical value gives another mark; a wrong-length mark does not
+    verify; canonical form: key order, escapes, integers only.
+  - Log: a record round-trips; another `entry_id`, another `at_ms`, a flipped bit anywhere, an unknown version or
+    algorithm byte and a truncated record all fail with `Decryption`; two seals of one plaintext differ.
+  - Settings: an old MAC still verifies (the key is omitted), a file with `agentAccessEnabled: false` verifies against
+    the omitted form, `true` changes the canonical bytes, and a non-boolean or duplicated member takes the reset path.
 
 ## 15. Local app channels (ADR-0036, ADR-0160)
 
@@ -3065,7 +3099,8 @@ disjoint label sets: the **browser** channel (`browser/auth|handshake|session|fr
 written) and the **agent** channel (`agent/auth|handshake|session|frame`, the link of the `mosaic agent`
 relay to the desktop, `docs/NATIVE_MESSAGING.md` §9). Wherever this section writes `browser/…`, the agent
 channel uses the same string with `agent/` instead. Pairings, the storage of `K_pair` and the endpoints are
-per channel. A `K_pair` of one channel fails the handshake of the other, because every derivation
+per channel. The channel, and with it the label set, is fixed by the endpoint a connection arrived on and
+never by a field of a message. A `K_pair` of one channel fails the handshake of the other, because every derivation
 (`K_auth`, both proofs, `okm`) and the frame AAD carry the channel's own labels. The agent channel's
 `K_pair` is stored by the desktop in `agent-pairings.json` exactly as §4 stores browser pairings, and by
 the client only in the OS keystore (`mosaic-agent-pairing-<name>`; no file fallback). The agent channel
