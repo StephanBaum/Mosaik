@@ -254,8 +254,19 @@ impl Shared {
         let runtime = tauri::async_runtime::handle();
         let _enter = runtime.inner().enter();
         let host = Arc::new(DesktopHost::new(Arc::clone(self)));
-        let server =
-            AgentServer::start(&endpoint, host).map_err(|_| AgentEndpointState::Unavailable)?;
+        // A real start has a fresh pipe name or a socket file that was removed. A test that
+        // starts again on the same fixed name waits for the old listener to be dropped.
+        let mut started = AgentServer::start(&endpoint, Arc::clone(&host));
+        if forced.is_some() {
+            for _ in 0..40 {
+                if started.is_ok() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+                started = AgentServer::start(&endpoint, Arc::clone(&host));
+            }
+        }
+        let server = started.map_err(|_| AgentEndpointState::Unavailable)?;
         #[cfg(windows)]
         let lease = match (&endpoint, forced.is_some()) {
             (Endpoint::NamedPipe(pipe), false) => match announce(pipe) {

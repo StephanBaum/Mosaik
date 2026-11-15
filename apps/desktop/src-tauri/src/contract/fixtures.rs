@@ -329,6 +329,7 @@ fn vault_commands(f: &mut Fixtures) {
 }
 
 /// The item commands.
+#[expect(clippy::too_many_lines, reason = "one block per command")]
 fn item_commands(f: &mut Fixtures, item_request: ItemRequest) {
     f.command(
         "list_items",

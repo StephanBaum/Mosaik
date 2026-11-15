@@ -77,18 +77,6 @@ pub struct Prompts {
 }
 
 impl Prompts {
-    /// The open pairing prompt's handle (tests).
-    #[cfg(test)]
-    pub(crate) fn pair_id(&self) -> Option<String> {
-        self.pair.as_ref().map(|p| p.request_id.clone())
-    }
-
-    /// The shown access prompt's handle (tests).
-    #[cfg(test)]
-    pub(crate) fn access_front_id(&self) -> Option<String> {
-        self.access.front().map(|p| p.request_id.clone())
-    }
-
     fn note_denial(&mut self, now: Instant) {
         self.denials.push_back(now);
         while self
@@ -327,7 +315,7 @@ impl Shared {
             // The client hung up between the dialog and the answer: nobody holds the key.
             let _ = lock(&self.registry).remove(&id);
         } else {
-            self.log_paired(backend, &id, &name);
+            Self::log_paired(backend, &id, &name);
         }
         self.closed_pair_event(&request.request_id, AgentCloseReason::Answered);
         self.state_changed();

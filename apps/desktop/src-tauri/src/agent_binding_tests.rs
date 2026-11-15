@@ -3,6 +3,14 @@
 //! stay out of shared vaults and out of items whose value does not qualify, and the detail shows
 //! no binding while agent access is off.
 
+// Test helpers take owned values; short names for the vault, item and backend.
+#![expect(
+    clippy::needless_pass_by_value,
+    clippy::many_single_char_names,
+    clippy::assert_is_empty,
+    reason = "test helpers take their arguments by value; short names for ID triples"
+)]
+
 use mosaic_agent::log::{LogEntry, LogKind};
 use mosaic_core::Argon2Profile;
 use mosaic_core::model::{AgentBindingRecord, AgentInject};

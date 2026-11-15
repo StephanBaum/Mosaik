@@ -96,7 +96,7 @@ impl Shared {
     }
 
     /// Writes an entry from outside a request (best effort: nothing is logged while locked).
-    pub(crate) fn log_entry(&self, backend: &Backend, entry: &LogEntry) {
+    pub(crate) fn log_entry(backend: &Backend, entry: &LogEntry) {
         if let Ok(mut slot) = backend.slot()
             && let Ok(session) = slot.unlocked_mut()
         {
@@ -105,11 +105,11 @@ impl Shared {
     }
 
     /// The log entry of a new pairing.
-    pub(crate) fn log_paired(&self, backend: &Backend, id: &[u8; 16], name: &str) {
+    pub(crate) fn log_paired(backend: &Backend, id: &[u8; 16], name: &str) {
         let mut entry = LogEntry::new(LogKind::Paired, wall_ms());
         entry.pairing_id = Some(hex16(id));
         entry.pairing_name = Some(name.to_owned());
-        self.log_entry(backend, &entry);
+        Self::log_entry(backend, &entry);
     }
 
     fn pairing_ref(&self, id: &[u8; 16]) -> Option<PairingRef> {

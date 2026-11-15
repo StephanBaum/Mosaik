@@ -199,7 +199,7 @@ impl Backend {
         let mut entry = LogEntry::new(LogKind::PairingRemoved, crate::agent::wall_ms());
         entry.pairing_id = Some(mosaic_agent::log::hex16(&id));
         entry.pairing_name = name;
-        shared.log_entry(self, &entry);
+        crate::agent::Shared::log_entry(self, &entry);
         shared.state_changed();
         Ok(self.agent_access_status())
     }
@@ -227,7 +227,7 @@ impl Backend {
             && crate::agent::lock(&shared.engine).revoke_grant(request.grant_id)
         {
             entry.kind = LogKind::Revoked;
-            shared.log_entry(self, &entry);
+            crate::agent::Shared::log_entry(self, &entry);
             shared.tell_revoked(&pairing, reference);
         }
         shared.state_changed();
@@ -241,7 +241,7 @@ impl Backend {
     pub fn agent_stop_all(&self) -> IpcResult<AgentAccessStatus> {
         self.touch();
         let entry = LogEntry::new(LogKind::StoppedAll, crate::agent::wall_ms());
-        self.agent.shared().log_entry(self, &entry);
+        crate::agent::Shared::log_entry(self, &entry);
         self.agent.restart();
         Ok(self.agent_access_status())
     }
