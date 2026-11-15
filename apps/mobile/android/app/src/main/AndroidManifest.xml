@@ -78,13 +78,13 @@
             android:noHistory="true"
             android:taskAffinity=""
             android:theme="@style/Theme.Mosaic.Translucent">
+            <!-- Scheme only: Android ignores a path without a host. The exact redirect
+                 (io.github.stephanbaum.mosaic.oauth:/cb) is checked by the core, crates/sync oauth.rs. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="io.github.stephanbaum.mosaic.oauth"
-                    android:path="/cb" />
+                <data android:scheme="io.github.stephanbaum.mosaic.oauth" />
             </intent-filter>
         </activity>
 

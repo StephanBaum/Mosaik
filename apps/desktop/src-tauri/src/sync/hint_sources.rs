@@ -34,6 +34,7 @@ fn first_readable(candidates: &[PathBuf]) -> Option<Vec<u8>> {
     candidates.iter().find_map(|p| read_small(p))
 }
 
+#[cfg(windows)]
 fn env_path(name: &str, tail: &[&str]) -> Option<PathBuf> {
     let base = std::env::var_os(name).filter(|v| !v.is_empty())?;
     let mut path = PathBuf::from(base);
