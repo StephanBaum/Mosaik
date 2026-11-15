@@ -12,6 +12,8 @@
 //! - [`engine`]: the policy engine (grants, limits, masking of answers, log entries); [`source`]
 //!   is the vault side it talks to, [`vault_source`] the implementation over an unlocked
 //!   session, and [`http`] (feature `http`) the HTTPS sender.
+//! - [`wire`]: the messages of the agent endpoint (requests, responses, events), and
+//!   [`server`] (feature `server`): the connection loop that serves them to a host.
 //! - [`binding`]: the policy of one agent-usable secret (`agent:<id>` of an
 //!   item), validated: field, destinations, injection, environment name.
 //!
@@ -29,10 +31,13 @@ pub mod log;
 pub mod mask;
 pub mod request;
 pub mod response;
+#[cfg(feature = "server")]
+pub mod server;
 pub mod source;
 #[cfg(feature = "test-util")]
 pub mod testing;
 pub mod vault_source;
+pub mod wire;
 
 #[cfg(all(feature = "test-util", not(debug_assertions)))]
 compile_error!(
@@ -51,5 +56,8 @@ mod http_tests;
 mod mask_tests;
 #[cfg(test)]
 mod request_tests;
+#[cfg(test)]
+#[cfg(feature = "test-util")]
+mod server_tests;
 #[cfg(test)]
 mod vault_source_tests;

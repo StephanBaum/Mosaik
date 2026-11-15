@@ -539,6 +539,8 @@ listens on TCP.
 | macOS | `$HOME/Library/Application Support/io.github.stephanbaum.mosaic/agent/agent.sock` |
 | Windows | `\\.\pipe\mosaic-agent-<32 hex>`, a fresh name per desktop start, published in `%LOCALAPPDATA%\io.github.stephanbaum.mosaic\agent\endpoint.json` under a lease and probed by the client, as in §1 |
 
+Debug builds read `MOSAIC_AGENT_ENDPOINT` (a socket path or a pipe name) in place of the endpoint, for integration tests; release builds ignore it (as `MOSAIC_BROWSER_ENDPOINT`, §1).
+
 Unix: a `0700` directory, a `0600` socket and a peer-UID check on both sides. Windows: first pipe instance, remote clients rejected. Limits: 16 agent
 pairings, 8 connections (a 9th is refused `busy` before authentication), 4 requests in flight per connection (a 5th is answered `busy`), 256 KiB frames
 (the plaintext leaves 26 bytes for header and tag), idle close after 10 minutes, the access dialog 120 s.
@@ -579,7 +581,7 @@ Every body object rejects unknown members. An unknown `op` is `invalidRequest`.
 | Op | Request body | Response body |
 |---|---|---|
 | `status` | `{}` | `{vault, agentAccess}` |
-| `listSecrets` | `{query?}` (at most 128 characters) | `{secrets: [{ref, title, vault, field, origins, inject, env, runAllowed, grant, needsReview}]}`, at most 50 entries; `grant` is `none`, `once`, `untilLock` or an expiry in milliseconds |
+| `listSecrets` | `{query?}` (at most 128 characters) | `{secrets: [{ref, title, vault, field, origins, inject, env, runAllowed, grant, needsReview}]}`, at most 50 entries; `grant` is `"none"`, `"once"`, `"untilLock"` or `{"until": <expiry in ms>}` |
 | `requestAccess` | `{ref, use: "request", reason?}` (`reason` at most 200 characters) | `{decision: "granted" \| "denied" \| "timeout", expiresAt?, grant}`, after the user answers or 120 s pass |
 | `httpRequest` | `{ref, method, url, headers?, body?, maxBytes?}` | `{status, headers: [[name, value]…], body? \| binary?: {contentType, bytes, contentEncoding}, truncated, masked, redirect?}` |
 

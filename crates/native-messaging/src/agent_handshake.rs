@@ -29,8 +29,12 @@ use crate::handshake::{next_frame, send, step, write_message};
 use crate::hex::Hex;
 use crate::protocol::PROTOCOL_VERSION;
 
-/// Reads one pre-auth message from the desktop, within one step timeout.
-async fn read_server_message<S: AsyncRead + Unpin>(
+/// Reads one pre-auth message from the desktop, within one step timeout. A `refused` is returned
+/// as a message, not as an error.
+///
+/// # Errors
+/// [`Error::Timeout`], [`Error::Closed`], framing and parse errors.
+pub async fn agent_read_server_message<S: AsyncRead + Unpin>(
     stream: &mut S,
 ) -> Result<AgentServerMessage, Error> {
     let frame = step(next_frame(stream)).await?;
@@ -51,7 +55,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     step(write_message(stream, request)).await?;
-    match read_server_message(stream).await? {
+    match agent_read_server_message(stream).await? {
         AgentServerMessage::Refused { reason, .. } => Err(Error::AgentRefused(reason)),
         other => Ok(other),
     }
@@ -97,7 +101,7 @@ where
         nonce: Hex(nonce_h),
     };
     step(write_message(stream, &hello)).await?;
-    let (nonce_d, proof_d) = match read_server_message(stream).await? {
+    let (nonce_d, proof_d) = match agent_read_server_message(stream).await? {
         AgentServerMessage::Challenge { nonce, proof, .. } => (nonce.0, proof.0),
         AgentServerMessage::Refused { reason, .. } => return Err(Error::AgentRefused(reason)),
         _ => return Err(Error::Malformed),

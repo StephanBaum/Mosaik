@@ -3205,6 +3205,7 @@ dependencies = [
  "base64ct",
  "http",
  "mosaic-core",
+ "mosaic-native-messaging",
  "mosaic-origin",
  "mosaic-vault",
  "proptest",
@@ -3214,7 +3215,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
+ "tempfile",
  "thiserror 2.0.21",
+ "tokio",
  "url",
  "zeroize",
 ]

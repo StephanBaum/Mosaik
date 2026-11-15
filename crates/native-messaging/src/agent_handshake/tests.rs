@@ -165,7 +165,8 @@ fn unknown_pairing_and_wrong_proof_get_the_same_refusal() {
             nonce: Hex(nonce_h),
         };
         write_message(&mut relay, &hello).await.unwrap();
-        let AgentServerMessage::Challenge { .. } = read_server_message(&mut relay).await.unwrap()
+        let AgentServerMessage::Challenge { .. } =
+            agent_read_server_message(&mut relay).await.unwrap()
         else {
             panic!("no challenge");
         };
@@ -175,7 +176,7 @@ fn unknown_pairing_and_wrong_proof_get_the_same_refusal() {
         };
         write_message(&mut relay, &finish).await.unwrap();
         assert!(matches!(
-            read_server_message(&mut relay).await.unwrap(),
+            agent_read_server_message(&mut relay).await.unwrap(),
             AgentServerMessage::Refused {
                 reason: AgentRefusal::NotPaired,
                 ..
@@ -223,7 +224,7 @@ fn a_bad_first_message_is_refused_with_its_reason() {
             .await
             .unwrap();
         assert!(matches!(
-            read_server_message(&mut relay).await.unwrap(),
+            agent_read_server_message(&mut relay).await.unwrap(),
             AgentServerMessage::Refused {
                 reason: AgentRefusal::ProtocolVersion,
                 ..
