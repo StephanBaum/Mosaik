@@ -83,10 +83,7 @@ fn handle_is_regular(meta: &std::fs::Metadata) -> bool {
 pub fn overwrite_and_delete(path: &Path) -> io::Result<()> {
     // A directory cannot be opened for writing on Windows: look first only to
     // report it as the wrong kind. Nothing is trusted from this look.
-    if std::fs::symlink_metadata(path)
-        .map(|m| m.file_type().is_dir())
-        .unwrap_or(false)
-    {
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_dir()) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "not a regular file",
