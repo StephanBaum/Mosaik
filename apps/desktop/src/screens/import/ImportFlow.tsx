@@ -204,9 +204,8 @@ export function ImportFlow({ onClose, embedded = false }: { onClose: () => void;
     if (!result.ok) {
       setError(result.error);
     } else if (result.value.kind === "chosen") {
-      const { fileToken: token, fileName } = result.value;
-      setFormat((await detectedFormat(ipc, token)) ?? format);
-      setStep({ name: "file", token, fileName });
+      setFormat((await detectedFormat(ipc, result.value.fileToken)) ?? format);
+      setStep({ name: "file", token: result.value.fileToken, fileName: result.value.fileName });
     }
   }
   async function preview(token: string, password: string) {
