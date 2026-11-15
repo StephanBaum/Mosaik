@@ -14,6 +14,9 @@
 
 mod chaos;
 mod cloudsim;
+#[cfg(feature = "folder-remote")]
+mod fake_cloud;
+mod fakehttp;
 mod malicious;
 mod refused;
 mod session;
@@ -24,6 +27,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub use chaos::{ChaosConfig, ChaosTransport};
 pub use cloudsim::{CloudSim, RoundStats, SimConfig};
+#[cfg(feature = "folder-remote")]
+pub use fake_cloud::{FakeDav, Faults};
+pub use fakehttp::{FakeHttp, FakeRequest, FakeResponse};
 pub use malicious::MaliciousTransport;
 pub use refused::{RefusedSharing, RotateStub};
 pub use session::{LocalSession, SessionMut, SessionRef};
