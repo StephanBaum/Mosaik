@@ -60,6 +60,8 @@ fn preview_marks_duplicates_and_commit_adds_items() {
     let mut want = CommitReport::default();
     want.imported = 8;
     want.skipped = 1;
+    // The fixture holds entries that lose data (an unreadable passkey, a missing attachment).
+    want.incomplete = true;
     assert_eq!(report, want);
     let items = s.items(&ItemFilter::default());
     // 1 existing + 8 imported, minus the card that went to the trash.
@@ -132,4 +134,49 @@ fn failures_and_unknown_vaults() {
         commit(import, &mut s, missing, &[]),
         Err(SessionError::UnknownVault)
     ));
+}
+
+const CSV: &[u8] = b"name,url,username,password
+A,https://a.example,u,p
+B,https://b.example,u,p
+";
+
+#[test]
+fn a_clean_commit_is_clean_and_skipped_or_lossy_entries_are_not() {
+    use mosaic_import::{EntryWarning, SkipReason, SkippedEntry};
+    let go = |edit: &dyn Fn(&mut mosaic_import::Import)| {
+        let (mut s, vault) = session(Store::open_in_memory().unwrap());
+        let mut import = parse(Format::Csv, CSV, None).unwrap();
+        edit(&mut import);
+        commit(import, &mut s, vault, &[]).unwrap()
+    };
+    assert!(go(&|_| {}).clean());
+    let skipped = go(&|i| {
+        i.skipped.push(SkippedEntry {
+            index: 99,
+            reason: SkipReason::Malformed,
+        });
+    });
+    assert!(!skipped.clean());
+    for warning in [
+        EntryWarning::AttachmentMissing,
+        EntryWarning::NotesTruncated,
+    ] {
+        let report = go(&|i| i.entries[0].warnings.push(warning));
+        assert!(!report.clean(), "{warning:?}");
+    }
+    // A note that only records a change of shape does not make it unclean.
+    assert!(go(&|i| i.entries[0].warnings.push(EntryWarning::UnmappedFields)).clean());
+}
+
+#[test]
+fn an_entry_the_caller_skips_does_not_make_the_commit_unclean() {
+    use mosaic_import::EntryWarning;
+    let (mut s, vault) = session(Store::open_in_memory().unwrap());
+    let mut import = parse(Format::Csv, CSV, None).unwrap();
+    import.entries[0]
+        .warnings
+        .push(EntryWarning::AttachmentMissing);
+    let first = import.entries[0].index;
+    assert!(commit(import, &mut s, vault, &[first]).unwrap().clean());
 }

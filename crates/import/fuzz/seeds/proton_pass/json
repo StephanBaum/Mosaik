@@ -1,0 +1,13 @@
+{"version":"1.0","userId":"u","encrypted":false,"vaults":{
+ "v1":{"name":"Personal","items":[
+  {"data":{"metadata":{"name":"GitHub","note":"n"},"type":"login","content":{
+    "itemUsername":"alice","itemEmail":"alice@example.com","password":"pw1",
+    "urls":["https://github.com"],"totpUri":"otpauth://totp/x?secret=GEZDGNBVGY3TQOJQ","passkeys":[{}]},
+   "extraFields":[{"fieldName":"pin","type":"hidden","data":{"content":"1234"}}]},"state":1,"pinned":true},
+  {"data":{"metadata":{"name":"Alias","note":""},"type":"alias","content":{}},"aliasEmail":"a.b@alias.example","state":2}
+ ]},
+ "v2":{"name":"Work","items":[
+  {"data":{"metadata":{"name":"Visa","note":""},"type":"creditCard","content":{
+    "cardholderName":"Alice Doe","number":"4111111111111111","verificationNumber":"123","expirationDate":"2030-05"}},"state":1},
+  {"data":{"metadata":{"name":"Me","note":""},"type":"identity","content":{"fullName":"Alice Doe","birthdate":"1990-02-03"}},"state":1}
+ ]}}}

@@ -43,8 +43,9 @@ use super::export;
 use super::generator::{self, Strength};
 use super::ids::samples as ids;
 use super::import::{
-    self, ImportCancelRequest, ImportChooseRequest, ImportCommitRequest, ImportEntryWarning,
-    ImportFormat, ImportPreviewRequest, ImportResult, ImportSkipReason, ImportWarning,
+    self, ImportCancelRequest, ImportCommitRequest, ImportDeleteRequest, ImportDetectRequest,
+    ImportDetectedSource, ImportEntryWarning, ImportFormat, ImportPreviewRequest, ImportResult,
+    ImportSkipReason, ImportSyncedFolder, ImportWarning,
 };
 use super::insights::{self, InsightAction, InsightKind, InsightSeverity};
 use super::items::{
@@ -527,13 +528,20 @@ fn otp_commands(f: &mut Fixtures) {
 
 /// The import commands.
 fn import_commands(f: &mut Fixtures) {
+    f.command("import_choose_file", vec![()], import::samples::choices());
     f.command(
-        "import_choose_file",
-        ImportFormat::ALL
-            .iter()
-            .map(|&format| ImportChooseRequest { format })
-            .collect(),
-        import::samples::choices(),
+        "import_detect",
+        vec![ImportDetectRequest {
+            file_token: "f-1".into(),
+        }],
+        import::samples::detected(),
+    );
+    f.command(
+        "import_delete_file",
+        vec![ImportDeleteRequest {
+            file_token: "f-1".into(),
+        }],
+        vec![()],
     );
     f.command(
         "import_preview",
@@ -564,6 +572,7 @@ fn import_commands(f: &mut Fixtures) {
             failed: 0,
             attachments: 1,
             attachments_failed: 0,
+            clean: true,
         }],
     );
     f.command(
@@ -1493,6 +1502,8 @@ fn enums() -> Map<String, Value> {
         ("historyReasonKey", values(HistoryReasonKey::ALL)),
         ("breachScanError", values(BreachScanError::ALL)),
         ("importFormat", values(ImportFormat::ALL)),
+        ("importDetectedSource", values(ImportDetectedSource::ALL)),
+        ("importSyncedFolder", values(ImportSyncedFolder::ALL)),
         ("importWarning", values(ImportWarning::ALL)),
         ("importEntryWarning", values(ImportEntryWarning::ALL)),
         ("importSkipReason", values(ImportSkipReason::ALL)),

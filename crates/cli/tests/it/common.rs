@@ -293,12 +293,11 @@ impl Run<'_> {
         });
         let mut child = command.spawn().unwrap();
         if let Some(text) = &self.stdin {
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(text.as_bytes())
-                .unwrap();
+            // The child may exit before reading stdin (a usage error): a broken pipe is fine.
+            let written = child.stdin.take().unwrap().write_all(text.as_bytes());
+            if let Err(err) = written {
+                assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe, "{err}");
+            }
         }
         let status = child.wait().unwrap();
         let read = |file: &mut std::fs::File| {

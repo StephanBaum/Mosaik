@@ -30,7 +30,6 @@ import io.github.stephanbaum.mosaic.ui.components.HintText
 import io.github.stephanbaum.mosaic.ui.components.Line
 import io.github.stephanbaum.mosaic.ui.components.Notice
 import io.github.stephanbaum.mosaic.ui.components.PageColumn
-import io.github.stephanbaum.mosaic.ui.components.Panel
 import io.github.stephanbaum.mosaic.ui.components.PrimaryButton
 import io.github.stephanbaum.mosaic.ui.components.TextInput
 import io.github.stephanbaum.mosaic.ui.components.TopBar
@@ -144,16 +143,7 @@ fun LinkAppScreen(
                     if (initialPackage == null) selected = null else onCancel()
                 },
             )
-            Panel {
-                HintText(L10n.linkApp(resources))
-                Line(chosen.label)
-                HintText(L10n.linkPackage(resources))
-                Line(chosen.packageName, mono = true)
-                HintText(L10n.linkInstaller(resources))
-                Line(chosen.installer ?: L10n.linkInstallerUnknown(resources))
-                HintText(L10n.linkCertificate(resources))
-                Line(chosen.certificateHex, mono = true)
-            }
+            AppIdentityPanel(chosen.label, chosen.packageName, chosen.installer, chosen.certificateHex)
             val current = status
             val statusText =
                 when (current) {

@@ -592,6 +592,10 @@ public enum L10n {
         NSLocalizedString("mobile.autofill.cannotCheck", bundle: .main, comment: "")
     }
 
+    public static func autofillLinkEntry(login: String) -> String {
+        String(format: NSLocalizedString("mobile.autofill.linkEntry", bundle: .main, comment: ""), locale: .current, arguments: [login])
+    }
+
     public static func autofillNoLogin(app: String) -> String {
         String(format: NSLocalizedString("mobile.autofill.noLogin", bundle: .main, comment: ""), locale: .current, arguments: [app])
     }
@@ -1224,12 +1228,32 @@ public enum L10n {
         String(format: NSLocalizedString("mobile.link.confirm", bundle: .main, comment: ""), locale: .current, arguments: [login])
     }
 
+    public static func linkConfirmFallbackHint() -> String {
+        NSLocalizedString("mobile.link.confirmFallbackHint", bundle: .main, comment: "")
+    }
+
+    public static func linkConfirmSubtitle(appId: String, fingerprint: String) -> String {
+        String(format: NSLocalizedString("mobile.link.confirmSubtitle", bundle: .main, comment: ""), locale: .current, arguments: [appId, fingerprint])
+    }
+
+    public static func linkConfirmTitle(login: String, app: String) -> String {
+        String(format: NSLocalizedString("mobile.link.confirmTitle", bundle: .main, comment: ""), locale: .current, arguments: [login, app])
+    }
+
     public static func linkDone(login: String) -> String {
         String(format: NSLocalizedString("mobile.link.done", bundle: .main, comment: ""), locale: .current, arguments: [login])
     }
 
     public static func linkFilter() -> String {
         NSLocalizedString("mobile.link.filter", bundle: .main, comment: "")
+    }
+
+    public static func linkImported() -> String {
+        NSLocalizedString("mobile.link.imported", bundle: .main, comment: "")
+    }
+
+    public static func linkImportedNotVerified() -> String {
+        NSLocalizedString("mobile.link.importedNotVerified", bundle: .main, comment: "")
     }
 
     public static func linkInstaller() -> String {

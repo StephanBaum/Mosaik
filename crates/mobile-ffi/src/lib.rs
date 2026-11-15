@@ -369,6 +369,19 @@ impl MosaicCore {
     pub fn fill_candidates(&self, target: FillTarget) -> Result<FillCandidates, MobileError> {
         lift(self.inner.fill_candidates(target.conv()))
     }
+    pub fn fill_link_offer(&self, session_id: String) -> Result<LinkOffer, MobileError> {
+        lift(self.inner.fill_link_offer(session_id))
+    }
+    pub fn link_app_in_fill_session(
+        &self,
+        session_id: String,
+        candidate: ItemKey,
+    ) -> Result<(), MobileError> {
+        lift(
+            self.inner
+                .link_app_in_fill_session(session_id, candidate.conv()),
+        )
+    }
     pub fn fill_release(&self, session_id: String) {
         self.inner.fill_release(session_id);
     }

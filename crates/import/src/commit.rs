@@ -6,7 +6,7 @@ use mosaic_core::VaultId;
 use mosaic_core::model::ItemType;
 use mosaic_vault::session::{Error as SessionError, ItemFilter, UnlockedSession};
 
-use crate::draft::{ItemDraft, PasskeyDraft};
+use crate::draft::{EntryWarning, ItemDraft, PasskeyDraft};
 use crate::entries::Import;
 
 /// What [`commit`] did.
@@ -27,6 +27,21 @@ pub struct CommitReport {
     /// Attachment files the session refused (over the account quota, or a
     /// store without attachment storage); their items are imported.
     pub attachments_failed: u32,
+    /// Something of the file did not come across completely: an entry was
+    /// skipped while reading the file, or a kept entry carries a warning
+    /// that data was left out (see [`EntryWarning::loses_data`]), or an
+    /// entry or attachment failed. Entries the caller listed in `skip`
+    /// do not count (left out on purpose).
+    pub incomplete: bool,
+}
+
+impl CommitReport {
+    /// Whether everything the file held, bar what the caller skipped on
+    /// purpose, is in the vault. Only then is the file safe to delete.
+    #[must_use]
+    pub const fn clean(&self) -> bool {
+        !self.incomplete && self.failed == 0 && self.attachments_failed == 0
+    }
 }
 
 fn bump(n: &mut u32) {
@@ -40,7 +55,8 @@ fn bump(n: &mut u32) {
 /// ID are already in the account, or were written earlier in this commit,
 /// is not added again (counted in [`CommitReport::skipped`]).
 /// Consumes the import, so every value from the file is wiped when this
-/// returns. Entries skipped while reading the file are not counted here.
+/// returns. Entries skipped while reading the file are not counted in
+/// [`CommitReport::skipped`], but make the report [`incomplete`](CommitReport::incomplete).
 ///
 /// An entry that fails is counted in [`CommitReport::failed`] and the
 /// commit goes on with the next one; a failed attachment is counted in
@@ -57,7 +73,10 @@ pub fn commit(
 ) -> Result<CommitReport, SessionError> {
     session.vault_meta(vault_id)?;
     let skip: HashSet<u32> = skip.iter().copied().collect();
-    let mut report = CommitReport::default();
+    let mut report = CommitReport {
+        incomplete: !import.skipped.is_empty(),
+        ..CommitReport::default()
+    };
     // Credentials already in the account (neither value is secret; no key is
     // read), then those written by this commit.
     let mut known: HashSet<(String, Vec<u8>)> = session
@@ -70,6 +89,9 @@ pub fn commit(
         if skip.contains(&entry.index) {
             bump(&mut report.skipped);
             continue;
+        }
+        if entry.warnings.iter().any(EntryWarning::loses_data) {
+            report.incomplete = true;
         }
         let draft = entry.draft;
         if draft.has_item() {

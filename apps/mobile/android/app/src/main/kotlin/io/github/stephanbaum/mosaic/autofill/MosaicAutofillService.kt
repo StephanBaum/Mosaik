@@ -76,7 +76,13 @@ class MosaicAutofillService : AutofillService() {
                     val candidates = planner.candidates(prepared.target)
                     val warning = planner.warning(prepared.target) != null
                     val label = planner.linkLabel(this, prepared.target, prepared.info.callerPackage)
-                    factory.candidatesResponse(prepared.info, candidates.candidates, warning, label)
+                    val links =
+                        if (candidates.candidates.isEmpty() && label != null) {
+                            planner.linkEntries(this, candidates.sessionId, prepared.info.callerPackage)
+                        } else {
+                            emptyList()
+                        }
+                    factory.candidatesResponse(prepared.info, candidates.candidates, warning, label, links)
                 }
             }
         }

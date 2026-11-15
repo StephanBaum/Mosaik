@@ -60,8 +60,8 @@ use mosaic_vault::storage::{Error as StoreError, Store};
 
 pub use autofill::{
     AndroidCaller, AssetLinksStatus, Attr, FieldNode, FieldRefusal, FieldSelection, FillCandidate,
-    FillCandidates, FillMatch, FillTarget, FillTargetKind, FillValues, OriginWarning,
-    ServiceIdentifier, ServiceIdentifierKind,
+    FillCandidates, FillMatch, FillTarget, FillTargetKind, FillValues, LinkCandidate, LinkOffer,
+    LinkReason, MAX_LINK_CANDIDATES, OriginWarning, ServiceIdentifier, ServiceIdentifierKind,
 };
 pub use config::{CoreConfig, CoreContext, Platform};
 pub use error::{MobileError, Result, error_codes};

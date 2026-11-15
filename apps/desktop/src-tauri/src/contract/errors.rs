@@ -142,6 +142,10 @@ wire_enum!(
         ClipboardUnavailable,
         /// The import file could not be read.
         ImportFileUnreadable,
+        /// The export file may only be deleted after its import succeeded.
+        ImportDeleteNotAllowed,
+        /// The export file could not be deleted.
+        ImportDeleteFailed,
         /// The import file is not in the chosen format.
         ImportFormatInvalid,
         /// The import preview is gone (cancelled, locked or too old).

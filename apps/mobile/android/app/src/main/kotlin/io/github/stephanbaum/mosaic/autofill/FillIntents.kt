@@ -64,6 +64,12 @@ object FillIntents {
     /** A dataset tap: answer with the values of one login. */
     const val MODE_FILL = "fill"
 
+    /**
+     * A tap on a link entry: confirm, link the login to the app, then fill (biometric) or link only (fallback
+     * screen). Never from a request alone: the activity reads the caller and the offer again.
+     */
+    const val MODE_LINK = "link"
+
     /** An entry with nothing to do (the app could not be checked): close at once. */
     const val MODE_DISMISS = "dismiss"
 

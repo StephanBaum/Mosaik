@@ -47,6 +47,8 @@ for (const colorScheme of ["light", "dark"] as const) {
       await page.keyboard.press("Control+k");
       await page.getByRole("option", { name: "Import from another app" }).click();
       await expect(page.getByRole("heading", { name: "Import" })).toBeVisible();
+      // The guided flow starts with the source grid (the mock export is an Enpass file).
+      await page.getByRole("button", { name: "Enpass" }).click();
       await page.getByRole("button", { name: "Choose the export file" }).click();
       await page.getByRole("button", { name: "Preview" }).click();
       await expect(page.getByRole("checkbox", { name: /GitHub/ })).not.toBeChecked();

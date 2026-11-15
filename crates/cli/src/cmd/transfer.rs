@@ -33,6 +33,10 @@ fn import_failed() -> CliError {
     CliError::new("importFailed", EXIT_OTHER, Msg::ErrImportFailed)
 }
 
+fn import_too_large() -> CliError {
+    CliError::new("importTooLarge", EXIT_OTHER, Msg::ErrImportTooLarge)
+}
+
 /// Reads an import file through `take(MAX_FILE_LEN + 1)`: a file that grows, a FIFO or a device
 /// cannot make the read unbounded, and the size the file claims is not trusted.
 fn read_file(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
@@ -42,7 +46,7 @@ fn read_file(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
         .map_err(|e| e.unwrap_or_else(|| CliError::file_read(path)))
 }
 
-/// Reads at most `max` bytes from `reader`; more is `importFailed`. `Err(None)` is a read error.
+/// Reads at most `max` bytes from `reader`; more is `importTooLarge`. `Err(None)` is a read error.
 /// `claimed` (the size the source says it has) only sizes the buffer.
 fn read_capped(
     reader: impl Read,
@@ -58,7 +62,7 @@ fn read_capped(
         .read_to_end(&mut bytes)
         .map_err(|_| None)?;
     if bytes.len() as u64 > max {
-        return Err(Some(import_failed()));
+        return Err(Some(import_too_large()));
     }
     Ok(bytes)
 }
@@ -79,6 +83,7 @@ fn parse_file(
         mosaic_import::Error::WrongCredentials => CliError::wrong_credentials(),
         _ => import_failed(),
     };
+    let mut preread: Option<Zeroizing<Vec<u8>>> = None;
     let chosen = match format {
         "mosaicx" => {
             let pass = secret_string(app.prompt.secret(Msg::PromptImportPassphrase, &[])?);
@@ -93,8 +98,22 @@ fn parse_file(
         "keepass" => Format::Keepass,
         "1password" => Format::OnePassword,
         "cxf" => Format::Cxf,
+        "dashlane" => Format::Dashlane,
+        "keeper" => Format::Keeper,
+        "keeper-csv" => Format::KeeperCsv,
+        "protonpass" => Format::ProtonPass,
+        "auto" => {
+            // The content decides; a file nothing recognises is a failed import.
+            let bytes = read_file(path)?;
+            let found = mosaic_import::try_detect(&bytes)
+                .map_err(|_| import_too_large())?
+                .ok_or_else(import_failed)?;
+            preread = Some(bytes);
+            found.format
+        }
         _ => Format::Csv,
     };
+    // A KDBX needs its password; `auto` on a `.kdbx` asks the same way.
     let password = if chosen == Format::Keepass {
         if !p.has("file-password-prompt") {
             return Err(
@@ -107,7 +126,10 @@ fn parse_file(
     } else {
         None
     };
-    let bytes = read_file(path)?;
+    let bytes = match preread {
+        Some(bytes) => bytes,
+        None => read_file(path)?,
+    };
     mosaic_import::parse(chosen, &bytes, password.as_ref()).map_err(map)
 }
 
@@ -375,7 +397,7 @@ mod tests {
         let data = [7u8; 101];
         // The claimed size is not trusted: a file that grows or lies is still capped.
         let err = read_capped(&data[..], 3, 100).err().flatten().unwrap();
-        assert_eq!(err.code, "importFailed");
+        assert_eq!(err.code, "importTooLarge");
         assert_eq!(err.exit, EXIT_OTHER);
     }
 
@@ -385,7 +407,7 @@ mod tests {
             .err()
             .flatten()
             .unwrap();
-        assert_eq!(err.code, "importFailed");
+        assert_eq!(err.code, "importTooLarge");
     }
 
     #[test]

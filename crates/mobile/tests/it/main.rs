@@ -27,6 +27,7 @@ mod g5b_sync_chaos;
 mod items;
 mod join;
 mod lifecycle;
+mod link_offer;
 mod passkeys;
 mod quick_unlock;
 mod settings;

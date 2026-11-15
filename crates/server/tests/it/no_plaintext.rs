@@ -21,11 +21,18 @@ pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
 }
 
-/// Like [`contains`], but the match must not continue with another digit (a whole number).
+/// Like [`contains`], but the match must not continue with another digit (a whole number), and a
+/// needle that starts with `:` (a port) must follow an address: a digit or `]`. A JSON field
+/// such as `"elapsed":51873` is not the port.
 fn contains_number(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty()
         && haystack.windows(needle.len()).enumerate().any(|(i, w)| {
+            let after_address = needle[0] != b':'
+                || i.checked_sub(1)
+                    .and_then(|p| haystack.get(p))
+                    .is_some_and(|b| b.is_ascii_digit() || *b == b']');
             w == needle
+                && after_address
                 && !haystack
                     .get(i + needle.len())
                     .is_some_and(u8::is_ascii_digit)
@@ -74,6 +81,14 @@ fn detector_catches_a_logged_peer_address() {
     ] {
         assert!(needles.iter().all(|n| !contains(line, n)));
     }
+    // The whole-number port check: after an address only, never inside a longer number.
+    assert!(contains_number(b"peer=203.0.113.77:51873 ok", b":51873"));
+    assert!(contains_number(b"addr: [::1]:51873", b":51873"));
+    assert!(!contains_number(
+        br#"{"elapsed":51873,"route":"/v1"}"#,
+        b":51873"
+    ));
+    assert!(!contains_number(b"x 10.0.0.1:518734 y", b":51873"));
 }
 
 #[tokio::test(start_paused = true)]

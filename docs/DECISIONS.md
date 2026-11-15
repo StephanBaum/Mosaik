@@ -5502,6 +5502,7 @@ Brief §4 sets four rules: no fill without a trusted user gesture, exact-origin 
   - **Amendment (M10 G3 red team, G3-6 and housekeeping): DNS names, bounded state.** `canonical_rp_id` requires DNS labels: ASCII letters, digits and hyphens, no leading or trailing hyphen, at most 63 bytes per label (253 in total). Callers: the passkey import (`mosaic-import`, so desktop and CLI imports reach it too) and the mobile passkey calls. `webauthn_rp_id` applies the same DNS-label check at creation (M10-G3 round 2, N1). The asset-links answer cache holds at most 256 entries and evicts the one that expires first. The system pickers' lists open a fill or passkey session per request that nothing uses: `fill_release` and `passkey_release` drop it (the provider calls them right after building the list and on every failed exit of the get flows).
   - **Amendment (M10 RT-android-1): a missing `webScheme` is refused.** A trusted browser's `webDomain` without a `webScheme` is `TargetError::MissingScheme` (`noMatch` on the phone), never read as `https`: the page may be plain `http`.
   - **Amendment (M10-G2-iOS, M3): a QuickType selection fills only after a confirm.** For a tap on a QuickType suggestion (`prepareInterfaceToProvideCredential`) iOS gives the provider the identity (its own domain and record) and not the page the user is on. The core's origin match would compare the identity with itself, so a login saved for `a.example` could be offered for a page of another site that the keyboard showed it on. The conservative choice is taken: the request never fills by itself. The extension opens the interface, shows "Fill the login for <saved site>?" naming the site of the identity, and asks for Face ID or Touch ID only after the explicit confirm; then it fills the identity's login, if the core still lists it as a match for that site. The settings text of OD-M10-7 says so. Alternative rejected: filling at once after Face ID, as a QuickType suggestion normally does (the user cannot see which page the fill is for, and the check proves nothing).
+  - **Amendment (one-tap linking, autofill-everywhere spec §5.5.2).** When a fill request names an app that no login matches, the core offers at most 3 **strong candidates** from the fill session (`fill_link_offer`): a login with `androidapp://<package>` without `cert` whose package equals the caller's byte for byte ("Imported for this app"), or a login with an `https` URL whose host's `assetlinks.json` lists the package and the session's single current signer with `get_login_creds` ("Verified by <host>"). Only hosts whose registrable domain equals the package's web domain (`package_web_domain`: the first three labels reversed, reduced to the registrable domain) are fetched, at most 2 logins are checked and at most 1 uncached fetch (2 s timeout) runs per request; answers are cached 24 hours, transport failures are not. Each candidate is a value-less, authenticated dataset "Link <title> and fill". A tap opens `FillAuthActivity` in `link` mode, which reads the caller again, opens a new fill session and requires the tapped login to be in the new offer. The confirmation is the system biometric prompt (strong biometric), whose title and subtitle name the login, the app label, the package, the first 8 bytes of the signer fingerprint and the reason; on success `link_app_in_fill_session` writes the cert-bound URL with the **session's** signer and `fill_values` fills. Without a strong biometric, a confirm screen with the same identity panel links only and does not fill. Weak cases ("Not verified", "Could not check", no candidate) keep the "No login for <app>" flow. Browsers never get an offer. **Owner decision (imported candidates):** an imported `androidapp://` URL has no certificate, so it is the look-alike threat (a sideloaded app reusing the package). The core keeps offering `LinkReason::ImportedForApp`; the Android side shows such entries only when the app's install source is a trusted store (`com.android.vending`, `com.sec.android.app.samsungapps`) and the confirmation says the app is not verified by the website. The install source counts as trusted only on API 30+ and only when **both** `installingPackageName` and `initiatingPackageName` are trusted: a privileged installer (adb, a shell) can set the installing package to a store, but the initiating package then names the real caller. On API 28 and 29 the initiator is not available, so an imported login gets no one-tap entry there. The same check runs again at the tap. Otherwise the user gets the existing link screen with installer and "Not verified". A same-package app from a trusted store still gets the offer (store review is the only barrier; THREAT_MODEL R164). Alternative rejected: an offer computed from every https login of the vault (one network request per saved host, and the network learns the vault's site list).
 
 ### Alternatives considered
 - **Trust `webDomain` from any app:** any app could ask for any site's password.
@@ -6460,6 +6461,72 @@ own cloud folder, cannot use the Android app. Android has no path-based access t
   listing never causes a false halt.
 - New residual risks R166 to R170 in THREAT_MODEL §5.
 
+## ADR-0165: Onboarding import: detection, deletion and unverified presets
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: onboarding import (`feat/onboarding-import`)
+
+### Context
+A new user has to move their logins in from a browser or another manager in a few steps, see what will not come
+across, and be helped to remove the plaintext export afterwards. Spec
+`docs/superpowers/specs/2026-11-15-onboarding-import-design.md`. No new dependency and no new cryptography: the
+parsers sit on the existing CSV, JSON and bounded ZIP readers of `crates/import`.
+
+### Decision
+- **The format comes from the content.** `detect` (`crates/import/src/detect.rs`) reads the file's content (ZIP
+  member names, JSON keys, CSV header columns) and names the product. The source the user picked is only a hint: a
+  different detected product wins and the UI shows a notice, and an unknown file is refused (`importFormatInvalid`)
+  before any preview. One exception: a Keeper CSV has no header, so it is detected as plain `csv` and the Keeper
+  source previews it as `keeperCsv`.
+- **Delete only what the shell holds, and only after a clean commit.** `import_delete_file` works on a file token
+  the shell created itself (a dialog pick or a drop), never on a path from the webview. The token is deletable only
+  after a **clean** commit (`CommitReport::clean`): nothing failed, no entry was skipped while reading the file, and
+  no imported entry carries a warning that data did not come across (a skipped or missing or oversized attachment,
+  dropped tags or history, passkeys not imported, unreadable, unsupported or over the limit, dropped fields, cut-off
+  notes). Entries the user unticked on purpose do not count. The commit result carries `clean`, and when it is
+  false the UI recommends keeping the file and says some items did not come across completely. The file is opened
+  first without following links (`O_NOFOLLOW`, or `FILE_FLAG_OPEN_REPARSE_POINT` on Windows) and checked on the
+  handle to be a regular file: on Windows only a symlink or a mount point or junction (the reparse tags that are
+  name surrogates, read by std) is refused, so a cloud placeholder of OneDrive, Google Drive or Dropbox (a Cloud
+  Files reparse point) is deleted like any file. The handle's identity must equal the one recorded when the file was
+  read for the preview (length and modification time; device and inode on Unix; creation time on Windows, where the
+  volume serial number and file index are unstable in std); a file replaced or edited since is refused with
+  `importDeleteNotAllowed` before the first byte is written. Then it is overwritten once with zeros through that
+  handle, flushed and removed. A file already gone counts as deleted. The UI never says
+  "securely erased": it says the file was overwritten and deleted, always adds that SSDs, backups, version history
+  and the recycle bin can keep older copies, and names the cloud service when the folder is synced (OneDrive Known
+  Folder Move, Dropbox, Google Drive, Box, iCloud).
+- **Login URLs that are not an origin stay as text.** A web address the origin matcher would refuse as a login URL
+  is kept in a text field (`UrlKeptAsText`), so the item never fills on a page it should not.
+- **Drops are handled in Rust.** The window's drag-and-drop event is taken in the shell (one regular file, unlocked
+  session only), which stores the path behind a token and emits the token and the file name. The webview never gets
+  a path or the contents. No Downloads watcher, no deep link or URL scheme, no import on mobile.
+- **Presets are written from public descriptions and marked unverified.** LastPass, NordPass, RoboForm, KeePassXC
+  and Dashlane (CSV presets), Dashlane ZIP, Keeper and Proton Pass were written from public format descriptions,
+  not from real current exports and not from GPL importers. Each carries `// unverified against a current export
+  (launch gate)` and an item in the launch-gate checklist in `docs/PROGRESS.md`. Header drift keeps unknown
+  columns as custom fields.
+- **Encrypted exports are refused.** A PGP-encrypted Proton Pass export, a Dashlane `.dash` file and a
+  password-protected Bitwarden export return `Error::Encrypted`; the guides tell the user which unencrypted
+  export to make.
+- **Bounded and fuzzed.** Every parser entry point has limits (file, entries, columns, depth, nodes, fields, ZIP
+  members and ratio) and one fuzz target. The ZIP ratio is computed from the bytes actually read from the archive
+  while a member is inflated (a counting reader), never from the `compressed_size` its header declares, and an
+  archive whose entries overlap (`has_overlapping_entries`) is malformed. Once an entry holds the field cap, further
+  URLs and tags are refused before any scan or parse. `try_detect` tells a file over the size limit ("too large")
+  from one nothing recognizes; a login URL with a punycode host gets the entry warning `IdnHost` (imported as it is).
+
+### Alternatives considered
+- **Trust the picked source:** a wrong pick would run the wrong parser over a file; detection is cheap and safer.
+- **Delete by path from the webview:** a compromised webview could delete any file; tokens make it impossible.
+- **Check the path, then open it:** a symlink swapped in between would be overwritten; open first, check the handle.
+- **Claim secure erasure:** false on SSDs, copy-on-write file systems and synced folders.
+
+### Consequences
+THREAT_MODEL §4.1 (import rows) and R194 to R196. The launch-gate checklist in `docs/PROGRESS.md` ("Onboarding
+import: launch gate") must be done before the guides and presets are described as supported without reservation.
+
 ## ADR-0166: Provider stores keep to the folder; test hooks are test-only
 
 - Status: accepted
@@ -6487,8 +6554,8 @@ them inside the chosen folder, and the provider client has a loopback `http` swi
   token is stored before the new access token is used (R199). Dropbox uploads are single requests (at most
   150 MiB); Graph uses an upload session above 4 MiB with 3 276 800-byte chunks.
 - **Test hooks.** `RemoteHttp::new()` is the only production constructor (https only). `new_loopback()` exists
-  only in test builds or with the `test-util` feature, and `mosaic-sync` refuses to compile with `test-util` in a
-  release build (R200).
+  only in test builds or in debug builds with the `test-util` feature, so no release build has it, with or without
+  `test-util` (CI release test runs enable `test-util` through dev-dependencies) (R200).
 - **Store schema v14** adds the device-local `folder_remote` table (CRYPTO_SPEC section 11).
 - **Open items resolved after the red team.** Graph write-once now goes through `createUploadSession` with
   `conflictBehavior: fail` (documented) for every size; a simple `PUT` is used only for replacing. A WebDAV 401 is

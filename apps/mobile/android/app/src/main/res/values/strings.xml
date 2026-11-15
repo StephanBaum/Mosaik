@@ -135,6 +135,7 @@
   <string name="mobile_about_privacy">No analytics, no tracking and no crash reports leave this phone.</string>
   <string name="mobile_app_name">Mosaic</string>
   <string name="mobile_autofill_cannotCheck">Could not check this app</string>
+  <string name="mobile_autofill_linkEntry">Link %1$s and fill</string>
   <string name="mobile_autofill_noLogin">No login for %1$s</string>
   <string name="mobile_autofill_noLoginHint">Tap to link a login</string>
   <string name="mobile_autofill_noUsername">No user name</string>
@@ -302,8 +303,13 @@
   <string name="mobile_link_checking">Checking the website</string>
   <string name="mobile_link_choose">Choose the app to link to %1$s.</string>
   <string name="mobile_link_confirm">Fill %1$s in this app from now on</string>
+  <string name="mobile_link_confirmFallbackHint">After linking, tap the field again to fill it.</string>
+  <string name="mobile_link_confirmSubtitle">App ID %1$s · Signature %2$s</string>
+  <string name="mobile_link_confirmTitle">Link %1$s to %2$s?</string>
   <string name="mobile_link_done">Linked. Mosaic fills %1$s in this app.</string>
   <string name="mobile_link_filter">Find an app</string>
+  <string name="mobile_link_imported">Imported for this app</string>
+  <string name="mobile_link_importedNotVerified">Imported login. The website has not confirmed this app.</string>
   <string name="mobile_link_installer">Installed from</string>
   <string name="mobile_link_installerUnknown">Unknown source</string>
   <string name="mobile_link_noApps">No other apps found.</string>

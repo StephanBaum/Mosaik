@@ -12,21 +12,27 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use mosaic_core::SecretString;
 use mosaic_core::model::ItemType;
-use mosaic_import::{EntryWarning, Format, MAX_FILE_LEN, SkipReason};
+use mosaic_import::{EntryWarning, Format, MAX_FILE_LEN, SkipReason, Source, detect};
 use mosaic_vault::session::{ItemFilter, UnlockedSession};
 use zeroize::Zeroizing;
 
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::import::{
-    ImportCommitRequest, ImportCount, ImportDuplicate, ImportEntry, ImportEntryWarning,
-    ImportFormat, ImportPreview, ImportResult, ImportSkipReason, ImportSkipped, ImportWarning,
+    ImportCommitRequest, ImportCount, ImportDetected, ImportDetectedSource, ImportDuplicate,
+    ImportEntry, ImportEntryWarning, ImportFormat, ImportPreview, ImportResult, ImportSkipReason,
+    ImportSkipped, ImportWarning,
 };
 use crate::contract::items::ItemKind;
+use crate::export_cleanup::FileIdentity;
 use crate::state::guard;
 
 /// The parsed export kept between `import_preview` and `import_commit`.
 struct Held {
     preview_id: String,
+    /// The file token the import was read from.
+    file_token: String,
+    /// What the file was when it was read.
+    identity: FileIdentity,
     // Dropping the import wipes every value from the file.
     import: mosaic_import::Import,
 }
@@ -50,9 +56,26 @@ impl ImportService {
         file: &Path,
         format: ImportFormat,
         password: Option<&SecretString>,
-    ) -> IpcResult<mosaic_import::Import> {
-        let bytes = read_export(file)?;
-        mosaic_import::parse(format_of(format), &bytes, password).map_err(map_error)
+    ) -> IpcResult<(mosaic_import::Import, FileIdentity)> {
+        let (bytes, identity) = read_export(file)?;
+        let import =
+            mosaic_import::parse(format_of(format), &bytes, password).map_err(map_error)?;
+        Ok((import, identity))
+    }
+
+    /// Says what `file` is, from its content only. Nothing of the content
+    /// is returned: the product and the format.
+    ///
+    /// # Errors
+    /// `importFileUnreadable`, `importTooLarge`.
+    pub fn detect(&self, file: &Path) -> IpcResult<ImportDetected> {
+        let (bytes, _) = read_export(file)?;
+        let found = detect(&bytes);
+        Ok(ImportDetected {
+            source: found.and_then(|d| wire_source(d.source)),
+            format: found.map(|d| wire_format(d.format)),
+            synced_folder: crate::export_cleanup::synced_folder_of(file),
+        })
     }
 
     /// Runs the duplicate pass against the session and keeps the import,
@@ -63,20 +86,25 @@ impl ImportService {
     pub fn hold(
         &self,
         import: mosaic_import::Import,
+        identity: FileIdentity,
         session: &UnlockedSession,
+        file_token: &str,
     ) -> IpcResult<ImportPreview> {
         let preview = import.preview(&session.items(&ItemFilter::default()));
         let id = format!("preview-{}", self.next.fetch_add(1, Ordering::Relaxed) + 1);
         let wire = to_wire(&id, wire_format(import.format), &preview);
         *guard(&self.held)? = Some(Held {
             preview_id: id,
+            file_token: file_token.to_owned(),
+            identity,
             import,
         });
         Ok(wire)
     }
 
     /// Writes the held entries (minus `skip`) into the target vault and
-    /// drops the import.
+    /// drops the import. Returns the result, the token of the file it was
+    /// read from and that file's identity when it was read.
     ///
     /// # Errors
     /// `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable`.
@@ -84,7 +112,7 @@ impl ImportService {
         &self,
         request: &ImportCommitRequest,
         session: &mut UnlockedSession,
-    ) -> IpcResult<ImportResult> {
+    ) -> IpcResult<(ImportResult, String, FileIdentity)> {
         let held = guard(&self.held)?
             .take_if(|h| h.preview_id == request.preview_id)
             .ok_or(IpcError::new(ErrorCode::ImportPreviewExpired))?;
@@ -94,13 +122,18 @@ impl ImportService {
             request.target_vault_id.get(),
             &request.skip,
         )?;
-        Ok(ImportResult {
-            imported: report.imported,
-            skipped: report.skipped,
-            failed: report.failed,
-            attachments: report.attachments,
-            attachments_failed: report.attachments_failed,
-        })
+        Ok((
+            ImportResult {
+                imported: report.imported,
+                skipped: report.skipped,
+                failed: report.failed,
+                attachments: report.attachments,
+                attachments_failed: report.attachments_failed,
+                clean: report.clean(),
+            },
+            held.file_token,
+            held.identity,
+        ))
     }
 
     /// Drops the import if its ID matches (no-op otherwise).
@@ -119,25 +152,26 @@ impl ImportService {
 }
 
 /// Reads an export into a zeroizing buffer of exactly its size, so the
-/// buffer never reallocates and leaves a stale copy behind.
-fn read_export(path: &Path) -> IpcResult<Zeroizing<Vec<u8>>> {
+/// buffer never reallocates and leaves a stale copy behind. Also returns
+/// the identity of the file that was opened (the delete checks it).
+fn read_export(path: &Path) -> IpcResult<(Zeroizing<Vec<u8>>, FileIdentity)> {
     let unreadable = || IpcError::new(ErrorCode::ImportFileUnreadable);
-    let len = std::fs::metadata(path).map_err(|_| unreadable())?.len();
+    let file = File::open(path).map_err(|_| unreadable())?;
+    let meta = file.metadata().map_err(|_| unreadable())?;
+    let len = meta.len();
     if len > MAX_FILE_LEN as u64 {
         return Err(IpcError::new(ErrorCode::ImportTooLarge));
     }
     let len = usize::try_from(len).map_err(|_| unreadable())?;
     let mut buf = Zeroizing::new(Vec::with_capacity(len.saturating_add(1)));
-    File::open(path)
-        .map_err(|_| unreadable())?
-        .take(len as u64 + 1)
+    file.take(len as u64 + 1)
         .read_to_end(&mut buf)
         .map_err(|_| unreadable())?;
     if buf.len() > len {
         // The file grew while it was read.
         return Err(unreadable());
     }
-    Ok(buf)
+    Ok((buf, FileIdentity::of(&meta)))
 }
 
 const fn format_of(format: ImportFormat) -> Format {
@@ -147,6 +181,10 @@ const fn format_of(format: ImportFormat) -> Format {
         ImportFormat::Keepass => Format::Keepass,
         ImportFormat::OnePassword => Format::OnePassword,
         ImportFormat::Cxf => Format::Cxf,
+        ImportFormat::Dashlane => Format::Dashlane,
+        ImportFormat::Keeper => Format::Keeper,
+        ImportFormat::KeeperCsv => Format::KeeperCsv,
+        ImportFormat::ProtonPass => Format::ProtonPass,
         ImportFormat::Csv => Format::Csv,
     }
 }
@@ -158,8 +196,36 @@ const fn wire_format(format: Format) -> ImportFormat {
         Format::Keepass => ImportFormat::Keepass,
         Format::OnePassword => ImportFormat::OnePassword,
         Format::Cxf => ImportFormat::Cxf,
+        Format::Dashlane => ImportFormat::Dashlane,
+        Format::Keeper => ImportFormat::Keeper,
+        Format::KeeperCsv => ImportFormat::KeeperCsv,
+        Format::ProtonPass => ImportFormat::ProtonPass,
         Format::Csv => ImportFormat::Csv,
     }
+}
+
+fn wire_source(source: Source) -> Option<ImportDetectedSource> {
+    use ImportDetectedSource as W;
+    Some(match source {
+        Source::Chromium => W::Chromium,
+        Source::Firefox => W::Firefox,
+        Source::Safari => W::Safari,
+        Source::BitwardenCsv => W::BitwardenCsv,
+        Source::Bitwarden => W::Bitwarden,
+        Source::Enpass => W::Enpass,
+        Source::KeePass => W::Keepass,
+        Source::KeePassXcCsv => W::KeepassxcCsv,
+        Source::OnePassword => W::OnePassword,
+        Source::Cxf => W::Cxf,
+        Source::LastPass => W::Lastpass,
+        Source::Dashlane => W::Dashlane,
+        Source::Keeper => W::Keeper,
+        Source::NordPass => W::Nordpass,
+        Source::ProtonPass => W::ProtonPass,
+        Source::RoboForm => W::Roboform,
+        Source::Csv => W::Csv,
+        _ => return None,
+    })
 }
 
 fn map_error(error: mosaic_import::Error) -> IpcError {
@@ -193,6 +259,8 @@ fn entry_warning(warning: EntryWarning) -> Option<ImportEntryWarning> {
         EntryWarning::PasskeyUnsupported => ImportEntryWarning::PasskeyUnsupported,
         EntryWarning::PasskeysLimit => ImportEntryWarning::PasskeysLimit,
         EntryWarning::NotesTruncated => ImportEntryWarning::NotesTruncated,
+        EntryWarning::UrlKeptAsText => ImportEntryWarning::UrlKeptAsText,
+        EntryWarning::IdnHost => ImportEntryWarning::IdnHost,
         _ => return None,
     })
 }

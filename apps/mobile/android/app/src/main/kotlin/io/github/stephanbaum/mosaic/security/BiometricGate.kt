@@ -81,6 +81,40 @@ class BiometricGate {
             builder.build().authenticate(BiometricPrompt.CryptoObject(cipher), signal, executor, callback)
         }
 
+    /**
+     * Asks the user to confirm one action with a strong biometric, no key involved (the one-tap link, ADR-0092
+     * amendment). [description] is the third line of the prompt. True only when the user authenticated; Cancel,
+     * the negative button and every error give false. Call it on the main thread.
+     */
+    suspend fun confirm(context: Context, text: PromptText, description: String): Boolean =
+        suspendCancellableCoroutine { continuation ->
+            val signal = CancellationSignal()
+            continuation.invokeOnCancellation { signal.cancel() }
+            val executor = context.mainExecutor
+            val builder =
+                BiometricPrompt.Builder(context)
+                    .setTitle(text.title)
+                    .setSubtitle(text.subtitle)
+                    .setDescription(description)
+                    .setNegativeButton(text.negativeButton, executor) { _, _ ->
+                        if (continuation.isActive) continuation.resume(false)
+                    }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            }
+            val callback =
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        if (continuation.isActive) continuation.resume(true)
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        if (continuation.isActive) continuation.resume(false)
+                    }
+                }
+            builder.build().authenticate(signal, executor, callback)
+        }
+
     private companion object {
         // BiometricPrompt.BIOMETRIC_ERROR_CANCELED and BIOMETRIC_ERROR_USER_CANCELED.
         const val ERROR_CANCELED = 5

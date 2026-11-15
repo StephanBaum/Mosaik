@@ -7,7 +7,9 @@ use mosaic_core::model::LoginUrl;
 use crate::android_browsers::{
     first_cert, is_trusted_browser, package_count, privileged_browsers_json,
 };
-use crate::app::{AndroidAppUrl, AppUrlError, app_fill_allowed, is_valid_package_name};
+use crate::app::{
+    AndroidAppUrl, AppUrlError, app_fill_allowed, is_valid_package_name, package_web_domain,
+};
 use crate::assetlinks::{
     AssetLinksError, MAX_ASSET_LINKS_LEN, MAX_STATEMENTS, Relation, app_is_delegated,
     app_is_delegated_for_passkeys, parse_asset_links,
@@ -669,4 +671,44 @@ fn loopback_http_needs_allow_http_only_under_the_strict_policy() {
         Err(Refusal::Insecure)
     );
     assert!(fill_allowed_with(&saved(true), &page, HttpPolicy::LoopbackNeedsAllowHttp).is_ok());
+}
+
+#[test]
+fn package_web_domain_reverses_up_to_three_labels() {
+    assert_eq!(
+        package_web_domain("com.github.android").as_deref(),
+        Some("github.com")
+    );
+    assert_eq!(
+        package_web_domain("com.google.android.gm").as_deref(),
+        Some("google.com")
+    );
+    assert_eq!(
+        package_web_domain("uk.co.bbc.iplayer").as_deref(),
+        Some("bbc.co.uk")
+    );
+    assert_eq!(
+        package_web_domain("com.example").as_deref(),
+        Some("example.com")
+    );
+    assert_eq!(
+        package_web_domain("de.dkb.portalapp").as_deref(),
+        Some("dkb.de")
+    );
+    assert_eq!(
+        package_web_domain("Com.GitHub.Android").as_deref(),
+        Some("github.com")
+    );
+}
+
+#[test]
+fn package_web_domain_refuses_what_is_no_domain() {
+    for p in ["com", "", "com.my_app.x", "co.uk", "com..x", "bad package!"] {
+        assert_eq!(package_web_domain(p), None, "{p}");
+    }
+    // A look-alike package points at its own domain, never at the real one.
+    assert_eq!(
+        package_web_domain("com.githuh.android").as_deref(),
+        Some("githuh.com")
+    );
 }

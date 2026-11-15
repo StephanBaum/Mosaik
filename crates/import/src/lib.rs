@@ -1,6 +1,12 @@
 //! Importers for Enpass JSON, Bitwarden JSON, KeePass KDBX 4, 1Password 1PUX,
 //! Mosaic's own encrypted export ([`mosaic_export`]),
-//! FIDO CXF v1.0 JSON and CSV (brief §5 "Import/export").
+//! FIDO CXF v1.0 JSON and CSV (brief §5 "Import/export"), plus the
+//! exports of Dashlane (zip of CSV), Keeper (JSON and CSV), Proton Pass
+//! (unencrypted), and the CSV presets of `LastPass`, `NordPass`, `RoboForm`,
+//! `KeePassXC` and the browsers. [`detect`] tells the format from the file's
+//! content. The presets and formats added for onboarding were written from
+//! public format descriptions and are unverified against a current export
+//! (launch gate).
 //!
 //! Each importer reads an export file into an [`Import`]: one
 //! [`ImportEntry`] per item, each an [`ItemDraft`] that becomes a
@@ -54,12 +60,16 @@
 //! Mosaic is pre-audit.
 #![forbid(unsafe_code)]
 
+mod archive;
 mod buf;
 mod commit;
+mod detect;
 mod draft;
 mod entries;
 mod error;
 mod json;
+mod lastpass;
+mod nordpass;
 mod otp;
 mod passkey;
 mod preview;
@@ -68,14 +78,18 @@ mod url;
 pub mod bitwarden;
 pub mod csv;
 pub mod cxf;
+pub mod dashlane;
 pub mod enpass;
 pub mod kdbx;
+pub mod keeper;
 pub mod mosaic_export;
 pub mod onepux;
+pub mod proton_pass;
 
 use mosaic_core::SecretString;
 
 pub use commit::{CommitReport, commit};
+pub use detect::{Detected, Source, detect, try_detect};
 pub use draft::{
     Attachment, EntryWarning, ItemDraft, MAX_ATTACHMENTS_PER_ENTRY, MAX_FIELDS_PER_ENTRY,
     MAX_IMPORT_ATTACHMENT_BYTES, MAX_IMPORT_PASSKEYS, MAX_PASSKEYS_PER_ENTRY, PasskeyDraft,
@@ -100,6 +114,16 @@ pub enum Format {
     OnePassword,
     /// FIDO Credential Exchange Format v1.0, JSON (passkeys and passwords).
     Cxf,
+    /// Dashlane CSV export: a zip of CSV files.
+    Dashlane,
+    /// Keeper JSON export.
+    Keeper,
+    /// Keeper CSV export (no header row; never detected from content,
+    /// chosen by the user's source).
+    KeeperCsv,
+    /// Proton Pass export: a zip with `Proton Pass/data.json`, or that
+    /// `data.json` itself; unencrypted only.
+    ProtonPass,
     /// CSV with a header row; columns are mapped automatically
     /// ([`csv::CsvMapping::detect`]).
     Csv,
@@ -121,6 +145,10 @@ pub fn parse(format: Format, input: &[u8], password: Option<&SecretString>) -> R
         Format::Keepass => kdbx::parse(input, password.ok_or(Error::PasswordRequired)?),
         Format::OnePassword => onepux::parse(input),
         Format::Cxf => cxf::parse(input),
+        Format::Dashlane => dashlane::parse(input),
+        Format::Keeper => keeper::parse_json(input),
+        Format::KeeperCsv => keeper::parse_csv(input),
+        Format::ProtonPass => proton_pass::parse(input),
         Format::Csv => csv::parse(input, None),
     }
 }

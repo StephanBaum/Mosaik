@@ -67,6 +67,23 @@ pub enum CsvPreset {
     Safari,
     /// Bitwarden CSV: `folder,favorite,type,name,notes,fields,…,login_uri,…`.
     Bitwarden,
+    /// `LastPass`: `url,username,password,totp,extra,name,grouping,fav`;
+    /// secure notes use the URL `http://sn`.
+    // unverified against a current export (launch gate)
+    LastPass,
+    /// `NordPass`: `name,url,additional_urls,username,password,note,...,type,custom_fields`.
+    // unverified against a current export (launch gate)
+    NordPass,
+    /// Dashlane `credentials.csv`:
+    /// `username,username2,username3,title,password,note,url,category,otpSecret`.
+    // unverified against a current export (launch gate)
+    Dashlane,
+    /// `RoboForm`: `Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2`.
+    // unverified against a current export (launch gate)
+    RoboForm,
+    /// `KeePassXC`: `Group,Title,Username,Password,URL,Notes,TOTP,Icon,...`.
+    // unverified against a current export (launch gate)
+    KeePassXc,
 }
 
 /// A mapping of every column of the header row.
@@ -86,15 +103,25 @@ impl CsvMapping {
         let columns = header.iter().map(|h| column_for(h, preset)).collect();
         (Self { columns }, preset)
     }
+
+    /// The mapping for a header row of a known `preset`, even if the header
+    /// lacks some of the columns detection looks for.
+    pub(crate) fn for_preset(header: &[&str], preset: CsvPreset) -> Self {
+        Self {
+            columns: header.iter().map(|h| column_for(h, Some(preset))).collect(),
+        }
+    }
 }
 
-fn normalized(h: &str) -> String {
+pub(crate) fn normalized(h: &str) -> String {
     h.trim()
         .trim_start_matches('\u{feff}')
         .to_lowercase()
         .replace(['_', '-'], " ")
 }
 
+// The RoboForm and KeePassXC header tables below follow public format
+// descriptions: unverified against a current export (launch gate).
 fn detect_preset(header: &[&str]) -> Option<CsvPreset> {
     let h: Vec<String> = header.iter().map(|s| normalized(s)).collect();
     let has = |names: &[&str]| names.iter().all(|n| h.iter().any(|x| x == n));
@@ -102,6 +129,34 @@ fn detect_preset(header: &[&str]) -> Option<CsvPreset> {
         Some(CsvPreset::Bitwarden)
     } else if has(&["httprealm", "formactionorigin", "guid"]) {
         Some(CsvPreset::Firefox)
+    } else if has(&["url", "username", "password", "extra", "name", "grouping"]) {
+        Some(CsvPreset::LastPass)
+    } else if has(&[
+        "name",
+        "url",
+        "username",
+        "password",
+        "note",
+        "folder",
+        "type",
+        "cardnumber",
+    ]) {
+        Some(CsvPreset::NordPass)
+    } else if has(&["name", "url", "matchurl", "login", "pwd"]) {
+        Some(CsvPreset::RoboForm)
+    } else if has(&[
+        "username",
+        "username2",
+        "username3",
+        "title",
+        "password",
+        "note",
+        "url",
+        "category",
+    ]) {
+        Some(CsvPreset::Dashlane)
+    } else if has(&["group", "title", "username", "password", "url", "notes"]) {
+        Some(CsvPreset::KeePassXc)
     } else if has(&["title", "url", "username", "password", "otpauth"]) {
         Some(CsvPreset::Safari)
     } else if h == ["name", "url", "username", "password", "note"]
@@ -129,6 +184,27 @@ fn column_for(header: &str, preset: Option<CsvPreset>) -> CsvColumn {
         return CsvColumn::Ignore;
     }
     if preset == Some(CsvPreset::Bitwarden) && matches!(h.as_str(), "type" | "reprompt" | "fields")
+    {
+        return CsvColumn::Ignore;
+    }
+    if preset == Some(CsvPreset::RoboForm) {
+        match h.as_str() {
+            "matchurl" => return CsvColumn::Url,
+            "pwd" => return CsvColumn::Password,
+            "rffieldsv2" => return CsvColumn::Hidden("RoboForm fields".to_owned()),
+            _ => {}
+        }
+    }
+    if preset == Some(CsvPreset::Dashlane) {
+        match h.as_str() {
+            "username2" => return CsvColumn::Text("Username 2".to_owned()),
+            "username3" => return CsvColumn::Text("Username 3".to_owned()),
+            "otpsecret" | "otpurl" => return CsvColumn::Otp,
+            _ => {}
+        }
+    }
+    if preset == Some(CsvPreset::KeePassXc)
+        && matches!(h.as_str(), "icon" | "last modified" | "created")
     {
         return CsvColumn::Ignore;
     }
@@ -160,36 +236,103 @@ fn column_for(header: &str, preset: Option<CsvPreset>) -> CsvColumn {
 /// an unterminated quoted field or more than [`MAX_COLUMNS`] columns;
 /// [`Error::TooLarge`], [`Error::LimitExceeded`].
 pub fn parse(input: &[u8], mapping: Option<&CsvMapping>) -> Result<Import> {
-    if input.len() > crate::MAX_FILE_LEN {
-        return Err(Error::TooLarge);
-    }
-    let text = core::str::from_utf8(input).map_err(|_| Error::Malformed)?;
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let delimiter = detect_delimiter(text);
-    let mut rows = Rows {
-        rest: text,
-        delimiter,
-    };
+    let mut rows = rows(input)?;
     let header = rows.next_row()?.ok_or(Error::Malformed)?;
+    let names: Vec<String> = header.iter().map(|s| normalized(s)).collect();
     let detected;
-    let mapping = if let Some(m) = mapping {
-        m
+    let (mapping, preset) = if let Some(m) = mapping {
+        (m, None)
     } else {
-        let names: Vec<&str> = header.iter().map(|s| s.as_str()).collect();
-        detected = CsvMapping::detect(&names).0;
-        &detected
+        let h: Vec<&str> = header.iter().map(|s| s.as_str()).collect();
+        let (m, preset) = CsvMapping::detect(&h);
+        detected = m;
+        (&detected, preset)
     };
     let mut c = Collector::new(Format::Csv);
     while let Some(row) = rows.next_row()? {
         if row.iter().all(|v| v.trim().is_empty()) {
             continue;
         }
-        c.push(entry(&row, mapping))?;
+        let builder = match preset {
+            Some(CsvPreset::LastPass) => {
+                crate::lastpass::entry(&Named::new(&header, &names, &row), &row, mapping)
+            }
+            Some(CsvPreset::NordPass) => {
+                match crate::nordpass::entry(&Named::new(&header, &names, &row)) {
+                    Some(b) => b,
+                    // A folder row is not an entry.
+                    None => continue,
+                }
+            }
+            _ => entry(&row, mapping, preset),
+        };
+        c.push(builder)?;
     }
     Ok(c.finish())
 }
 
-fn entry(row: &[Str], mapping: &CsvMapping) -> Builder {
+/// A CSV file as records: size check, UTF-8 (anything else is
+/// [`Error::Malformed`]), byte order mark and delimiter handled.
+pub(crate) fn rows(input: &[u8]) -> Result<Rows<'_>> {
+    if input.len() > crate::MAX_FILE_LEN {
+        return Err(Error::TooLarge);
+    }
+    let text = core::str::from_utf8(input).map_err(|_| Error::Malformed)?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    Ok(Rows {
+        rest: text,
+        delimiter: detect_delimiter(text),
+    })
+}
+
+/// The columns of one row by normalized header name.
+pub(crate) struct Named<'a> {
+    labels: &'a [Str],
+    names: &'a [String],
+    row: &'a [Str],
+}
+
+impl<'a> Named<'a> {
+    pub(crate) const fn new(labels: &'a [Str], names: &'a [String], row: &'a [Str]) -> Self {
+        Self { labels, names, row }
+    }
+
+    /// The value of the column named `name` (normalized), `""` if the
+    /// header has no such column or the row is short.
+    pub(crate) fn get(&self, name: &str) -> &'a str {
+        self.names
+            .iter()
+            .position(|n| n == name)
+            .and_then(|i| self.row.get(i))
+            .map_or("", |v| v.as_str())
+    }
+
+    /// The original label and value of every non-blank column whose
+    /// normalized name is not in `known`.
+    pub(crate) fn others(&self, known: &[&str]) -> impl Iterator<Item = (&'a str, &'a str)> {
+        self.labels
+            .iter()
+            .zip(self.names)
+            .zip(self.row)
+            .filter(move |((_, name), value)| {
+                !value.trim().is_empty() && !known.contains(&name.as_str())
+            })
+            .map(|((label, _), value)| (label.as_str(), value.as_str()))
+    }
+}
+
+/// The tag for a folder value of `preset`.
+fn folder_tag(preset: Option<CsvPreset>, v: &str) -> Option<&str> {
+    let tag = match preset {
+        Some(CsvPreset::RoboForm) => v.trim().trim_start_matches('/'),
+        // The first path part is the database's root group.
+        Some(CsvPreset::KeePassXc) => v.split_once('/').map(|(_, rest)| rest)?,
+        _ => v,
+    };
+    (!tag.trim().is_empty()).then_some(tag)
+}
+
+pub(crate) fn entry(row: &[Str], mapping: &CsvMapping, preset: Option<CsvPreset>) -> Builder {
     let mut b = Builder::new(ItemType::Login);
     let mut title_set = false;
     let mut first_url: Option<&str> = None;
@@ -211,8 +354,8 @@ fn entry(row: &[Str], mapping: &CsvMapping) -> Builder {
             CsvColumn::Notes => b.notes(v),
             CsvColumn::Otp => b.otp_text(v, "One-time password"),
             CsvColumn::Folder => {
-                if !v.trim().is_empty() {
-                    b.tag(v);
+                if let Some(tag) = folder_tag(preset, v) {
+                    b.tag(tag);
                 }
             }
             CsvColumn::Tags => {
@@ -262,14 +405,14 @@ fn detect_delimiter(text: &str) -> char {
 }
 
 /// An RFC 4180 record reader.
-struct Rows<'a> {
+pub(crate) struct Rows<'a> {
     rest: &'a str,
     delimiter: char,
 }
 
 impl Rows<'_> {
     /// The next record, or `None` at the end of the input.
-    fn next_row(&mut self) -> Result<Option<Vec<Str>>> {
+    pub(crate) fn next_row(&mut self) -> Result<Option<Vec<Str>>> {
         if self.rest.is_empty() {
             return Ok(None);
         }
