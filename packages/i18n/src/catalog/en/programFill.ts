@@ -39,4 +39,32 @@ export const programFill = {
   "programFill.notice.notResponding":
     "This program didn't answer in time. Nothing more was filled.",
   "programFill.notice.close": "Close",
+  // Settings
+  "programFill.settings.title": "Fill in programs",
+  "programFill.settings.description":
+    "Mosaic watches which field has focus in other programs on this device to offer your logins there. Nothing is stored or sent.",
+  "programFill.settings.enable": "Offer logins in programs",
+  "programFill.settings.submit": "Sign in after filling",
+  "programFill.settings.hotkey": "Shortcut to open the list",
+  "programFill.settings.hotkeyNone": "No shortcut",
+  "programFill.settings.hotkeySave": "Save list shortcut",
+  "programFill.settings.blocked": "Programs Mosaic doesn't offer logins for",
+  "programFill.settings.blockedNone": "None",
+  "programFill.settings.unblock": "Offer again",
+  "programFill.settings.notWindows": "Only on Windows for now.",
+  "programFill.settings.mosaicElevated":
+    "Mosaic runs as administrator, so it doesn't fill programs. Start it normally.",
+  "programFill.settings.hostFailed":
+    "Mosaic couldn't start watching programs. Restart Mosaic to try again.",
+  // The card after the first unlock
+  "programFill.card.title": "Fill logins in programs too",
+  "programFill.card.turnOn": "Turn on",
+  "programFill.card.notNow": "Not now",
+  // A program binding in an item
+  "programFill.item.program": "Program",
+  "programFill.item.storeApp": "Store app",
+  "programFill.item.signedBy": "Signed by {signer}",
+  "programFill.item.unsigned": "Not signed: {path}",
+  "programFill.item.submit": "Sign in after filling",
+  "programFill.item.unlink": "Unlink",
 } as const satisfies Record<string, string>;

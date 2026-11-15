@@ -43,4 +43,32 @@ export const programFill = {
   "programFill.notice.notResponding":
     "Dieses Programm hat nicht rechtzeitig reagiert. Es wurde nichts weiter ausgefüllt.",
   "programFill.notice.close": "Schließen",
+  // Einstellungen
+  "programFill.settings.title": "In Programmen ausfüllen",
+  "programFill.settings.description":
+    "Mosaic beobachtet auf diesem Gerät, welches Feld in anderen Programmen den Fokus hat, um dir dort deine Logins anzubieten. Nichts wird gespeichert oder gesendet.",
+  "programFill.settings.enable": "Logins in Programmen anbieten",
+  "programFill.settings.submit": "Nach dem Ausfüllen anmelden",
+  "programFill.settings.hotkey": "Tastenkürzel für die Liste",
+  "programFill.settings.hotkeyNone": "Kein Tastenkürzel",
+  "programFill.settings.hotkeySave": "Kürzel für die Liste speichern",
+  "programFill.settings.blocked": "Programme, für die Mosaic keine Logins anbietet",
+  "programFill.settings.blockedNone": "Keine",
+  "programFill.settings.unblock": "Wieder anbieten",
+  "programFill.settings.notWindows": "Vorerst nur unter Windows.",
+  "programFill.settings.mosaicElevated":
+    "Mosaic läuft als Administrator und füllt deshalb keine Programme aus. Starte es normal.",
+  "programFill.settings.hostFailed":
+    "Mosaic konnte das Beobachten von Programmen nicht starten. Starte Mosaic neu, um es noch einmal zu versuchen.",
+  // Die Karte nach dem ersten Entsperren
+  "programFill.card.title": "Logins auch in Programmen ausfüllen",
+  "programFill.card.turnOn": "Einschalten",
+  "programFill.card.notNow": "Nicht jetzt",
+  // Eine Programmverknüpfung in einem Eintrag
+  "programFill.item.program": "Programm",
+  "programFill.item.storeApp": "Store-App",
+  "programFill.item.signedBy": "Signiert von {signer}",
+  "programFill.item.unsigned": "Nicht signiert: {path}",
+  "programFill.item.submit": "Nach dem Ausfüllen anmelden",
+  "programFill.item.unlink": "Verknüpfung lösen",
 } as const satisfies Record<keyof typeof en, string>;

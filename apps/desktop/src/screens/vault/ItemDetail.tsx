@@ -147,7 +147,7 @@ function DetailBody({
   return (
     <>
       {isDocument && files}
-      <DetailFields detail={detail} item={item} />
+      <DetailFields detail={detail} item={item} {...(trash ? {} : { onDetail })} />
       <AgentBindingReview detail={detail} item={item} trash={trash} onDetail={onDetail} />
       <DetailRotation detail={detail} item={item} trash={trash} onDetail={onDetail} />
       {!isDocument && files}

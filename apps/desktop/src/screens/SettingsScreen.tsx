@@ -25,6 +25,7 @@ import { format, GLOBAL_PALETTE } from "../platform/shortcuts.ts";
 import { QuickUnlockSettings } from "./QuickUnlockSettings.tsx";
 import { AccountKeysSection } from "./settings/security/AccountKeysSection.tsx";
 import { kitLabels } from "./onboarding/kit.ts";
+import { ProgramFillSettings } from "./ProgramFillSettings.tsx";
 import { SettingsSection } from "./SettingsSection.tsx";
 import { AgentSettings } from "./AgentSettings.tsx";
 import { BrowserSettings } from "./BrowserSettings.tsx";
@@ -248,6 +249,7 @@ function Integrations({ onError }: { onError: (error: IpcError | null) => void }
       <SshSettings onError={onError} />
       <BrowserSettings onError={onError} />
       <AgentSettings onError={onError} />
+      <ProgramFillSettings />
       <PasskeyExportSettings />
     </>
   );
