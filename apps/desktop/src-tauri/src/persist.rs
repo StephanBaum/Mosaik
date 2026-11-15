@@ -964,9 +964,11 @@ mod tests {
             .program_fill_hotkey
         };
         assert_eq!(with("Ctrl+Alt+L"), Some("Ctrl+Alt+L".to_owned()));
-        assert_eq!(with("Ctrl+Shift+Space"), None, "the palette's own");
+        // The palette shortcut differs per OS (Alt+Super+Space on macOS).
+        let palette = default_global_shortcut();
+        assert_eq!(with(&palette), None, "the palette's own");
         assert_eq!(
-            with("ctrl+shift+space"),
+            with(&palette.to_lowercase()),
             None,
             "the palette's own, other spelling"
         );

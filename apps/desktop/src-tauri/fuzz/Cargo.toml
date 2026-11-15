@@ -28,6 +28,9 @@ mosaic-vault = { path = "../../../../crates/vault" }
 mosaic-totp = { path = "../../../../crates/totp" }
 mosaic-generator = { path = "../../../../crates/generator" }
 mosaic-ssh-agent = { path = "../../../../crates/ssh-agent" }
+# commands/draft.rs (included by ipc_requests) reads program URLs (ADR-0158, ADR-0164).
+mosaic-origin = { path = "../../../../crates/origin" }
+mosaic-program-fill = { path = "../../../../crates/program-fill" }
 serde = { version = "=1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "float_roundtrip"] }
 zeroize = { version = "=1.9.1", default-features = false, features = ["alloc", "zeroize_derive"] }

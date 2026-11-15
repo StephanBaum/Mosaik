@@ -153,13 +153,16 @@ fn the_program_fill_hotkey_is_validated_registered_and_removable() {
         password: None,
     };
     // Not an accelerator, or the palette's own: refused before the registrar.
+    // The palette shortcut differs per OS (Alt+Super+Space on macOS).
+    let palette = crate::contract::settings::default_global_shortcut();
     for bad in [
-        "",
-        "Ctrl+",
-        "Shift+K",
-        "Ctrl+Shift+Space",
-        "ctrl+shift+space",
+        String::new(),
+        "Ctrl+".to_owned(),
+        "Shift+K".to_owned(),
+        palette.clone(),
+        palette.to_lowercase(),
     ] {
+        let bad = bad.as_str();
         let error = b.update_settings(with(Some(bad))).unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidInput, "{bad:?}");
     }
