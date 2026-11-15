@@ -11,7 +11,7 @@ import type {
   TextFieldKey,
   UrlChange,
 } from "../contract/index.ts";
-import { applyBindings, viewOf } from "./agent.ts";
+import { applyBindings, viewOf } from "./agentBindings.ts";
 import { passwordChanged, pushHistory, refreshDetail } from "./credentialRotation.ts";
 import { MOCK_SSH_SUMMARY } from "./data.ts";
 import { requireFreshReauth } from "./quickUnlock.ts";

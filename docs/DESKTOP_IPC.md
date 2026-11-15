@@ -756,6 +756,10 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
   `uvExpires`: the first click is answered `reauthRequired`, as when the 300 s window ran out),
   to create a passkey, or to create one that the vault already holds; the sign-in variants add two
   passkeys for example.com (one per vault) to the sample items.
+  Agent access (ADR-0159): `&agent=on` starts with agent access on, one paired client ("Claude Code"), one open
+  permission and two log entries; `&agent=pair` and `&agent=access` also open the pairing or the access
+  dialog 500 ms after subscribing (the 1 s Allow guard applies, `agentAllowTooSoon`). Bindings of items are
+  kept in the mock and need agent access on.
   Sharing (M6b): `&sharing=basic|empty|invites|emergency|request|findings|keyChanged|manager|viewer|rotation`
   seeds the sharing state and, unless `&sync=` says otherwise, a hosted sync account (sharing needs the
   Mosaic server; `&sync=folder` or `&sync=none` shows why it is off). `basic` is the owner of "Work" with
