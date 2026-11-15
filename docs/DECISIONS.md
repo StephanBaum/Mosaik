@@ -6460,3 +6460,37 @@ own cloud folder, cannot use the Android app. Android has no path-based access t
   listing never causes a false halt.
 - New residual risks R166 to R170 in THREAT_MODEL §5.
 
+## ADR-0166: Provider stores keep to the folder; test hooks are test-only
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: Android folder sync (ADR-0162), Dropbox and OneDrive stores
+
+### Context
+The Dropbox and Graph stores run on full-access scopes (ADR-0162, R166). Our code is the only thing that keeps
+them inside the chosen folder, and the provider client has a loopback `http` switch for the tests.
+
+### Decision
+- **Confinement.** A store builds every request path from the chosen folder and a validated `RelPath`. A listed
+  entry is used only if it is strictly below the folder, component by component (Dropbox: the lower-case path
+  starts with the folder's components, the display path equals the lower-case path, the name is the last
+  component; Graph: a valid single component that is a plain file or folder, never a shortcut, package or deleted
+  item). A Graph `nextLink` is followed only inside `drives/<drive>/`; an upload URL must be https and gets no
+  `Authorization`; a download link is fetched once without it.
+- **Deletes.** A delete carries the listed `rev` (Dropbox `parent_rev`) or `eTag` (`If-Match`) and never removes a
+  folder on the name of a file. `remove_squatter` removes whatever sits on one of the writer's own segment names
+  and `remove_empty_dir` an empty folder; both are recursive on the provider (R198). The chosen folder itself is
+  never deleted.
+- **Tokens.** Refresh tokens and access tokens are zeroizing and never in an error or a log. The access token is
+  fetched when missing and once after a 401; a refused grant ends the run as signed out. A rotated Graph refresh
+  token is stored before the new access token is used (R199). Dropbox uploads are single requests (at most
+  150 MiB); Graph uses an upload session above 4 MiB with 3 276 800-byte chunks.
+- **Test hooks.** `RemoteHttp::new()` is the only production constructor (https only). `new_loopback()` exists
+  only in test builds or with the `test-util` feature, and `mosaic-sync` refuses to compile with `test-util` in a
+  release build (R200).
+- **Store schema v14** adds the device-local `folder_remote` table (CRYPTO_SPEC section 11).
+
+### Alternatives considered
+- **A flag on the production constructor.** Rejected: a caller could enable it.
+- **Metadata call before every Graph download.** Rejected: the download response carries its length, which is
+  checked against the cap before the body is read.
