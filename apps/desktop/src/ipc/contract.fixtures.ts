@@ -44,6 +44,14 @@ export const fixtures = {
     "purge_item",
     "move_item",
     "agent_binding_confirm",
+    "agent_access_status",
+    "agent_access_set_enabled",
+    "agent_pairing_respond",
+    "agent_pairing_remove",
+    "agent_access_respond",
+    "agent_grant_revoke",
+    "agent_stop_all",
+    "agent_log",
     "attachment_add",
     "attachment_preview",
     "attachment_save",
@@ -158,16 +166,75 @@ export const fixtures = {
     "emergency_claim"
   ],
   "enums": {
+    "agentAccessDecision": [
+      "deny",
+      "allowOnce",
+      "allow15m",
+      "allow1h",
+      "allowUntilLock"
+    ],
     "agentBasicUserKind": [
       "literal",
       "field",
       "secretIsUser"
+    ],
+    "agentCloseReason": [
+      "answered",
+      "expired",
+      "locked",
+      "disconnected",
+      "off"
+    ],
+    "agentEndpointState": [
+      "running",
+      "stopped",
+      "unavailable"
+    ],
+    "agentGrantState": [
+      "once",
+      "until",
+      "untilLock"
     ],
     "agentInjectKind": [
       "bearer",
       "header",
       "basic",
       "query"
+    ],
+    "agentLogKind": [
+      "paired",
+      "pairingRemoved",
+      "accessGranted",
+      "accessDenied",
+      "request",
+      "refused",
+      "revoked",
+      "stoppedAll",
+      "bindingConfirmed"
+    ],
+    "agentRefusalCode": [
+      "desktopNotRunning",
+      "locked",
+      "agentAccessOff",
+      "notPaired",
+      "notAgentUsable",
+      "needsReview",
+      "ambiguousRef",
+      "noGrant",
+      "denied",
+      "destinationNotAllowed",
+      "methodNotAllowed",
+      "headerNotAllowed",
+      "requestTooLarge",
+      "responseTooLarge",
+      "timeout",
+      "tlsFailed",
+      "rateLimited",
+      "busy",
+      "invalidRef",
+      "invalidRequest",
+      "requestFailed",
+      "internal"
     ],
     "attemptStage": [
       "prepared",
@@ -1328,6 +1395,51 @@ export const fixtures = {
     },
     {
       "request": {
+        "code": "K7M2QX",
+        "expiresAt": 1761480120000,
+        "name": "Claude Code",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480000000
+      },
+      "type": "agentPairingRequested"
+    },
+    {
+      "reason": "expired",
+      "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "type": "agentPairingClosed"
+    },
+    {
+      "request": {
+        "expiresAt": 1761480120000,
+        "fieldLabel": "api_key.secret",
+        "inject": "bearer",
+        "itemTitle": "Example API",
+        "origins": [
+          "https://api.example.com"
+        ],
+        "pairingName": "Claude Code",
+        "reason": "List the open invoices",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480000000,
+        "vaultName": "Personal",
+        "waiting": 1
+      },
+      "type": "agentAccessRequested"
+    },
+    {
+      "reason": "answered",
+      "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "type": "agentAccessClosed"
+    },
+    {
+      "inFlight": 1,
+      "type": "agentActivity"
+    },
+    {
+      "type": "agentStateChanged"
+    },
+    {
+      "request": {
         "browser": "chromium",
         "code": "4F7K2Q",
         "expiresAt": 1761480155000,
@@ -1728,12 +1840,82 @@ export const fixtures = {
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
     ],
+    "agent_access_respond": [
+      {
+        "decision": "deny",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": "allowOnce",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": "allow15m",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": "allow1h",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": "allowUntilLock",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      }
+    ],
+    "agent_access_set_enabled": [
+      {
+        "enabled": true
+      },
+      {
+        "enabled": false
+      }
+    ],
+    "agent_access_status": [
+      null
+    ],
     "agent_binding_confirm": [
       {
         "elementId": "b2",
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
+    ],
+    "agent_grant_revoke": [
+      {
+        "grantId": 1
+      }
+    ],
+    "agent_log": [
+      {
+        "beforeMs": null,
+        "itemId": null,
+        "limit": 50,
+        "pairingId": null
+      },
+      {
+        "beforeMs": 1761480035000,
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "limit": 200,
+        "pairingId": "0123456789abcdef0123456789abcdef"
+      }
+    ],
+    "agent_pairing_remove": [
+      {
+        "pairingId": "0123456789abcdef0123456789abcdef"
+      }
+    ],
+    "agent_pairing_respond": [
+      {
+        "decision": "allow",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": "deny",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      }
+    ],
+    "agent_stop_all": [
+      null
     ],
     "app_status": [
       null
@@ -3609,6 +3791,137 @@ export const fixtures = {
         ]
       }
     ],
+    "agent_access_respond": [
+      null
+    ],
+    "agent_access_set_enabled": [
+      {
+        "cliPath": "/usr/local/bin/mosaic",
+        "enabled": true,
+        "endpoint": "running",
+        "grants": [
+          {
+            "expiresAt": 1761480900000,
+            "fieldLabel": "api_key.secret",
+            "grantId": 1,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "until",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 2,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "untilLock",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 3,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "once",
+            "vaultName": "Personal"
+          }
+        ],
+        "inFlight": 1,
+        "pairings": [
+          {
+            "lastUsedAt": 1761480035000,
+            "name": "Claude Code",
+            "pairedAt": 1761480000000,
+            "pairingId": "0123456789abcdef0123456789abcdef"
+          }
+        ]
+      },
+      {
+        "cliPath": null,
+        "enabled": false,
+        "endpoint": "stopped",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
+      },
+      {
+        "cliPath": null,
+        "enabled": true,
+        "endpoint": "unavailable",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
+      }
+    ],
+    "agent_access_status": [
+      {
+        "cliPath": "/usr/local/bin/mosaic",
+        "enabled": true,
+        "endpoint": "running",
+        "grants": [
+          {
+            "expiresAt": 1761480900000,
+            "fieldLabel": "api_key.secret",
+            "grantId": 1,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "until",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 2,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "untilLock",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 3,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "once",
+            "vaultName": "Personal"
+          }
+        ],
+        "inFlight": 1,
+        "pairings": [
+          {
+            "lastUsedAt": 1761480035000,
+            "name": "Claude Code",
+            "pairedAt": 1761480000000,
+            "pairingId": "0123456789abcdef0123456789abcdef"
+          }
+        ]
+      },
+      {
+        "cliPath": null,
+        "enabled": false,
+        "endpoint": "stopped",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
+      },
+      {
+        "cliPath": null,
+        "enabled": true,
+        "endpoint": "unavailable",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
+      }
+    ],
     "agent_binding_confirm": [
       {
         "agentBindings": [
@@ -3761,6 +4074,271 @@ export const fixtures = {
             "url": "https://github.com/login"
           }
         ]
+      }
+    ],
+    "agent_grant_revoke": [
+      {
+        "cliPath": "/usr/local/bin/mosaic",
+        "enabled": true,
+        "endpoint": "running",
+        "grants": [
+          {
+            "expiresAt": 1761480900000,
+            "fieldLabel": "api_key.secret",
+            "grantId": 1,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "until",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 2,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "untilLock",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 3,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "once",
+            "vaultName": "Personal"
+          }
+        ],
+        "inFlight": 1,
+        "pairings": [
+          {
+            "lastUsedAt": 1761480035000,
+            "name": "Claude Code",
+            "pairedAt": 1761480000000,
+            "pairingId": "0123456789abcdef0123456789abcdef"
+          }
+        ]
+      },
+      {
+        "cliPath": null,
+        "enabled": false,
+        "endpoint": "stopped",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
+      },
+      {
+        "cliPath": null,
+        "enabled": true,
+        "endpoint": "unavailable",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
+      }
+    ],
+    "agent_log": [
+      {
+        "entries": [
+          {
+            "atMs": 1761480035000,
+            "bytes": 2048,
+            "code": null,
+            "fieldLabel": "api_key.secret",
+            "grant": null,
+            "inject": null,
+            "itemId": "019a2b3c-4d5e-7000-8000-000000000001",
+            "itemTitle": "Example API",
+            "kind": "request",
+            "masked": 0,
+            "method": "GET",
+            "origin": "https://api.example.com",
+            "origins": null,
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "path": "/v1/invoices",
+            "status": 200
+          },
+          {
+            "atMs": 1761480035000,
+            "bytes": null,
+            "code": "destinationNotAllowed",
+            "fieldLabel": "api_key.secret",
+            "grant": null,
+            "inject": null,
+            "itemId": "019a2b3c-4d5e-7000-8000-000000000001",
+            "itemTitle": "Example API",
+            "kind": "refused",
+            "masked": null,
+            "method": "GET",
+            "origin": "https://other.example.net",
+            "origins": null,
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "path": "/v1/invoices",
+            "status": null
+          },
+          {
+            "atMs": 1761480035000,
+            "bytes": null,
+            "code": null,
+            "fieldLabel": "api_key.secret",
+            "grant": "until",
+            "inject": "bearer",
+            "itemId": "019a2b3c-4d5e-7000-8000-000000000001",
+            "itemTitle": "Example API",
+            "kind": "accessGranted",
+            "masked": null,
+            "method": null,
+            "origin": null,
+            "origins": [
+              "https://api.example.com"
+            ],
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "path": null,
+            "status": null
+          }
+        ],
+        "skipped": 0
+      },
+      {
+        "entries": [],
+        "skipped": 2
+      }
+    ],
+    "agent_pairing_remove": [
+      {
+        "cliPath": "/usr/local/bin/mosaic",
+        "enabled": true,
+        "endpoint": "running",
+        "grants": [
+          {
+            "expiresAt": 1761480900000,
+            "fieldLabel": "api_key.secret",
+            "grantId": 1,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "until",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 2,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "untilLock",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 3,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "once",
+            "vaultName": "Personal"
+          }
+        ],
+        "inFlight": 1,
+        "pairings": [
+          {
+            "lastUsedAt": 1761480035000,
+            "name": "Claude Code",
+            "pairedAt": 1761480000000,
+            "pairingId": "0123456789abcdef0123456789abcdef"
+          }
+        ]
+      },
+      {
+        "cliPath": null,
+        "enabled": false,
+        "endpoint": "stopped",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
+      },
+      {
+        "cliPath": null,
+        "enabled": true,
+        "endpoint": "unavailable",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
+      }
+    ],
+    "agent_pairing_respond": [
+      null
+    ],
+    "agent_stop_all": [
+      {
+        "cliPath": "/usr/local/bin/mosaic",
+        "enabled": true,
+        "endpoint": "running",
+        "grants": [
+          {
+            "expiresAt": 1761480900000,
+            "fieldLabel": "api_key.secret",
+            "grantId": 1,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "until",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 2,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "untilLock",
+            "vaultName": "Personal"
+          },
+          {
+            "expiresAt": null,
+            "fieldLabel": "api_key.secret",
+            "grantId": 3,
+            "itemTitle": "Example API",
+            "pairingId": "0123456789abcdef0123456789abcdef",
+            "pairingName": "Claude Code",
+            "state": "once",
+            "vaultName": "Personal"
+          }
+        ],
+        "inFlight": 1,
+        "pairings": [
+          {
+            "lastUsedAt": 1761480035000,
+            "name": "Claude Code",
+            "pairedAt": 1761480000000,
+            "pairingId": "0123456789abcdef0123456789abcdef"
+          }
+        ]
+      },
+      {
+        "cliPath": null,
+        "enabled": false,
+        "endpoint": "stopped",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
+      },
+      {
+        "cliPath": null,
+        "enabled": true,
+        "endpoint": "unavailable",
+        "grants": [],
+        "inFlight": 0,
+        "pairings": []
       }
     ],
     "app_status": [

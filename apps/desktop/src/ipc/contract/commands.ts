@@ -4,7 +4,17 @@
  * `src-tauri/src/commands/names.rs`. `subscribe_events` is not here: its argument is a
  * Channel, and `MosaicIpc.subscribe` wraps it.
  */
-import type { AgentBindingConfirmRequest } from "./agent.ts";
+import type {
+  AgentAccessRespondRequest,
+  AgentAccessStatus,
+  AgentBindingConfirmRequest,
+  AgentGrantRevokeRequest,
+  AgentLogPage,
+  AgentLogRequest,
+  AgentPairingRemoveRequest,
+  AgentPairingRespondRequest,
+  AgentSetEnabledRequest,
+} from "./agent.ts";
 import type { AttachmentAdded, AttachmentRequest, AttachmentSaved } from "./attachments.ts";
 import type {
   BrowserPairingRespondRequest,
@@ -187,6 +197,14 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   purge_item: Command<ItemRequest, null>;
   move_item: Command<MoveItemRequest, MovedItem>;
   agent_binding_confirm: Command<AgentBindingConfirmRequest, ItemDetail>;
+  agent_access_status: Command<null, AgentAccessStatus>;
+  agent_access_set_enabled: Command<AgentSetEnabledRequest, AgentAccessStatus>;
+  agent_pairing_respond: Command<AgentPairingRespondRequest, null>;
+  agent_pairing_remove: Command<AgentPairingRemoveRequest, AgentAccessStatus>;
+  agent_access_respond: Command<AgentAccessRespondRequest, null>;
+  agent_grant_revoke: Command<AgentGrantRevokeRequest, AgentAccessStatus>;
+  agent_stop_all: Command<null, AgentAccessStatus>;
+  agent_log: Command<AgentLogRequest, AgentLogPage>;
   // Attachments
   attachment_add: Command<ItemRequest, AttachmentAdded>;
   /** Binary response: `[width u32 LE][height u32 LE][width * height * 4 RGBA bytes]`. */
@@ -343,6 +361,14 @@ const commandSet = {
   purge_item: true,
   move_item: true,
   agent_binding_confirm: true,
+  agent_access_status: true,
+  agent_access_set_enabled: true,
+  agent_pairing_respond: true,
+  agent_pairing_remove: true,
+  agent_access_respond: true,
+  agent_grant_revoke: true,
+  agent_stop_all: true,
+  agent_log: true,
   attachment_add: true,
   attachment_preview: true,
   attachment_save: true,

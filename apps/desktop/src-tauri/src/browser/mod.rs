@@ -68,6 +68,7 @@ pub use connection::Out;
 pub(crate) use passkey::CreatePlan;
 pub use prompts::{PairOutcome, Prompts};
 pub use ratelimit::{Bucket, RateLimits};
+pub(crate) use registry::write_atomic;
 pub use registry::{Registry, RegistryError, label_is_valid};
 #[cfg(test)]
 pub(crate) use rotation_prompt::{RotationAnswer, RotationTicket};

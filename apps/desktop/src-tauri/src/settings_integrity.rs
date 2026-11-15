@@ -38,6 +38,9 @@ pub struct SettingsGuard {
     /// The user switched the SSH agent off while locked, before the check:
     /// the file's `true` must not bring it back.
     ssh_off: bool,
+    /// The user switched agent access off while locked, before the check: the file's `true`
+    /// must not bring it back.
+    agent_off: bool,
     /// `K_settings`, only while unlocked and after the check.
     key: Option<SettingsMacKey>,
 }
@@ -52,6 +55,7 @@ impl SettingsGuard {
                 mac: file.mac,
                 unchecked: true,
                 ssh_off: false,
+                agent_off: false,
                 key: None,
             },
             None => Self::default(),
@@ -75,7 +79,13 @@ struct Checked {
 
 /// Puts the file's protection values into `stored` when its MAC `valid`ated
 /// (the theme and language of this run stay), and the strict ones when not.
-fn adopt_file(stored: &mut StoredState, file: StoredState, valid: bool, ssh_off: bool) -> Checked {
+fn adopt_file(
+    stored: &mut StoredState,
+    file: StoredState,
+    valid: bool,
+    off: (bool, bool),
+) -> Checked {
+    let (ssh_off, agent_off) = off;
     if valid {
         let wanted = crate::persist::normalize(file.settings);
         stored.settings = Settings {
@@ -84,7 +94,7 @@ fn adopt_file(stored: &mut StoredState, file: StoredState, valid: bool, ssh_off:
             ..wanted
         };
         stored.ssh_agent_enabled = file.ssh_agent_enabled && !ssh_off;
-        stored.agent_access_enabled = file.agent_access_enabled;
+        stored.agent_access_enabled = file.agent_access_enabled && !agent_off;
         return Checked {
             invalid: false,
             notice: false,
@@ -127,6 +137,15 @@ impl Backend {
         }
     }
 
+    /// Notes that agent access was switched off while the key was not available.
+    pub(crate) fn note_agent_off(&self) {
+        if let Ok(mut g) = self.settings_guard.lock()
+            && g.key.is_none()
+        {
+            g.agent_off = true;
+        }
+    }
+
     /// Runs after every transition to unlocked: derives `K_settings`, checks
     /// the file's MAC once per run and writes the state with a fresh nonce
     /// and MAC. Errors leave the strict values in place (a failed derivation
@@ -159,13 +178,16 @@ impl Backend {
             let mut g = guard(&self.settings_guard)?;
             if g.unchecked {
                 g.unchecked = false;
-                let ssh_off = std::mem::take(&mut g.ssh_off);
+                let off = (
+                    std::mem::take(&mut g.ssh_off),
+                    std::mem::take(&mut g.agent_off),
+                );
                 let file = g.on_disk.clone().unwrap_or_default();
                 let valid = nonce.zip(g.mac).is_some_and(|(nonce, mac)| {
                     key.verify(&account_id, &nonce, &canonical_settings(&file), &mac)
                 });
                 let mut stored = guard(&self.stored)?;
-                checked = adopt_file(&mut stored, file, valid, ssh_off);
+                checked = adopt_file(&mut stored, file, valid, off);
             }
             let stored = guard(&self.stored)?;
             let current = g.on_disk.as_ref() == Some(&*stored) && g.mac.is_some();

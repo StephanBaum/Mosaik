@@ -16,6 +16,7 @@ use mosaic_vault::session::{LockedSession, UnlockedSession};
 use tauri::ipc::Channel;
 
 use crate::adapters::{Adapters, EventSink};
+use crate::agent::AgentService;
 use crate::autolock::Activity;
 use crate::browser::BrowserService;
 use crate::clipboard::{BackendFactory, ClipboardService, MemoryClipboard};
@@ -196,6 +197,8 @@ pub struct Backend {
     focus: Option<Attention>,
     /// The browser extension endpoint (M4).
     pub browser: BrowserService,
+    /// The agent endpoint (ADR-0159): AI clients use marked secrets through it.
+    pub agent: AgentService,
     /// The opt-in breach scan (M7b): whether one runs and where answers
     /// come from.
     pub breach: BreachService,
@@ -270,6 +273,7 @@ impl Backend {
             attention: None,
             focus: None,
             browser: BrowserService::new(),
+            agent: AgentService::new(),
             breach: BreachService::default(),
             last_user_verification: Mutex::new(None),
             os_sources: Mutex::new(Vec::new()),
@@ -512,6 +516,8 @@ impl Backend {
                     | AppEvent::BrowserPairingRequested { .. }
                     | AppEvent::BrowserSaveRequested { .. }
                     | AppEvent::BrowserPasskeyRequested { .. }
+                    | AppEvent::AgentPairingRequested { .. }
+                    | AppEvent::AgentAccessRequested { .. }
             );
             if let (true, Some(attention)) = (wants_attention, &attention) {
                 attention();

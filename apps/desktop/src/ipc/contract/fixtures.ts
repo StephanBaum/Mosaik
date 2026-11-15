@@ -11,6 +11,12 @@ import type { AppEvent } from "./events.ts";
 export interface EnumFixtures {
   agentInjectKind: string[];
   agentBasicUserKind: string[];
+  agentEndpointState: string[];
+  agentGrantState: string[];
+  agentAccessDecision: string[];
+  agentCloseReason: string[];
+  agentLogKind: string[];
+  agentRefusalCode: string[];
   biometricPlatformKind: string[];
   errorCode: string[];
   quickUnlockKind: string[];
