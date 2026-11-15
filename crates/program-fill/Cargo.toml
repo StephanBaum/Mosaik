@@ -19,6 +19,8 @@ fake = []
 mosaic-origin = { path = "../origin" }
 # The login URL type a binding is saved as.
 mosaic-core = { path = "../core" }
+# base64url of the signer id in the block-list key (already in the workspace through origin).
+base64ct = { workspace = true, features = ["alloc"] }
 # SHA-256 of a signer subject and of an unsigned image file.
 sha2.workspace = true
 thiserror.workspace = true

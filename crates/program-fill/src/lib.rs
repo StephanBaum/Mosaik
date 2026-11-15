@@ -16,8 +16,10 @@
 //!   through `mosaic-winshim`, and the capture of the focused field's program.
 #![forbid(unsafe_code)]
 
+pub mod binding;
 pub mod identity;
 pub mod policy;
+pub mod suggest;
 pub mod verify;
 
 #[cfg(any(test, feature = "fake"))]

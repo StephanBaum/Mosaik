@@ -3478,6 +3478,7 @@ dependencies = [
 name = "mosaic-program-fill"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
  "mosaic-core",
  "mosaic-origin",
  "mosaic-winshim",
