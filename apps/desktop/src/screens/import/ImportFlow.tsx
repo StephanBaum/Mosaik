@@ -209,7 +209,6 @@ export function ImportFlow({ onClose, embedded = false }: { onClose: () => void;
       setStep({ name: "file", token, fileName });
     }
   }
-
   async function preview(token: string, password: string) {
     setError(null);
     setBusy(true);
