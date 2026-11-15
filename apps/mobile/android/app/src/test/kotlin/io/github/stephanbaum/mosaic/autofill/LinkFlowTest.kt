@@ -84,7 +84,8 @@ class LinkFlowTest {
         val all = listOf("verified1", "imported1", "verified2", "imported2")
         val kept = LinkFlow.selectEntries(all, { it.startsWith("imported") }, installTrusted = false)
         assertEquals(listOf("verified1", "verified2"), kept)
-        assertEquals(all, LinkFlow.selectEntries(all, { it.startsWith("imported") }, installTrusted = true))
+        // Trusted: nothing is dropped, only the cap of three applies.
+        assertEquals(all.take(3), LinkFlow.selectEntries(all, { it.startsWith("imported") }, installTrusted = true))
     }
 
     @Test
