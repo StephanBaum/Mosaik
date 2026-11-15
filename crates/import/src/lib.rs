@@ -109,6 +109,9 @@ pub enum Format {
     Dashlane,
     /// Keeper JSON export.
     Keeper,
+    /// Keeper CSV export (no header row; never detected from content,
+    /// chosen by the user's source).
+    KeeperCsv,
     /// CSV with a header row; columns are mapped automatically
     /// ([`csv::CsvMapping::detect`]).
     Csv,
@@ -132,6 +135,7 @@ pub fn parse(format: Format, input: &[u8], password: Option<&SecretString>) -> R
         Format::Cxf => cxf::parse(input),
         Format::Dashlane => dashlane::parse(input),
         Format::Keeper => keeper::parse_json(input),
+        Format::KeeperCsv => keeper::parse_csv(input),
         Format::Csv => csv::parse(input, None),
     }
 }

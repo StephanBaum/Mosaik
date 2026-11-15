@@ -10,6 +10,7 @@ use zeroize::Zeroizing;
 
 use crate::Format;
 use crate::buf::Str;
+use crate::csv;
 use crate::draft::{Builder, EntryWarning, Kind};
 use crate::entries::{Collector, Import, SkipReason};
 use crate::error::{Error, Result};
@@ -65,6 +66,29 @@ pub fn parse_json(input: &[u8]) -> Result<Import> {
         } else {
             c.skip(SkipReason::Malformed)?;
         }
+    }
+    Ok(c.finish())
+}
+
+/// Reads a Keeper CSV export (no header row).
+///
+/// # Errors
+/// [`Error::Malformed`] for an empty file, a file that is not UTF-8 or a
+/// quoted field that is not closed; [`Error::TooLarge`],
+/// [`Error::LimitExceeded`].
+pub fn parse_csv(input: &[u8]) -> Result<Import> {
+    let mut rows = csv::rows(input)?;
+    let mut c = Collector::new(Format::KeeperCsv);
+    let mut any = false;
+    while let Some(row) = rows.next_row()? {
+        any = true;
+        if row.iter().all(|v| v.trim().is_empty()) {
+            continue;
+        }
+        c.push(csv_entry(&row))?;
+    }
+    if !any {
+        return Err(Error::Malformed);
     }
     Ok(c.finish())
 }
@@ -231,4 +255,38 @@ fn hidden_members(b: &mut Builder, o: &Json) {
             }
         }
     }
+}
+
+/// A CSV record: folder, title, login, password, website, notes, shared
+/// folder, then name/value pairs.
+fn csv_entry(row: &[Str]) -> Builder {
+    let col = |i: usize| row.get(i).map_or("", |v| v.as_str());
+    let mut b = Builder::new(ItemType::Login);
+    b.title(col(1));
+    b.text(TextField::Username, col(2), "Username");
+    b.secret(SecretField::Password, col(3), "Password");
+    b.url(col(4), "URL");
+    b.notes(col(5));
+    for tag in [col(0), col(6)] {
+        if !tag.trim().is_empty() {
+            b.tag(tag);
+        }
+    }
+    let mut pairs = row.iter().skip(7);
+    while let Some(name) = pairs.next() {
+        let name = name.as_str();
+        let Some(value) = pairs.next() else {
+            if !name.trim().is_empty() {
+                b.fallback("Field", Kind::Text, name);
+            }
+            break;
+        };
+        let value = value.as_str();
+        if value.trim_start().starts_with("otpauth://") {
+            b.otp_text(value, "One-time password");
+        } else {
+            b.custom(name, Kind::for_key(name), value);
+        }
+    }
+    b
 }

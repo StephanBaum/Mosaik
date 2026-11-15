@@ -89,3 +89,23 @@ fn keeper_json_values_nested_deeper_are_dropped_with_a_warning() {
             .contains(&EntryWarning::FieldsDropped)
     );
 }
+
+#[test]
+fn keeper_csv_export() {
+    let csv = "Personal,GitHub,alice,pw1,https://github.com,n,,TFC:Keeper,otpauth://totp/x?secret=GEZDGNBVGY3TQOJQ,Recovery,abc\n\
+        ,Team note,,,,body,Team\n";
+    let import = parse(Format::KeeperCsv, csv.as_bytes(), None).unwrap();
+    assert_eq!(import.entries.len(), 2);
+    let d = draft(&import, 0);
+    assert_eq!(d.title(), Some("GitHub"));
+    assert_eq!(tags(d), ["Personal"]);
+    assert!(d.otp.is_some());
+    assert_eq!(labels(d), ["Recovery"]);
+    let d = draft(&import, 1);
+    assert_eq!(tags(d), ["Team"]);
+    assert_eq!(d.text(TextField::Notes), Some("body"));
+    assert_eq!(
+        parse(Format::KeeperCsv, b"", None).unwrap_err(),
+        Error::Malformed
+    );
+}
