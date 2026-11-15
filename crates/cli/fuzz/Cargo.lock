@@ -29,9 +29,9 @@ dependencies = [
 
 [[package]]
 name = "aes"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35f0f96ce78e38c3dc6d8948aa8163d06385be74000f3c7a95bf1eef35d3ea32"
+checksum = "fc0fc36d7440d015b45468ba08a21e80e056ebbd014c611c6298bb7503e04bd1"
 dependencies = [
  "cipher",
  "cpubits",
@@ -61,7 +61,7 @@ dependencies = [
  "objc2-foundation",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
  "x11rb",
 ]
 
@@ -631,7 +631,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1363,14 +1363,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaic-agent"
+version = "0.1.0"
+dependencies = [
+ "base64ct",
+ "mosaic-core",
+ "mosaic-native-messaging",
+ "mosaic-origin",
+ "mosaic-vault",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "thiserror",
+ "url",
+ "zeroize",
+]
+
+[[package]]
 name = "mosaic-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ctrlc",
  "lexopt",
+ "mosaic-agent",
  "mosaic-core",
  "mosaic-generator",
  "mosaic-import",
+ "mosaic-native-messaging",
  "mosaic-platform",
  "mosaic-sync",
  "mosaic-totp",
@@ -1380,7 +1399,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
- "unicode-normalization",
+ "tokio",
  "winapi-util",
  "zeroize",
 ]
@@ -1395,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aead-stream",
  "argon2",
@@ -1416,7 +1435,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-generator"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "serde_json",
@@ -1426,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-import"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aes",
  "argon2",
@@ -1452,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-insights"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac 0.13.0",
  "mosaic-core",
@@ -1468,19 +1487,34 @@ dependencies = [
 ]
 
 [[package]]
-name = "mosaic-origin"
-version = "0.0.0"
+name = "mosaic-native-messaging"
+version = "0.1.0"
 dependencies = [
+ "mosaic-core",
+ "serde",
+ "serde_json",
+ "subtle",
+ "thiserror",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "mosaic-origin"
+version = "0.1.0"
+dependencies = [
+ "base64ct",
  "idna",
  "mosaic-core",
  "psl",
+ "serde_json",
  "thiserror",
  "url",
 ]
 
 [[package]]
 name = "mosaic-passkey"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "mosaic-core",
@@ -1491,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-platform"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "arboard",
  "base64ct",
@@ -1505,7 +1539,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-sync"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "getrandom 0.4.3",
@@ -1529,7 +1563,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-totp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac 0.13.0",
  "sha1",
@@ -1541,7 +1575,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-vault"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "mosaic-core",
@@ -1551,7 +1585,9 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror",
+ "unicode-normalization",
  "zeroize",
 ]
 
@@ -1843,9 +1879,9 @@ dependencies = [
 
 [[package]]
 name = "psl"
-version = "2.1.248"
+version = "2.1.252"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db58c388e851a5e62d8b5373b0f41135edac0bd43009832ba362691089d7367c"
+checksum = "efefe9aafbc2e8fd9157db7eb16c61a86cbf0ead714adf510a7ae662470fe369"
 dependencies = [
  "psl-types",
 ]
@@ -2035,7 +2071,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2075,9 +2111,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-platform-verifier"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26d1e2536ce4f35f4846aa13bff16bd0ff40157cdb14cc056c7b14ba41233ba0"
+checksum = "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98"
 dependencies = [
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -2091,14 +2127,14 @@ dependencies = [
  "security-framework 3.7.0",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
 name = "rustls-platform-verifier-android"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
+checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
@@ -2363,7 +2399,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2785,7 +2821,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3115,9 +3151,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.5.0"
+version = "9.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0700e6c427aff64acdbf02e85fbfd946c2ee12319d1af013092f3a2178914ff8"
+checksum = "e3476fd497ac8af5b1ec7b51acab7bef380f7e8dd8e0487595bafd839417a302"
 dependencies = [
  "constant_time_eq",
  "crc32fast",

@@ -29,9 +29,9 @@ dependencies = [
 
 [[package]]
 name = "aes"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35f0f96ce78e38c3dc6d8948aa8163d06385be74000f3c7a95bf1eef35d3ea32"
+checksum = "fc0fc36d7440d015b45468ba08a21e80e056ebbd014c611c6298bb7503e04bd1"
 dependencies = [
  "cipher",
  "cpubits",
@@ -698,7 +698,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aead-stream",
  "argon2",
@@ -719,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-generator"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "getrandom",
  "serde_json",
@@ -729,7 +729,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-import"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aes",
  "argon2",
@@ -765,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-insights"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac",
  "mosaic-core",
@@ -782,18 +782,20 @@ dependencies = [
 
 [[package]]
 name = "mosaic-origin"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
+ "base64ct",
  "idna",
  "mosaic-core",
  "psl",
+ "serde_json",
  "thiserror",
  "url",
 ]
 
 [[package]]
 name = "mosaic-passkey"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "mosaic-core",
@@ -804,7 +806,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-totp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac",
  "sha1",
@@ -816,7 +818,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-vault"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "mosaic-core",
@@ -826,7 +828,9 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror",
+ "unicode-normalization",
  "zeroize",
 ]
 
@@ -967,9 +971,9 @@ dependencies = [
 
 [[package]]
 name = "psl"
-version = "2.1.248"
+version = "2.1.252"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db58c388e851a5e62d8b5373b0f41135edac0bd43009832ba362691089d7367c"
+checksum = "efefe9aafbc2e8fd9157db7eb16c61a86cbf0ead714adf510a7ae662470fe369"
 dependencies = [
  "psl-types",
 ]
@@ -1530,9 +1534,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.5.0"
+version = "9.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0700e6c427aff64acdbf02e85fbfd946c2ee12319d1af013092f3a2178914ff8"
+checksum = "e3476fd497ac8af5b1ec7b51acab7bef380f7e8dd8e0487595bafd839417a302"
 dependencies = [
  "constant_time_eq",
  "crc32fast",

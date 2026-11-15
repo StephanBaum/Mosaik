@@ -466,7 +466,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "mosaic-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aead-stream",
  "argon2",
@@ -487,7 +487,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-generator"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "getrandom",
  "serde_json",
@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-insights"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac",
  "mosaic-core",
@@ -514,18 +514,20 @@ dependencies = [
 
 [[package]]
 name = "mosaic-origin"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
+ "base64ct",
  "idna",
  "mosaic-core",
  "psl",
+ "serde_json",
  "thiserror",
  "url",
 ]
 
 [[package]]
 name = "mosaic-totp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac",
  "sha1",
@@ -537,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-vault"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "mosaic-core",
@@ -547,7 +549,9 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror",
+ "unicode-normalization",
  "zeroize",
 ]
 
@@ -621,9 +625,9 @@ dependencies = [
 
 [[package]]
 name = "psl"
-version = "2.1.248"
+version = "2.1.252"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db58c388e851a5e62d8b5373b0f41135edac0bd43009832ba362691089d7367c"
+checksum = "efefe9aafbc2e8fd9157db7eb16c61a86cbf0ead714adf510a7ae662470fe369"
 dependencies = [
  "psl-types",
 ]
