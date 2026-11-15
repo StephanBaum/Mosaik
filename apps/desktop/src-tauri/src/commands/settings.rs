@@ -25,18 +25,30 @@ pub async fn update_settings(
     state.run(move |b| b.update_settings(request)).await
 }
 
-/// Whether going from `old` to `new` turns a protection off: auto-lock on
-/// idle, on sleep or on screen lock, or clipboard clearing, or raises the
-/// quick-unlock maximum age. The contract names auto-lock and clipboard
-/// clearing; the sleep and screen-lock switches are part of auto-lock here,
-/// the conservative reading.
+/// Whether going from `old` to `new` weakens a protection: turns auto-lock
+/// (idle, sleep or screen lock) or clipboard clearing off, makes the idle
+/// lock or the clipboard clearing later, or raises the quick-unlock maximum
+/// age. A later timeout is functionally a step towards off (KEY-3); making
+/// either stricter needs no password. The contract names auto-lock and
+/// clipboard clearing; the sleep and screen-lock switches are part of
+/// auto-lock here, the conservative reading.
 #[must_use]
 pub fn weakens(old: &Settings, new: &Settings) -> bool {
-    (old.auto_lock_minutes.is_some() && new.auto_lock_minutes.is_none())
-        || (old.clipboard_clear_seconds.is_some() && new.clipboard_clear_seconds.is_none())
+    later(old.auto_lock_minutes, new.auto_lock_minutes)
+        || later(old.clipboard_clear_seconds, new.clipboard_clear_seconds)
         || (old.lock_on_sleep && !new.lock_on_sleep)
         || (old.lock_on_screen_lock && !new.lock_on_screen_lock)
         || new.quick_unlock_max_age_days > old.quick_unlock_max_age_days
+}
+
+/// Whether a timeout (`None` is off) went from set to off or to a larger
+/// value.
+fn later(old: Option<u32>, new: Option<u32>) -> bool {
+    match (old, new) {
+        (Some(_), None) => true,
+        (Some(old), Some(new)) => new > old,
+        (None, _) => false,
+    }
 }
 
 impl Backend {
@@ -137,10 +149,19 @@ mod tests {
     fn only_turning_a_protection_off_weakens() {
         let on = Settings::default();
         assert!(!weakens(&on, &on));
+        // KEY-3: a later lock or clipboard clear weakens, a stricter one is free.
         let mut longer = on.clone();
-        longer.auto_lock_minutes = Some(480);
-        longer.clipboard_clear_seconds = Some(300);
-        assert!(!weakens(&on, &longer), "longer timeouts stay allowed");
+        longer.auto_lock_minutes = on.auto_lock_minutes.map(|m| m + 1);
+        assert!(weakens(&on, &longer), "a later idle lock weakens");
+        assert!(!weakens(&longer, &on), "a shorter idle lock is free");
+        let mut longer = on.clone();
+        longer.clipboard_clear_seconds = on.clipboard_clear_seconds.map(|m| m + 1);
+        assert!(weakens(&on, &longer), "a later clipboard clear weakens");
+        assert!(!weakens(&longer, &on), "a shorter clipboard clear is free");
+        let mut from_off = on.clone();
+        from_off.auto_lock_minutes = None;
+        from_off.clipboard_clear_seconds = None;
+        assert!(!weakens(&from_off, &on), "turning a timeout on is free");
         for change in [
             |s: &mut Settings| s.auto_lock_minutes = None,
             |s: &mut Settings| s.clipboard_clear_seconds = None,

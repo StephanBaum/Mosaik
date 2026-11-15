@@ -1224,6 +1224,9 @@ object L10n {
     fun syncWarningServerRollback(r: Resources): String =
         r.getString(R.string.mobile_sync_warning_serverRollback)
 
+    fun syncWarningSharingAttention(r: Resources): String =
+        r.getString(R.string.mobile_sync_warning_sharingAttention)
+
     fun syncWarningUndecryptable(r: Resources, count: Int): String =
         r.getQuantityString(R.plurals.mobile_sync_warning_undecryptable, count, count)
 

@@ -434,6 +434,16 @@ impl<T: Transport> SyncEngine<T> {
         now: u64,
     ) -> Result<(), SyncError> {
         let remote = self.transport.list_vaults()?;
+        // A loss mark on a vault this account owns is never right (SYNC-1):
+        // an older version set it on a 403 and it stopped the vault for good.
+        access.with(|s| -> Result<(), Error> {
+            for v in s.synced_vaults() {
+                if s.vault_access_lost(v)? {
+                    s.clear_owner_access_lost(v)?;
+                }
+            }
+            Ok(())
+        })??;
         let (local, hardware) = access.with(|s| {
             let mut hardware: BTreeSet<VaultId> = s
                 .vaults()
@@ -530,7 +540,9 @@ impl<T: Transport> SyncEngine<T> {
                 Err(TransportError::Forbidden | TransportError::NotFound)
                     if access.with(|s| s.vault_shared(vault))?? =>
                 {
-                    access.with(|s| s.mark_access_lost(vault))??;
+                    // Only a member loses the vault; the owner is never
+                    // refused by an honest server (SYNC-1).
+                    Self::refused_vault(access, vault)?;
                     return Ok(());
                 }
                 Err(e) => return Err(e.into()),

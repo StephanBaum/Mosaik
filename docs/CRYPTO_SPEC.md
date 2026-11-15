@@ -1549,7 +1549,10 @@ server is the finding `MemberDropped` (recorded on the owner's device). The owne
 rotation leaves them out of the key too: a leave, a manager's removal and a server's drop
 look the same, and none of them may keep the key. A removed member's device gets `not_member`; the vault becomes
 `access_lost` locally and its copy stays readable until the user removes it. The owner
-leaving is refused.
+leaving is refused, and an honest server never refuses the owner a vault: a 403 or 404 for a vault
+this account owns is never `access_lost`. It is a finding against the server (`ServerInconsistent`),
+the vault is tried again, and a refusal on the revocation path (member list, rotate request, roster
+upload) gives the warning `RotationBlocked` and the same finding, never a silent return (ADR-0154).
 
 ### 8.4 Emergency access
 Emergency access hands over **vault keys** to another account. It never recovers the
@@ -2063,7 +2066,15 @@ the holder of the old token can read its reason (THREAT_MODEL R117).
     this device has no cursor for counts as lag when its `high_seq` is above
     0, unless this device deleted that vault itself or keeps it local
     (hardware-protected): a withheld new vault is reported like any
-    withheld file. The time a device has lagged in a vault is stored (§11).
+    withheld file. A checkpoint entry whose `generation` is above the key
+    generation this device holds for that vault counts as lag too, with the
+    same grace (10 minutes hosted): the entry is authenticated evidence of a
+    key and re-sealed records this device has not received (a withheld
+    rotation), and view digests are compared only at equal generations, so
+    without this rule a device held on a revoked key would wait for the 48
+    hour `NoCommonView` rule. The warning is `FreezeSuspected` (hosted) or
+    `MissingFiles` (folder). The time a device has lagged in a vault is
+    stored (§11).
     A stored lag start that lies later than the device's clock now (the clock
     was set back) counts from now, so a backward jump cannot suppress a
     warning for days. A retry time of the backoff that lies further ahead

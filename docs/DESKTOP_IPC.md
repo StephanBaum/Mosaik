@@ -257,8 +257,8 @@ The master password change is `change_master_password` above. The Secret Key rot
 and the full re-key share one journal (`rotation_job`, one row, never a secret) and one rule: **the new Secret
 Key is made in Rust, kept in the pending keystore entry and printed only into the new Emergency Kit** (the
 webview never receives it); the backend learns nothing before that kit was saved and its last group typed back
-(`kitNotVerified`). Every command takes the busy guard of the password change: a lock waits for the running step
-(three minutes at most), the sync thread stops for the run, and the lock epoch is checked before any write.
+(`kitNotVerified`). Every command takes the busy guard of the password change: a lock never waits for the running step
+(ADR-0155: the local commit is one slot step and a cut-off change is recovered), the sync thread stops for the run, and the lock epoch is checked before any write.
 Responses of the commits are `RotationDone { quickUnlockRemoved, hardwareKeysRemoved, unreachableAttachments,
 unreachable: { itemTitle \| null, fileName \| null }[], finished }`; `unreachableAttachments` is the total of the
 attachments the re-seal could not read (they keep their old file key, THREAT_MODEL R85) and `unreachable` names at most
