@@ -10,6 +10,8 @@ pub const INVALID_REQUEST: i64 = -32600;
 pub const METHOD_NOT_FOUND: i64 = -32601;
 /// Params that fail the schema.
 pub const INVALID_PARAMS: i64 = -32602;
+/// A stateless request names a protocol revision the relay does not speak (MCP `2026-07-28`).
+pub const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
 
 /// The longest line accepted from the client.
 pub const MAX_LINE_BYTES: usize = 2 * 1024 * 1024;
@@ -24,6 +26,12 @@ pub fn result(id: &Value, result: &Value) -> Value {
 #[must_use]
 pub fn error(id: &Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+}
+
+/// An error response with a fixed message and a `data` member.
+#[must_use]
+pub fn error_with_data(id: &Value, code: i64, message: &str, data: &Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message, "data": data } })
 }
 
 /// A message id is a string or a number.

@@ -12,7 +12,7 @@ use mosaic_agent::wire::{AccessState, OpRequest, OpResponse, StatusBody, VaultSt
 use serde_json::{Value, json};
 
 use super::run_mcp;
-use super::text::{SUPPORTED_PROTOCOL_VERSIONS, sentence};
+use super::text::{INITIALIZE_VERSIONS, sentence};
 use crate::agent::conn::{ConnError, Connector, Link, LocalFut, RequestError};
 
 const CANARY: &str = "CANARY-8f3a91c2d7";
@@ -178,6 +178,50 @@ fn call_line(id: u64, tool: &str, args: &Value) -> String {
         "tools/call",
         &json!({ "name": tool, "arguments": args }),
     )
+}
+
+const STATELESS: &str = "2026-07-28";
+
+/// The per-request `_meta` of a stateless request naming `version`.
+fn meta(version: &str) -> Value {
+    json!({
+        "io.modelcontextprotocol/protocolVersion": version,
+        "io.modelcontextprotocol/clientCapabilities": {},
+        "io.modelcontextprotocol/clientInfo": { "name": "t", "version": "1" },
+    })
+}
+
+/// A stateless request: `params` with `_meta` for `2026-07-28`.
+fn modern(id: u64, method: &str, params: &Value) -> String {
+    let mut params = params.clone();
+    params
+        .as_object_mut()
+        .unwrap()
+        .insert("_meta".to_owned(), meta(STATELESS));
+    request(id, method, &params)
+}
+
+fn modern_call(id: u64, tool: &str, args: &Value) -> String {
+    modern(
+        id,
+        "tools/call",
+        &json!({ "name": tool, "arguments": args }),
+    )
+}
+
+/// What every stateless result carries.
+fn assert_stateless_result(result: &Value) {
+    assert_eq!(result["resultType"], "complete", "{result}");
+    assert_eq!(
+        result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+        "mosaic"
+    );
+}
+
+fn all_versions() -> Vec<&'static str> {
+    let mut all = vec![STATELESS];
+    all.extend(INITIALIZE_VERSIONS);
+    all
 }
 
 fn by_id(out: &[Value], id: u64) -> &Value {
@@ -354,13 +398,11 @@ fn mcp_errors_hold_no_value() {
         }));
         let connector = FakeConnector::always(&link);
         let url = format!("https://api.mosaic.test/{CANARY}");
+        let args = json!({ "ref": format!("mosaic://v/i/{CANARY}"), "method": "POST", "url": url, "body": CANARY });
         let lines = vec![
             init(1, "2025-06-18"),
-            call_line(
-                2,
-                "mosaic_http_request",
-                &json!({ "ref": format!("mosaic://v/i/{CANARY}"), "method": "POST", "url": url, "body": CANARY }),
-            ),
+            call_line(2, "mosaic_http_request", &args),
+            modern_call(3, "mosaic_http_request", &args),
         ];
         let raw = drive_raw(&lines, &connector);
         let all = raw.join("\n");
@@ -369,16 +411,18 @@ fn mcp_errors_hold_no_value() {
             .iter()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        let result = &by_id(&out, 2)["result"];
-        assert_eq!(result["isError"], true);
-        assert_eq!(
-            result["content"][0]["text"],
-            format!("{}: {}", code.as_str(), sentence(code))
-        );
-        assert_eq!(
-            result["structuredContent"],
-            json!({ "error": code.as_str() })
-        );
+        for id in [2, 3] {
+            let result = &by_id(&out, id)["result"];
+            assert_eq!(result["isError"], true);
+            assert_eq!(
+                result["content"][0]["text"],
+                format!("{}: {}", code.as_str(), sentence(code))
+            );
+            assert_eq!(
+                result["structuredContent"],
+                json!({ "error": code.as_str() })
+            );
+        }
     }
 }
 
@@ -474,7 +518,7 @@ fn relay_reconnects_after_the_desktop_restarts() {
 #[test]
 fn initialize_negotiates_versions() {
     let link = FakeLink::status();
-    for version in SUPPORTED_PROTOCOL_VERSIONS {
+    for version in INITIALIZE_VERSIONS {
         let connector = FakeConnector::always(&link);
         let out = drive(
             &[
@@ -509,7 +553,7 @@ fn initialize_negotiates_versions() {
     let out = drive(&[init(1, "2099-01-01")], &connector);
     assert_eq!(
         by_id(&out, 1)["result"]["protocolVersion"],
-        SUPPORTED_PROTOCOL_VERSIONS[0]
+        INITIALIZE_VERSIONS[0]
     );
 }
 
@@ -592,4 +636,202 @@ fn ambiguous_candidates_are_passed_on() {
             .unwrap()
             .contains("Candidates")
     );
+}
+
+#[test]
+fn stateless_discover_needs_no_initialize() {
+    let link = FakeLink::status();
+    let connector = FakeConnector::always(&link);
+    let out = drive(&[modern(1, "server/discover", &json!({}))], &connector);
+    let result = &by_id(&out, 1)["result"];
+    assert_stateless_result(result);
+    assert_eq!(result["supportedVersions"], json!(all_versions()));
+    assert_eq!(
+        result["capabilities"],
+        json!({ "tools": { "listChanged": false } }),
+        "tools only, nothing else is offered"
+    );
+    assert_eq!(result["ttlMs"], 0);
+    assert_eq!(result["cacheScope"], "public");
+    assert!(result.get("instructions").is_none());
+    assert_eq!(
+        connector.connects.get(),
+        0,
+        "discovery never reaches the desktop"
+    );
+}
+
+#[test]
+fn stateless_tools_list_and_call_take_the_same_path() {
+    let link = FakeLink::status();
+    let connector = FakeConnector::always(&link);
+    let http = json!({ "ref": "mosaic://v/i/password", "method": "GET", "url": "https://api.mosaic.test/x" });
+    let out = drive(
+        &[
+            modern(1, "tools/list", &json!({})),
+            modern_call(2, "mosaic_status", &json!({})),
+            modern_call(3, "mosaic_http_request", &http),
+            modern_call(4, "mosaic_status", &json!({ "extra": 1 })),
+            modern_call(5, "mosaic_reveal", &json!({})),
+        ],
+        &connector,
+    );
+    let list = &by_id(&out, 1)["result"];
+    assert_stateless_result(list);
+    assert_eq!(list["ttlMs"], 0);
+    assert_eq!(list["cacheScope"], "public");
+    // The same four tools as a `2025-11-25` session, with annotations.
+    let session = drive(
+        &[init(1, "2025-11-25"), request(2, "tools/list", &json!({}))],
+        &FakeConnector::always(&link),
+    );
+    assert_eq!(list["tools"], by_id(&session, 2)["result"]["tools"]);
+    assert!(list["tools"][0].get("annotations").is_some());
+
+    let call = &by_id(&out, 2)["result"];
+    assert_stateless_result(call);
+    assert_eq!(call["isError"], false);
+    assert_eq!(call["structuredContent"]["vault"], "unlocked");
+    assert_eq!(by_id(&out, 3)["result"]["isError"], false);
+    for id in [4, 5] {
+        assert_eq!(by_id(&out, id)["error"]["code"], -32602, "{id}");
+    }
+    // Exactly the ops a session call forwards, and nothing for the refused calls.
+    let seen = link.seen.borrow();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0], OpRequest::Status {});
+    assert!(matches!(
+        &seen[1],
+        OpRequest::HttpRequest { reference, method, url, headers: None, body: None, max_bytes: None }
+            if reference == "mosaic://v/i/password" && method == "GET" && url == "https://api.mosaic.test/x"
+    ));
+}
+
+#[test]
+fn stateless_version_errors() {
+    let link = FakeLink::status();
+    let connector = FakeConnector::always(&link);
+    let call = json!({ "name": "mosaic_status", "arguments": {} });
+    let with_meta = |id: u64, method: &str, meta: Value| {
+        let mut params = call.clone();
+        params
+            .as_object_mut()
+            .unwrap()
+            .insert("_meta".to_owned(), meta);
+        request(id, method, &params)
+    };
+    let out = drive(
+        &[
+            with_meta(1, "tools/call", meta("2099-01-01")),
+            with_meta(2, "server/discover", meta("1900-01-01")),
+            with_meta(
+                3,
+                "tools/call",
+                json!({ "io.modelcontextprotocol/protocolVersion": STATELESS }),
+            ),
+            with_meta(
+                4,
+                "tools/call",
+                json!({ "io.modelcontextprotocol/protocolVersion": 20_260_728, "io.modelcontextprotocol/clientCapabilities": {} }),
+            ),
+            modern(5, "initialize", &json!({ "protocolVersion": STATELESS })),
+            modern(6, "ping", &json!({})),
+            modern(
+                7,
+                "subscriptions/listen",
+                &json!({ "notifications": { "toolsListChanged": true } }),
+            ),
+            modern(8, "resources/list", &json!({})),
+        ],
+        &connector,
+    );
+    for (id, requested) in [(1, "2099-01-01"), (2, "1900-01-01")] {
+        let error = &by_id(&out, id)["error"];
+        assert_eq!(error["code"], -32022, "{id}");
+        assert_eq!(error["message"], "Unsupported protocol version");
+        assert_eq!(error["data"]["supported"], json!(all_versions()));
+        assert_eq!(error["data"]["requested"], requested);
+    }
+    for id in [3, 4] {
+        assert_eq!(by_id(&out, id)["error"]["code"], -32602, "{id}");
+    }
+    for id in 5..=8 {
+        assert_eq!(by_id(&out, id)["error"]["code"], -32601, "{id}");
+    }
+    assert_eq!(connector.connects.get(), 0, "nothing was forwarded");
+}
+
+#[test]
+fn initialize_session_keeps_working_beside_stateless_requests() {
+    let link = FakeLink::status();
+    let connector = FakeConnector::always(&link);
+    let out = drive(
+        &[
+            init(1, "2024-11-05"),
+            request(2, "tools/list", &json!({})),
+            modern(3, "tools/list", &json!({})),
+            modern_call(4, "mosaic_status", &json!({})),
+            request(5, "tools/list", &json!({})),
+            call_line(6, "mosaic_status", &json!({})),
+            request(7, "ping", &json!({})),
+            // An `initialize` revision named in `_meta` belongs to the session.
+            request(8, "tools/list", &json!({ "_meta": meta("2025-11-25") })),
+        ],
+        &connector,
+    );
+    assert_eq!(by_id(&out, 1)["result"]["protocolVersion"], "2024-11-05");
+    for id in [2, 5, 8] {
+        let list = &by_id(&out, id)["result"];
+        assert!(list["tools"][0].get("annotations").is_none(), "{id}");
+        assert!(list.get("resultType").is_none(), "{id}");
+        assert!(list.get("ttlMs").is_none(), "{id}");
+    }
+    let modern_list = &by_id(&out, 3)["result"];
+    assert_stateless_result(modern_list);
+    assert!(modern_list["tools"][0].get("annotations").is_some());
+    let modern_call = &by_id(&out, 4)["result"];
+    assert_stateless_result(modern_call);
+    assert!(modern_call.get("structuredContent").is_some());
+    let session_call = &by_id(&out, 6)["result"];
+    assert_eq!(session_call["isError"], false);
+    assert!(session_call.get("structuredContent").is_none());
+    assert!(session_call.get("resultType").is_none());
+    assert!(session_call.get("_meta").is_none());
+    assert_eq!(by_id(&out, 7)["result"], json!({}));
+    assert_eq!(link.seen.borrow().len(), 2);
+}
+
+#[test]
+fn cancelled_stateless_call_gets_no_response() {
+    let link = Rc::new(FakeLink {
+        responder: Box::new(|_| Ok(status_body())),
+        delay: Duration::from_millis(300),
+        closed: Cell::new(false),
+        unpaired: Cell::new(false),
+        close_after_first: false,
+        seen: RefCell::new(Vec::new()),
+    });
+    let connector = FakeConnector::always(&link);
+    let cancel = |id: u64| {
+        json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": id } })
+            .to_string()
+    };
+    let out = drive(
+        &[
+            modern_call(1, "mosaic_status", &json!({})),
+            modern_call(2, "mosaic_status", &json!({})),
+            call_line(3, "mosaic_status", &json!({})),
+            cancel(1),
+            cancel(3),
+            cancel(99),
+        ],
+        &connector,
+    );
+    let ids: BTreeSet<u64> = out.iter().filter_map(|v| v["id"].as_u64()).collect();
+    assert_eq!(
+        ids,
+        BTreeSet::from([2, 3]),
+        "the cancelled stateless call is silent; the session keeps its answer"
+    );
+    assert_eq!(link.seen.borrow().len(), 3, "the desktop saw every call");
 }
