@@ -225,6 +225,15 @@ impl<H> PickSession<H> {
         }
     }
 
+    /// Points the session at another field of the same window and process (the
+    /// password field after the user-name field of one fill). Every other fact
+    /// of the pick stays, so the next check re-verifies against the same
+    /// window, process and image.
+    pub fn retarget(&mut self, target: RuntimeId, kind: FieldKind) {
+        self.target = target;
+        self.target_kind = kind;
+    }
+
     fn expired(&self, now_ms: u64) -> bool {
         let ttl = if self.continuation {
             CONTINUATION_TTL_MS

@@ -24,6 +24,8 @@ base64ct = { workspace = true, features = ["alloc"] }
 # SHA-256 of a signer subject and of an unsigned image file.
 sha2.workspace = true
 thiserror.workspace = true
+# The UTF-16 buffer of a typed password is wiped when dropped (ADR-0164).
+zeroize.workspace = true
 
 # The Windows probe reads processes, windows and UI Automation through the one shim that may use unsafe (ADR-0157).
 [target.'cfg(windows)'.dependencies]

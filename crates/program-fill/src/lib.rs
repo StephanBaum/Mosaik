@@ -18,6 +18,8 @@
 
 pub mod binding;
 pub mod detect;
+pub mod fill;
+pub mod host;
 pub mod identity;
 pub mod placement;
 pub mod policy;
