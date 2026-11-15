@@ -102,6 +102,8 @@ zip = { version = "=9.5.0", default-features = false, features = ["deflate-flate
 psl = { version = "=2.1.248", default-features = false, features = ["helpers"] }
 # WHATWG URL parsing, identical to the browser's origin rules; already in the tree through Tauri.
 url = { version = "=2.5.8", default-features = false, features = ["std"] }
+# An independent URI parser for the agent request tests (dev-dependency only; already in the tree through reqwest and axum).
+http = { version = "=1.5.0", default-features = false, features = ["std"] }
 # IDNA to-Unicode for the lookalike and IDN warnings; already in the tree through url.
 idna = { version = "=1.1.0", default-features = false, features = ["std", "compiled_data"] }
 # M3 sshagent
