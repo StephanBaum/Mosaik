@@ -992,6 +992,134 @@ public enum L10n {
         String(format: NSLocalizedString("mobile.ext.warnPunycode", bundle: .main, comment: ""), locale: .current, arguments: [unicode])
     }
 
+    public static func folderAccountOption(id: String) -> String {
+        String(format: NSLocalizedString("mobile.folder.accountOption", bundle: .main, comment: ""), locale: .current, arguments: [id])
+    }
+
+    public static func folderAppPasswordAction() -> String {
+        NSLocalizedString("mobile.folder.appPasswordAction", bundle: .main, comment: "")
+    }
+
+    public static func folderAppPasswordHint() -> String {
+        NSLocalizedString("mobile.folder.appPasswordHint", bundle: .main, comment: "")
+    }
+
+    public static func folderAppPasswordLabel() -> String {
+        NSLocalizedString("mobile.folder.appPasswordLabel", bundle: .main, comment: "")
+    }
+
+    public static func folderAppPasswordToggle() -> String {
+        NSLocalizedString("mobile.folder.appPasswordToggle", bundle: .main, comment: "")
+    }
+
+    public static func folderBrowseHint() -> String {
+        NSLocalizedString("mobile.folder.browseHint", bundle: .main, comment: "")
+    }
+
+    public static func folderBrowseTitle() -> String {
+        NSLocalizedString("mobile.folder.browseTitle", bundle: .main, comment: "")
+    }
+
+    public static func folderChooseProvider() -> String {
+        NSLocalizedString("mobile.folder.chooseProvider", bundle: .main, comment: "")
+    }
+
+    public static func folderCurrentFolder(path: String) -> String {
+        String(format: NSLocalizedString("mobile.folder.currentFolder", bundle: .main, comment: ""), locale: .current, arguments: [path])
+    }
+
+    public static func folderDavLabel() -> String {
+        NSLocalizedString("mobile.folder.davLabel", bundle: .main, comment: "")
+    }
+
+    public static func folderIntro(provider: String) -> String {
+        String(format: NSLocalizedString("mobile.folder.intro", bundle: .main, comment: ""), locale: .current, arguments: [provider])
+    }
+
+    public static func folderLinked() -> String {
+        NSLocalizedString("mobile.folder.linked", bundle: .main, comment: "")
+    }
+
+    public static func folderLocating() -> String {
+        NSLocalizedString("mobile.folder.locating", bundle: .main, comment: "")
+    }
+
+    public static func folderLoginLabel() -> String {
+        NSLocalizedString("mobile.folder.loginLabel", bundle: .main, comment: "")
+    }
+
+    public static func folderMsRevokeHint() -> String {
+        NSLocalizedString("mobile.folder.msRevokeHint", bundle: .main, comment: "")
+    }
+
+    public static func folderNoDrive() -> String {
+        NSLocalizedString("mobile.folder.noDrive", bundle: .main, comment: "")
+    }
+
+    public static func folderNoSubfolders() -> String {
+        NSLocalizedString("mobile.folder.noSubfolders", bundle: .main, comment: "")
+    }
+
+    public static func folderPickAccount() -> String {
+        NSLocalizedString("mobile.folder.pickAccount", bundle: .main, comment: "")
+    }
+
+    public static func folderProviderDropbox() -> String {
+        NSLocalizedString("mobile.folder.providerDropbox", bundle: .main, comment: "")
+    }
+
+    public static func folderProviderOneDrive() -> String {
+        NSLocalizedString("mobile.folder.providerOneDrive", bundle: .main, comment: "")
+    }
+
+    public static func folderProviderWebDav() -> String {
+        NSLocalizedString("mobile.folder.providerWebDav", bundle: .main, comment: "")
+    }
+
+    public static func folderRelink() -> String {
+        NSLocalizedString("mobile.folder.relink", bundle: .main, comment: "")
+    }
+
+    public static func folderScope(provider: String) -> String {
+        String(format: NSLocalizedString("mobile.folder.scope", bundle: .main, comment: ""), locale: .current, arguments: [provider])
+    }
+
+    public static func folderServerConfirm(server: String) -> String {
+        String(format: NSLocalizedString("mobile.folder.serverConfirm", bundle: .main, comment: ""), locale: .current, arguments: [server])
+    }
+
+    public static func folderServerHint() -> String {
+        NSLocalizedString("mobile.folder.serverHint", bundle: .main, comment: "")
+    }
+
+    public static func folderServerLabel() -> String {
+        NSLocalizedString("mobile.folder.serverLabel", bundle: .main, comment: "")
+    }
+
+    public static func folderSettingsLine(provider: String, path: String) -> String {
+        String(format: NSLocalizedString("mobile.folder.settingsLine", bundle: .main, comment: ""), locale: .current, arguments: [provider, path])
+    }
+
+    public static func folderSignIn(provider: String) -> String {
+        String(format: NSLocalizedString("mobile.folder.signIn", bundle: .main, comment: ""), locale: .current, arguments: [provider])
+    }
+
+    public static func folderUp() -> String {
+        NSLocalizedString("mobile.folder.up", bundle: .main, comment: "")
+    }
+
+    public static func folderUseFolder() -> String {
+        NSLocalizedString("mobile.folder.useFolder", bundle: .main, comment: "")
+    }
+
+    public static func folderUseThis() -> String {
+        NSLocalizedString("mobile.folder.useThis", bundle: .main, comment: "")
+    }
+
+    public static func folderWaiting() -> String {
+        NSLocalizedString("mobile.folder.waiting", bundle: .main, comment: "")
+    }
+
     public static func generatorAmbiguous() -> String {
         NSLocalizedString("mobile.generator.ambiguous", bundle: .main, comment: "")
     }
@@ -1386,6 +1514,30 @@ public enum L10n {
 
     public static func providerErrorTitle() -> String {
         NSLocalizedString("mobile.provider.errorTitle", bundle: .main, comment: "")
+    }
+
+    public static func resetAction() -> String {
+        NSLocalizedString("mobile.reset.action", bundle: .main, comment: "")
+    }
+
+    public static func resetBody() -> String {
+        NSLocalizedString("mobile.reset.body", bundle: .main, comment: "")
+    }
+
+    public static func resetConfirm() -> String {
+        NSLocalizedString("mobile.reset.confirm", bundle: .main, comment: "")
+    }
+
+    public static func resetPhraseLabel() -> String {
+        NSLocalizedString("mobile.reset.phraseLabel", bundle: .main, comment: "")
+    }
+
+    public static func resetTitle() -> String {
+        NSLocalizedString("mobile.reset.title", bundle: .main, comment: "")
+    }
+
+    public static func resetTypePhrase(phrase: String) -> String {
+        String(format: NSLocalizedString("mobile.reset.typePhrase", bundle: .main, comment: ""), locale: .current, arguments: [phrase])
     }
 
     public static func scanAllow() -> String {

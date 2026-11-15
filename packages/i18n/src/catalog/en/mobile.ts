@@ -410,4 +410,50 @@ export const mobile = {
   "mobile.ext.confirmFillButton": "Fill this login",
   "mobile.settings.passwordIdentitiesLimit":
     "When you tap a suggestion, iOS does not tell Mosaic which page you are on. So Mosaic shows the saved site and fills only after you confirm it and unlock with Face ID or Touch ID.",
+  // Android folder accounts (docs/MOBILE.md §6): sign-in to the provider, choosing the folder, settings, reset.
+  "mobile.folder.intro": "This account syncs through your {provider} folder.",
+  "mobile.folder.signIn": "Sign in to {provider}",
+  "mobile.folder.scope":
+    "{provider} will ask for access to all your files. Mosaic only opens the folder you choose and never touches anything else.",
+  "mobile.folder.waiting": "Finish signing in in your browser, then come back here.",
+  "mobile.folder.serverLabel": "Nextcloud or WebDAV address",
+  "mobile.folder.serverHint": "https://cloud.example.com",
+  "mobile.folder.serverConfirm":
+    "Mosaic will sign in at {server}. Only continue if this is your own server.",
+  "mobile.folder.locating": "Looking for your Mosaic folder…",
+  "mobile.folder.browseTitle": "Choose your Mosaic folder",
+  "mobile.folder.browseHint":
+    "It's the folder your computer syncs, with a file named mosaic-sync.json.",
+  "mobile.folder.currentFolder": "Current folder: {path}",
+  "mobile.folder.noSubfolders": "There are no folders here.",
+  "mobile.folder.useThis": "Use this folder",
+  "mobile.folder.up": "Up one level",
+  "mobile.folder.chooseProvider": "Where does your account sync?",
+  "mobile.folder.noDrive":
+    "Google Drive and iCloud Drive don't work on Android yet. Use Dropbox, OneDrive, Nextcloud or Mosaic sync.",
+  "mobile.folder.useFolder": "Sync through a cloud folder instead",
+  "mobile.folder.providerDropbox": "Dropbox",
+  "mobile.folder.providerOneDrive": "OneDrive",
+  "mobile.folder.providerWebDav": "Nextcloud or WebDAV",
+  "mobile.folder.appPasswordToggle": "Use an app password instead",
+  "mobile.folder.davLabel": "WebDAV folder address",
+  "mobile.folder.loginLabel": "Username",
+  "mobile.folder.appPasswordLabel": "App password",
+  "mobile.folder.appPasswordHint":
+    "Create an app password in your server's security settings. Don't use your main password.",
+  "mobile.folder.appPasswordAction": "Sign in with the app password",
+  "mobile.folder.pickAccount": "Which account is this phone joining?",
+  "mobile.folder.accountOption": "Account {id}",
+  "mobile.folder.linked": "Signed in. Syncing again.",
+  "mobile.folder.settingsLine": "Syncs through {provider}: {path}",
+  "mobile.folder.relink": "Sign in again",
+  "mobile.folder.msRevokeHint":
+    "To remove Mosaic's access completely, remove it on your Microsoft account page under Apps.",
+  "mobile.reset.title": "Remove this account from this phone",
+  "mobile.reset.body":
+    "This deletes the vault copy, the Secret Key and the cloud sign-in stored on this phone. Your data in the cloud folder or on the server stays. You can join again later with your Secret Key and master password.",
+  "mobile.reset.action": "Remove account…",
+  "mobile.reset.confirm": "Remove account",
+  "mobile.reset.phraseLabel": "Confirmation",
+  "mobile.reset.typePhrase": "Type {phrase} to confirm",
 } as const satisfies Record<string, string>;

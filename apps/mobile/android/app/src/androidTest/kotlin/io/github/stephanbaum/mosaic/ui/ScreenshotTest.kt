@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.stephanbaum.mosaic.ffi.FieldView
+import io.github.stephanbaum.mosaic.ffi.FolderProvider
 import io.github.stephanbaum.mosaic.ffi.ItemDetail
 import io.github.stephanbaum.mosaic.ffi.ItemKind
 import io.github.stephanbaum.mosaic.ffi.ItemSummary
@@ -26,6 +27,8 @@ import io.github.stephanbaum.mosaic.ffi.OtpScheme
 import io.github.stephanbaum.mosaic.ffi.OtpView
 import io.github.stephanbaum.mosaic.ffi.UrlView
 import io.github.stephanbaum.mosaic.security.SecretFieldState
+import io.github.stephanbaum.mosaic.ui.l10n.L10n
+import io.github.stephanbaum.mosaic.ui.onboarding.FolderChooseContent
 import io.github.stephanbaum.mosaic.ui.settings.SettingsContent
 import io.github.stephanbaum.mosaic.ui.vault.ItemDetailContent
 import io.github.stephanbaum.mosaic.ui.vault.OtpDisplay
@@ -138,7 +141,7 @@ class ScreenshotTest {
                                     onCopy = {},
                                     onCopyOtp = {},
                                 )
-                            else ->
+                            2 ->
                                 SettingsContent(
                                     settings = settings,
                                     syncText = "",
@@ -162,6 +165,50 @@ class ScreenshotTest {
                                     onLock = {},
                                     onLicences = {},
                                 )
+                            3 ->
+                                // A folder account that was signed out of its provider: the line, "Sign in again",
+                                // the scope text, the OneDrive hint and the reset section.
+                                SettingsContent(
+                                    settings = settings,
+                                    syncText = "",
+                                    pendingUploads = 0,
+                                    quickEnrolled = false,
+                                    biometricAvailable = false,
+                                    askPassword = false,
+                                    passwordState = passwordState,
+                                    version = "0.1.0",
+                                    busy = false,
+                                    syncBusy = false,
+                                    error = null,
+                                    onAutoLock = {},
+                                    onIdle = {},
+                                    onClipboard = {},
+                                    onQuickStart = {},
+                                    onQuickConfirm = {},
+                                    onQuickCancel = {},
+                                    onQuickDisable = {},
+                                    onSync = {},
+                                    onLock = {},
+                                    onLicences = {},
+                                    folderLine = "Syncs through OneDrive: /Mosaic",
+                                    needsRelink = true,
+                                    scopeText = L10n.folderScope(LocalContext.current.resources, "OneDrive"),
+                                    msRevokeHint = true,
+                                    resetPhrase = "0a1b2c3d",
+                                )
+                            else ->
+                                FolderChooseContent(
+                                    provider = FolderProvider.WEB_DAV,
+                                    onProvider = {},
+                                    server = "https://cloud.example.com",
+                                    onServer = {},
+                                    keyField = passwordState,
+                                    keyKept = false,
+                                    error = null,
+                                    busy = false,
+                                    onContinue = {},
+                                    onBack = {},
+                                )
                         }
                     }
                 }
@@ -171,7 +218,7 @@ class ScreenshotTest {
         var written = 0
         for (language in listOf("en", "de")) {
             for (dark in listOf(false, true)) {
-                for (screen in 0..2) {
+                for (screen in 0..4) {
                     compose.runOnUiThread { variant = Variant(language, dark, screen) }
                     compose.waitForIdle()
                     val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
@@ -184,6 +231,6 @@ class ScreenshotTest {
                 }
             }
         }
-        assertTrue("expected 12 screenshots", written == 12)
+        assertTrue("expected 20 screenshots", written == 20)
     }
 }

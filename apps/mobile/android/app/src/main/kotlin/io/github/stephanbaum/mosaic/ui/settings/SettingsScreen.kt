@@ -22,6 +22,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import io.github.stephanbaum.mosaic.MosaicApp
+import io.github.stephanbaum.mosaic.ffi.FolderProvider
 import io.github.stephanbaum.mosaic.ffi.MobileSettings
 import io.github.stephanbaum.mosaic.ffi.SettingsUpdate
 import io.github.stephanbaum.mosaic.ffi.SyncOverview
@@ -43,10 +44,13 @@ import io.github.stephanbaum.mosaic.ui.components.QuietButton
 import io.github.stephanbaum.mosaic.ui.components.SecondaryButton
 import io.github.stephanbaum.mosaic.ui.components.SectionTitle
 import io.github.stephanbaum.mosaic.ui.components.SecureAlertDialog
+import io.github.stephanbaum.mosaic.ui.components.TextInput
 import io.github.stephanbaum.mosaic.ui.components.TopBar
 import io.github.stephanbaum.mosaic.ui.components.Working
 import io.github.stephanbaum.mosaic.ui.errorText
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
+import io.github.stephanbaum.mosaic.ui.onboarding.FolderSignInPanel
+import io.github.stephanbaum.mosaic.ui.onboarding.providerName
 import io.github.stephanbaum.mosaic.ui.theme.MosaicSpace
 import io.github.stephanbaum.mosaic.ui.vault.syncLine
 import io.github.stephanbaum.mosaic.ui.vault.syncWarningTexts
@@ -95,6 +99,7 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
     // Sync has its own flag, so a running sync does not grey out the quick-unlock buttons and the other way round.
     var syncBusy by remember { mutableStateOf(false) }
     var errorCode by remember { mutableStateOf<String?>(null) }
+    var relinking by remember { mutableStateOf(false) }
     val passwordState = remember { SecretFieldState() }
     val biometricAvailable = remember { BiometricGate().isAvailable(context) }
 
@@ -118,9 +123,63 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
         }
     }
 
+    val current = overview
+    val folder = current?.folder
+    val folderName = folder?.provider?.let { providerName(resources, it) }
     SettingsContent(
         settings = settings,
         syncText = syncLine(resources, overview, System.currentTimeMillis()),
+        folderLine =
+            if (folder != null && folderName != null) {
+                L10n.folderSettingsLine(resources, folderName, "/" + folder.path.trimStart('/'))
+            } else {
+                null
+            },
+        needsRelink =
+            folder != null && current != null && (!current.signedIn || current.lastError == "folderProviderSignedOut"),
+        relinking = relinking,
+        onRelink = { relinking = true },
+        relinkContent = {
+            if (folder != null) {
+                    FolderSignInPanel(
+                        app = app,
+                        provider = folder.provider,
+                        server = "",
+                        serverEditable = true,
+                        onCancel = { relinking = false },
+                        dropOnLeave = true,
+                        onLinked = {
+                            relinking = false
+                            scope.launch {
+                                // The credential is stored: sync at once, which also reads the state again.
+                                syncBusy = true
+                                when (val result = app.vault.syncNow()) {
+                                    is Outcome.Ok -> {
+                                        overview = result.value
+                                        errorCode = null
+                                    }
+                                    is Outcome.Failed -> errorCode = result.code
+                                    Outcome.Cancelled -> Unit
+                                }
+                                syncBusy = false
+                            }
+                        },
+                    )
+            }
+        },
+        scopeText = if (folder != null && folderName != null && folder.provider != FolderProvider.WEB_DAV) L10n.folderScope(resources, folderName) else null,
+        msRevokeHint = folder?.provider == FolderProvider.ONE_DRIVE,
+        resetPhrase = overview?.resetPhrase.orEmpty(),
+        onReset = { typed ->
+            scope.launch {
+                when (val result = app.session.resetDevice(typed)) {
+                    // The session state changes to "no account": the app shows the onboarding.
+                    is Outcome.Ok -> Unit
+                    is Outcome.Failed -> errorCode = result.code
+                    Outcome.Cancelled -> Unit
+                }
+            }
+        },
         syncWarnings = syncWarningTexts(resources, overview),
         pendingUploads = overview?.pendingUploads?.toInt() ?: 0,
         quickEnrolled = enrolled,
@@ -246,9 +305,20 @@ fun SettingsContent(
     onLicences: () -> Unit,
     syncWarnings: List<String> = emptyList(),
     onAcknowledge: () -> Unit = {},
+    folderLine: String? = null,
+    needsRelink: Boolean = false,
+    relinking: Boolean = false,
+    onRelink: () -> Unit = {},
+    relinkContent: (@Composable () -> Unit)? = null,
+    scopeText: String? = null,
+    msRevokeHint: Boolean = false,
+    resetPhrase: String = "",
+    onReset: (String) -> Unit = {},
 ) {
     val resources = LocalContext.current.resources
     var confirmAcknowledge by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    var typedPhrase by remember { mutableStateOf("") }
     PageColumn {
         TopBar(title = L10n.settingsTitle(resources), onBack = null)
         if (error != null) ErrorText(error)
@@ -312,6 +382,16 @@ fun SettingsContent(
         Panel {
             SectionTitle(L10n.settingsSync(resources))
             if (syncText.isNotEmpty()) Line(syncText)
+            if (folderLine != null) Line(folderLine, muted = true)
+            if (needsRelink) {
+                if (relinking && relinkContent != null) {
+                    relinkContent()
+                } else {
+                    SecondaryButton(L10n.folderRelink(resources), onClick = onRelink)
+                    if (scopeText != null) HintText(scopeText)
+                }
+            }
+            if (msRevokeHint) HintText(L10n.folderMsRevokeHint(resources))
             if (pendingUploads > 0) HintText(L10n.syncPending(resources, pendingUploads))
             if (syncBusy) Working(L10n.syncWorking(resources)) else SecondaryButton(L10n.syncNow(resources), onClick = onSync)
         }
@@ -324,6 +404,19 @@ fun SettingsContent(
                 }
             }
         }
+        if (resetPhrase.isNotEmpty()) {
+            Panel {
+                SectionTitle(L10n.resetTitle(resources))
+                BodyText(L10n.resetBody(resources))
+                SecondaryButton(
+                    L10n.resetAction(resources),
+                    onClick = {
+                        typedPhrase = ""
+                        confirmReset = true
+                    },
+                )
+            }
+        }
         Panel {
             SectionTitle(L10n.settingsAbout(resources))
             Line(L10n.settingsVersion(resources, version))
@@ -334,6 +427,38 @@ fun SettingsContent(
         Column(verticalArrangement = Arrangement.spacedBy(MosaicSpace.s3)) {
             PrimaryButton(L10n.lockNow(resources), onClick = onLock)
         }
+    }
+    if (confirmReset) {
+        // The phrase is the first 8 characters of a folder account's ID (the email of a hosted account): typing it
+        // stops a tap by mistake. The core compares it again.
+        val matches = typedPhrase.trim().lowercase() == resetPhrase.trim().lowercase()
+        SecureAlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text(L10n.resetTitle(resources)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(MosaicSpace.s4)) {
+                    Text(L10n.resetBody(resources))
+                    Text(L10n.resetTypePhrase(resources, resetPhrase))
+                    TextInput(
+                        value = typedPhrase,
+                        onValueChange = { typedPhrase = it },
+                        label = L10n.resetPhraseLabel(resources),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = matches,
+                    onClick = {
+                        confirmReset = false
+                        onReset(typedPhrase)
+                    },
+                ) {
+                    Text(L10n.resetConfirm(resources))
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(L10n.commonCancel(resources)) } },
+        )
     }
     if (confirmAcknowledge) {
         SecureAlertDialog(

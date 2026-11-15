@@ -169,8 +169,9 @@ class RedTeamG3Test {
             assertEquals(name, 0, activity.getElementsByTagName("intent-filter").length)
         }
         val exported = activities.values.filter { it.android("exported") != "false" }
-        assertEquals(listOf(".ui.MainActivity"), exported.map { it.android("name") })
-        val launcher = exported.single()
+        // The launcher, and the redirect of a cloud-folder sign-in (the browser starts it; see the next test).
+        assertEquals(listOf(".ui.MainActivity", ".ui.OAuthRedirectActivity"), exported.map { it.android("name") })
+        val launcher = exported.first()
         assertEquals(
             listOf("android.intent.action.MAIN"),
             (0 until launcher.getElementsByTagName("action").length).map {
@@ -197,6 +198,35 @@ class RedTeamG3Test {
                 assertEquals(component.android("name"), "false", component.android("exported"))
             }
         }
+    }
+
+    /**
+     * The one other exported activity takes the sign-in redirect and nothing else: a single VIEW action with the
+     * DEFAULT and BROWSABLE categories, one data element with the private scheme, no history, no recents entry.
+     */
+    @Test
+    fun theOAuthRedirectActivityTakesOnlyItsOwnScheme() {
+        val doc = xml("src/main/AndroidManifest.xml")
+        val redirect = elements(doc, "activity").single { it.android("name") == ".ui.OAuthRedirectActivity" }
+        assertEquals("true", redirect.android("noHistory"))
+        assertEquals("true", redirect.android("excludeFromRecents"))
+        val filters = redirect.getElementsByTagName("intent-filter")
+        assertEquals(1, filters.length)
+        val filter = filters.item(0) as Element
+        fun names(tag: String) =
+            (0 until filter.getElementsByTagName(tag).length).map {
+                (filter.getElementsByTagName(tag).item(it) as Element).android("name")
+            }
+        assertEquals(listOf("android.intent.action.VIEW"), names("action"))
+        assertEquals(
+            setOf("android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"),
+            names("category").toSet(),
+        )
+        val data = filter.getElementsByTagName("data")
+        assertEquals(1, data.length)
+        val element = data.item(0) as Element
+        assertEquals("io.github.stephanbaum.mosaic.oauth", element.android("scheme"))
+        assertEquals("/cb", element.android("path"))
     }
 
     /**

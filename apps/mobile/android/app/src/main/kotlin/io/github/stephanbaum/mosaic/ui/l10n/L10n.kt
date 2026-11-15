@@ -765,6 +765,102 @@ object L10n {
     fun extWarnPunycode(r: Resources, unicode: String): String =
         r.getString(R.string.mobile_ext_warnPunycode, unicode)
 
+    fun folderAccountOption(r: Resources, id: String): String =
+        r.getString(R.string.mobile_folder_accountOption, id)
+
+    fun folderAppPasswordAction(r: Resources): String =
+        r.getString(R.string.mobile_folder_appPasswordAction)
+
+    fun folderAppPasswordHint(r: Resources): String =
+        r.getString(R.string.mobile_folder_appPasswordHint)
+
+    fun folderAppPasswordLabel(r: Resources): String =
+        r.getString(R.string.mobile_folder_appPasswordLabel)
+
+    fun folderAppPasswordToggle(r: Resources): String =
+        r.getString(R.string.mobile_folder_appPasswordToggle)
+
+    fun folderBrowseHint(r: Resources): String =
+        r.getString(R.string.mobile_folder_browseHint)
+
+    fun folderBrowseTitle(r: Resources): String =
+        r.getString(R.string.mobile_folder_browseTitle)
+
+    fun folderChooseProvider(r: Resources): String =
+        r.getString(R.string.mobile_folder_chooseProvider)
+
+    fun folderCurrentFolder(r: Resources, path: String): String =
+        r.getString(R.string.mobile_folder_currentFolder, path)
+
+    fun folderDavLabel(r: Resources): String =
+        r.getString(R.string.mobile_folder_davLabel)
+
+    fun folderIntro(r: Resources, provider: String): String =
+        r.getString(R.string.mobile_folder_intro, provider)
+
+    fun folderLinked(r: Resources): String =
+        r.getString(R.string.mobile_folder_linked)
+
+    fun folderLocating(r: Resources): String =
+        r.getString(R.string.mobile_folder_locating)
+
+    fun folderLoginLabel(r: Resources): String =
+        r.getString(R.string.mobile_folder_loginLabel)
+
+    fun folderMsRevokeHint(r: Resources): String =
+        r.getString(R.string.mobile_folder_msRevokeHint)
+
+    fun folderNoDrive(r: Resources): String =
+        r.getString(R.string.mobile_folder_noDrive)
+
+    fun folderNoSubfolders(r: Resources): String =
+        r.getString(R.string.mobile_folder_noSubfolders)
+
+    fun folderPickAccount(r: Resources): String =
+        r.getString(R.string.mobile_folder_pickAccount)
+
+    fun folderProviderDropbox(r: Resources): String =
+        r.getString(R.string.mobile_folder_providerDropbox)
+
+    fun folderProviderOneDrive(r: Resources): String =
+        r.getString(R.string.mobile_folder_providerOneDrive)
+
+    fun folderProviderWebDav(r: Resources): String =
+        r.getString(R.string.mobile_folder_providerWebDav)
+
+    fun folderRelink(r: Resources): String =
+        r.getString(R.string.mobile_folder_relink)
+
+    fun folderScope(r: Resources, provider: String): String =
+        r.getString(R.string.mobile_folder_scope, provider)
+
+    fun folderServerConfirm(r: Resources, server: String): String =
+        r.getString(R.string.mobile_folder_serverConfirm, server)
+
+    fun folderServerHint(r: Resources): String =
+        r.getString(R.string.mobile_folder_serverHint)
+
+    fun folderServerLabel(r: Resources): String =
+        r.getString(R.string.mobile_folder_serverLabel)
+
+    fun folderSettingsLine(r: Resources, provider: String, path: String): String =
+        r.getString(R.string.mobile_folder_settingsLine, provider, path)
+
+    fun folderSignIn(r: Resources, provider: String): String =
+        r.getString(R.string.mobile_folder_signIn, provider)
+
+    fun folderUp(r: Resources): String =
+        r.getString(R.string.mobile_folder_up)
+
+    fun folderUseFolder(r: Resources): String =
+        r.getString(R.string.mobile_folder_useFolder)
+
+    fun folderUseThis(r: Resources): String =
+        r.getString(R.string.mobile_folder_useThis)
+
+    fun folderWaiting(r: Resources): String =
+        r.getString(R.string.mobile_folder_waiting)
+
     fun generatorAmbiguous(r: Resources): String =
         r.getString(R.string.mobile_generator_ambiguous)
 
@@ -1061,6 +1157,24 @@ object L10n {
 
     fun providerErrorTitle(r: Resources): String =
         r.getString(R.string.mobile_provider_errorTitle)
+
+    fun resetAction(r: Resources): String =
+        r.getString(R.string.mobile_reset_action)
+
+    fun resetBody(r: Resources): String =
+        r.getString(R.string.mobile_reset_body)
+
+    fun resetConfirm(r: Resources): String =
+        r.getString(R.string.mobile_reset_confirm)
+
+    fun resetPhraseLabel(r: Resources): String =
+        r.getString(R.string.mobile_reset_phraseLabel)
+
+    fun resetTitle(r: Resources): String =
+        r.getString(R.string.mobile_reset_title)
+
+    fun resetTypePhrase(r: Resources, phrase: String): String =
+        r.getString(R.string.mobile_reset_typePhrase, phrase)
 
     fun scanAllow(r: Resources): String =
         r.getString(R.string.mobile_scan_allow)

@@ -66,6 +66,29 @@
             android:taskAffinity=""
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- The redirect of a cloud-folder sign-in (Dropbox, OneDrive): the provider's page ends on
+             io.github.stephanbaum.mosaic.oauth:/cb?code=... in the system browser. Exported because the browser
+             starts it; it takes only that one address (OAuthCallback.accepts checks the shape; Android matches a
+             path only together with a host, so the scheme is the real filter here), hands it to the core and
+             returns to MainActivity. PKCE and the core's state check make a look-alike app's copy useless. -->
+        <activity
+            android:name=".ui.OAuthRedirectActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Mosaic.Translucent">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="io.github.stephanbaum.mosaic.oauth"
+                    android:path="/cb" />
+            </intent-filter>
+        </activity>
+
+
         <!-- The ceremony step of the Credential Manager provider; started only by the provider's entries. -->
         <activity
             android:name=".provider.CredentialActivity"

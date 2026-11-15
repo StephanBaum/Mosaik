@@ -418,4 +418,50 @@ export const mobile = {
   "mobile.ext.confirmFillButton": "Diesen Login ausfüllen",
   "mobile.settings.passwordIdentitiesLimit":
     "Wenn du einen Vorschlag antippst, teilt iOS Mosaic nicht mit, auf welcher Seite du bist. Deshalb zeigt Mosaic die gespeicherte Website und füllt erst aus, nachdem du sie bestätigt und mit Face ID oder Touch ID entsperrt hast.",
+  // Android folder accounts (docs/MOBILE.md §6): sign-in to the provider, choosing the folder, settings, reset.
+  "mobile.folder.intro": "Dieses Konto synchronisiert über deinen {provider}-Ordner.",
+  "mobile.folder.signIn": "Bei {provider} anmelden",
+  "mobile.folder.scope":
+    "{provider} fragt nach Zugriff auf alle deine Dateien. Mosaic öffnet nur den Ordner, den du auswählst, und rührt sonst nichts an.",
+  "mobile.folder.waiting": "Schließ die Anmeldung im Browser ab und komm dann hierher zurück.",
+  "mobile.folder.serverLabel": "Nextcloud- oder WebDAV-Adresse",
+  "mobile.folder.serverHint": "https://cloud.example.com",
+  "mobile.folder.serverConfirm":
+    "Mosaic meldet sich bei {server} an. Mach nur weiter, wenn das dein eigener Server ist.",
+  "mobile.folder.locating": "Suche deinen Mosaic-Ordner …",
+  "mobile.folder.browseTitle": "Wähle deinen Mosaic-Ordner",
+  "mobile.folder.browseHint":
+    "Es ist der Ordner, den dein Computer synchronisiert, mit einer Datei namens mosaic-sync.json.",
+  "mobile.folder.currentFolder": "Aktueller Ordner: {path}",
+  "mobile.folder.noSubfolders": "Hier gibt es keine Ordner.",
+  "mobile.folder.useThis": "Diesen Ordner verwenden",
+  "mobile.folder.up": "Eine Ebene höher",
+  "mobile.folder.chooseProvider": "Wo synchronisiert dein Konto?",
+  "mobile.folder.noDrive":
+    "Google Drive und iCloud Drive funktionieren unter Android noch nicht. Nimm Dropbox, OneDrive, Nextcloud oder die Mosaic-Synchronisierung.",
+  "mobile.folder.useFolder": "Stattdessen über einen Cloud-Ordner synchronisieren",
+  "mobile.folder.providerDropbox": "Dropbox",
+  "mobile.folder.providerOneDrive": "OneDrive",
+  "mobile.folder.providerWebDav": "Nextcloud oder WebDAV",
+  "mobile.folder.appPasswordToggle": "Stattdessen ein App-Passwort verwenden",
+  "mobile.folder.davLabel": "WebDAV-Ordneradresse",
+  "mobile.folder.loginLabel": "Benutzername",
+  "mobile.folder.appPasswordLabel": "App-Passwort",
+  "mobile.folder.appPasswordHint":
+    "Erstelle ein App-Passwort in den Sicherheitseinstellungen deines Servers. Nimm nicht dein Hauptpasswort.",
+  "mobile.folder.appPasswordAction": "Mit dem App-Passwort anmelden",
+  "mobile.folder.pickAccount": "Welchem Konto soll dieses Handy beitreten?",
+  "mobile.folder.accountOption": "Konto {id}",
+  "mobile.folder.linked": "Angemeldet. Die Synchronisierung läuft wieder.",
+  "mobile.folder.settingsLine": "Synchronisiert über {provider}: {path}",
+  "mobile.folder.relink": "Neu anmelden",
+  "mobile.folder.msRevokeHint":
+    "Um Mosaics Zugriff ganz zu entfernen, entferne die App auf der Seite deines Microsoft-Kontos unter Apps.",
+  "mobile.reset.title": "Dieses Konto von diesem Handy entfernen",
+  "mobile.reset.body":
+    "Das löscht die Tresor-Kopie, den Secret Key und die Cloud-Anmeldung auf diesem Handy. Deine Daten im Cloud-Ordner oder auf dem Server bleiben erhalten. Du kannst später mit deinem Secret Key und Master-Passwort wieder beitreten.",
+  "mobile.reset.action": "Konto entfernen …",
+  "mobile.reset.confirm": "Konto entfernen",
+  "mobile.reset.phraseLabel": "Bestätigung",
+  "mobile.reset.typePhrase": "Gib {phrase} ein, um zu bestätigen",
 } satisfies Record<keyof typeof en, string>;
