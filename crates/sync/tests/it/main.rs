@@ -11,13 +11,13 @@ mod http_transport;
 mod join_folder;
 mod malicious_folder;
 mod owned_session;
-#[cfg(feature = "folder-remote")]
+#[cfg(all(feature = "folder-remote", debug_assertions))]
 mod remote_dav;
-#[cfg(feature = "folder-remote")]
+#[cfg(all(feature = "folder-remote", debug_assertions))]
 mod remote_dropbox;
-#[cfg(feature = "folder-remote")]
+#[cfg(all(feature = "folder-remote", debug_assertions))]
 mod remote_engine;
-#[cfg(feature = "folder-remote")]
+#[cfg(all(feature = "folder-remote", debug_assertions))]
 mod remote_graph;
 mod rotation_folder;
 mod sim_folder;

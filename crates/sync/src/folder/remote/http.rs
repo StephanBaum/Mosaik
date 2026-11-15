@@ -116,7 +116,9 @@ impl RemoteHttp {
     ///
     /// # Errors
     /// [`TransportError::Io`] if the TLS configuration or the client cannot be built.
-    #[cfg(any(test, feature = "test-util"))]
+    /// Debug builds only: a release build never has it, even with `test-util`
+    /// (CI release test runs enable `test-util` through dev-dependencies).
+    #[cfg(any(test, all(feature = "test-util", debug_assertions)))]
     pub fn new_loopback() -> Result<Self, TransportError> {
         Self::build(true)
     }

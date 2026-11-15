@@ -137,7 +137,7 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
                 null
             },
         needsRelink =
-            folder != null && current != null && (!current.signedIn || current.lastError == "folderProviderSignedOut"),
+            current != null && current.folder != null && (!current.signedIn || current.lastError == "folderProviderSignedOut"),
         relinking = relinking,
         onRelink = { relinking = true },
         relinkContent = {
