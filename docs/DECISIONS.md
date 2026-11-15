@@ -5934,6 +5934,8 @@ cleartext.
 - The same HKDF label for the log key and the log AAD: rejected (§3, see above).
 
 ### Consequences
+Unreadable log rows (a record that does not open, for example after a full re-key) are skipped and counted, never deleted on read; the count is shown. Skipping preserves evidence of tampering and never destroys data on a read error.
+
 No new primitive, crate or dependency: HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 and `random(n)` as in §2. The crypto-reviewer reviews this ADR
 and the spec text before `mosaic-core` code lands (Task 3 of the plan). THREAT_MODEL §4.11 rows cite this ADR; R179 records the cleartext time
 column of the log. A disk reader of the store learns when agent use happened and how many records exist, not what was used.

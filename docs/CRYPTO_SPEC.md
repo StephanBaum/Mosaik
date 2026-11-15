@@ -2711,7 +2711,8 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   when a mark of its item matches. Rows go with purged or tombstoned items and removed vaults. A full
   re-key (§6.6), which replaces `AK`, makes every mark and every log record unverifiable under the new
   `K_agent_mark` and `K_agent_log`: the user confirms bindings again, and the old log records, which are not
-  re-sealed, are dropped when found unreadable.
+  re-sealed, are skipped and counted when found unreadable, never deleted on read (skipping preserves evidence of tampering and
+  never destroys data on a read error); the log screen shows the count.
 
   `agent_log(entry_id, at_ms, sealed)`: `at_ms` is the wall-clock time of the entry in milliseconds. It is
   cleartext because the 90-day pruning needs it, and it is not derived from item plaintext (it is the time
