@@ -239,7 +239,13 @@ function KitSettings() {
 }
 
 /** Sync, the groups for programs that use the vault (the SSH agent, browser extensions) and the passkey export. */
-function Integrations({ onError }: { onError: (error: IpcError | null) => void }) {
+function Integrations({
+  onError,
+  onImport,
+}: {
+  onError: (error: IpcError | null) => void;
+  onImport: () => void;
+}) {
   return (
     <>
       <AccountKeysSection />
@@ -251,11 +257,25 @@ function Integrations({ onError }: { onError: (error: IpcError | null) => void }
       <AgentSettings onError={onError} />
       <ProgramFillSettings />
       <PasskeyExportSettings />
+      <ImportSettings onImport={onImport} />
     </>
   );
 }
 
-export function SettingsScreen() {
+function ImportSettings({ onImport }: { onImport: () => void }) {
+  const { t } = useI18n();
+  return (
+    <SettingsSection title={t("settings.import")} body={t("settings.import.body")}>
+      <div className="setting-row">
+        <Button variant="secondary" onClick={onImport}>
+          {t("settings.import.open")}
+        </Button>
+      </div>
+    </SettingsSection>
+  );
+}
+
+export function SettingsScreen({ onImport }: { onImport: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
   const { settings, update } = useSettings();
@@ -320,7 +340,7 @@ export function SettingsScreen() {
         onChange={apply}
         onError={setError}
       />
-      <Integrations onError={setError} />
+      <Integrations onError={setError} onImport={onImport} />
       <KitSettings />
       {pending !== null && (
         <ReauthDialog

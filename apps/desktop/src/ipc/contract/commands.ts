@@ -32,8 +32,10 @@ import type { SetupCodeShowRequest, SetupCodeShown } from "./setupCode.ts";
 import type { Generated, GenerateRequest } from "./generator.ts";
 import type {
   ImportCancelRequest,
-  ImportChooseRequest,
   ImportCommitRequest,
+  ImportDeleteRequest,
+  ImportDetected,
+  ImportDetectRequest,
   ImportFileChoice,
   ImportPreview,
   ImportPreviewRequest,
@@ -250,7 +252,9 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   // Security insights
   security_report: Command<null, SecurityReport>;
   // Import
-  import_choose_file: Command<ImportChooseRequest, ImportFileChoice>;
+  import_choose_file: Command<null, ImportFileChoice>;
+  import_detect: Command<ImportDetectRequest, ImportDetected>;
+  import_delete_file: Command<ImportDeleteRequest, null>;
   import_preview: Command<ImportPreviewRequest, ImportPreview>;
   import_commit: Command<ImportCommitRequest, ImportResult>;
   import_cancel: Command<ImportCancelRequest, null>;
@@ -417,6 +421,8 @@ const commandSet = {
   update_settings: true,
   security_report: true,
   import_choose_file: true,
+  import_detect: true,
+  import_delete_file: true,
   import_preview: true,
   import_commit: true,
   import_cancel: true,

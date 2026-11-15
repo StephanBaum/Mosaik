@@ -65,6 +65,15 @@ pub trait Dialogs: Send + Sync {
     /// `internal` if no dialog can be shown.
     fn open_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>>;
 
+    /// Asks which export file to import, opening in the Downloads folder
+    /// where the OS has one; otherwise like [`Dialogs::open_file`].
+    ///
+    /// # Errors
+    /// `internal` if no dialog can be shown.
+    fn open_import_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>> {
+        self.open_file(filter)
+    }
+
     /// Asks which folder to use (the sync folder); `None` if the user
     /// cancels or this build has no dialogs.
     ///
@@ -192,6 +201,12 @@ impl<R: Runtime> NativeDialogs<R> {
     }
 }
 
+/// The folder a dialog opens in: `candidate` only if it is an existing
+/// directory (a missing or redirected Downloads folder leaves the OS default).
+fn start_dir(candidate: Option<PathBuf>) -> Option<PathBuf> {
+    candidate.filter(|dir| dir.is_dir())
+}
+
 /// The dialog with `filter`, or unfiltered for [`ANY_FILE`].
 fn with_filter(dialog: rfd::AsyncFileDialog, filter: FileFilter) -> rfd::AsyncFileDialog {
     if filter.extensions.is_empty() {
@@ -211,6 +226,18 @@ impl<R: Runtime> Dialogs for NativeDialogs<R> {
 
     fn open_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>> {
         self.run(move |dialog| Box::pin(with_filter(dialog, filter).pick_file()))
+    }
+
+    fn open_import_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>> {
+        let start = start_dir(self.app.path().download_dir().ok());
+        self.run(move |dialog| {
+            let dialog = with_filter(dialog, filter);
+            let dialog = match start {
+                Some(dir) => dialog.set_directory(dir),
+                None => dialog,
+            };
+            Box::pin(dialog.pick_file())
+        })
     }
 
     fn pick_folder(&self) -> IpcResult<Option<PathBuf>> {
@@ -234,5 +261,21 @@ impl<R: Runtime> Dialogs for NativeDialogs<R> {
             rfd::MessageButtons::OkCancelCustom(action.to_owned(), cancel.to_owned()),
             Some(action),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_dir_ignores_a_missing_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(start_dir(Some(tmp.path().join("nope"))), None);
+        assert_eq!(
+            start_dir(Some(tmp.path().to_path_buf())),
+            Some(tmp.path().to_path_buf())
+        );
+        assert_eq!(start_dir(None), None);
     }
 }

@@ -70,6 +70,8 @@ export const fixtures = {
     "update_settings",
     "security_report",
     "import_choose_file",
+    "import_detect",
+    "import_delete_file",
     "import_preview",
     "import_commit",
     "import_cancel",
@@ -407,6 +409,8 @@ export const fixtures = {
       "attachmentPreviewTooLarge",
       "clipboardUnavailable",
       "importFileUnreadable",
+      "importDeleteNotAllowed",
+      "importDeleteFailed",
       "importFormatInvalid",
       "importPreviewExpired",
       "importTooLarge",
@@ -541,6 +545,25 @@ export const fixtures = {
       "register",
       "signIn"
     ],
+    "importDetectedSource": [
+      "chromium",
+      "firefox",
+      "safari",
+      "bitwardenCsv",
+      "bitwarden",
+      "enpass",
+      "keepass",
+      "keepassxcCsv",
+      "onePassword",
+      "cxf",
+      "lastpass",
+      "dashlane",
+      "keeper",
+      "nordpass",
+      "protonPass",
+      "roboform",
+      "csv"
+    ],
     "importEntryWarning": [
       "unmappedFields",
       "otpUnreadable",
@@ -558,7 +581,9 @@ export const fixtures = {
       "passkeyUnreadable",
       "passkeyUnsupported",
       "passkeysLimit",
-      "notesTruncated"
+      "notesTruncated",
+      "urlKeptAsText",
+      "idnHost"
     ],
     "importFormat": [
       "enpass",
@@ -566,12 +591,23 @@ export const fixtures = {
       "keepass",
       "onePassword",
       "cxf",
+      "dashlane",
+      "keeper",
+      "keeperCsv",
+      "protonPass",
       "csv"
     ],
     "importSkipReason": [
       "malformed",
       "empty",
       "tooLarge"
+    ],
+    "importSyncedFolder": [
+      "oneDrive",
+      "dropbox",
+      "googleDrive",
+      "icloud",
+      "box"
     ],
     "importWarning": [
       "unmappedFields",
@@ -1069,6 +1105,12 @@ export const fixtures = {
       "code": "importFileUnreadable"
     },
     {
+      "code": "importDeleteNotAllowed"
+    },
+    {
+      "code": "importDeleteFailed"
+    },
+    {
       "code": "importFormatInvalid"
     },
     {
@@ -1488,6 +1530,11 @@ export const fixtures = {
     },
     {
       "type": "agentStateChanged"
+    },
+    {
+      "fileName": "export.csv",
+      "fileToken": "file-9",
+      "type": "importFileDropped"
     },
     {
       "request": {
@@ -2392,24 +2439,7 @@ export const fixtures = {
       }
     ],
     "import_choose_file": [
-      {
-        "format": "enpass"
-      },
-      {
-        "format": "bitwarden"
-      },
-      {
-        "format": "keepass"
-      },
-      {
-        "format": "onePassword"
-      },
-      {
-        "format": "cxf"
-      },
-      {
-        "format": "csv"
-      }
+      null
     ],
     "import_commit": [
       {
@@ -2418,6 +2448,16 @@ export const fixtures = {
           0
         ],
         "targetVaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "import_delete_file": [
+      {
+        "fileToken": "f-1"
+      }
+    ],
+    "import_detect": [
+      {
+        "fileToken": "f-1"
       }
     ],
     "import_preview": [
@@ -5631,9 +5671,25 @@ export const fixtures = {
       {
         "attachments": 1,
         "attachmentsFailed": 0,
+        "clean": true,
         "failed": 0,
         "imported": 1,
         "skipped": 1
+      }
+    ],
+    "import_delete_file": [
+      null
+    ],
+    "import_detect": [
+      {
+        "format": "enpass",
+        "source": "enpass",
+        "syncedFolder": null
+      },
+      {
+        "format": null,
+        "source": null,
+        "syncedFolder": "oneDrive"
       }
     ],
     "import_preview": [
@@ -5679,7 +5735,9 @@ export const fixtures = {
               "passkeyUnreadable",
               "passkeyUnsupported",
               "passkeysLimit",
-              "notesTruncated"
+              "notesTruncated",
+              "urlKeptAsText",
+              "idnHost"
             ]
           },
           {

@@ -423,6 +423,24 @@ impl Conv<m::FillTargetKind> for f::FillTargetKind {
     }
 }
 
+impl Conv<f::LinkReason> for m::LinkReason {
+    fn conv(self) -> f::LinkReason {
+        match self {
+            Self::ImportedForApp => f::LinkReason::ImportedForApp,
+            Self::VerifiedBy { host } => f::LinkReason::VerifiedBy { host },
+        }
+    }
+}
+
+impl Conv<m::LinkReason> for f::LinkReason {
+    fn conv(self) -> m::LinkReason {
+        match self {
+            Self::ImportedForApp => m::LinkReason::ImportedForApp,
+            Self::VerifiedBy { host } => m::LinkReason::VerifiedBy { host },
+        }
+    }
+}
+
 impl Conv<f::AssetLinksStatus> for m::AssetLinksStatus {
     fn conv(self) -> f::AssetLinksStatus {
         match self {
@@ -763,6 +781,26 @@ mod tests {
                 match_kind: f::FillMatch::Exact,
                 has_otp: false,
             }],
+        });
+        rt::<f::LinkOffer, m::LinkOffer>(f::LinkOffer {
+            package_name: s("com.example.app"),
+            signer_prefix: s("11:11:11:11:11:11:11:11"),
+            candidates: vec![
+                f::LinkCandidate {
+                    key: key(),
+                    title: s("t"),
+                    username: Some(s("u")),
+                    reason: f::LinkReason::ImportedForApp,
+                },
+                f::LinkCandidate {
+                    key: key(),
+                    title: s("v"),
+                    username: None,
+                    reason: f::LinkReason::VerifiedBy {
+                        host: s("example.com"),
+                    },
+                },
+            ],
         });
         rt::<f::Attr, m::Attr>(f::Attr {
             name: s("autocomplete"),

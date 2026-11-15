@@ -137,9 +137,11 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | **Security insights** | | | |
 | `security_report` | `null` → `{ generatedAt, itemsChecked, counts: { weak, reused, reusedGroups, old, missingTotp, insecureUrl, breached, high, medium, low }, findings: { vaultId, itemId, issues: { kind, severity, action }[], reusedWith: { vaultId, itemId }[], totpSite: { name, documentation \| null } \| null, insecureHost \| null }[] }` | | live (mosaic-insights, ADR-0022 to ADR-0024) |
 | **Import** | | | |
-| `import_choose_file` | `{ format }` → `{ kind: "chosen", fileToken, fileName } \| { kind: "cancelled" }` | | live |
+| `import_choose_file` | `null` → `{ kind: "chosen", fileToken, fileName } \| { kind: "cancelled" }` (one "Export files" filter, opens in the Downloads folder when it exists) | | live |
+| `import_detect` | `{ fileToken }` → `{ source: ImportDetectedSource \| null, format: ImportFormat \| null, syncedFolder: "oneDrive" \| "dropbox" \| "googleDrive" \| "icloud" \| "box" \| null }` (from the file's content and path; neither crosses) | `importFileUnreadable`, `importTooLarge` | live |
 | `import_preview` | `{ fileToken, format, password \| null }` → `{ previewId, format, entries: { index, kind, title \| null, subtitle \| null, duplicateOf: { vaultId, itemId } \| null, duplicateInFile \| null, attachments, warnings: ImportEntryWarning[] }[], skipped: { index, reason: "malformed" \| "empty" \| "tooLarge" }[], counts: { kind, count }[], attachments, attachmentBytes, warnings: ImportWarning[] }` | `importFileUnreadable`, `importFormatInvalid`, `importTooLarge`, `importUnsupported`, `importEncrypted`, `wrongCredentials` | live (mosaic-import, ADR-0021) |
-| `import_commit` | `{ previewId, targetVaultId, skip }` → `{ imported, skipped, failed, attachments, attachmentsFailed }` (`imported` counts every item added, passkeys included) | `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable` | live |
+| `import_commit` | `{ previewId, targetVaultId, skip }` → `{ imported, skipped, failed, attachments, attachmentsFailed, clean }` (`imported` counts every item added, passkeys included; `clean` is true only when nothing failed, no entry was skipped while reading the file and no imported entry lost data, see ADR-0165) | `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable` | live |
+| `import_delete_file` | `{ fileToken }` → `null`. Overwrites the file once with zeros, flushes, deletes it. Only a token whose import was `clean` (this session) and only while the file is still the one that was read (length, modification time and, on Unix, device and inode; on Windows also the creation time); the path never comes from the webview. A file already gone counts as deleted | `locked`, `importFileUnreadable` (unknown token), `importDeleteNotAllowed` (not imported completely, or the file changed or is not a regular file), `importDeleteFailed` (the file is still there, the token stays; read-only, in use, a share) | live |
 | `import_cancel` | `{ previewId }` → `null` | | live |
 | **Export** | | | |
 | `export_passkeys_cxf` | `{ vaultId, password: SecretIn \| null }` → `{ kind: "saved", count } \| { kind: "cancelled" }` | `reauthRequired` (no `password` and no right `reauthenticate` in the last two minutes; a success spends the re-authentication, a cancel or a failed write hands it back), `wrongCredentials` (counts towards the five-failure lock), `vaultNotFound`, `vaultUnavailable` (closed or hardware-protected), `itemNotFound` (no ES256 passkey in the vault; answered before the password is checked), `attachmentSaveFailed` (the file could not be written there), `locked`, `internal` | live (M5 T4, ADR-0041: Rust opens the native save dialog, builds a FIDO CXF v1.0 JSON file with the ES256 passkeys of the vault in a zeroizing buffer and writes it atomically, mode 0600, Mark of the Web on Windows; the file holds the private keys unencrypted) |
@@ -561,7 +563,14 @@ Notes per area:
   `ImportWarning` is
   `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`, `otpUnreadable`, `passkeysNotImported`,
   `passkeyUnreadable`, `passkeyUnsupported` or `passkeysSkipped`. `ImportFormat` is `enpass`, `bitwarden`, `keepass`,
-  `onePassword`, `cxf` or `csv`.
+  `onePassword`, `cxf`, `dashlane`, `keeper`, `keeperCsv`, `protonPass` or `csv`. `ImportDetectedSource` is `chromium`, `firefox`,
+  `safari`, `bitwardenCsv`, `bitwarden`, `enpass`, `keepass` (a KDBX, which needs its password), `keepassxcCsv`, `onePassword`,
+  `cxf`, `lastpass`, `dashlane`, `keeper`, `nordpass`, `protonPass`, `roboform` or `csv`. `ImportEntryWarning` also has
+  `urlKeptAsText` (a URL that is not a web address stayed as text) and `idnHost` (a login URL's host has punycode labels and may imitate another site). `keeperCsv` is never detected: it has no header, so the
+  user's source picks it.
+  Cleanup (`import_delete_file`): the overwrite is best effort, never "securely erased": on an SSD, a journaling or
+  copy-on-write file system or a synced folder (`syncedFolder`: OneDrive incl. Known Folder Move, Dropbox, Google Drive,
+  iCloud, Box) other copies can remain, and the screen says so.
   Passkeys (M5, ADR-0041): Bitwarden, KeePassXC and CXF passkeys become `passkey` items of their own,
   one per credential, written right after their entry; `counts` has a `passkey` entry and
   `import_commit`'s `imported` counts them. An entry of passkeys only is listed with kind `passkey`
@@ -695,6 +704,7 @@ Notes per area:
 | `agentActivity` | `{ inFlight }` | Show the in-use indicator while `inFlight > 0` (no sound). |
 | `agentStateChanged` | none | Pairings, grants or the endpoint changed: read `agent_access_status` again. |
 | `browserPairingsChanged` | none | A browser was paired, removed, connected or disconnected: read `browser_status` again. |
+| `importFileDropped` | `{ fileToken, fileName }` | The user dropped one file onto the window while unlocked. Rust took the drop (the webview never listens to `tauri://drag-drop`: that carries paths) and holds the path behind `fileToken`, as `import_choose_file` does; use it with `import_detect` and `import_preview`. Several files, a folder, a link or a drop while locked send nothing. |
 | `settingsReset` | none | The first unlock after the start found weaker protection settings in `settings.json` without a valid integrity MAC (edited outside Mosaic, or from before the MAC) and reset them to the defaults (ADR-0030). Show the toast `toast.settingsReset` once. Sent at most once per app start. |
 
 The latest `subscribe_events` call wins (one main window). After subscribing, the
@@ -710,7 +720,7 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `attachmentQuota`, `attachmentNotFound`, `attachmentUnavailable`,
 `attachmentFileUnreadable`, `attachmentSaveFailed`, `attachmentPreviewUnsupported`,
 `attachmentPreviewTooLarge`, `clipboardUnavailable`, `importFileUnreadable`,
-`importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
+`importDeleteNotAllowed`, `importDeleteFailed`, `importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
 `importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `unlockDelayed`, `tooManyAttempts`, `sshAllowTooSoon`,
 `browserRequestExpired`, `browserAllowTooSoon`, `browserPairingNotFound`, `browserHostMissing`, `agentOriginInvalid`, `agentBindingInvalid`, `agentValueUnusable`, `agentVaultShared`, `agentAccessOff`, `agentRequestExpired`, `agentAllowTooSoon`, `agentPairingNotFound`, `agentEndpointUnavailable`, `pickerStale` (a picker generation, place or foreground check failed, ADR-0164), `pickerTooSoon` (a pick or confirmation inside the guard time), `programFillUnavailable`, `busy`,
 `internal`, `cancelled`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`,

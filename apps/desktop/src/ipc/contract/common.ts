@@ -51,6 +51,8 @@ export const errorCodes = [
   "attachmentPreviewTooLarge",
   "clipboardUnavailable",
   "importFileUnreadable",
+  "importDeleteNotAllowed",
+  "importDeleteFailed",
   "importFormatInvalid",
   "importPreviewExpired",
   "importTooLarge",

@@ -56,6 +56,10 @@ export const errors = {
     "Mosaic couldn't use the clipboard. Close apps that might be holding it, then try again.",
   "error.importFileUnreadable":
     "Mosaic couldn't read that file. Check that it still exists and isn't open in another app, then try again.",
+  "error.importDeleteNotAllowed":
+    "Import the file first. Mosaic only deletes an export after its items are in your vault.",
+  "error.importDeleteFailed":
+    "The file couldn't be deleted. It may be open in another app or read-only. Delete it yourself, then empty the recycle bin.",
   "error.importFormatInvalid":
     "That file isn't in the format you chose. Choose the matching format, or export the file again.",
   "error.importPreviewExpired": "This import was cancelled. Choose the file again to start over.",

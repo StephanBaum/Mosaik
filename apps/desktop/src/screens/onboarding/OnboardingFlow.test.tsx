@@ -47,6 +47,7 @@ describe("onboarding", () => {
 
     // The Secret Key is no longer on the screen.
     await screen.findByRole("heading", { name: "Bring your passwords along" });
+    expect(screen.getByText(/LastPass/)).toBeTruthy();
     expect(document.body.textContent).not.toContain(secretKey);
     await user.click(screen.getByRole("button", { name: "Skip for now" }));
 

@@ -135,13 +135,16 @@ impl Json {
     }
 }
 
-/// Parses `bytes` as one JSON document: strict UTF-8, unique keys, finite
+/// Parses `bytes` as one JSON document (a leading UTF-8 byte order mark is
+/// skipped): strict UTF-8, unique keys, finite
 /// numbers, no trailing data, within [`MAX_DEPTH`] and [`MAX_NODES`].
 ///
 /// # Errors
 /// [`Error::LimitExceeded`] above the limits, [`Error::Malformed`]
 /// otherwise.
 pub(crate) fn parse(bytes: &[u8]) -> Result<Json> {
+    // Windows tools write a UTF-8 byte order mark before the JSON.
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
     let budget = Cell::new(MAX_NODES);
     let exceeded = Cell::new(false);
     let mut de = serde_json::Deserializer::from_slice(bytes);

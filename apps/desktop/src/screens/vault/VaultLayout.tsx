@@ -77,7 +77,13 @@ function Page({ view, shell }: { view: View; shell: Shell }) {
     <div className="page">
       {view === "security" && <SecurityPage onOpenItem={shell.open} />}
       {view === "generator" && <GeneratorPanel />}
-      {view === "settings" && <SettingsScreen />}
+      {view === "settings" && (
+        <SettingsScreen
+          onImport={() => {
+            shell.go("import");
+          }}
+        />
+      )}
       {view === "invites" && (
         <InvitesInbox
           onOpenSettings={() => {

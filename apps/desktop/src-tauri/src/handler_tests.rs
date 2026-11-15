@@ -587,7 +587,7 @@ fn item_commands_need_an_unlocked_vault() {
         b.totp_code(req(item_req(&detail))).unwrap_err(),
         b.copy_to_clipboard(req(json!({ "source": { "kind": "item", "vaultId": vault, "itemId": detail.summary.item_id.0.to_string(), "field": { "kind": "password" } } }))).unwrap_err(),
         b.security_report(NOW).unwrap_err(),
-        b.import_choose_file(req(json!({ "format": "enpass" }))).unwrap_err(),
+        b.import_choose_file().unwrap_err(),
     ];
     for error in results {
         assert_eq!(code(error), ErrorCode::Locked);
@@ -1453,11 +1453,8 @@ const KDBX: &[u8] = include_bytes!("../../../../crates/import/tests/fixtures/aes
 const ED25519: &str = include_str!("../../../../crates/ssh-agent/tests/keys/ed25519");
 const ED25519_PUB: &str = include_str!("../../../../crates/ssh-agent/tests/keys/ed25519.pub");
 
-fn chosen(b: &Backend, format: &str) -> String {
-    match b
-        .import_choose_file(req(json!({ "format": format })))
-        .unwrap()
-    {
+fn chosen(b: &Backend) -> String {
+    match b.import_choose_file().unwrap() {
         ImportFileChoice::Chosen { file_token, .. } => file_token,
         ImportFileChoice::Cancelled => panic!("the dialog was cancelled"),
     }
@@ -1467,6 +1464,233 @@ fn preview_of(b: &Backend, token: &str, format: &str, password: Value) -> IpcRes
     b.import_preview(req(
         json!({ "fileToken": token, "format": format, "password": password }),
     ))
+}
+
+const LASTPASS_CSV: &[u8] = b"url,username,password,totp,extra,name,grouping,fav
+https://bank.example,carol,pw1,,,Bank,,0
+";
+
+fn detect_of(b: &Backend, token: &str) -> IpcResult<crate::contract::import::ImportDetected> {
+    b.import_detect(&req(json!({ "fileToken": token })))
+}
+
+#[test]
+fn a_dropped_file_gets_a_token_while_unlocked() {
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("export.csv");
+    std::fs::write(&file, LASTPASS_CSV).unwrap();
+    let other = dir.path().join("other.csv");
+    std::fs::write(&other, b"x").unwrap();
+    let dropped = |h: &Harness| -> Vec<Value> {
+        events(&h.events)
+            .into_iter()
+            .filter(|e| e["type"] == "importFileDropped")
+            .collect()
+    };
+    // Two files, a folder and a missing file: nothing happens.
+    h.backend.import_file_dropped(&[file.clone(), other]);
+    h.backend.import_file_dropped(&[dir.path().to_path_buf()]);
+    h.backend
+        .import_file_dropped(&[dir.path().join("missing.csv")]);
+    h.backend.import_file_dropped(&[]);
+    assert_eq!(dropped(&h).len(), 0);
+    // One file: a token and the name, never the path.
+    h.backend.import_file_dropped(std::slice::from_ref(&file));
+    let seen = dropped(&h);
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0]["fileName"], "export.csv");
+    assert!(!seen[0].to_string().contains(dir.path().to_str().unwrap()));
+    let token = seen[0]["fileToken"].as_str().unwrap();
+    assert_eq!(
+        h.backend.import_files.lock().unwrap().get(token),
+        Some(&file)
+    );
+    // The token works with the import commands.
+    let d = detect_of(&h.backend, token).unwrap();
+    assert!(d.format.is_some());
+    // Locked: no event, no token.
+    h.backend.lock(LockReason::Manual).unwrap();
+    h.backend.import_file_dropped(&[file]);
+    assert_eq!(dropped(&h).len(), 1);
+}
+
+#[test]
+fn import_detect_reports_source_and_format() {
+    use crate::contract::import::{ImportDetectedSource as S, ImportFormat as F};
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("export");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let b = h.backend.with_dialogs(Box::new(FixedDialog(
+        Some(file.clone()),
+        Arc::clone(&asked),
+    )));
+    std::fs::write(&file, ENPASS).unwrap();
+    let token = chosen(&b);
+    let d = detect_of(&b, &token).unwrap();
+    assert_eq!((d.source, d.format), (Some(S::Enpass), Some(F::Enpass)));
+    std::fs::write(&file, LASTPASS_CSV).unwrap();
+    let d = detect_of(&b, &token).unwrap();
+    assert_eq!((d.source, d.format), (Some(S::Lastpass), Some(F::Csv)));
+    std::fs::write(&file, b"hello").unwrap();
+    let d = detect_of(&b, &token).unwrap();
+    assert_eq!((d.source, d.format), (None, None));
+    assert_eq!(
+        code(detect_of(&b, "file-999").unwrap_err()),
+        ErrorCode::ImportFileUnreadable
+    );
+    // The dialog is the import dialog with the export filter.
+    assert_eq!(*asked.lock().unwrap(), vec!["Export files"]);
+}
+
+#[test]
+fn import_delete_only_after_commit() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("lastpass.csv");
+    std::fs::write(&file, LASTPASS_CSV).unwrap();
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(file.clone()), Arc::default())));
+    let vault = vault_id(&b);
+    let token = chosen(&b);
+    let delete =
+        |b: &Backend, token: &str| b.import_delete_file(&req(json!({ "fileToken": token })));
+    let preview = preview_of(&b, &token, "csv", Value::Null).unwrap();
+    // A previewed file is not yet in the vault.
+    assert_eq!(
+        code(delete(&b, &token).unwrap_err()),
+        ErrorCode::ImportDeleteNotAllowed
+    );
+    assert!(file.exists());
+    // A token the shell never issued is not a path.
+    assert_eq!(
+        code(delete(&b, "file-999").unwrap_err()),
+        ErrorCode::ImportFileUnreadable
+    );
+    let done = b
+        .import_commit(&req(json!({
+            "previewId": preview.preview_id,
+            "targetVaultId": vault,
+            "skip": [],
+        })))
+        .unwrap();
+    assert_eq!((done.imported, done.failed), (1, 0));
+    delete(&b, &token).unwrap();
+    assert!(!file.exists());
+    assert_eq!(
+        code(delete(&b, &token).unwrap_err()),
+        ErrorCode::ImportFileUnreadable
+    );
+}
+
+#[test]
+fn import_delete_refused_when_entries_were_skipped_or_the_file_changed() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    // The Enpass fixture holds entries that cannot be imported (skipped while
+    // reading) and ones that lose data: a commit of it is not clean.
+    let enpass = dir.path().join("enpass.json");
+    std::fs::write(&enpass, ENPASS).unwrap();
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(enpass.clone()), Arc::default())));
+    let vault = vault_id(&b);
+    let token = chosen(&b);
+    let preview = preview_of(&b, &token, "enpass", Value::Null).unwrap();
+    assert_ne!(preview.skipped.len(), 0);
+    let done = b
+        .import_commit(&req(json!({
+            "previewId": preview.preview_id,
+            "targetVaultId": vault,
+            "skip": [],
+        })))
+        .unwrap();
+    assert_eq!(done.failed, 0);
+    assert!(!done.clean);
+    assert_eq!(
+        code(
+            b.import_delete_file(&req(json!({ "fileToken": token })))
+                .unwrap_err()
+        ),
+        ErrorCode::ImportDeleteNotAllowed
+    );
+    assert!(enpass.exists());
+
+    // A clean import whose file is edited afterwards is not deleted either.
+    let csv = dir.path().join("lastpass.csv");
+    std::fs::write(&csv, LASTPASS_CSV).unwrap();
+    let h = unlocked();
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(csv.clone()), Arc::default())));
+    let vault = vault_id(&b);
+    let token = chosen(&b);
+    let preview = preview_of(&b, &token, "csv", Value::Null).unwrap();
+    let done = b
+        .import_commit(&req(json!({
+            "previewId": preview.preview_id,
+            "targetVaultId": vault,
+            "skip": [],
+        })))
+        .unwrap();
+    assert!(done.clean);
+    std::fs::write(
+        &csv,
+        b"something else entirely
+",
+    )
+    .unwrap();
+    assert_eq!(
+        code(
+            b.import_delete_file(&req(json!({ "fileToken": token })))
+                .unwrap_err()
+        ),
+        ErrorCode::ImportDeleteNotAllowed
+    );
+    assert_eq!(
+        std::fs::read(&csv).unwrap(),
+        b"something else entirely
+"
+    );
+}
+
+#[test]
+fn import_delete_failure_keeps_the_file_and_the_token() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("lastpass.csv");
+    std::fs::write(&file, LASTPASS_CSV).unwrap();
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(file.clone()), Arc::default())));
+    let vault = vault_id(&b);
+    let token = chosen(&b);
+    let preview = preview_of(&b, &token, "csv", Value::Null).unwrap();
+    b.import_commit(&req(json!({
+        "previewId": preview.preview_id,
+        "targetVaultId": vault,
+        "skip": [],
+    })))
+    .unwrap();
+    let original = std::fs::metadata(&file).unwrap().permissions();
+    let mut read_only = original.clone();
+    read_only.set_readonly(true);
+    std::fs::set_permissions(&file, read_only).unwrap();
+    let error = b
+        .import_delete_file(&req(json!({ "fileToken": token })))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::ImportDeleteFailed);
+    assert!(file.exists());
+    std::fs::set_permissions(&file, original).unwrap();
+    // The token survives for a retry.
+    b.import_delete_file(&req(json!({ "fileToken": token })))
+        .unwrap();
+    assert!(!file.exists());
 }
 
 #[test]
@@ -1498,7 +1722,7 @@ fn import_enpass_fixture_preview_commit_and_lock() {
     })))
     .unwrap();
 
-    let token = chosen(&b, "enpass");
+    let token = chosen(&b);
     let preview = preview_of(&b, &token, "enpass", Value::Null).unwrap();
     assert_eq!(preview.format, ImportFormat::Enpass);
     let flagged: Vec<u32> = preview
@@ -1558,7 +1782,7 @@ fn a_new_preview_replaces_the_held_one() {
         .backend
         .with_dialogs(Box::new(FixedDialog(Some(file), Arc::default())));
     let vault = vault_id(&b);
-    let token = chosen(&b, "enpass");
+    let token = chosen(&b);
     let first = preview_of(&b, &token, "enpass", Value::Null).unwrap();
     let second = preview_of(&b, &token, "enpass", Value::Null).unwrap();
     assert_ne!(first.preview_id, second.preview_id);
@@ -1589,14 +1813,14 @@ fn import_errors_map_to_codes() {
         .with_dialogs(Box::new(FixedDialog(Some(file.clone()), Arc::default())));
 
     std::fs::write(&file, b"this is not an export").unwrap();
-    let token = chosen(&b, "enpass");
+    let token = chosen(&b);
     assert_eq!(
         code(preview_of(&b, &token, "enpass", Value::Null).unwrap_err()),
         ErrorCode::ImportFormatInvalid
     );
 
     std::fs::write(&file, KDBX).unwrap();
-    let token = chosen(&b, "keepass");
+    let token = chosen(&b);
     assert_eq!(
         code(preview_of(&b, &token, "keepass", json!("not the password")).unwrap_err()),
         ErrorCode::WrongCredentials
@@ -1614,7 +1838,7 @@ fn import_errors_map_to_codes() {
         .set_len(mosaic_import::MAX_FILE_LEN as u64 + 1)
         .unwrap();
     drop(handle);
-    let token = chosen(&b, "csv");
+    let token = chosen(&b);
     assert_eq!(
         code(preview_of(&b, &token, "csv", Value::Null).unwrap_err()),
         ErrorCode::ImportTooLarge
@@ -1771,9 +1995,7 @@ fn a_file_chosen_after_the_vault_locked_gets_no_token() {
             .with_dialogs(Box::new(LockingDialog(Arc::clone(&cell)))),
     );
     cell.set(Arc::downgrade(&b)).ok();
-    let error = b
-        .import_choose_file(req(json!({ "format": "csv" })))
-        .unwrap_err();
+    let error = b.import_choose_file().unwrap_err();
     assert_eq!(code(error), ErrorCode::Locked);
     assert!(b.import_files.lock().unwrap().get("file-1").is_none());
 }
@@ -2568,7 +2790,7 @@ fn passkey_export_needs_reauth_and_round_trips_through_cxf_import() {
 
     // The file imports as CXF: the same credential, as a passkey item.
     r.picks.open(Some(&out));
-    let token = chosen(&r.backend, "cxf");
+    let token = chosen(&r.backend);
     let preview = preview_of(&r.backend, &token, "cxf", Value::Null).unwrap();
     assert_eq!(preview.counts.len(), 1);
     assert_eq!(preview.counts[0].count, 1);

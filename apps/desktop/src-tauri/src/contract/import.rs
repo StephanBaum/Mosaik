@@ -25,7 +25,71 @@ wire_enum!(
         OnePassword,
         /// FIDO Credential Exchange Format v1.0 (JSON): passkeys and passwords.
         Cxf,
+        /// Dashlane CSV export (a zip of CSV files).
+        Dashlane,
+        /// Keeper JSON export.
+        Keeper,
+        /// Keeper CSV export (no header row; chosen by the user's source).
+        KeeperCsv,
+        /// Proton Pass export (unencrypted zip or JSON).
+        ProtonPass,
         /// Generic CSV with a column mapping.
+        Csv,
+    }
+);
+
+wire_enum!(
+    /// A cloud service whose sync folder holds a file.
+    pub enum ImportSyncedFolder {
+        /// `OneDrive` (also Windows Known Folder Move).
+        OneDrive,
+        /// Dropbox.
+        Dropbox,
+        /// Google Drive.
+        GoogleDrive,
+        /// `iCloud` Drive.
+        Icloud,
+        /// Box.
+        Box,
+    }
+);
+
+wire_enum!(
+    /// The product an export file comes from, as far as its content tells.
+    pub enum ImportDetectedSource {
+        /// Chrome, Edge, Brave and other Chromium browsers (CSV).
+        Chromium,
+        /// Firefox (CSV).
+        Firefox,
+        /// Safari and the macOS Passwords app (CSV).
+        Safari,
+        /// Bitwarden CSV.
+        BitwardenCsv,
+        /// Bitwarden JSON.
+        Bitwarden,
+        /// Enpass JSON.
+        Enpass,
+        /// A KeePass KDBX file (needs its password).
+        Keepass,
+        /// `KeePassXC` CSV.
+        KeepassxcCsv,
+        /// 1Password 1PUX.
+        OnePassword,
+        /// FIDO Credential Exchange Format JSON.
+        Cxf,
+        /// `LastPass` CSV.
+        Lastpass,
+        /// Dashlane CSV.
+        Dashlane,
+        /// Keeper JSON.
+        Keeper,
+        /// `NordPass` CSV.
+        Nordpass,
+        /// Proton Pass.
+        ProtonPass,
+        /// `RoboForm` CSV.
+        Roboform,
+        /// A CSV with a header row that matches no known product.
         Csv,
     }
 );
@@ -97,6 +161,11 @@ wire_enum!(
         /// A note was over the item size limit; the entry's notes are
         /// incomplete.
         NotesTruncated,
+        /// The URL is not a web address with a host; it stayed as text.
+        UrlKeptAsText,
+        /// A login URL's host uses punycode (`xn--`) labels and may imitate
+        /// another site; the entry is imported as it is.
+        IdnHost,
     }
 );
 
@@ -112,13 +181,37 @@ wire_enum!(
     }
 );
 
-/// `import_choose_file`.
-#[derive(Clone, Copy, Debug, Deserialize)]
+/// `import_detect`.
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ImportChooseRequest {
-    /// The format, which picks the dialog's file filter.
-    pub format: ImportFormat,
+pub struct ImportDetectRequest {
+    /// From `import_choose_file`.
+    pub file_token: String,
+}
+
+/// The `import_detect` response: what the file's content says it is. Both
+/// are `null` for a file Mosaic does not read. No file content crosses.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDetected {
+    /// The product the file comes from.
+    pub source: Option<ImportDetectedSource>,
+    /// The format to preview it with.
+    pub format: Option<ImportFormat>,
+    /// The cloud service whose sync folder holds the file, if any: deleting
+    /// the file there does not remove copies the service already made.
+    pub synced_folder: Option<ImportSyncedFolder>,
+}
+
+/// `import_delete_file`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportDeleteRequest {
+    /// From `import_choose_file`; only a file imported in this session can
+    /// be deleted.
+    pub file_token: String,
 }
 
 /// The `import_choose_file` response.
@@ -264,6 +357,10 @@ pub struct ImportResult {
     pub attachments: u32,
     /// Attachment files the vault refused.
     pub attachments_failed: u32,
+    /// Everything the file held came across, bar the entries the user left
+    /// out on purpose: no entry skipped while reading, none failed, nothing
+    /// left out of an imported entry. Only then may the file be deleted.
+    pub clean: bool,
 }
 
 #[cfg(test)]
@@ -278,6 +375,21 @@ pub(crate) mod samples {
                 file_name: "enpass-export.json".into(),
             },
             ImportFileChoice::Cancelled,
+        ]
+    }
+
+    pub(crate) fn detected() -> Vec<ImportDetected> {
+        vec![
+            ImportDetected {
+                source: Some(ImportDetectedSource::Enpass),
+                format: Some(ImportFormat::Enpass),
+                synced_folder: None,
+            },
+            ImportDetected {
+                source: None,
+                format: None,
+                synced_folder: Some(ImportSyncedFolder::OneDrive),
+            },
         ]
     }
 

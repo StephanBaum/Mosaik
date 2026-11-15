@@ -192,9 +192,9 @@ fn count(counts: &mut Vec<(ItemType, u32)>, item_type: &ItemType) {
 /// The file-level warning an entry warning rolls up into.
 const fn summary_warning(w: EntryWarning) -> Option<ImportWarning> {
     match w {
-        EntryWarning::UnmappedFields | EntryWarning::UnknownCategory => {
-            Some(ImportWarning::UnmappedFields)
-        }
+        EntryWarning::UnmappedFields
+        | EntryWarning::UnknownCategory
+        | EntryWarning::UrlKeptAsText => Some(ImportWarning::UnmappedFields),
         EntryWarning::AttachmentTooLarge
         | EntryWarning::AttachmentMissing
         | EntryWarning::AttachmentQuota => Some(ImportWarning::AttachmentsSkipped),
@@ -369,6 +369,14 @@ mod tests {
             b.url(u, "URL");
         }
         b
+    }
+
+    #[test]
+    fn url_kept_as_text_rolls_up_to_unmapped_fields() {
+        assert_eq!(
+            summary_warning(EntryWarning::UrlKeptAsText),
+            Some(ImportWarning::UnmappedFields)
+        );
     }
 
     #[test]

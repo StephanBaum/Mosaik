@@ -51,7 +51,8 @@ use contract::credential_rotation::{
 use contract::errors::ErrorCode;
 use contract::generator::GenerateRequest;
 use contract::import::{
-    ImportCancelRequest, ImportChooseRequest, ImportCommitRequest, ImportPreviewRequest,
+    ImportCancelRequest, ImportCommitRequest, ImportDeleteRequest, ImportDetectRequest,
+    ImportPreviewRequest,
 };
 use contract::otp::{OtpParseRequest, OtpPendingRequest, OtpScanRequest};
 use contract::picker::{PickerGenerationRequest, PickerItemRequest, PickerSearchRequest};
@@ -101,7 +102,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 85;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 86;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -139,7 +140,7 @@ fuzz_target!(|data: &[u8]| {
         13 => drop(parse::<CopyRequest>(json)),
         14 => drop(parse::<GenerateRequest>(json)),
         15 => drop(parse::<UpdateSettingsRequest>(json)),
-        16 => drop(parse::<ImportChooseRequest>(json)),
+        16 => drop(parse::<ImportDetectRequest>(json)),
         17 => drop(parse::<ImportPreviewRequest>(json)),
         18 => drop(parse::<ImportCommitRequest>(json)),
         19 => drop(parse::<ImportCancelRequest>(json)),
@@ -229,18 +230,20 @@ fuzz_target!(|data: &[u8]| {
         77 => drop(parse::<AgentAccessRespondRequest>(json)),
         78 => drop(parse::<AgentGrantRevokeRequest>(json)),
         79 => drop(parse::<AgentLogRequest>(json)),
+        // Onboarding import (ADR-0165): the token-bound delete (import_choose_file takes no request).
+        80 => drop(parse::<ImportDeleteRequest>(json)),
         // A draft's binding changes are checked without a session: whatever parses either
         // becomes a list of checked changes or is refused with a binding error.
-        80 => {
+        81 => {
             if let Some(r) = parse::<UpdateItemRequest>(json) {
                 let _ = r.draft.agent_bindings.len();
             }
         }
         // Program fill (ADR-0164): the picker windows' requests carry a generation, IDs and a
         // search text, never a program path, a key or a secret.
-        81 => drop(parse::<PickerGenerationRequest>(json)),
-        82 => drop(parse::<PickerSearchRequest>(json)),
-        83 => drop(parse::<PickerItemRequest>(json)),
+        82 => drop(parse::<PickerGenerationRequest>(json)),
+        83 => drop(parse::<PickerSearchRequest>(json)),
+        84 => drop(parse::<PickerItemRequest>(json)),
         _ => drop(parse::<ProgramFillUnblockRequest>(json)),
     }
 });

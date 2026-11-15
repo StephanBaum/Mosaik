@@ -8,6 +8,7 @@ import type {
   BiometricPlatformKind,
   CommandName,
   ErrorCode,
+  ImportDetected,
   HardwareKeySummary,
   ItemDetail,
   OtpPending,
@@ -96,6 +97,10 @@ export interface MockAttachment {
 export interface MockSetupOptions {
   /** Makes `attachment_add` fail with this code (or cancel the file dialog). */
   attachAdd: ErrorCode | "cancel" | null;
+  /** What `import_detect` reports (default: Enpass). */
+  importDetected: ImportDetected | null;
+  /** Makes `import_delete_file` fail with `importDeleteFailed` (`&importDeleteFails=1`). */
+  importDeleteFails: boolean;
   /** Makes `attachment_save` fail with this code (or cancel the save dialog). */
   attachSave: ErrorCode | "cancel" | null;
   /** Makes `otp_scan` fail with this code (or cancel the file dialog). */

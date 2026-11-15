@@ -130,6 +130,15 @@ pub enum AppEvent {
     /// edited outside Mosaic, or is from an older version) and weaker
     /// protection settings in it were reset to safe defaults (ADR-0030).
     SettingsReset,
+    /// The user dropped one file onto the window while unlocked. Rust holds
+    /// the path behind the token (the webview never gets a path): choose
+    /// the import flow with it (`import_detect`, `import_preview`).
+    ImportFileDropped {
+        /// Opaque handle, as from `import_choose_file`.
+        file_token: String,
+        /// The file name, for display.
+        file_name: String,
+    },
     /// A browser asks to be paired. The UI shows the code and waits for the
     /// user (`browser_pairing_respond`).
     BrowserPairingRequested {
@@ -333,6 +342,10 @@ pub(crate) mod samples {
             },
             AppEvent::AgentActivity { in_flight: 1 },
             AppEvent::AgentStateChanged,
+            AppEvent::ImportFileDropped {
+                file_token: "file-9".into(),
+                file_name: "export.csv".into(),
+            },
             AppEvent::BrowserPairingRequested {
                 request: browser::pairing_request(),
             },
@@ -426,6 +439,7 @@ pub(crate) mod samples {
                 | AppEvent::AgentAccessClosed { .. }
                 | AppEvent::AgentActivity { .. }
                 | AppEvent::AgentStateChanged
+                | AppEvent::ImportFileDropped { .. }
                 | AppEvent::BrowserPairingRequested { .. }
                 | AppEvent::BrowserPairingClosed { .. }
                 | AppEvent::BrowserSaveRequested { .. }

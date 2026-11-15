@@ -1,7 +1,6 @@
 package io.github.stephanbaum.mosaic.autofill
 
 import android.app.Activity
-import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
@@ -29,12 +28,6 @@ class AutofillClientActivity : Activity() {
     }
 
     /** A new start brings the single instance forward: it starts empty again. */
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        username.setText("")
-        password.setText("")
-    }
-
     private fun field(hint: String, description: String): EditText =
         EditText(this).apply {
             setAutofillHints(hint)
