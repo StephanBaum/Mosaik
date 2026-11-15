@@ -252,6 +252,10 @@ where
         return Err(FillAbort::Verify(VerifyFailure::FocusMoved));
     }
     verify(probe, session, kind, clock)?;
+    // A key pressed after the first check would turn typed text into shortcuts.
+    if driver.modifiers_down() {
+        return Err(FillAbort::ModifiersHeld);
+    }
     let wanted = u32::try_from(batch.len().saturating_mul(2)).unwrap_or(u32::MAX);
     *sent = true;
     match driver.send_units(batch) {
@@ -273,6 +277,7 @@ where
     D: FillDriver<Held = P::Held>,
 {
     verify(probe, session, kind, clock).is_ok()
+        && !driver.modifiers_down()
         && driver.send_key(Key::SelectAll).is_ok()
         && driver.send_key(Key::Backspace).is_ok()
 }
@@ -360,6 +365,9 @@ where
     D: FillDriver<Held = P::Held>,
 {
     verify(probe, session, write, clock).map_err(|r| Failure::new(write, r))?;
+    if driver.modifiers_down() {
+        return Err(Failure::new(write, FillAbort::ModifiersHeld));
+    }
     match driver.send_key(Key::Enter) {
         Ok(n) if n >= 2 => Ok(true),
         Ok(_) => Err(Failure::new(write, FillAbort::InputBlocked)),
@@ -679,6 +687,43 @@ mod tests {
         let calls = driver.calls();
         assert!(!calls.iter().any(|c| matches!(c, DriverCall::SetValue(_))));
         assert_eq!(sent_units(&driver).len(), 1);
+    }
+
+    #[test]
+    fn a_modifier_pressed_mid_fill_stops_the_next_batch_and_the_clear_chord() {
+        let probe = ScriptedProbe::new(vec![Step::Good]);
+        let driver = FakeDriver::default();
+        // The wait and batch 1 see no modifier; batch 2 does, and stays held.
+        driver.set_modifiers(&[false, false, true], true);
+        let clock = FakeClock::new(PICKED);
+        let pw = secret("0123456789AB");
+        let out = run_fill(
+            &probe,
+            &driver,
+            &mut session(),
+            &plan(true),
+            &FillSecrets {
+                username: None,
+                password: Some(&pw),
+            },
+            &clock,
+        );
+        assert_eq!(
+            out,
+            FillOutcome::Aborted {
+                at: WriteKind::Password,
+                reason: FillAbort::ModifiersHeld,
+                cleared: false
+            }
+        );
+        // One batch went in; no Ctrl+A or Backspace followed.
+        assert_eq!(sent_units(&driver).len(), 1);
+        assert!(
+            !driver
+                .calls()
+                .contains(&DriverCall::SendKey(Key::SelectAll))
+        );
+        assert!(!driver.calls().contains(&DriverCall::SendKey(Key::Enter)));
     }
 
     #[test]

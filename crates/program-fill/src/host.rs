@@ -34,10 +34,6 @@ pub struct FieldOffer {
 
 /// What the host reports.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "short-lived values handed to a sink one at a time; boxing the offer would only add an allocation"
-)]
 pub enum HostEvent {
     /// A login field has focus.
     Field(FieldOffer),
@@ -60,6 +56,11 @@ pub enum HostEvent {
         /// The new capture's token.
         token: Token,
     },
+    /// An armed continuation matched, but the second step may not be written
+    /// without a new pick (web content, or more than one password field in the
+    /// window): the password field is offered like any login field, and the
+    /// service opens the list with the first step's login preselected.
+    ContinueOffer(FieldOffer),
 }
 
 /// What to write for one pick. The password never leaves this struct except

@@ -30,11 +30,11 @@ use mosaic_core::{ItemId, VaultId};
 use mosaic_origin::program::ProgramClass;
 use mosaic_program_fill::binding::{block_key, display_for};
 use mosaic_program_fill::detect::FieldRole;
-use mosaic_program_fill::host::{FieldOffer, Host, HostEvent, HostSink, monotonic_ms};
+use mosaic_program_fill::host::{FieldOffer, Host, HostEvent, HostSink, Token, monotonic_ms};
 use mosaic_program_fill::identity::{CaptureRefusal, CapturedIdentity};
 use mosaic_program_fill::placement::{chip_rect, list_rect};
 use mosaic_program_fill::policy::LinkConfirmation;
-use mosaic_program_fill::verify::{Point, Rect, RuntimeId};
+use mosaic_program_fill::verify::{CONTINUATION_TTL_MS, Point, Rect, RuntimeId};
 use tauri::ipc::Channel;
 
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
@@ -102,6 +102,9 @@ pub(crate) struct Cont {
 /// A click on the locked chip: unlocking reopens the list for the same field.
 #[derive(Clone)]
 pub(crate) struct Resume {
+    /// The clicked offer's token and program: the list reopens only against the same offer.
+    pub(crate) token: Token,
+    pub(crate) identity: CapturedIdentity,
     pub(crate) target: RuntimeId,
     pub(crate) until: u64,
 }
@@ -134,6 +137,9 @@ pub(crate) struct Model {
     pub(crate) fill_running: bool,
     pub(crate) cont: Option<Cont>,
     pub(crate) resume: Option<Resume>,
+    /// The login the list opens on: the one of the first step of a two-step login whose second
+    /// step was not written without a pick.
+    pub(crate) preselect: Option<(VaultId, ItemId)>,
 }
 
 impl Model {
@@ -159,6 +165,7 @@ impl Model {
             fill_running: false,
             cont: None,
             resume: None,
+            preselect: None,
         }
     }
 
@@ -175,6 +182,7 @@ impl Model {
         self.chip_visible = false;
         self.pending_rect = None;
         self.list_at = None;
+        self.preselect = None;
         self.generation += 1;
         vec![
             Effect::Hide(PickerLabel::Chip),
@@ -540,14 +548,24 @@ impl Backend {
     fn program_fill_resume(&self, resume: &Resume) {
         let svc = &self.program_fill;
         let Some(host) = svc.host() else { return };
-        // The locked click kept the offer's token; the model was cleared by the lock hook or the
-        // click itself, so the token comes from the resume's own capture.
-        let token = svc.model().offer.as_ref().map(|o| o.token);
-        let Some(token) = token else { return };
+        // The offer that was clicked must still be the current one: another offer since then
+        // (another field, another program) cancels the resume, with no list at all.
+        let current = svc
+            .model()
+            .offer
+            .as_ref()
+            .map(|o| (o.token, o.identity.clone()));
+        let Some((token, identity)) = current else {
+            return;
+        };
+        if token != resume.token || identity != resume.identity {
+            return;
+        }
         // Back into the program's field, then look at it again.
         let _ = host.refocus(token);
         if let Ok(HostEvent::Field(offer)) = host.capture_now()
             && offer.target == resume.target
+            && offer.identity == resume.identity
         {
             self.program_fill_field(offer, true);
         }
@@ -561,6 +579,34 @@ impl Backend {
                 self.program_fill_hide_chip();
             }
             HostEvent::Continue { token } => self.program_fill_second_step(token),
+            HostEvent::ContinueOffer(offer) => self.program_fill_continue_offer(offer),
+        }
+    }
+
+    /// The second step of a two-step login that may not be written without a pick (web content,
+    /// or more than one password field in the window): the list opens on the first step's login,
+    /// and one Enter or click fills. A continuation that is not live is an ordinary offer.
+    fn program_fill_continue_offer(&self, offer: FieldOffer) {
+        let svc = &self.program_fill;
+        let now = svc.now();
+        let preselect = {
+            let mut m = svc.model();
+            m.cont
+                .as_mut()
+                .filter(|c| {
+                    !c.used
+                        && now >= c.picked_at
+                        && now - c.picked_at < CONTINUATION_TTL_MS
+                        && c.identity == offer.identity
+                })
+                .map(|c| {
+                    c.used = true;
+                    (c.vault, c.item)
+                })
+        };
+        match preselect {
+            Some(login) => self.program_fill_field_with(offer, true, Some(login)),
+            None => self.program_fill_field(offer, false),
         }
     }
 
@@ -572,7 +618,9 @@ impl Backend {
         }
         let Some(host) = svc.host() else { return };
         match host.capture_now() {
-            Ok(HostEvent::Field(offer)) => self.program_fill_field(offer, true),
+            Ok(HostEvent::Field(offer) | HostEvent::ContinueOffer(offer)) => {
+                self.program_fill_field(offer, true);
+            }
             Ok(HostEvent::Refused { refusal, near }) => {
                 let notice = if refusal == CaptureRefusal::Elevated {
                     PickerNotice::Elevated
@@ -646,6 +694,16 @@ impl Backend {
     /// A login field has focus. With `open_list` (the hotkey, or an unlock that was waited for)
     /// the list opens at once; else the chip shows.
     pub(crate) fn program_fill_field(&self, offer: FieldOffer, open_list: bool) {
+        self.program_fill_field_with(offer, open_list, None);
+    }
+
+    /// [`Self::program_fill_field`] with a login the list opens on.
+    fn program_fill_field_with(
+        &self,
+        offer: FieldOffer,
+        open_list: bool,
+        preselect: Option<(VaultId, ItemId)>,
+    ) {
         let svc = &self.program_fill;
         if svc.model().fill_running {
             return;
@@ -709,6 +767,7 @@ impl Backend {
             m.program = Some(program);
             m.data = data;
             m.offer = Some(offer);
+            m.preselect = preselect;
             m.generation += 1;
             if open_list {
                 m.mode = PickerMode::List;
@@ -748,11 +807,13 @@ impl Backend {
             let mut effects = m.clear_view();
             m.locked = true;
             m.program = Some(program);
-            m.offer = Some(offer);
             m.resume = Some(Resume {
+                token: offer.token,
+                identity: offer.identity.clone(),
                 target,
                 until: now + UNLOCK_RESUME_MS,
             });
+            m.offer = Some(offer);
             effects.push(Effect::FocusMain);
             effects
         };
@@ -840,7 +901,15 @@ impl Backend {
             theme: settings.theme,
             program: m.program.clone(),
             matches: m.data.matches.iter().map(|x| x.login.clone()).collect(),
-            preselected: (m.data.matches.len() == 1).then_some(0),
+            preselected: m
+                .preselect
+                .and_then(|(vault, item)| {
+                    m.data.matches.iter().position(|x| {
+                        x.login.vault_id.get() == vault && x.login.item_id.get() == item
+                    })
+                })
+                .and_then(|index| u32::try_from(index).ok())
+                .or_else(|| (m.data.matches.len() == 1).then_some(0)),
             suggestions: m.data.suggestions.clone(),
             link_again: m.data.link_again,
             link: m.link.as_ref().map(|l| l.view.clone()),

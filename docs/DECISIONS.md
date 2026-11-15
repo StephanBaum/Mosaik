@@ -6509,6 +6509,20 @@ host program's own content, so new Teams and other WebView2 apps get offers. Con
 The sign-in broker windows stay `Broker` (above). The rest of ADR-0158 Q2 (foreign process content refused) is unchanged.
 R174 is widened accordingly.
 
+### Amendment to "Two-step": the second step writes alone only where it is certain (red-team F2)
+The first reading let any password field focused in the same root window within 60 s receive the password and Enter with no
+gesture. Conservative reading: the host continues without a new pick only when (1) the focused field is not web content
+(framework `Chrome`, `WebView`, `Edge`, `Gecko` and the like, an element process other than the window's, or a WebView2 host)
+and (2) it is the only usable password edit of its root window, besides the unchanged checks (same root window and processes,
+60 s, unused, unlocked). In every other case the host reports `ContinueOffer`: the desktop spends the continuation, opens the
+list on the field with the first step's login preselected, and one Enter or click (after the 300 ms guard) fills as an
+ordinary pick. Recorded as R207 (the remaining case: a native window whose single password field is not the login's).
+Related hardening (red-team F1, F3, F4, F6): events reach the sink on a dispatcher thread, not the worker's (a sink that calls
+the host would wait for its own worker), and an abandoned worker leaves before running any queued command; an unlock resume
+needs the clicked offer's token and program to be the current offer; modifier keys are checked before every typed batch, the
+clean-up chord and Enter; a lone text field is first judged from its container's edits, and the window is searched by a walk
+that stops at the second usable edit and checks its deadline per element.
+
 ### Renamed browsers (open item of the phase 1 red team)
 A browser copied to another file name keeps the vendor's signature, so the name list of ADR-0158 does not exclude it.
 Phase 2 adds an exclusion by the product name of the version resource (`Google Chrome`, `Microsoft Edge`, `Mozilla Firefox`,

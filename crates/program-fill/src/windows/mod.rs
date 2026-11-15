@@ -18,7 +18,7 @@ use mosaic_winshim::{
 
 pub use host::WindowsHost;
 
-use crate::detect::{CONTAINER_LEVELS, EditInfo, MAX_EDITS_SCANNED};
+use crate::detect::{CONTAINER_LEVELS, EditInfo, MAX_EDITS_SCANNED, is_web_content, usable};
 use crate::identity::{
     CaptureRefusal, CapturedIdentity, ChainProcess, HashError, IdentitySource,
     MAX_UNSIGNED_IMAGE_BYTES, MAX_WEBVIEW2_CHAIN, OwnProcess, RawProcess, SignatureState,
@@ -88,6 +88,8 @@ pub struct Captured {
     pub field: FieldFacts,
     /// The pick, for [`ProgramProbe::snapshot`] and `check`.
     pub session: PickSession<WinHeld>,
+    /// Whether the field is web content (a browser engine inside the program).
+    pub web_content: bool,
 }
 
 /// Why a capture failed.
@@ -197,6 +199,12 @@ impl WindowsProbe {
         let owner_process = ProcessHandle::open(window.owner_pid).map_err(probe_error)?;
         let plan = plan_identity(self.own, element_process, owner_process)?;
         let identity = self.identity_of(&plan, deadline)?;
+        let web_content = is_web_content(
+            &element.facts().framework_id,
+            field.pid,
+            window.owner_pid,
+            plan.webview,
+        );
         let session = PickSession::new(
             WinHeld {
                 process: plan.chosen,
@@ -216,6 +224,7 @@ impl WindowsProbe {
             identity,
             field,
             session,
+            web_content,
         })
     }
 
@@ -299,11 +308,22 @@ impl WindowsProbe {
         Ok((infos, focused))
     }
 
-    /// The Edits of the window `root` (a lone text field needs exactly one).
-    pub(crate) fn window_edits(&self, root: isize) -> Result<Vec<EditInfo>, ProbeError> {
+    /// The Edits of the window `root`, searched by a bounded walk that stops at
+    /// the second edit `scan` counts (a lone text field, or a sole password
+    /// field, needs no more to be decided).
+    pub(crate) fn window_edits(
+        &self,
+        root: isize,
+        scan: WindowScan,
+    ) -> Result<Vec<EditInfo>, ProbeError> {
+        let deadline = Instant::now() + SNAPSHOT_BUDGET;
+        let counts = |facts: &mosaic_winshim::ElementFacts| {
+            let info = edit_info_of(facts);
+            usable(&info) && (scan == WindowScan::Usable || info.is_password)
+        };
         let elements = self
             .uia
-            .edits_in_window(root, MAX_EDITS_SCANNED)
+            .edits_in_window_until(root, MAX_EDITS_SCANNED, deadline, 2, &counts)
             .map_err(probe_error)?;
         Ok(elements.iter().map(edit_info).collect())
     }
@@ -338,9 +358,21 @@ impl WindowsProbe {
     }
 }
 
+/// Which edits of a window a bounded search counts towards its early stop.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum WindowScan {
+    /// Usable edits (a lone text field).
+    Usable,
+    /// Usable password edits (the sole password field of a second step).
+    Password,
+}
+
 /// The model's view of an edit element.
 fn edit_info(element: &UiaElement) -> EditInfo {
-    let facts = element.facts();
+    edit_info_of(element.facts())
+}
+
+fn edit_info_of(facts: &mosaic_winshim::ElementFacts) -> EditInfo {
     let [left, top, right, bottom] = facts.rect;
     EditInfo {
         runtime_id: RuntimeId(facts.runtime_id.clone()),

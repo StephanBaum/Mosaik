@@ -37,7 +37,8 @@ Phase 1 wrote nothing into any program. Phase 2 (below) adds the writes.
 - **One pick fills.** The user name by UI Automation `SetValue` (read back), the password
   typed as Unicode input, then Enter unless submit is off (per binding or globally). A
   second step (password on its own screen) continues once, within 60 s, in the same
-  window and process. Nothing is written without a pick.
+  window and process, on its own only in a native window with one password field
+  (see "How a fill runs"); else it is one more pick.
 - **Linking** is one decision on the login (two, at least 1 s apart, for an unsigned
   program). WebView2 content counts as its signed host program (owner decision
   2026-11-15); an unsigned WebView2 host is refused.
@@ -53,7 +54,15 @@ Phase 1 wrote nothing into any program. Phase 2 (below) adds the writes.
 2. The desktop matches the program identity against `winapp://` URLs and shows the chip.
 3. A pick re-verifies everything (process, focus, foreground, image, field, occlusion,
    elevation) right before each write; any change aborts with a notice.
-4. Held modifier keys delay typing up to 2 s, then the fill stops (`ModifiersHeld`).
+4. Held modifier keys delay typing up to 2 s, then the fill stops (`ModifiersHeld`). They
+   are checked again before every typed batch, the Ctrl+A clean-up and Enter.
+5. Two-step login: after the user name of a lone text field, the password field of the same
+   window is written **without a new pick** only when the program is native (not Electron,
+   CEF or WebView2, and the field's process owns the window) and that field is the only usable
+   password edit of the window. Otherwise the list opens on that field with the first step's
+   login preselected, and one Enter or click fills (ADR-0164 amendment, R207).
+6. The host's events reach the desktop on their own dispatcher thread, so the desktop can call
+   back into the host (`lone_text`, `fill`) from inside an event.
 
 ## Open items for phase 2
 

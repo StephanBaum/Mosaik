@@ -99,6 +99,59 @@ pub fn lone_text(window_edits: &[EditInfo], focused: &RuntimeId) -> bool {
     }
 }
 
+/// Whether the container's edits already show that the window holds more than
+/// one usable edit, so a lone text field is out and the window need not be
+/// searched at all (a tree-wide search is the costly call).
+#[must_use]
+pub fn container_rules_out_lone_text(container_edits: &[EditInfo]) -> bool {
+    container_edits.iter().filter(|e| usable(e)).take(2).count() > 1
+}
+
+/// Whether the focused element belongs to web content: a browser engine
+/// inside the program (Electron, CEF, `WebView2`: framework `Chrome`, `WebView`,
+/// `Edge`, `Gecko`), or an element owned by another process than the window's.
+/// Such a program draws its own fields and may show another page under the
+/// same root window, so a second step is never written without a new pick.
+#[must_use]
+pub fn is_web_content(
+    framework_id: &str,
+    element_pid: u32,
+    window_pid: u32,
+    webview_host: bool,
+) -> bool {
+    let framework = framework_id.to_ascii_lowercase();
+    webview_host
+        || element_pid != window_pid
+        || [
+            "chrome", "webview", "edge", "gecko", "mozilla", "cef", "electron",
+        ]
+        .iter()
+        .any(|name| framework.contains(name))
+}
+
+/// Whether the second step of a two-step login is written without a new pick:
+/// the program is not web content and the new password field is the only usable
+/// password edit of its root window. `window_edits` is `None` when the window
+/// could not be searched (then never).
+#[must_use]
+pub fn second_step_is_automatic(
+    web_content: bool,
+    window_edits: Option<&[EditInfo]>,
+    focused: &RuntimeId,
+) -> bool {
+    if web_content {
+        return false;
+    }
+    let Some(edits) = window_edits else {
+        return false;
+    };
+    let mut passwords = edits.iter().filter(|e| usable(e) && e.is_password);
+    match (passwords.next(), passwords.next()) {
+        (Some(only), None) => only.runtime_id == *focused,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,5 +245,53 @@ mod tests {
         assert!(lone_text(&[e(0, false), disabled], &focused));
         assert!(!lone_text(&[e(1, false)], &focused));
         assert!(!lone_text(&[], &focused));
+    }
+
+    #[test]
+    fn the_container_alone_can_rule_out_a_lone_text_field() {
+        assert!(!container_rules_out_lone_text(&[e(0, false)]));
+        let mut disabled = e(1, false);
+        disabled.enabled = false;
+        assert!(!container_rules_out_lone_text(&[e(0, false), disabled]));
+        assert!(container_rules_out_lone_text(&[e(0, false), e(1, false)]));
+        assert!(!container_rules_out_lone_text(&[]));
+    }
+
+    #[test]
+    fn web_content_is_told_by_framework_process_or_webview_host() {
+        assert!(!is_web_content("WPF", 5, 5, false));
+        assert!(!is_web_content("Win32", 5, 5, false));
+        assert!(is_web_content("Chrome", 5, 5, false));
+        assert!(is_web_content("WebView2", 5, 5, false));
+        assert!(is_web_content("Win32", 6, 5, false));
+        assert!(is_web_content("Win32", 5, 5, true));
+    }
+
+    #[test]
+    fn a_second_step_is_automatic_for_a_native_window_with_one_password_field() {
+        let focused = RuntimeId(vec![42, 1]);
+        let edits = [e(0, false), e(1, true)];
+        assert!(second_step_is_automatic(false, Some(&edits), &focused));
+        // Web content never continues on its own.
+        assert!(!second_step_is_automatic(true, Some(&edits), &focused));
+        // Two password fields (a "confirm" field, or a hidden one): not automatic.
+        let two = [e(0, false), e(1, true), e(2, true)];
+        assert!(!second_step_is_automatic(false, Some(&two), &focused));
+        // The only password field is not the focused one.
+        assert!(!second_step_is_automatic(
+            false,
+            Some(&[e(2, true)]),
+            &focused
+        ));
+        // An unusable second password field does not count.
+        let mut hidden = e(2, true);
+        hidden.offscreen = true;
+        assert!(second_step_is_automatic(
+            false,
+            Some(&[e(1, true), hidden]),
+            &focused
+        ));
+        // The window could not be searched.
+        assert!(!second_step_is_automatic(false, None, &focused));
     }
 }

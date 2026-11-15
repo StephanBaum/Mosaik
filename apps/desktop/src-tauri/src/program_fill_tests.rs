@@ -837,6 +837,89 @@ fn two_step_login_continues_once_in_the_same_session() {
 }
 
 #[test]
+fn a_second_step_that_may_not_continue_alone_offers_the_list_with_the_login_preselected() {
+    let e = Env::new();
+    let items = e.seed();
+    // A second login of the same program, listed before Slack by its title.
+    e.add_login(
+        "Aaa other",
+        "other-user",
+        "pw-OTHER",
+        &[signed_url("slack.exe", SLACK_SIGNER)],
+    );
+    e.start();
+    *e.host.lone.lock().unwrap() = Ok(true);
+    e.open_list(offer(1, Env::slack_identity(), FieldRole::Text));
+    e.b().picker_choose(&e.item_request(items.slack)).unwrap();
+    assert_eq!(e.fills().len(), 1);
+
+    // The password field of the second step is web content or one of several: no write.
+    e.advance(5_000);
+    e.host.emit(HostEvent::ContinueOffer(password_field(
+        2,
+        Env::slack_identity(),
+    )));
+    assert_eq!(e.fills().len(), 1, "nothing is written without a pick");
+    let state = e.state_now();
+    assert_eq!(state.mode, PickerMode::List);
+    let slack_row = state
+        .matches
+        .iter()
+        .position(|m| m.item_id.get() == items.slack)
+        .unwrap();
+    assert!(state.matches.len() >= 2);
+    assert_eq!(state.preselected, u32::try_from(slack_row).ok());
+
+    // One pick fills the password, as an ordinary fill.
+    e.advance(PICK_MIN_DELAY_MS);
+    e.b().picker_choose(&e.item_request(items.slack)).unwrap();
+    let fills = e.fills();
+    assert_eq!(fills.len(), 2);
+    assert_eq!(
+        fills[1],
+        HostCall::Fill {
+            token: 2,
+            username: Some("slack-user".into()),
+            has_password: true,
+            submit: true,
+            continuation: false,
+        }
+    );
+    // The continuation is spent: a second such event is an ordinary chip.
+    e.advance(PICK_MIN_DELAY_MS);
+    e.host.emit(HostEvent::ContinueOffer(password_field(
+        3,
+        Env::slack_identity(),
+    )));
+    assert_eq!(e.state_now().mode, PickerMode::Chip);
+    assert_eq!(e.fills().len(), 2);
+}
+
+#[test]
+fn a_continue_offer_of_another_program_or_after_a_minute_is_an_ordinary_offer() {
+    let e = Env::new();
+    let items = e.seed();
+    e.start();
+    *e.host.lone.lock().unwrap() = Ok(true);
+    e.open_list(offer(1, Env::slack_identity(), FieldRole::Text));
+    e.b().picker_choose(&e.item_request(items.slack)).unwrap();
+    // Another program: a chip, not a list.
+    e.host.emit(HostEvent::ContinueOffer(password_field(
+        2,
+        signed("slack.exe", OTHER_SIGNER, "Elsewhere"),
+    )));
+    assert_ne!(e.state_now().mode, PickerMode::List);
+    // The same program a minute later: a chip.
+    e.advance(61_000);
+    e.host.emit(HostEvent::ContinueOffer(password_field(
+        3,
+        Env::slack_identity(),
+    )));
+    assert_eq!(e.state_now().mode, PickerMode::Chip);
+    assert_eq!(e.fills().len(), 1);
+}
+
+#[test]
 fn linking_a_signed_program_needs_one_guarded_confirmation() {
     let e = Env::new();
     let items = e.seed();
@@ -1116,6 +1199,37 @@ fn a_locked_chip_click_unlocks_then_reopens_only_the_same_field() {
             .count(),
         captures
     );
+}
+
+#[test]
+fn an_unlock_resume_is_dropped_when_another_offer_came_in_meanwhile() {
+    let e = Env::new();
+    e.seed();
+    e.start();
+    e.b().lock(LockReason::Manual).unwrap();
+    let field = password_field(1, Env::slack_identity());
+    e.host.emit(HostEvent::Field(field.clone()));
+    e.click_chip().unwrap();
+    // Another offer (another program, another token) replaces the clicked one while locked.
+    e.host.emit(HostEvent::Field(offer(
+        2,
+        signed("bank.exe", OTHER_SIGNER, "Bank AG"),
+        FieldRole::Password { username: None },
+    )));
+    // Even a capture that matches the old field by its runtime ID gets no list.
+    *e.host.capture.lock().unwrap() = Ok(HostEvent::Field(field));
+    let shown = e.windows.count(|w| matches!(w, Win::ShowList(..)));
+    e.b()
+        .unlock(UnlockRequest {
+            password: SecretIn::test(PASSWORD),
+            secret_key: Some(SecretIn::test(&e.secret_key)),
+        })
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(e.windows.count(|w| matches!(w, Win::ShowList(..))), shown);
+    let calls = e.host.calls();
+    assert!(!calls.contains(&HostCall::CaptureNow));
+    assert!(!calls.contains(&HostCall::Refocus(2)) && !calls.contains(&HostCall::Refocus(1)));
 }
 
 #[test]

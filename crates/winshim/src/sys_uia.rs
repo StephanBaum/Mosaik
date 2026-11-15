@@ -38,6 +38,9 @@ static START: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The most parent steps any walk takes.
 const MAX_PARENT_STEPS: usize = 64;
+/// The most elements a bounded window walk looks at; more is [`ShimError::Timeout`]
+/// (an answer of "not decided", never a partial list passed off as complete).
+const MAX_WALK_NODES: usize = 4000;
 /// The longest runtime ID accepted (real ones have a handful of entries).
 const MAX_RUNTIME_ID: usize = 64;
 /// The longest provider string (the framework ID) copied, in UTF-16 units; a
@@ -361,6 +364,107 @@ impl Uia {
                 .ElementFromHandleBuildCache(hwnd, &self.cache)
         }?;
         self.edits_under(&element, max)
+    }
+
+    /// The Edit controls of the window `root` in tree order, found by a walk
+    /// that checks `deadline` before every element and stops as soon as
+    /// `stop_after` edits satisfy `counts` (or `max` edits are held). A
+    /// window larger than [`MAX_WALK_NODES`] elements is a timeout, never a
+    /// silently truncated list.
+    ///
+    /// # Errors
+    /// [`ShimError::NotFound`] for a window that does not exist,
+    /// [`ShimError::Timeout`] past `deadline` or for a too large tree, or an
+    /// OS error.
+    pub fn edits_in_window_until(
+        &self,
+        root: isize,
+        max: usize,
+        deadline: Instant,
+        stop_after: usize,
+        counts: &dyn Fn(&ElementFacts) -> bool,
+    ) -> Result<Vec<UiaElement>> {
+        window_facts(root)?;
+        let hwnd = HWND(core::ptr::without_provenance_mut::<c_void>(
+            root.cast_unsigned(),
+        ));
+        // SAFETY: `automation` and `cache` are live; `hwnd` was just checked
+        // to be a window, and UI Automation validates it again.
+        let top = unsafe {
+            self.automation
+                .ElementFromHandleBuildCache(hwnd, &self.cache)
+        }?;
+        let mut out = Vec::new();
+        let mut counted = 0usize;
+        let mut visited = 0usize;
+        let mut pending: Vec<IUIAutomationElement> = Vec::new();
+        if let Some(first) = self.first_child_of(&top)? {
+            pending.push(first);
+        }
+        while let Some(node) = pending.pop() {
+            check_deadline(deadline)?;
+            visited += 1;
+            if visited > MAX_WALK_NODES {
+                return Err(ShimError::Timeout);
+            }
+            // The sibling goes below the child, so the walk is in tree order.
+            if let Some(next) = self.next_sibling_of(&node)? {
+                pending.push(next);
+            }
+            // SAFETY: `node` is a live element fetched with a cache request
+            // that includes the control type; the call reads the cache.
+            let control_type = unsafe { node.CachedControlType() }?.0;
+            if control_type == UIA_EditControlTypeId.0 {
+                let facts = read_facts(&node)?;
+                if counts(&facts) {
+                    counted += 1;
+                }
+                out.push(UiaElement {
+                    element: node.clone(),
+                    facts,
+                    _com: Rc::clone(&self.com),
+                });
+                if counted >= stop_after || out.len() >= max {
+                    break;
+                }
+            }
+            if let Some(child) = self.first_child_of(&node)? {
+                pending.push(child);
+            }
+        }
+        Ok(out)
+    }
+
+    fn first_child_of(
+        &self,
+        element: &IUIAutomationElement,
+    ) -> Result<Option<IUIAutomationElement>> {
+        // SAFETY: `walker` and `cache` are live; `element` is a live element.
+        let child = unsafe {
+            self.walker
+                .GetFirstChildElementBuildCache(element, &self.cache)
+        };
+        match child {
+            Ok(child) => Ok(Some(child)),
+            Err(err) if absent(&err) => Ok(None),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    fn next_sibling_of(
+        &self,
+        element: &IUIAutomationElement,
+    ) -> Result<Option<IUIAutomationElement>> {
+        // SAFETY: `walker` and `cache` are live; `element` is a live element.
+        let next = unsafe {
+            self.walker
+                .GetNextSiblingElementBuildCache(element, &self.cache)
+        };
+        match next {
+            Ok(next) => Ok(Some(next)),
+            Err(err) if absent(&err) => Ok(None),
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// `e` read again, with fresh cached facts.

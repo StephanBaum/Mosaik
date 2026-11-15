@@ -98,7 +98,9 @@ mod harness {
             println!("event: {}", describe(&event));
             if let Ok(mut slot) = seen.lock() {
                 match &event {
-                    HostEvent::Field(offer) => *slot = Some(offer.token),
+                    HostEvent::Field(offer) | HostEvent::ContinueOffer(offer) => {
+                        *slot = Some(offer.token);
+                    }
                     HostEvent::Continue { token } => *slot = Some(*token),
                     _ => {}
                 }

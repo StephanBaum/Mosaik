@@ -3,7 +3,12 @@
 //!
 //! The worker lives in the COM multithreaded apartment (`WindowsProbe::new`).
 //! Calls from other threads go over a channel; one that is not answered in time
-//! abandons the worker (its later events are dropped) and starts a new one.
+//! abandons the worker (its later events and queued commands are dropped) and
+//! starts a new one.
+//!
+//! Events reach the sink on a dispatcher thread of their own, never on the
+//! worker: the sink calls back into the host (`lone_text`, `fill`), and a call
+//! made on the worker thread would wait for that same worker.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError};
@@ -13,8 +18,10 @@ use std::time::{Duration, Instant};
 use mosaic_winshim::FocusSubscription;
 
 use super::driver::WindowsDriver;
-use super::{CaptureError, Captured, WindowsProbe};
-use crate::detect::{FieldRole, classify, lone_text};
+use super::{CaptureError, Captured, WindowScan, WindowsProbe};
+use crate::detect::{
+    FieldRole, classify, container_rules_out_lone_text, lone_text, second_step_is_automatic,
+};
 use crate::fill::{Continuation, FillOutcome, FillPlan, FillSecrets, continues, run_fill};
 use crate::host::{
     FieldOffer, FillRequest, Host, HostEvent, HostSink, SystemClock, Token, monotonic_ms,
@@ -56,9 +63,15 @@ struct Worker {
     epoch: u64,
 }
 
+/// An event and the epoch of the worker that produced it.
+type Stamped = (u64, HostEvent);
+
 struct State {
     worker: Option<Worker>,
     sink: Option<HostSink>,
+    /// Feeds the dispatcher thread that calls the sink; dropped by `stop`,
+    /// which ends that thread.
+    events: Option<Sender<Stamped>>,
 }
 
 /// The Windows [`Host`].
@@ -83,6 +96,7 @@ impl WindowsHost {
             state: Mutex::new(State {
                 worker: None,
                 sink: None,
+                events: None,
             }),
             current: Arc::new(AtomicU64::new(0)),
         }
@@ -95,7 +109,7 @@ impl WindowsHost {
     }
 
     /// Starts a worker and waits until its client runs.
-    fn spawn(&self, sink: &HostSink) -> Result<Worker, ProbeError> {
+    fn spawn(&self, events: &Sender<Stamped>) -> Result<Worker, ProbeError> {
         let epoch = self.current.fetch_add(1, Ordering::SeqCst) + 1;
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (ping_tx, ping_rx) = mpsc::sync_channel(PING_QUEUE);
@@ -104,7 +118,7 @@ impl WindowsHost {
         let context = Context {
             epoch,
             current: Arc::clone(&self.current),
-            sink: Arc::clone(sink),
+            events: events.clone(),
         };
         std::thread::Builder::new()
             .name("mosaic-program-fill".to_owned())
@@ -126,24 +140,39 @@ impl WindowsHost {
     }
 
     /// Drops the worker of `epoch` (it hung) and starts a new one when the
-    /// host is still started.
+    /// host is still started. The old worker is woken so that it sees its epoch
+    /// is over and leaves without running what is still queued for it.
     fn abandon(&self, epoch: u64) {
-        let sink = {
+        let (events, old) = {
             let mut state = self.lock();
             if state.worker.as_ref().is_none_or(|w| w.epoch != epoch) {
                 return;
             }
             self.current.fetch_add(1, Ordering::SeqCst);
-            state.worker = None;
-            state.sink.clone()
+            let old = state.worker.take();
+            (state.events.clone(), old)
         };
-        if let Some(sink) = sink
-            && let Ok(worker) = self.spawn(&sink)
+        if let Some(old) = old {
+            old.wake.try_send(WAKE).ok();
+        }
+        if let Some(events) = events
+            && let Ok(worker) = self.spawn(&events)
         {
             let mut state = self.lock();
             if state.worker.is_none() && state.sink.is_some() {
                 state.worker = Some(worker);
             }
+        }
+    }
+
+    /// Delivers `event` as the current worker would (tests).
+    #[cfg(test)]
+    fn inject_event(&self, event: HostEvent) {
+        let events = self.lock().events.clone();
+        if let Some(events) = events {
+            events
+                .send((self.current.load(Ordering::SeqCst), event))
+                .ok();
         }
     }
 
@@ -175,14 +204,28 @@ impl WindowsHost {
 
 impl Host for WindowsHost {
     fn start(&self, sink: HostSink) -> Result<(), ProbeError> {
-        {
+        let events = {
             let mut state = self.lock();
-            state.sink = Some(Arc::clone(&sink));
             if state.worker.is_some() {
                 return Ok(());
             }
-        }
-        let worker = self.spawn(&sink)?;
+            let events = if let (Some(events), Some(_)) = (&state.events, &state.sink) {
+                events.clone()
+            } else {
+                let (tx, rx) = mpsc::channel();
+                let current = Arc::clone(&self.current);
+                let dispatch_sink = Arc::clone(&sink);
+                std::thread::Builder::new()
+                    .name("mosaic-program-fill-events".to_owned())
+                    .spawn(move || dispatcher_main(&rx, &dispatch_sink, &current))
+                    .map_err(|_| ProbeError::Os)?;
+                state.events = Some(tx.clone());
+                tx
+            };
+            state.sink = Some(Arc::clone(&sink));
+            events
+        };
+        let worker = self.spawn(&events)?;
         let mut state = self.lock();
         if state.worker.is_none() && state.sink.is_some() {
             state.worker = Some(worker);
@@ -197,6 +240,7 @@ impl Host for WindowsHost {
         let worker = {
             let mut state = self.lock();
             state.sink = None;
+            state.events = None;
             state.worker.take()
         };
         self.current.fetch_add(1, Ordering::SeqCst);
@@ -252,13 +296,58 @@ impl Host for WindowsHost {
 struct Context {
     epoch: u64,
     current: Arc<AtomicU64>,
-    sink: HostSink,
+    events: Sender<Stamped>,
 }
 
 impl Context {
+    /// Whether this worker is still the host's current one.
+    fn is_current(&self) -> bool {
+        self.current.load(Ordering::SeqCst) == self.epoch
+    }
+
+    /// Hands the event to the dispatcher; it never runs the sink here.
     fn emit(&self, event: HostEvent) {
-        if self.current.load(Ordering::SeqCst) == self.epoch {
-            (self.sink)(event);
+        if self.is_current() {
+            self.events.send((self.epoch, event)).ok();
+        }
+    }
+}
+
+/// Calls the sink, in order, for events of the current epoch only. Ends when
+/// the host drops its sender (`stop`) and the queue is empty.
+fn dispatcher_main(events: &Receiver<Stamped>, sink: &HostSink, current: &AtomicU64) {
+    while let Ok((epoch, event)) = events.recv() {
+        if current.load(Ordering::SeqCst) == epoch {
+            sink(event);
+        }
+    }
+}
+
+/// What a pass over the command queue ended with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Drain {
+    /// The queue is empty.
+    Idle,
+    /// The worker is abandoned or stopped, or its host is gone: it must leave,
+    /// and what is still queued is dropped unrun (a queued fill most of all).
+    Leave,
+}
+
+/// Hands each queued command to `handle`, checking before every one that the
+/// worker is still current.
+fn drain_commands(
+    context: &Context,
+    commands: &Receiver<Command>,
+    mut handle: impl FnMut(Command),
+) -> Drain {
+    loop {
+        if !context.is_current() {
+            return Drain::Leave;
+        }
+        match commands.try_recv() {
+            Ok(command) => handle(command),
+            Err(TryRecvError::Empty) => return Drain::Idle,
+            Err(TryRecvError::Disconnected) => return Drain::Leave,
         }
     }
 }
@@ -319,15 +408,9 @@ fn worker_main(
     let mut pending: Option<Instant> = None;
     loop {
         // Commands first: a wake on the focus channel means one is waiting.
-        loop {
-            match commands.try_recv() {
-                Ok(command) => worker.handle(command),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    drop(subscription);
-                    return;
-                }
-            }
+        if drain_commands(context, commands, |command| worker.handle(command)) == Drain::Leave {
+            drop(subscription);
+            return;
         }
         let wait =
             pending.map(|since| Duration::from_millis(DEBOUNCE_MS).saturating_sub(since.elapsed()));
@@ -345,6 +428,10 @@ fn worker_main(
             Ok(_) => pending = Some(Instant::now()),
             Err(RecvTimeoutError::Timeout) => {
                 pending = None;
+                if !context.is_current() {
+                    drop(subscription);
+                    return;
+                }
                 let event = worker.focus_event();
                 context.emit(event);
             }
@@ -440,12 +527,6 @@ impl WorkerState {
                 now,
             ) && armed.captured.identity.pid == captured.identity.pid
         });
-        if continues_login {
-            // Used once: the first step's handle is released with it.
-            self.armed = None;
-            self.current = Some(Current { token, captured });
-            return Ok(HostEvent::Continue { token });
-        }
         let offer = FieldOffer {
             token,
             identity: captured.identity.clone(),
@@ -453,21 +534,45 @@ impl WorkerState {
             rect: captured.field.rect,
             target: captured.session.target.clone(),
         };
+        if continues_login {
+            // Used once: the first step's handle is released with it.
+            self.armed = None;
+            // Without a new pick only a native window with exactly one password
+            // field continues; web content, or a window with other password
+            // fields, is offered like any field instead (ADR-0164 amendment).
+            let automatic = !captured.web_content && {
+                let edits = self
+                    .probe
+                    .window_edits(captured.session.root, WindowScan::Password)
+                    .ok();
+                second_step_is_automatic(false, edits.as_deref(), &captured.field.runtime_id)
+            };
+            self.current = Some(Current { token, captured });
+            return Ok(if automatic {
+                HostEvent::Continue { token }
+            } else {
+                HostEvent::ContinueOffer(offer)
+            });
+        }
         self.current = Some(Current { token, captured });
         Ok(HostEvent::Field(offer))
     }
 
-    fn current_for(&mut self, token: Token) -> Result<&mut Current, ProbeError> {
-        self.current
-            .as_mut()
-            .filter(|c| c.token == token)
-            .ok_or(ProbeError::Gone)
-    }
-
     fn lone_text(&mut self, token: Token) -> Result<bool, ProbeError> {
-        let root = self.current_for(token)?.captured.session.root;
-        let target = self.current_for(token)?.captured.session.target.clone();
-        let edits = self.probe.window_edits(root)?;
+        let current = self
+            .current
+            .as_ref()
+            .filter(|c| c.token == token)
+            .ok_or(ProbeError::Gone)?;
+        let root = current.captured.session.root;
+        let target = current.captured.session.target.clone();
+        // The container is searched anyway: two usable edits there decide it
+        // without the costlier search of the whole window.
+        let (container, _) = self.probe.field_set(&current.captured)?;
+        if container_rules_out_lone_text(&container) {
+            return Ok(false);
+        }
+        let edits = self.probe.window_edits(root, WindowScan::Usable)?;
         Ok(lone_text(&edits, &target))
     }
 
@@ -605,6 +710,145 @@ mod tests {
             Ok(other) => panic!("unexpected {other:?}"),
         }
         host.stop();
+    }
+
+    fn fill_request() -> FillRequest {
+        FillRequest {
+            token: 1,
+            username: Some("u".to_owned()),
+            password: Some(SecretString::from_str_copy("p").unwrap()),
+            submit: true,
+            picked_at_ms: monotonic_ms(),
+            continuation: false,
+        }
+    }
+
+    fn context(epoch: u64, current: &Arc<AtomicU64>) -> Context {
+        let (events, _rx) = mpsc::channel();
+        Context {
+            epoch,
+            current: Arc::clone(current),
+            events,
+        }
+    }
+
+    #[test]
+    fn a_sink_can_call_back_into_the_host_from_inside_an_event() {
+        let host = Arc::new(WindowsHost::new());
+        let (done_tx, done_rx) = mpsc::channel();
+        let inner = Arc::clone(&host);
+        host.start(Arc::new(move |_| {
+            // The service does exactly this on a field offer: `lone_text`,
+            // and on a continuation `fill`. On the worker's own thread both
+            // would wait for the worker until the call timed out.
+            let started = Instant::now();
+            let lone = inner.lone_text(9);
+            let fill = inner.fill(fill_request());
+            done_tx.send((lone, fill, started.elapsed())).ok();
+        }))
+        .unwrap();
+        host.inject_event(HostEvent::Gone);
+        let (lone, fill, took) = done_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("the sink ran");
+        // No capture has token 9 (or 1): the worker answered, quickly.
+        assert_eq!(lone, Err(ProbeError::Gone));
+        assert_eq!(fill.map(|_| ()), Err(ProbeError::Gone));
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        host.stop();
+    }
+
+    #[test]
+    fn events_reach_the_sink_in_order_and_never_after_stop() {
+        let host = WindowsHost::new();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        host.start(Arc::new(move |event| {
+            if let Ok(mut list) = log.lock() {
+                list.push(event);
+            }
+        }))
+        .unwrap();
+        for near in 0..20 {
+            host.inject_event(HostEvent::NoField {
+                near: Some(Rect {
+                    left: near,
+                    top: 0,
+                    right: near + 1,
+                    bottom: 1,
+                }),
+            });
+        }
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while seen.lock().unwrap().len() < 20 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        host.stop();
+        let lefts: Vec<i32> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                HostEvent::NoField { near: Some(r) } => Some(r.left),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lefts, (0..20).collect::<Vec<_>>());
+        host.inject_event(HostEvent::Gone);
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(seen.lock().unwrap().len(), 20);
+    }
+
+    #[test]
+    fn an_abandoned_worker_does_not_run_what_is_queued_for_it() {
+        let current = Arc::new(AtomicU64::new(1));
+        let context = context(1, &current);
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (reply_tx, reply_rx) = mpsc::channel();
+        cmd_tx
+            .send(Command::Fill(fill_request(), reply_tx))
+            .unwrap();
+        // The host gave up on this worker (a new epoch) while it was busy.
+        current.fetch_add(1, Ordering::SeqCst);
+        let mut ran = 0;
+        let outcome = drain_commands(&context, &cmd_rx, |_| ran += 1);
+        assert_eq!(outcome, Drain::Leave);
+        assert_eq!(ran, 0, "a queued fill must never run late");
+        // The reply side learns it is gone instead of waiting on an answer.
+        drop(cmd_rx);
+        assert!(reply_rx.recv().is_err());
+    }
+
+    #[test]
+    fn a_current_worker_runs_its_queue_and_leaves_when_the_epoch_ends_midway() {
+        let current = Arc::new(AtomicU64::new(1));
+        let context = context(1, &current);
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let replies: Vec<_> = (0..3)
+            .map(|_| {
+                let (tx, rx) = mpsc::channel();
+                cmd_tx.send(Command::Fill(fill_request(), tx)).unwrap();
+                rx
+            })
+            .collect();
+        let mut ran = 0;
+        let outcome = drain_commands(&context, &cmd_rx, |_| {
+            ran += 1;
+            if ran == 1 {
+                // Abandoned while the first one runs: the other two are dropped.
+                current.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        assert_eq!((outcome, ran), (Drain::Leave, 1));
+        drop(cmd_rx);
+        assert!(replies.iter().all(|rx| rx.recv().is_err()));
+        // And an idle current worker just reports an empty queue.
+        let current = Arc::new(AtomicU64::new(5));
+        let (_tx, rx) = mpsc::channel::<Command>();
+        assert_eq!(
+            drain_commands(&self::context(5, &current), &rx, |_| {}),
+            Drain::Idle
+        );
     }
 
     #[test]
