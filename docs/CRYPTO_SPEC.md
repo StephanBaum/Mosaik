@@ -108,6 +108,13 @@ Interoperability only (these read or serve third-party formats and never protect
   Both are used only inside an AAD, followed by `0x00` (`aad(label, …)`), and only as AAD of the platform's
   AES-256-GCM. They are registered in `label::ALL`. The setup code (§6.9.7) has no label. No other label,
   primitive or algorithm ID is new in M10.
+- Labels added for agent access (§11, §15, ADR-0160): `agent/auth`, `agent/handshake`, `agent/session`,
+  `agent/frame` (the four labels of the agent channel, same roles as the `browser/*` ones),
+  `agent-mark` (the HKDF info of `K_agent_mark`), `agent-log-key` (the HKDF info of `K_agent_log`) and
+  `agent-log` (the AAD of one agent log record). `agent-log` is a prefix of `agent-log-key` exactly as
+  `export` is of `export-key`: the first is only ever used in an AAD (followed by `0x00`), the second only
+  as HKDF info, so they never meet and no label has two uses. All are registered in `label::ALL`. No
+  other label, primitive or algorithm ID is new.
 - **Algorithm IDs** in object headers: `0x01` XChaCha20-Poly1305 (every envelope of §6 to §7),
   `0x03` the HPKE seal of §8.2 and §8.4 (mode Auth, KEM `0x0020`, KDF `0x0001`, AEAD `0x0003`).
   `0x02` is unused. A decoder refuses any other value.
@@ -2670,6 +2677,33 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   secret; it is written only on iOS and Android (THREAT_MODEL R137). Next to it,
   `reauth_failures`: one local-only row with the count of wrong master passwords in
   a row at a re-authentication (§6.9.2).
+- Agent access (store v13, ADR-0160) adds two local-only tables. Neither is part of the outbox or of sync,
+  and both are read only while unlocked.
+
+  ```text
+  K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)
+  mark         = HMAC-SHA-256(K_agent_mark, item_id[16] || canonical(binding))
+  K_agent_log  = HKDF(AK, "", ctx("agent-log-key"), 32)
+  entry_id     = random(16)
+  sealed       = 0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, nonce = random(24), plaintext,
+                                                         AAD = 0x01 || 0x01 || aad("agent-log", entry_id))
+  ```
+
+  `canonical(binding)` is the `agent:<id>` value of the item (a record of the item plaintext, §7.5)
+  serialized as UTF-8 JSON with object keys in ascending byte order at every level, no whitespace, and
+  JSON string escapes as in §7.5. Members this build does not know are included, so a change made by a
+  newer build changes the mark. `item_id` is the 16 raw bytes of the item ID (fixed length, so the HMAC
+  input is injective). `agent_marks(vault_id, item_id, mark)` is the set of confirmed marks: no element
+  ID, origin, field or other binding content is stored in cleartext, only the 32-byte mark. A binding is
+  confirmed on this device when a mark of its item matches. Rows go with purged or tombstoned items and
+  removed vaults. `agent_log(entry_id, at_ms, sealed)`: `at_ms` is the wall-clock time of the entry in
+  milliseconds. It is cleartext because the 90-day pruning needs it, and it is not derived from item
+  plaintext (it is the time of the user's or agent's action; THREAT_MODEL R179). Everything else (pairing
+  name, item title, field label, origin, path, status, command line, exit code) is inside `sealed`. The
+  AAD binds a record to its `entry_id`, so a row cannot be moved to another ID. The version byte is
+  `0x01` and a reader refuses any other value. Both keys are derived on use and dropped; neither is
+  stored. Every record uses a fresh random 24-byte nonce (§7.2); the record count stays far below the
+  random-nonce bound of §7.2.
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its
@@ -2712,7 +2746,7 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   verifier compares in constant time. The nonce makes a restored older file
   (rollback) fail: its MAC was made under a nonce the store no longer holds.
 - `canonical(settings)` is the UTF-8 JSON object
-  `{"autoLockMinutes":A,"clipboardClearSeconds":C,"email":E,"kitVerified":K,"language":L,"lockOnScreenLock":S,"lockOnSleep":P,"quickUnlockMaxAgeDays":Q,"sshAgentEnabled":B,"theme":T}`:
+  `{["agentAccessEnabled":true,]"autoLockMinutes":A,"clipboardClearSeconds":C,"email":E,"kitVerified":K,"language":L,"lockOnScreenLock":S,"lockOnSleep":P,"quickUnlockMaxAgeDays":Q,"sshAgentEnabled":B,"theme":T}`:
   exactly these keys in this (ascending byte) order, no whitespace, `A` and `C`
   an unsigned decimal integer or `null`, `Q` an unsigned decimal integer, `S`,
   `P`, `K` and `B` `true` or `false`, `E` the account email as a JSON string
@@ -2723,17 +2757,24 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   `T` one of `"system"`, `"light"`, `"dark"`. `B` is the `sshAgentEnabled`
   flag. It is computed over the values as written to the file (before range
   clamping on read).
+- **`agentAccessEnabled` (ADR-0160).** The flag that turns agent access on (off by default) sorts first.
+  The member `"agentAccessEnabled":true,` is written directly after the opening brace **only while the
+  flag is true** and is omitted while it is false (an absent key means false). The canonical bytes of
+  every settings file written before this key existed are therefore unchanged, and every existing MAC
+  still verifies: no migration and no version bump. A verifier computes the canonical form from the
+  parsed flag, so a file that carries `false` is read as false and is checked against the omitted form.
 - While locked, the app uses for each protection setting the stricter of the
   file value and the default (10 min, 30 s, 14 days, both lock-on switches
-  on), `sshAgentEnabled` reads `false`, and the quick-unlock expiry at the
+  on), `sshAgentEnabled` and `agentAccessEnabled` read `false`, and the quick-unlock expiry at the
   start of the app uses only the 30-day cap (§6.2).
 - After the first unlock of a run it verifies the MAC against the store's
   `settings_nonce`. Valid applies the file. Missing or invalid (including a
   missing nonce) keeps the stricter values, sets `sshAgentEnabled` to
-  `false` (before the SSH agent starts), clears `email` and `kitVerified`,
+  `false` (before the SSH agent starts), sets `agentAccessEnabled` to `false` (before the agent endpoint
+  starts), clears `email` and `kitVerified`,
   and always rewrites the file with a fresh nonce and MAC. The user is told
   once (`settingsReset`) only if a protection field of the file differed from
-  the stricter values or the file had `sshAgentEnabled: true`. The quick-unlock
+  the stricter values or the file had `sshAgentEnabled: true` or `agentAccessEnabled: true`. The quick-unlock
   age the user chose applies from the reconcile after that unlock.
 - `K_settings` lives in a zeroizing container while unlocked and is dropped
   on lock.
@@ -3011,13 +3052,25 @@ size buckets), tags, vault names, or attachment names.
     (authentication required, invalidated by enrollment, enforced by secure hardware), and trust anchors that
     contain ISRG Root X1 and no user CA.
 
-## 15. Browser extension channel (ADR-0036)
+## 15. Local app channels (ADR-0036, ADR-0160)
 
 The browser extension talks to the desktop app through a native messaging host
 (`crates/native-messaging`, `docs/NATIVE_MESSAGING.md`) that relays to a local
 endpoint of the running desktop. This section is the cryptography of that
 host-to-desktop link. The code is `mosaic_core::browser_channel`. The
 sync server never sees any of it (§12 is unchanged).
+
+**Two channels, one construction (ADR-0160).** The same construction is used by two local channels with
+disjoint label sets: the **browser** channel (`browser/auth|handshake|session|frame`, this section as
+written) and the **agent** channel (`agent/auth|handshake|session|frame`, the link of the `mosaic agent`
+relay to the desktop, `docs/NATIVE_MESSAGING.md` §9). Wherever this section writes `browser/…`, the agent
+channel uses the same string with `agent/` instead. Pairings, the storage of `K_pair` and the endpoints are
+per channel. A `K_pair` of one channel fails the handshake of the other, because every derivation
+(`K_auth`, both proofs, `okm`) and the frame AAD carry the channel's own labels. The agent channel's
+`K_pair` is stored by the desktop in `agent-pairings.json` exactly as §4 stores browser pairings, and by
+the client only in the OS keystore (`mosaic-agent-pairing-<name>`; no file fallback). The agent channel
+adds no primitive and no key agreement: the same OS access control and the user's approval authenticate
+the pairing. The channel has no operation that returns a vault value (THREAT_MODEL §4.11).
 
 **No key agreement.** The desktop draws a pairing and sends it in the clear
 over the OS-protected endpoint after the user approved a pairing request in
@@ -3036,7 +3089,7 @@ stores them too. Up to 16 pairings exist. Removing a pairing on either side
 makes the next handshake fail.
 
 **Labels** (§3): `browser/auth`, `browser/handshake`, `browser/session`,
-`browser/frame`.
+`browser/frame`; agent channel: `agent/auth`, `agent/handshake`, `agent/session`, `agent/frame`.
 
 **Handshake** (once per connection; `nonce_h = random(32)` by the host,
 `nonce_d = random(32)` by the desktop):
@@ -3106,7 +3159,9 @@ short authentication string (THREAT_MODEL R45).
 **Tests.** A golden vector with fixed `K_pair`, `pairing_id` and nonces
 checks `K_auth`, both proofs and both session keys against a Python
 standard-library script (its source is in the test's doc comment) and pins one
-sealed frame per direction. Tampering with the header, sequence number,
+sealed frame per direction. The browser vector stays byte-identical. A second vector with the same inputs
+and the `agent/*` labels pins the agent channel. Tests check that a browser proof does not verify on the
+agent channel and that an agent frame does not open in a browser session. Tampering with the header, sequence number,
 ciphertext or direction fails; out-of-order frames and the wrong role's key
 fail; `Debug` is redacted. The decoders are fuzzed (`crates/native-messaging/fuzz`).
 

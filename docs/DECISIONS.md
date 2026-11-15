@@ -5891,3 +5891,46 @@ release install did not remove the per-user browser entries of the Windows previ
 Tests: `the_pending_kit_needs_the_password_outside_the_prepare_window`, `only_turning_a_protection_off_weakens`,
 `foreign_user_entries_are_removed_once_the_machine_entry_is_the_fallback`. THREAT_MODEL R157, R159, R160. The NSIS uninstall hook of the preview
 bundle that the finding also suggests is not added: the release desktop clears the residue itself.
+
+## ADR-0160: Agent channel labels, device marks and the agent log
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: agent access, phase 0 (spec `docs/superpowers/specs/2026-11-14-agent-access-design.md` §5.2, §6.4, §9.4)
+
+### Context
+AI agents use vault secrets through a local MCP relay (`mosaic agent mcp`) that talks to the unlocked desktop. That needs (1) a local channel
+with its own pairings, (2) a way to make a binding that arrived by sync unusable until the user confirmed it on this device, and (3) a log of every
+agent use. The log holds item titles, origins and command lines, which are derived from item plaintext, so CRYPTO_SPEC §11 forbids storing them in
+cleartext.
+
+### Decision
+- **Channel labels.** CRYPTO_SPEC §15 becomes "Local app channels". The construction is unchanged and used by two channels with disjoint label sets:
+  `browser/auth|handshake|session|frame` and `agent/auth|handshake|session|frame`. Pairings, `K_pair` storage and endpoints are per channel. Every
+  derivation and the frame AAD carry the channel's labels, so a key of one channel fails the other's handshake. The agent `K_pair` is stored by the
+  desktop in `agent-pairings.json` as §4 stores browser pairings, and by the client only in the OS keystore. The browser golden vector stays
+  byte-identical; a second vector pins the agent labels.
+- **Device marks.** `K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)`; `mark = HMAC-SHA-256(K_agent_mark, item_id[16] || canonical(binding))`;
+  local-only table `agent_marks(vault_id, item_id, mark)`; no binding content in cleartext. A binding is usable on a device when a mark of its item
+  matches its canonical form, so a binding that arrives by sync, or is changed by another writer, needs the user's confirmation on this device.
+- **Agent log.** `K_agent_log = HKDF(AK, "", ctx("agent-log-key"), 32)`; each record
+  `0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, random nonce, plaintext, AAD = header || aad("agent-log", entry_id))`; local-only table
+  `agent_log(entry_id, at_ms, sealed)` with the time in cleartext for pruning (90 days or 10,000 entries). Never synced, never in the outbox.
+- **Labels are not reused.** The plan text of the spec used `agent-log` as the HKDF info and as the AAD label. §3 says every derived key and every AEAD
+  use has a unique label, so the HKDF info is `agent-log-key` and `agent-log` stays the AAD label (the `export` / `export-key` precedent).
+- **Settings (B2).** `canonical(settings)` gains the key `agentAccessEnabled`, which sorts first. It is written as `"agentAccessEnabled":true,` only
+  while true and omitted while false, so every existing MAC still verifies: no migration, no version bump. While locked it reads `false`; a missing
+  or invalid MAC sets it `false`, and the `settingsReset` notice fires if the file had it `true`.
+
+### Alternatives
+- A separate key agreement for agents: rejected. It is a new construction; the same OS access control and the user's approval authenticate the pairing.
+- Marks stored per element ID in cleartext: rejected. Element IDs live in item plaintext (§11).
+- The log in `settings.json` or a plain file: rejected. Titles and origins are derived from plaintext.
+- A counter nonce for log records: rejected. §7.2 requires a fresh random nonce, and the records are independent (a counter nonce is used only for the
+  channel frames, ADR-0036, where each key lives for one connection).
+- The same HKDF label for the log key and the log AAD: rejected (§3, see above).
+
+### Consequences
+No new primitive, crate or dependency: HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 and `random(n)` as in §2. The crypto-reviewer reviews this ADR
+and the spec text before `mosaic-core` code lands (Task 3 of the plan). THREAT_MODEL §4.11 rows cite this ADR; R179 records the cleartext time
+column of the log. A disk reader of the store learns when agent use happened and how many records exist, not what was used.
