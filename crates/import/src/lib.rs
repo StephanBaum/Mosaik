@@ -71,6 +71,7 @@ mod url;
 pub mod bitwarden;
 pub mod csv;
 pub mod cxf;
+pub mod dashlane;
 pub mod enpass;
 pub mod kdbx;
 pub mod mosaic_export;
@@ -103,6 +104,8 @@ pub enum Format {
     OnePassword,
     /// FIDO Credential Exchange Format v1.0, JSON (passkeys and passwords).
     Cxf,
+    /// Dashlane CSV export: a zip of CSV files.
+    Dashlane,
     /// CSV with a header row; columns are mapped automatically
     /// ([`csv::CsvMapping::detect`]).
     Csv,
@@ -124,6 +127,7 @@ pub fn parse(format: Format, input: &[u8], password: Option<&SecretString>) -> R
         Format::Keepass => kdbx::parse(input, password.ok_or(Error::PasswordRequired)?),
         Format::OnePassword => onepux::parse(input),
         Format::Cxf => cxf::parse(input),
+        Format::Dashlane => dashlane::parse(input),
         Format::Csv => csv::parse(input, None),
     }
 }

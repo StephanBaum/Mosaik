@@ -74,6 +74,10 @@ pub enum CsvPreset {
     /// `NordPass`: `name,url,additional_urls,username,password,note,...,type,custom_fields`.
     // unverified against a current export (launch gate)
     NordPass,
+    /// Dashlane `credentials.csv`:
+    /// `username,username2,username3,title,password,note,url,category,otpSecret`.
+    // unverified against a current export (launch gate)
+    Dashlane,
     /// RoboForm: `Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2`.
     // unverified against a current export (launch gate)
     RoboForm,
@@ -98,6 +102,17 @@ impl CsvMapping {
         let preset = detect_preset(header);
         let columns = header.iter().map(|h| column_for(h, preset)).collect();
         (Self { columns }, preset)
+    }
+
+    /// The mapping for a header row of a known `preset`, even if the header
+    /// lacks some of the columns detection looks for.
+    pub(crate) fn for_preset(header: &[&str], preset: CsvPreset) -> Self {
+        Self {
+            columns: header
+                .iter()
+                .map(|h| column_for(h, Some(preset)))
+                .collect(),
+        }
     }
 }
 
@@ -132,6 +147,17 @@ fn detect_preset(header: &[&str]) -> Option<CsvPreset> {
         Some(CsvPreset::NordPass)
     } else if has(&["name", "url", "matchurl", "login", "pwd"]) {
         Some(CsvPreset::RoboForm)
+    } else if has(&[
+        "username",
+        "username2",
+        "username3",
+        "title",
+        "password",
+        "note",
+        "url",
+        "category",
+    ]) {
+        Some(CsvPreset::Dashlane)
     } else if has(&["group", "title", "username", "password", "url", "notes"]) {
         Some(CsvPreset::KeePassXc)
     } else if has(&["title", "url", "username", "password", "otpauth"]) {
@@ -169,6 +195,14 @@ fn column_for(header: &str, preset: Option<CsvPreset>) -> CsvColumn {
             "matchurl" => return CsvColumn::Url,
             "pwd" => return CsvColumn::Password,
             "rffieldsv2" => return CsvColumn::Hidden("RoboForm fields".to_owned()),
+            _ => {}
+        }
+    }
+    if preset == Some(CsvPreset::Dashlane) {
+        match h.as_str() {
+            "username2" => return CsvColumn::Text("Username 2".to_owned()),
+            "username3" => return CsvColumn::Text("Username 3".to_owned()),
+            "otpsecret" | "otpurl" => return CsvColumn::Otp,
             _ => {}
         }
     }
