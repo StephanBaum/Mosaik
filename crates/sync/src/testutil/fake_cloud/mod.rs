@@ -7,4 +7,4 @@ mod dav;
 mod dropbox;
 
 pub use dav::{FakeDav, Faults};
-pub use dropbox::FakeDropbox;
+pub use dropbox::{AUTHORIZATION_CODE, FakeDropbox};

@@ -4,15 +4,20 @@
 #![expect(clippy::unwrap_used, reason = "integration tests")]
 
 use std::fs;
+use std::sync::Arc;
 
-use mosaic_sync::folder::remote::credential::Provider;
-use mosaic_sync::folder::remote::dropbox::{DropboxAuth, DropboxStore};
+use mosaic_sync::folder::remote::credential::{CredentialSink, Provider, ProviderCredential};
+use mosaic_sync::folder::remote::dropbox::{
+    DropboxAuth, DropboxStore, dropbox_authorize_url, dropbox_exchange, dropbox_revoke,
+};
 use mosaic_sync::folder::remote::http::RemoteHttp;
 use mosaic_sync::folder::remote::location::FolderLocation;
-use mosaic_sync::folder::remote::oauth::Endpoints;
+use mosaic_sync::folder::remote::oauth::{AuthState, Endpoints, Pkce, REDIRECT_URI};
 use mosaic_sync::folder::{FolderStore, RelPath};
-use mosaic_sync::testutil::{FakeDropbox, Faults};
+use mosaic_sync::testutil::{AUTHORIZATION_CODE, FakeDropbox, Faults};
 use mosaic_sync::transport::TransportError;
+
+use zeroize::Zeroizing;
 
 use crate::common::store_contract;
 
@@ -30,13 +35,44 @@ pub fn location(root: &str, path_root: Option<&str>) -> FolderLocation {
 }
 
 pub fn store_at(server: &FakeDropbox, root: &str, path_root: Option<&str>) -> DropboxStore {
+    store_with(server, root, path_root, DropboxAuth::fixed_for_test(TOKEN))
+}
+
+pub fn store_with(
+    server: &FakeDropbox,
+    root: &str,
+    path_root: Option<&str>,
+    auth: DropboxAuth,
+) -> DropboxStore {
     DropboxStore::new(
         RemoteHttp::new_loopback().unwrap(),
         &Endpoints::loopback(server.origin()),
         &location(root, path_root),
-        DropboxAuth::fixed_for_test(TOKEN),
+        auth,
     )
     .unwrap()
+}
+
+/// A sink that keeps nothing (Dropbox does not rotate its refresh token).
+pub struct NullSink;
+
+impl CredentialSink for NullSink {
+    fn rotated(&self, _: &ProviderCredential) -> Result<(), TransportError> {
+        Ok(())
+    }
+}
+
+pub const APP_KEY: &str = "app-key-123";
+
+/// An authorisation that signs in with the fake's current refresh token.
+pub fn refreshing_auth(server: &FakeDropbox) -> DropboxAuth {
+    DropboxAuth::new(
+        APP_KEY.to_owned(),
+        ProviderCredential::Dropbox {
+            refresh_token: Zeroizing::new(server.refresh_token()),
+        },
+        Arc::new(NullSink),
+    )
 }
 
 /// A fake server over a fresh directory that holds the folder `root`.
@@ -254,4 +290,144 @@ fn locations_are_checked() {
         DropboxStore::new(RemoteHttp::new().unwrap(), &e, &location("a", None), auth()).err(),
         Some(TransportError::InsecureUrl)
     );
+}
+
+// ---- OAuth ---------------------------------------------------------------------------------
+
+fn query_of(url: &str) -> Vec<(String, String)> {
+    url.split_once('?')
+        .unwrap()
+        .1
+        .split('&')
+        .map(|p| {
+            let (k, v) = p.split_once('=').unwrap();
+            (k.to_owned(), v.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn authorize_url_has_pkce_offline_and_exact_redirect() {
+    let endpoints = Endpoints::production();
+    let pkce = Pkce::new().unwrap();
+    let state = AuthState::new().unwrap();
+    let url = dropbox_authorize_url(&endpoints, APP_KEY, &pkce, &state);
+    assert!(
+        url.starts_with("https://www.dropbox.com/oauth2/authorize?"),
+        "{url}"
+    );
+    let q = query_of(&url);
+    let get = |k: &str| {
+        q.iter()
+            .find(|(n, _)| n == k)
+            .map(|(_, v)| v.as_str())
+            .unwrap()
+    };
+    assert_eq!(get("client_id"), APP_KEY);
+    assert_eq!(get("response_type"), "code");
+    assert_eq!(get("code_challenge"), pkce.challenge());
+    assert_eq!(get("code_challenge_method"), "S256");
+    assert_eq!(get("token_access_type"), "offline");
+    assert_eq!(get("state"), state.as_param());
+    assert_eq!(
+        get("scope"),
+        "files.metadata.read%20files.content.read%20files.content.write%20account_info.read"
+    );
+    assert_eq!(
+        get("redirect_uri"),
+        "io.github.stephanbaum.mosaic.oauth%3A%2Fcb",
+        "exactly the registered redirect, encoded"
+    );
+    assert_eq!(REDIRECT_URI, "io.github.stephanbaum.mosaic.oauth:/cb");
+    // The verifier never leaves the phone with the authorization request.
+    assert!(!url.contains(pkce.verifier()));
+    assert_eq!(q.len(), 8, "no other parameter: {url}");
+}
+
+#[test]
+fn exchange_returns_refresh_credential_and_team_namespace() {
+    let (_dir, server, _store) = dropbox("Mosaic");
+    server.expect_app_key(APP_KEY);
+    let http = RemoteHttp::new_loopback().unwrap();
+    let endpoints = Endpoints::loopback(server.origin());
+    let pkce = Pkce::new().unwrap();
+    server.expect_challenge(&pkce.challenge());
+    let (credential, team) =
+        dropbox_exchange(&http, &endpoints, APP_KEY, AUTHORIZATION_CODE, &pkce).unwrap();
+    assert_eq!(team, None);
+    let ProviderCredential::Dropbox { refresh_token } = credential else {
+        panic!("not a Dropbox credential");
+    };
+    assert_eq!(*refresh_token, server.refresh_token());
+    // A team member's root is the team space.
+    server.set_team_root("ns-team-7");
+    let (_, team) =
+        dropbox_exchange(&http, &endpoints, APP_KEY, AUTHORIZATION_CODE, &pkce).unwrap();
+    assert_eq!(team.as_deref(), Some("ns-team-7"));
+    // A wrong code, and a code with another verifier, are refused.
+    assert_eq!(
+        dropbox_exchange(&http, &endpoints, APP_KEY, "other", &pkce).err(),
+        Some(TransportError::Unauthorized)
+    );
+    assert_eq!(
+        dropbox_exchange(
+            &http,
+            &endpoints,
+            APP_KEY,
+            AUTHORIZATION_CODE,
+            &Pkce::new().unwrap()
+        )
+        .err(),
+        Some(TransportError::Unauthorized)
+    );
+}
+
+#[test]
+fn revoke_ends_the_grant() {
+    let (_dir, server, _store) = dropbox("Mosaic");
+    server.expect_app_key(APP_KEY);
+    let http = RemoteHttp::new_loopback().unwrap();
+    let endpoints = Endpoints::loopback(server.origin());
+    let store = store_with(&server, "Mosaic", None, refreshing_auth(&server));
+    assert!(!server.revoked());
+    dropbox_revoke(&http, &endpoints, &DropboxAuth::fixed_for_test(TOKEN)).unwrap();
+    assert!(server.revoked());
+    // The grant is gone: the refresh token is refused.
+    assert_eq!(
+        store.list(&RelPath::root()).err(),
+        Some(TransportError::Unauthorized)
+    );
+}
+
+#[test]
+fn token_never_in_debug_or_error() {
+    let (_dir, server, _store) = dropbox("Mosaic");
+    server.expect_app_key(APP_KEY);
+    let refresh = server.refresh_token();
+    let auth = refreshing_auth(&server);
+    assert!(!format!("{auth:?}").contains(&refresh));
+    let store = store_with(&server, "Mosaic", None, auth);
+    store.list(&RelPath::root()).unwrap();
+    assert!(!format!("{store:?}").contains(&refresh));
+    // A refresh with a token the server does not know: refused, and the
+    // error shows nothing of it.
+    let stale = DropboxAuth::new(
+        APP_KEY.to_owned(),
+        ProviderCredential::Dropbox {
+            refresh_token: Zeroizing::new("refresh-stale-secret".to_owned()),
+        },
+        Arc::new(NullSink),
+    );
+    let bad = store_with(&server, "Mosaic", None, stale);
+    let err = bad.list(&RelPath::root()).err().unwrap();
+    assert_eq!(err, TransportError::Unauthorized);
+    assert!(!format!("{err:?} {err}").contains("stale-secret"));
+    // No secret in any URL; the form bodies carry them, not the URLs.
+    assert!(server.requests().iter().all(|r| {
+        !r.path_and_query.contains(&refresh) && !r.path_and_query.contains("stale-secret")
+    }));
+    let credential = ProviderCredential::Dropbox {
+        refresh_token: Zeroizing::new(refresh.clone()),
+    };
+    assert!(!format!("{credential:?}").contains(&refresh));
 }

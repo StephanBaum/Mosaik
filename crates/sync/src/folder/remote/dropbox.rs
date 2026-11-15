@@ -10,7 +10,8 @@
 //! listed `rev` and never touches a folder that was not looked at.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, MutexGuard};
+use std::fmt::Write as _;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
 use reqwest::Method;
@@ -19,10 +20,12 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
+use super::credential::{CredentialSink, ProviderCredential};
 use super::http::{RemoteBody, RemoteHttp, RemoteReply, RemoteRequest, status_error};
 use super::location::FolderLocation;
-use super::oauth::Endpoints;
+use super::oauth::{AuthState, Endpoints, Pkce, REDIRECT_URI, path_segment};
 use super::time::parse_rfc3339;
+use super::tokens::{bearer, grant_is_gone, parse_tokens, post_form};
 use super::{MAX_LISTING_BYTES, MAX_PAGES, MAX_SMALL_JSON};
 use crate::folder::remote::credential::Provider;
 use crate::folder::store::{Entry, EntryKind, FolderStore, MAX_SCANNED, RelPath, valid_component};
@@ -38,9 +41,23 @@ const MAX_SINGLE_UPLOAD: usize = 150 * 1024 * 1024;
 /// The longest cursor that is passed back.
 const MAX_CURSOR: usize = 4096;
 
-/// What authorises the requests of a [`DropboxStore`]: an access token.
+/// What authorises the requests of a [`DropboxStore`]: the refresh token of
+/// the account and the access token that came from it (kept in memory only).
+///
+/// The access token is fetched when there is none and after a 401; a refresh
+/// that the server refuses (`invalid_grant`, 401) is
+/// [`TransportError::Unauthorized`] and the caller signs the account out.
 pub struct DropboxAuth {
-    access: Mutex<Option<Zeroizing<String>>>,
+    app_key: String,
+    sink: Option<Arc<dyn CredentialSink>>,
+    inner: Mutex<AuthInner>,
+    /// The client and the token endpoint, set by the store that uses this.
+    net: Mutex<Option<(RemoteHttp, String)>>,
+}
+
+struct AuthInner {
+    access: Option<Zeroizing<String>>,
+    refresh: Option<Zeroizing<String>>,
 }
 
 impl core::fmt::Debug for DropboxAuth {
@@ -50,33 +67,250 @@ impl core::fmt::Debug for DropboxAuth {
 }
 
 impl DropboxAuth {
+    /// An authorisation from the stored credential; `sink` hears of a refresh
+    /// token the provider replaces.
+    #[must_use]
+    pub fn new(
+        app_key: String,
+        credential: ProviderCredential,
+        sink: Arc<dyn CredentialSink>,
+    ) -> Self {
+        let refresh = match credential {
+            ProviderCredential::Dropbox { refresh_token } => Some(refresh_token),
+            _ => None,
+        };
+        Self {
+            app_key,
+            sink: Some(sink),
+            inner: Mutex::new(AuthInner {
+                access: None,
+                refresh,
+            }),
+            net: Mutex::new(None),
+        }
+    }
+
     /// An authorisation with one fixed access token that is never refreshed.
     #[cfg(any(test, feature = "test-util"))]
     #[must_use]
     pub fn fixed_for_test(token: &str) -> Self {
         Self {
-            access: Mutex::new(Some(Zeroizing::new(token.to_owned()))),
+            app_key: String::new(),
+            sink: None,
+            inner: Mutex::new(AuthInner {
+                access: Some(Zeroizing::new(token.to_owned())),
+                refresh: None,
+            }),
+            net: Mutex::new(None),
         }
     }
 
-    /// The `Authorization` header value (marked sensitive).
-    ///
-    /// # Errors
-    /// [`TransportError::Unauthorized`] without an access token;
-    /// [`TransportError::Io`] for a token that cannot be a header value.
-    pub fn bearer(&self) -> Result<HeaderValue, TransportError> {
-        let guard = self.access.lock().map_err(|_| TransportError::Io)?;
-        let token = guard.as_ref().ok_or(TransportError::Unauthorized)?;
-        let mut text = Zeroizing::new(String::from("Bearer "));
-        text.push_str(token);
-        let mut value = HeaderValue::from_bytes(text.as_bytes()).map_err(|_| TransportError::Io)?;
-        value.set_sensitive(true);
-        Ok(value)
+    /// Where the refresh goes (called by [`DropboxStore::new`]).
+    fn bind(&self, http: &RemoteHttp, endpoints: &Endpoints) {
+        if let Ok(mut net) = self.net.lock() {
+            *net = Some((
+                http.clone(),
+                format!(
+                    "{}/oauth2/token",
+                    endpoints.dropbox_api.trim_end_matches('/')
+                ),
+            ));
+        }
     }
 
-    /// Gets a new access token after a 401.
+    /// The `Authorization` header value (marked sensitive); an access token
+    /// is fetched first if there is none.
+    ///
+    /// # Errors
+    /// [`TransportError::Unauthorized`] without an access token and a usable
+    /// refresh token; [`TransportError::Io`] for a token that cannot be a
+    /// header value; the errors of the refresh.
+    pub fn bearer(&self) -> Result<HeaderValue, TransportError> {
+        let has_token = self
+            .inner
+            .lock()
+            .map_err(|_| TransportError::Io)?
+            .access
+            .is_some();
+        if !has_token {
+            self.refresh()?;
+        }
+        let guard = self.inner.lock().map_err(|_| TransportError::Io)?;
+        bearer(guard.access.as_ref().ok_or(TransportError::Unauthorized)?)
+    }
+
+    /// Gets a new access token with the refresh token (after a 401, or when
+    /// there is none yet).
     pub(crate) fn refresh(&self) -> Result<(), TransportError> {
-        Err(TransportError::Unauthorized)
+        let (http, url) = self
+            .net
+            .lock()
+            .map_err(|_| TransportError::Io)?
+            .clone()
+            .ok_or(TransportError::Unauthorized)?;
+        let mut inner = self.inner.lock().map_err(|_| TransportError::Io)?;
+        let refresh = inner.refresh.clone().ok_or(TransportError::Unauthorized)?;
+        inner.access = None;
+        let reply = post_form(
+            &http,
+            &url,
+            &[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh.as_str()),
+                ("client_id", &self.app_key),
+            ],
+        )?;
+        if !reply.is_success() {
+            return Err(if grant_is_gone(&reply) {
+                TransportError::Unauthorized
+            } else {
+                status_error(&reply)
+            });
+        }
+        let tokens = parse_tokens(reply.body)?;
+        if let Some(new) = tokens.refresh
+            && *new != *refresh
+        {
+            // Stored before it is used (Dropbox does not rotate today).
+            if let Some(sink) = &self.sink {
+                sink.rotated(&ProviderCredential::Dropbox {
+                    refresh_token: new.clone(),
+                })?;
+            }
+            inner.refresh = Some(new);
+        }
+        inner.access = Some(tokens.access);
+        Ok(())
+    }
+}
+
+/// The page the user signs in on: `S256` PKCE, the offline access that
+/// yields a refresh token, the app's one redirect URI and the four scopes of
+/// ADR-0162.
+#[must_use]
+pub fn dropbox_authorize_url(
+    endpoints: &Endpoints,
+    app_key: &str,
+    pkce: &Pkce,
+    state: &AuthState,
+) -> String {
+    format!(
+        "{}?client_id={}&response_type=code&code_challenge={}&code_challenge_method=S256\
+         &token_access_type=offline&redirect_uri={}&state={}&scope={}",
+        endpoints.dropbox_auth,
+        path_segment(app_key),
+        path_segment(&pkce.challenge()),
+        path_segment(REDIRECT_URI),
+        path_segment(&state.as_param()),
+        path_segment(SCOPES),
+    )
+}
+
+/// The scopes the app asks for, separated by spaces.
+const SCOPES: &str = "files.metadata.read files.content.read files.content.write account_info.read";
+
+#[derive(Deserialize)]
+struct WireAccount {
+    root_info: WireRootInfo,
+}
+
+#[derive(Deserialize)]
+struct WireRootInfo {
+    root_namespace_id: String,
+    home_namespace_id: String,
+}
+
+/// Trades the code of the redirect for a refresh credential, and asks which
+/// namespace the account's root is (a team member's root is the team space:
+/// the second part of the answer is that namespace, `None` for a personal
+/// account).
+///
+/// # Errors
+/// [`TransportError::Unauthorized`] for a code the server refuses;
+/// [`TransportError::Protocol`] for an answer without a refresh token or a
+/// namespace; the usual transport errors.
+pub fn dropbox_exchange(
+    http: &RemoteHttp,
+    endpoints: &Endpoints,
+    app_key: &str,
+    code: &str,
+    pkce: &Pkce,
+) -> Result<(ProviderCredential, Option<String>), TransportError> {
+    let api = endpoints.dropbox_api.trim_end_matches('/');
+    let reply = post_form(
+        http,
+        &format!("{api}/oauth2/token"),
+        &[
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("code_verifier", pkce.verifier()),
+            ("client_id", app_key),
+            ("redirect_uri", REDIRECT_URI),
+        ],
+    )?;
+    if !reply.is_success() {
+        return Err(if grant_is_gone(&reply) {
+            TransportError::Unauthorized
+        } else {
+            status_error(&reply)
+        });
+    }
+    let tokens = parse_tokens(reply.body)?;
+    let refresh_token = tokens.refresh.ok_or(TransportError::Protocol)?;
+    let account = http.send(RemoteRequest {
+        method: Method::POST,
+        url: &format!("{api}/2/users/get_current_account"),
+        headers: &[(AUTHORIZATION, bearer(&tokens.access)?)],
+        body: RemoteBody::None,
+        timeout: REQUEST_TIMEOUT,
+        cap: MAX_SMALL_JSON,
+    })?;
+    if !account.is_success() {
+        return Err(status_error(&account));
+    }
+    let info: WireAccount =
+        serde_json::from_slice(&account.body).map_err(|_| TransportError::Protocol)?;
+    let root = info.root_info;
+    if root.root_namespace_id.is_empty() || root.home_namespace_id.is_empty() {
+        return Err(TransportError::Protocol);
+    }
+    let team = (root.root_namespace_id != root.home_namespace_id).then_some(root.root_namespace_id);
+    Ok((ProviderCredential::Dropbox { refresh_token }, team))
+}
+
+/// Revokes the grant at Dropbox (`/2/auth/token/revoke`).
+///
+/// # Errors
+/// [`TransportError::Unauthorized`] if the grant is gone already; the usual
+/// transport errors.
+pub fn dropbox_revoke(
+    http: &RemoteHttp,
+    endpoints: &Endpoints,
+    auth: &DropboxAuth,
+) -> Result<(), TransportError> {
+    let url = format!(
+        "{}/2/auth/token/revoke",
+        endpoints.dropbox_api.trim_end_matches('/')
+    );
+    let send = |bearer: HeaderValue| {
+        http.send(RemoteRequest {
+            method: Method::POST,
+            url: &url,
+            headers: &[(AUTHORIZATION, bearer)],
+            body: RemoteBody::None,
+            timeout: REQUEST_TIMEOUT,
+            cap: MAX_SMALL_JSON,
+        })
+    };
+    let mut reply = send(auth.bearer()?)?;
+    if reply.status == 401 {
+        auth.refresh()?;
+        reply = send(auth.bearer()?)?;
+    }
+    if reply.is_success() {
+        Ok(())
+    } else {
+        Err(status_error(&reply))
     }
 }
 
@@ -148,7 +382,7 @@ fn ascii_json(value: &Value) -> String {
         } else {
             let mut units = [0u16; 2];
             for unit in c.encode_utf16(&mut units) {
-                out.push_str(&format!("\\u{unit:04x}"));
+                let _ = write!(out, "\\u{unit:04x}");
             }
         }
     }
@@ -230,6 +464,7 @@ impl DropboxStore {
                     .map_err(|_| TransportError::Io)
             })
             .transpose()?;
+        auth.bind(&http, endpoints);
         Ok(Self {
             http,
             api: endpoints.dropbox_api.trim_end_matches('/').to_owned(),
@@ -263,7 +498,7 @@ impl DropboxStore {
         base: &str,
         route: &str,
         extra: &[(HeaderName, HeaderValue)],
-        body: RemoteBody<'_>,
+        body: &RemoteBody<'_>,
         timeout: Duration,
         cap: u64,
     ) -> Result<RemoteReply, TransportError> {
@@ -283,9 +518,9 @@ impl DropboxStore {
                 method: Method::POST,
                 url: &url,
                 headers: &headers,
-                body: match &body {
+                body: match body {
                     RemoteBody::None => RemoteBody::None,
-                    RemoteBody::Bytes(b, t) => RemoteBody::Bytes(*b, *t),
+                    RemoteBody::Bytes(b, t) => RemoteBody::Bytes(b, t),
                     RemoteBody::Form(f) => RemoteBody::Form(f.clone()),
                 },
                 timeout,
@@ -307,7 +542,7 @@ impl DropboxStore {
             &self.api,
             route,
             &[],
-            RemoteBody::Bytes(&bytes, "application/json"),
+            &RemoteBody::Bytes(&bytes, "application/json"),
             REQUEST_TIMEOUT,
             cap,
         )
@@ -485,10 +720,7 @@ impl DropboxStore {
             );
         }
         let reply = self.rpc("/2/files/delete_v2", &body, MAX_SMALL_JSON)?;
-        if reply.is_success() {
-            self.note_removed(path);
-            Ok(())
-        } else if is_not_found(&reply) {
+        if reply.is_success() || is_not_found(&reply) {
             self.note_removed(path);
             Ok(())
         } else {
@@ -537,7 +769,8 @@ impl DropboxStore {
                 MAX_SMALL_JSON,
             )?;
             // A folder that is there already is fine; a file on the name is not.
-            if !reply.is_success() && !(reply.status == 409 && self.is_real_dir(&current)) {
+            let there_already = reply.status == 409 && self.is_real_dir(&current);
+            if !(reply.is_success() || there_already) {
                 return Err(api_error(&reply));
             }
             let mut state = self.state()?;
@@ -625,7 +858,7 @@ impl FolderStore for DropboxStore {
             &self.content,
             "/2/files/download",
             &[arg],
-            RemoteBody::None,
+            &RemoteBody::None,
             ATTACHMENT_TIMEOUT,
             max,
         )?;
@@ -671,7 +904,7 @@ impl FolderStore for DropboxStore {
             &self.content,
             "/2/files/upload",
             &[arg_header(&arg)?],
-            RemoteBody::Bytes(bytes, "application/octet-stream"),
+            &RemoteBody::Bytes(bytes, "application/octet-stream"),
             ATTACHMENT_TIMEOUT,
             MAX_SMALL_JSON,
         )?;

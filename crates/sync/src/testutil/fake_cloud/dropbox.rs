@@ -5,22 +5,50 @@
 //! modification time. Dropbox path `/a/b` is the directory `<dir>/a/b`.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 
+use base64ct::{Base64UrlUnpadded, Encoding};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::Faults;
 use super::dav::{children_of, empty, etag_of, json, rfc3339};
+use crate::folder::remote::oauth::{REDIRECT_URI, percent_decode};
 use crate::folder::store::valid_component;
 use crate::testutil::{FakeHttp, FakeRequest, FakeResponse};
 
+/// The code the fake accepts at the token endpoint.
+pub const AUTHORIZATION_CODE: &str = "auth-code";
+
+#[derive(Default)]
+struct Auth {
+    /// The access token that is valid now.
+    access: Option<String>,
+    /// The refresh token that is valid now.
+    refresh: Option<String>,
+    /// The `client_id` the token endpoint expects, if set.
+    app_key: Option<String>,
+    /// The PKCE challenge the code was issued for, if set.
+    challenge: Option<String>,
+    /// The team root namespace `get_current_account` reports.
+    team_root: Option<String>,
+    /// The access token expires once this many API requests have been seen.
+    expire_at: Option<usize>,
+    /// The grant is revoked once this many API requests have been seen.
+    revoke_at: Option<usize>,
+}
+
 struct Shared {
     dir: PathBuf,
-    token: String,
+    auth: Mutex<Auth>,
+    api_seen: AtomicUsize,
+    refreshes: AtomicUsize,
+    revoked: AtomicBool,
     faults: Mutex<Faults>,
     count: AtomicUsize,
     writes: AtomicUsize,
@@ -43,7 +71,14 @@ impl FakeDropbox {
     pub fn serve(dir: PathBuf, token: &str) -> Self {
         let shared = Arc::new(Shared {
             dir,
-            token: token.to_owned(),
+            auth: Mutex::new(Auth {
+                access: Some(token.to_owned()),
+                refresh: Some("refresh-token-1".to_owned()),
+                ..Auth::default()
+            }),
+            api_seen: AtomicUsize::new(0),
+            refreshes: AtomicUsize::new(0),
+            revoked: AtomicBool::new(false),
             faults: Mutex::new(Faults::default()),
             count: AtomicUsize::new(0),
             writes: AtomicUsize::new(0),
@@ -72,6 +107,73 @@ impl FakeDropbox {
     #[must_use]
     pub fn writes(&self) -> usize {
         self.shared.writes.load(Ordering::SeqCst)
+    }
+
+    /// The refresh token that is valid now.
+    #[must_use]
+    pub fn refresh_token(&self) -> String {
+        self.shared
+            .auth
+            .lock()
+            .ok()
+            .and_then(|a| a.refresh.clone())
+            .unwrap_or_default()
+    }
+
+    /// The token endpoint expects this `client_id`.
+    pub fn expect_app_key(&self, key: &str) {
+        if let Ok(mut a) = self.shared.auth.lock() {
+            a.app_key = Some(key.to_owned());
+        }
+    }
+
+    /// The token endpoint checks the code verifier against this challenge.
+    pub fn expect_challenge(&self, challenge: &str) {
+        if let Ok(mut a) = self.shared.auth.lock() {
+            a.challenge = Some(challenge.to_owned());
+        }
+    }
+
+    /// `get_current_account` reports this team root namespace.
+    pub fn set_team_root(&self, namespace: &str) {
+        if let Ok(mut a) = self.shared.auth.lock() {
+            a.team_root = Some(namespace.to_owned());
+        }
+    }
+
+    /// The access token expires after this many more API requests.
+    pub fn expire_access_after(&self, requests: usize) {
+        let now = self.shared.api_seen.load(Ordering::SeqCst);
+        if let Ok(mut a) = self.shared.auth.lock() {
+            a.expire_at = Some(now + requests);
+        }
+    }
+
+    /// The user revokes the app after this many more API requests: the
+    /// access and the refresh token stop working.
+    pub fn revoke_after(&self, requests: usize) {
+        let now = self.shared.api_seen.load(Ordering::SeqCst);
+        if let Ok(mut a) = self.shared.auth.lock() {
+            a.revoke_at = Some(now + requests);
+        }
+    }
+
+    /// How many access tokens were issued by refreshing.
+    #[must_use]
+    pub fn refreshes(&self) -> usize {
+        self.shared.refreshes.load(Ordering::SeqCst)
+    }
+
+    /// How many API requests (`/2/...`) were made.
+    #[must_use]
+    pub fn api_requests(&self) -> usize {
+        self.shared.api_seen.load(Ordering::SeqCst)
+    }
+
+    /// Whether the app was revoked through `/2/auth/token/revoke`.
+    #[must_use]
+    pub fn revoked(&self) -> bool {
+        self.shared.revoked.load(Ordering::SeqCst)
     }
 
     /// Sets the faults and restarts the request count.
@@ -120,7 +222,7 @@ fn ascii(value: &Value) -> String {
         } else {
             let mut units = [0u16; 2];
             for u in c.encode_utf16(&mut units) {
-                out.push_str(&format!("\\u{u:04x}"));
+                let _ = write!(out, "\\u{u:04x}");
             }
         }
     }
@@ -168,13 +270,35 @@ fn handle(s: &Shared, r: &FakeRequest) -> FakeResponse {
             retry.iter().map(|v| ("Retry-After", v.as_str())).collect();
         return FakeResponse::new(status, &headers, Vec::new());
     }
-    if r.header("authorization") != Some(format!("Bearer {}", s.token).as_str()) {
-        return json(
-            401,
-            &json!({ "error_summary": "invalid_access_token/", "error": {} }).to_string(),
-        );
-    }
     let route = r.path_and_query.split('?').next().unwrap_or_default();
+    if route == "/oauth2/token" {
+        return token_route(s, r);
+    }
+    let seen = s.api_seen.fetch_add(1, Ordering::SeqCst) + 1;
+    {
+        let Ok(mut a) = s.auth.lock() else {
+            return empty(500);
+        };
+        if a.revoke_at.is_some_and(|at| seen > at) {
+            a.revoke_at = None;
+            a.access = None;
+            a.refresh = None;
+        }
+        if a.expire_at.is_some_and(|at| seen > at) {
+            a.expire_at = None;
+            a.access = None;
+        }
+        let valid = a
+            .access
+            .as_ref()
+            .is_some_and(|t| r.header("authorization") == Some(format!("Bearer {t}").as_str()));
+        if !valid {
+            return json(
+                401,
+                &json!({ "error_summary": "expired_access_token/", "error": {} }).to_string(),
+            );
+        }
+    }
     let arg: Value = match route {
         "/2/files/upload" | "/2/files/download" => r
             .header("dropbox-api-arg")
@@ -202,6 +326,27 @@ fn handle(s: &Shared, r: &FakeRequest) -> FakeResponse {
         ("POST", "/2/files/delete_v2") => delete(s, &arg, path),
         ("POST", "/2/files/upload") => upload(s, &arg, path, &r.body),
         ("POST", "/2/files/download") => download(s, path),
+        ("POST", "/2/users/get_current_account") => {
+            let team = s.auth.lock().ok().and_then(|a| a.team_root.clone());
+            let home = "dbid-home".to_owned();
+            json(
+                200,
+                &json!({ "root_info": {
+                    ".tag": "user",
+                    "root_namespace_id": team.unwrap_or_else(|| home.clone()),
+                    "home_namespace_id": home,
+                }})
+                .to_string(),
+            )
+        }
+        ("POST", "/2/auth/token/revoke") => {
+            if let Ok(mut a) = s.auth.lock() {
+                a.access = None;
+                a.refresh = None;
+            }
+            s.revoked.store(true, Ordering::SeqCst);
+            empty(200)
+        }
         _ => empty(404),
     }
 }
@@ -412,4 +557,60 @@ fn download(s: &Shared, path: &str) -> FakeResponse {
             )
         }
     }
+}
+
+fn bad_grant() -> FakeResponse {
+    json(400, &json!({ "error": "invalid_grant" }).to_string())
+}
+
+/// `POST /oauth2/token`: the code exchange and the refresh.
+fn token_route(s: &Shared, r: &FakeRequest) -> FakeResponse {
+    let body = String::from_utf8_lossy(&r.body).into_owned();
+    let field = |name: &str| -> Option<String> {
+        body.split('&').find_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            (k == name).then(|| percent_decode(v, true)).flatten()
+        })
+    };
+    let Ok(mut a) = s.auth.lock() else {
+        return empty(500);
+    };
+    if let Some(key) = &a.app_key
+        && field("client_id").as_deref() != Some(key.as_str())
+    {
+        return bad_grant();
+    }
+    match field("grant_type").as_deref() {
+        Some("refresh_token") => {
+            if a.refresh.is_none() || field("refresh_token") != a.refresh {
+                return bad_grant();
+            }
+        }
+        Some("authorization_code") => {
+            let verifier = field("code_verifier").unwrap_or_default();
+            let challenge = Base64UrlUnpadded::encode_string(&Sha256::digest(verifier.as_bytes()));
+            if field("code").as_deref() != Some(AUTHORIZATION_CODE)
+                || field("redirect_uri").as_deref() != Some(REDIRECT_URI)
+                || a.challenge.as_ref().is_some_and(|c| *c != challenge)
+            {
+                return bad_grant();
+            }
+            a.refresh
+                .get_or_insert_with(|| "refresh-token-1".to_owned());
+        }
+        _ => return bad_grant(),
+    }
+    let n = s.refreshes.fetch_add(1, Ordering::SeqCst) + 1;
+    let access = format!("sl.at-{n}");
+    a.access = Some(access.clone());
+    json(
+        200,
+        &json!({
+            "access_token": access,
+            "token_type": "bearer",
+            "expires_in": 14400,
+            "refresh_token": a.refresh,
+        })
+        .to_string(),
+    )
 }

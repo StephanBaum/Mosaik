@@ -19,6 +19,10 @@ use crate::testutil::{FakeHttp, FakeRequest, FakeResponse};
 
 /// What goes wrong on request.
 #[derive(Clone, Copy, Debug, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "a bag of independent test switches"
+)]
 pub struct Faults {
     /// `Depth: 1` listings show the tree as it was when this was switched
     /// on: later files are missing from them, deleted ones are still there.

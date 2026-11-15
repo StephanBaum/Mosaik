@@ -95,6 +95,7 @@ impl RemoteReply {
 }
 
 /// A blocking client for provider APIs.
+#[derive(Clone)]
 pub struct RemoteHttp {
     client: Client,
     allow_loopback: bool,

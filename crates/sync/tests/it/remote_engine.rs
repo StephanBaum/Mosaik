@@ -17,6 +17,7 @@ use mosaic_core::model::{ItemType, SecretField};
 use mosaic_core::{ItemId, VaultId};
 use mosaic_sync::engine::{SyncError, SyncReport};
 use mosaic_sync::folder::remote::credential::ProviderCredential;
+use mosaic_sync::folder::remote::dropbox::DropboxAuth;
 use mosaic_sync::folder::remote::http::RemoteHttp;
 use mosaic_sync::folder::remote::webdav::WebDavStore;
 use mosaic_sync::folder::{self, FolderStore, RelPath};
@@ -30,7 +31,7 @@ use crate::common::{
     Dev, PASSWORD, World, is_idle, log_dir, make_engine_over, open_remote_transport, pw,
 };
 use crate::common::{device_dir, segments};
-use crate::remote_dropbox::store_at;
+use crate::remote_dropbox::{APP_KEY, refreshing_auth, store_with};
 
 const DAV_PASSWORD: &str = "phone-app-password";
 const DROPBOX_TOKEN: &str = "sl.access-token-1";
@@ -113,10 +114,19 @@ fn join_phone(w: &mut World) -> FakeDav {
 
 /// Device 1 (the phone) joins replica 1 through a fake Dropbox that serves it.
 fn join_phone_dropbox(w: &mut World) -> FakeDropbox {
+    join_phone_dropbox_with(w, |_| DropboxAuth::fixed_for_test(DROPBOX_TOKEN))
+}
+
+/// As [`join_phone_dropbox`], with the authorisation `auth` makes for each store.
+fn join_phone_dropbox_with(
+    w: &mut World,
+    auth: impl Fn(&FakeDropbox) -> DropboxAuth,
+) -> FakeDropbox {
     let server = FakeDropbox::serve(w.replica(1), DROPBOX_TOKEN);
+    server.expect_app_key(APP_KEY);
     let store = Store::open(w.tmp.path().join("device-1.db")).unwrap();
     let session = folder::join_from_folder_in(
-        &store_at(&server, "", None),
+        &store_with(&server, "", None, auth(&server)),
         w.account,
         LockedSession::open(store),
         &pw(PASSWORD),
@@ -126,7 +136,7 @@ fn join_phone_dropbox(w: &mut World) -> FakeDropbox {
     let access = LocalSession::new(session);
     let transport = open_remote_transport(
         &access,
-        Box::new(store_at(&server, "", None)),
+        Box::new(store_with(&server, "", None, auth(&server))),
         &w.clock,
         "phone",
     );
@@ -145,7 +155,12 @@ fn join_local_phone(w: &mut World) {
 
 /// One run of device `d`, started the way the phone starts it.
 fn run(w: &mut World, d: usize) -> Result<SyncReport, SyncError> {
-    w.devs[d].engine.transport_mut().begin_run().unwrap();
+    // The run's listing is part of the run: a refusal there ends it too.
+    w.devs[d]
+        .engine
+        .transport_mut()
+        .begin_run()
+        .map_err(SyncError::Transport)?;
     w.try_sync(d)
 }
 
@@ -205,6 +220,81 @@ fn phone_joins_and_pulls_desktop_items_dropbox() {
         Some("from the phone")
     );
     assert!(is_idle(&run(&mut w, 1).unwrap()));
+}
+
+/// Review focus 3: the access token runs out in the middle of a run.
+#[test]
+fn expired_access_token_mid_run_refreshes_once() {
+    let (mut w, vault, item) = desktop(33);
+    let server = join_phone_dropbox_with(&mut w, refreshing_auth);
+    run(&mut w, 1).unwrap();
+    // Work in both directions, so the run makes plenty of requests.
+    set_password(&mut w, 0, vault, item, "from the desktop");
+    w.sync(0);
+    w.cloud.settle().unwrap();
+    set_password(&mut w, 1, vault, item, "from the phone");
+    w.advance(60_000);
+    let (before, refreshed) = (server.requests().len(), server.refreshes());
+    server.expire_access_after(3);
+    run(&mut w, 1).expect("the run finishes after one refresh");
+    assert_eq!(server.refreshes(), refreshed + 1, "exactly one refresh");
+    let window: Vec<_> = server.requests()[before..]
+        .iter()
+        .filter(|r| r.path_and_query.starts_with("/2/"))
+        .cloned()
+        .collect();
+    assert!(window.len() > 4, "the run made {} requests", window.len());
+    let key = |r: &mosaic_sync::testutil::FakeRequest| {
+        (
+            r.path_and_query.clone(),
+            r.body.clone(),
+            r.header("dropbox-api-arg").map(str::to_owned),
+        )
+    };
+    // The fourth request was answered 401 and sent again, once.
+    assert_eq!(key(&window[3]), key(&window[4]));
+    for pair in window.windows(2).enumerate() {
+        if pair.0 != 3 {
+            assert_ne!(key(&pair.1[0]), key(&pair.1[1]), "request {} twice", pair.0);
+        }
+    }
+    converge(&mut w);
+    assert_eq!(
+        password_of(&w, 0, vault, item),
+        password_of(&w, 1, vault, item)
+    );
+}
+
+/// Review focus 3: the user revokes the app in the middle of a run.
+#[test]
+fn revoked_refresh_token_ends_run_signed_out() {
+    let (mut w, vault, item) = desktop(34);
+    let server = join_phone_dropbox_with(&mut w, refreshing_auth);
+    run(&mut w, 1).unwrap();
+    set_password(&mut w, 0, vault, item, "from the desktop");
+    w.sync(0);
+    w.cloud.settle().unwrap();
+    set_password(&mut w, 1, vault, item, "from the phone");
+    w.advance(60_000);
+    server.revoke_after(4);
+    assert!(matches!(
+        run(&mut w, 1),
+        Err(SyncError::Transport(TransportError::Unauthorized))
+    ));
+    // No half-written name, no temp file: an upload is whole or absent.
+    let replica = w.replica(1);
+    assert_eq!(
+        crate::common::files_ending(&replica, ".mtmp"),
+        Vec::<std::path::PathBuf>::new()
+    );
+    for file in crate::common::files_ending(&replica, "") {
+        assert!(fs::metadata(&file).unwrap().len() > 0, "{}", file.display());
+    }
+    // It stays signed out.
+    assert!(matches!(
+        run(&mut w, 1),
+        Err(SyncError::Transport(TransportError::Unauthorized))
+    ));
 }
 
 /// Review focus 1: the desktop's files arrive late and out of order: after a
