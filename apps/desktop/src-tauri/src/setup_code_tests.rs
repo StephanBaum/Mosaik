@@ -1,11 +1,12 @@
 //! Tests of `setup_code_show` (M10 T13, ADR-0096): the re-authentication, the
-//! hosted-only rule, the 60 s expiry and that the rendered modules decode to
+//! hosted and folder forms, the 60 s expiry and that the rendered modules decode to
 //! the account's setup code.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mosaic_core::SecretKey;
 use mosaic_qr::{OwnedFrame, PixelLayout, scan_setup_frames};
+use mosaic_sync::setup_code::{FolderProviderHint, ParsedSetupCode};
 use mosaic_vault::session::{SyncConfig, SyncKind};
 use zeroize::Zeroizing;
 
@@ -109,25 +110,52 @@ fn setup_code_requires_reauth() {
 }
 
 #[test]
-fn setup_code_refused_for_folder_account() {
+fn setup_code_for_folder_account_carries_account_and_hint() {
     let _kdf = kdf_permit();
     let e = Env::new();
-    e.create();
+    let kit_key = e.create();
     // No sync at all.
     assert_eq!(
         e.b().setup_code_show(ask(PASSWORD)).unwrap_err().code,
         ErrorCode::SetupCodeNeedsServer
     );
-    // A folder, answered before the password is looked at.
     let dir = tempfile::tempdir().unwrap();
     e.connect_folder(dir.path());
-    for typed in [PASSWORD, "not the password"] {
+    let account = e.b().with_unlocked(|s| Ok(s.account_id())).unwrap();
+    let shown = e.b().setup_code_show(ask(PASSWORD)).unwrap();
+    let frame = frame_of(&shown);
+    let text = scan_setup_frames(&[frame.frame()]).unwrap();
+    assert!(text.starts_with("mosaic-setup:2:"));
+    let ParsedSetupCode::Folder(code) = mosaic_sync::setup_code::parse_any(text.as_bytes()).unwrap()
+    else {
+        panic!("expected a folder code");
+    };
+    assert_eq!(&code.account, account.as_bytes());
+    assert_eq!(code.secret_key, SecretKey::parse(&kit_key).unwrap());
+    // A temporary folder is under no provider client's root.
+    assert_eq!(code.provider, FolderProviderHint::Other);
+    assert_eq!(code.server, "");
+    assert_eq!(code.path, "");
+}
+
+#[test]
+fn setup_code_folder_still_requires_reauth() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let dir = tempfile::tempdir().unwrap();
+    e.connect_folder(dir.path());
+    for (typed, expected) in [
+        ("", ErrorCode::EmptyPassword),
+        ("not the password", ErrorCode::WrongCredentials),
+    ] {
         assert_eq!(
             e.b().setup_code_show(ask(typed)).unwrap_err().code,
-            ErrorCode::SetupCodeNeedsServer,
+            expected,
             "{typed:?}"
         );
     }
+    e.b().setup_code_show(ask(PASSWORD)).unwrap();
 }
 
 #[test]

@@ -1,6 +1,6 @@
 /**
  * Mock setup code for a phone: a fixed 29 x 29 matrix (three finder squares and a deterministic
- * fill, not a scannable code). The rules follow the backend: hosted accounts only, the master
+ * fill, not a scannable code). The rules follow the backend: hosted and folder accounts, the master
  * password is checked and earns no re-authentication grant, the code lasts 60 s.
  */
 import { fail, requireUnlocked, type MockHandlers } from "./state.ts";
@@ -32,7 +32,7 @@ function mockModules(): boolean[][] {
 export const setupCodeHandlers: MockHandlers = {
   setup_code_show: (state, request) => {
     requireUnlocked(state);
-    if (state.sync.config?.kind !== "hosted") {
+    if (state.sync.config === null) {
       fail("setupCodeNeedsServer");
     }
     if (request.password === "") {
