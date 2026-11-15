@@ -105,8 +105,9 @@ impl DropboxAuth {
         }
     }
 
-    /// Where the refresh goes (called by [`DropboxStore::new`]).
-    fn bind(&self, http: &RemoteHttp, endpoints: &Endpoints) {
+    /// Where the refresh goes (called by [`DropboxStore::new`]; a caller that uses the
+    /// authorisation without a store, [`dropbox_revoke`], binds it itself).
+    pub fn bind(&self, http: &RemoteHttp, endpoints: &Endpoints) {
         if let Ok(mut net) = self.net.lock() {
             *net = Some((
                 http.clone(),

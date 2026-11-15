@@ -122,6 +122,16 @@ impl TestHooks<'_> {
         });
     }
 
+    /// Points every provider call of the folder accounts at one loopback server (the fake
+    /// `WebDAV`, Dropbox or Graph server of `mosaic-sync`) and sets the Dropbox app key and the
+    /// Microsoft client ID; an empty ID leaves that provider unsupported. Loopback `http` is
+    /// accepted from here on.
+    pub fn set_folder_endpoints(&self, origin: &str, dropbox_key: &str, ms_client: &str) {
+        if let Ok(mut env) = self.core.folder_env.lock() {
+            *env = crate::folder::FolderEnv::loopback(origin, dropbox_key, ms_client);
+        }
+    }
+
     /// Moves the core's clock.
     pub fn set_clock_offset_ms(&self, offset: i64) {
         self.core.clock.set_offset_ms(offset);

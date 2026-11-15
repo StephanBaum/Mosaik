@@ -5,7 +5,7 @@ import Foundation
 /// the catalog must be a resource of the app and of every extension that uses `L10n`.
 public enum L10n {
     /// Every `MobileError::code()` that has a string.
-    public static let errorCodes: [String] = ["accountExists", "appNotLinked", "appNotVerified", "assetLinksUnavailable", "busy", "emptyPassword", "folderAccountUnsupported", "foreignFrame", "insecureOrigin", "internal", "invalidInput", "itemTypeNotAllowed", "locked", "noAccount", "noMatch", "notEnoughMemory", "notFound", "otpKeyInvalid", "otpQrInvalid", "otpQrMigration", "otpQrMultiple", "otpQrNotOtp", "otpUriInvalid", "passkeyExcluded", "passkeyNotFound", "passkeySessionExpired", "passkeyUnsupportedAlgorithm", "passwordInApp", "passwordRequired", "qrNotFound", "quickUnlockExpired", "quickUnlockInvalidated", "reauthRequired", "rpIdInvalid", "secretKeyMalformed", "secretKeyMistyped", "secretKeyRequired", "setupCodeInvalid", "storageUnavailable", "storeInUse", "storeUnavailable", "syncAccountRekeyed", "syncFailed", "syncHandoffExpired", "syncNotConfigured", "syncPasswordChanged", "syncRateLimited", "syncServerIncompatible", "syncServerInsecure", "syncServerInvalid", "syncServerMismatch", "syncServerUnreachable", "syncSignedOut", "syncTwoFactorInvalid", "syncTwoFactorRequired", "vaultUnavailable", "wrongCredentials"]
+    public static let errorCodes: [String] = ["accountExists", "appNotLinked", "appNotVerified", "assetLinksUnavailable", "busy", "emptyPassword", "folderLinkExpired", "folderLinkInvalid", "folderNotFound", "folderProviderSignedOut", "folderProviderUnsupported", "folderServerTlsTooOld", "folderStorageFull", "foreignFrame", "insecureOrigin", "internal", "invalidInput", "itemTypeNotAllowed", "locked", "noAccount", "noMatch", "notEnoughMemory", "notFound", "otpKeyInvalid", "otpQrInvalid", "otpQrMigration", "otpQrMultiple", "otpQrNotOtp", "otpUriInvalid", "passkeyExcluded", "passkeyNotFound", "passkeySessionExpired", "passkeyUnsupportedAlgorithm", "passwordInApp", "passwordRequired", "qrNotFound", "quickUnlockExpired", "quickUnlockInvalidated", "reauthRequired", "rpIdInvalid", "secretKeyMalformed", "secretKeyMistyped", "secretKeyRequired", "setupCodeInvalid", "storageUnavailable", "storeInUse", "storeUnavailable", "syncAccountRekeyed", "syncFailed", "syncFolderDamaged", "syncFolderNoAccount", "syncHandoffExpired", "syncNotConfigured", "syncPasswordChanged", "syncPasswordRollback", "syncRateLimited", "syncServerIncompatible", "syncServerInsecure", "syncServerInvalid", "syncServerMismatch", "syncServerUnreachable", "syncSignedOut", "syncTwoFactorInvalid", "syncTwoFactorRequired", "vaultUnavailable", "wrongCredentials"]
 
     /// The text of `code` (`error.<code>`), or nil for a code this build does not know.
     public static func errorMessage(code: String) -> String? {
@@ -16,7 +16,13 @@ public enum L10n {
         case "assetLinksUnavailable": return errorAssetLinksUnavailable()
         case "busy": return errorBusy()
         case "emptyPassword": return errorEmptyPassword()
-        case "folderAccountUnsupported": return errorFolderAccountUnsupported()
+        case "folderLinkExpired": return errorFolderLinkExpired()
+        case "folderLinkInvalid": return errorFolderLinkInvalid()
+        case "folderNotFound": return errorFolderNotFound()
+        case "folderProviderSignedOut": return errorFolderProviderSignedOut()
+        case "folderProviderUnsupported": return errorFolderProviderUnsupported()
+        case "folderServerTlsTooOld": return errorFolderServerTlsTooOld()
+        case "folderStorageFull": return errorFolderStorageFull()
         case "foreignFrame": return errorForeignFrame()
         case "insecureOrigin": return errorInsecureOrigin()
         case "internal": return errorInternal()
@@ -53,9 +59,12 @@ public enum L10n {
         case "storeUnavailable": return errorStoreUnavailable()
         case "syncAccountRekeyed": return errorSyncAccountRekeyed()
         case "syncFailed": return errorSyncFailed()
+        case "syncFolderDamaged": return errorSyncFolderDamaged()
+        case "syncFolderNoAccount": return errorSyncFolderNoAccount()
         case "syncHandoffExpired": return errorSyncHandoffExpired()
         case "syncNotConfigured": return errorSyncNotConfigured()
         case "syncPasswordChanged": return errorSyncPasswordChanged()
+        case "syncPasswordRollback": return errorSyncPasswordRollback()
         case "syncRateLimited": return errorSyncRateLimited()
         case "syncServerIncompatible": return errorSyncServerIncompatible()
         case "syncServerInsecure": return errorSyncServerInsecure()
@@ -95,8 +104,32 @@ public enum L10n {
         NSLocalizedString("error.emptyPassword", bundle: .main, comment: "")
     }
 
-    public static func errorFolderAccountUnsupported() -> String {
-        NSLocalizedString("error.folderAccountUnsupported", bundle: .main, comment: "")
+    public static func errorFolderLinkExpired() -> String {
+        NSLocalizedString("error.folderLinkExpired", bundle: .main, comment: "")
+    }
+
+    public static func errorFolderLinkInvalid() -> String {
+        NSLocalizedString("error.folderLinkInvalid", bundle: .main, comment: "")
+    }
+
+    public static func errorFolderNotFound() -> String {
+        NSLocalizedString("error.folderNotFound", bundle: .main, comment: "")
+    }
+
+    public static func errorFolderProviderSignedOut() -> String {
+        NSLocalizedString("error.folderProviderSignedOut", bundle: .main, comment: "")
+    }
+
+    public static func errorFolderProviderUnsupported() -> String {
+        NSLocalizedString("error.folderProviderUnsupported", bundle: .main, comment: "")
+    }
+
+    public static func errorFolderServerTlsTooOld() -> String {
+        NSLocalizedString("error.folderServerTlsTooOld", bundle: .main, comment: "")
+    }
+
+    public static func errorFolderStorageFull() -> String {
+        NSLocalizedString("error.folderStorageFull", bundle: .main, comment: "")
     }
 
     public static func errorForeignFrame() -> String {
@@ -243,6 +276,14 @@ public enum L10n {
         NSLocalizedString("error.syncFailed", bundle: .main, comment: "")
     }
 
+    public static func errorSyncFolderDamaged() -> String {
+        NSLocalizedString("error.syncFolderDamaged", bundle: .main, comment: "")
+    }
+
+    public static func errorSyncFolderNoAccount() -> String {
+        NSLocalizedString("error.syncFolderNoAccount", bundle: .main, comment: "")
+    }
+
     public static func errorSyncHandoffExpired() -> String {
         NSLocalizedString("error.syncHandoffExpired", bundle: .main, comment: "")
     }
@@ -253,6 +294,10 @@ public enum L10n {
 
     public static func errorSyncPasswordChanged() -> String {
         NSLocalizedString("error.syncPasswordChanged", bundle: .main, comment: "")
+    }
+
+    public static func errorSyncPasswordRollback() -> String {
+        NSLocalizedString("error.syncPasswordRollback", bundle: .main, comment: "")
     }
 
     public static func errorSyncRateLimited() -> String {

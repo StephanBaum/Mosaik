@@ -93,8 +93,22 @@ export const mobile = {
     "Mosaic konnte nicht synchronisieren. Prüfe deine Verbindung und versuche es noch einmal.",
   "error.passwordInApp":
     "Hier ist Entsperren mit dem Master-Passwort nicht möglich. Öffne die Mosaic-App und entsperre sie dort.",
-  "error.folderAccountUnsupported":
-    "Dieses Konto synchronisiert über einen Cloud-Ordner, den Mosaic auf Smartphones noch nicht unterstützt. Nutze einen Desktop oder ein Konto auf einem Sync-Server.",
+  "error.folderProviderUnsupported":
+    "Dieses Smartphone erreicht den Cloud-Ordner dieses Kontos nicht. Melde dich erneut beim Anbieter des Ordners an oder nutze einen Desktop.",
+  "error.folderProviderSignedOut":
+    "Dein Cloud-Dienst hat die Anmeldung beendet oder abgelehnt. Melde dich erneut an, damit die Synchronisierung weiterläuft.",
+  "error.folderNotFound":
+    "Mosaic findet diesen Ordner nicht, oder es ist kein Mosaic-Ordner. Wähle den Ordner, mit dem dein Computer synchronisiert.",
+  "error.folderStorageFull":
+    "Dein Cloud-Speicher ist voll. Schaffe dort Platz und synchronisiere danach erneut.",
+  "error.folderLinkExpired":
+    "Die Anmeldung hat zu lange gedauert. Starte sie noch einmal.",
+  "error.folderLinkInvalid":
+    "Die Anmeldung hat nicht funktioniert oder wurde abgebrochen. Starte sie noch einmal.",
+  "error.folderServerTlsTooOld":
+    "Dieser Server ist für eine sichere Verbindung zu alt. Mosaic braucht TLS 1.3. Bitte die Person, die den Server betreibt, ihn zu aktualisieren.",
+  "mobile.error.syncPasswordRollback":
+    "Der Ordner bietet ein älteres Master-Passwort an, als dieses Smartphone kennt. Prüfe den Ordner und deinen Cloud-Dienst.",
   "error.setupCodeInvalid":
     "Dieser Einrichtungscode ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal.",
   "error.notEnoughMemory":

@@ -95,8 +95,22 @@ export const mobile = {
   "error.syncFailed": "Mosaic couldn't sync. Check your connection, then try again.",
   "error.passwordInApp":
     "Unlocking with the master password isn't possible here. Open the Mosaic app and unlock it there.",
-  "error.folderAccountUnsupported":
-    "This account syncs through a cloud folder, which Mosaic on phones doesn't support yet. Use a desktop or a sync server account.",
+  "error.folderProviderUnsupported":
+    "This phone can't reach the cloud folder of this account. Sign in to the folder's provider again, or use a desktop.",
+  "error.folderProviderSignedOut":
+    "Your cloud service ended the sign-in or refused it. Sign in again to keep syncing.",
+  "error.folderNotFound":
+    "Mosaic can't find that folder, or it isn't a Mosaic folder. Pick the folder your computer syncs to.",
+  "error.folderStorageFull":
+    "Your cloud storage is full. Free up space there, then sync again.",
+  "error.folderLinkExpired":
+    "The sign-in took too long. Start it again.",
+  "error.folderLinkInvalid":
+    "The sign-in didn't work or was cancelled. Start it again.",
+  "error.folderServerTlsTooOld":
+    "This server is too old for a secure connection. Mosaic needs TLS 1.3. Ask whoever runs the server to update it.",
+  "mobile.error.syncPasswordRollback":
+    "The folder offers an older master password than this phone knows. Check the folder and your cloud service.",
   "error.setupCodeInvalid":
     "That setup code isn't valid or has expired. Create a new one on your computer and scan it again.",
   "error.notEnoughMemory":

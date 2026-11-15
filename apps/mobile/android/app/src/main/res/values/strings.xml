@@ -7,7 +7,13 @@
   <string name="error_assetLinksUnavailable">Mosaic couldn\'t check that this app belongs to the website. Check your connection and try again.</string>
   <string name="error_busy">Mosaic is still finishing the last step. Wait a moment, then try again.</string>
   <string name="error_emptyPassword">The master password is empty. Enter it to continue.</string>
-  <string name="error_folderAccountUnsupported">This account syncs through a cloud folder, which Mosaic on phones doesn\'t support yet. Use a desktop or a sync server account.</string>
+  <string name="error_folderLinkExpired">The sign-in took too long. Start it again.</string>
+  <string name="error_folderLinkInvalid">The sign-in didn\'t work or was cancelled. Start it again.</string>
+  <string name="error_folderNotFound">Mosaic can\'t find that folder, or it isn\'t a Mosaic folder. Pick the folder your computer syncs to.</string>
+  <string name="error_folderProviderSignedOut">Your cloud service ended the sign-in or refused it. Sign in again to keep syncing.</string>
+  <string name="error_folderProviderUnsupported">This phone can\'t reach the cloud folder of this account. Sign in to the folder\'s provider again, or use a desktop.</string>
+  <string name="error_folderServerTlsTooOld">This server is too old for a secure connection. Mosaic needs TLS 1.3. Ask whoever runs the server to update it.</string>
+  <string name="error_folderStorageFull">Your cloud storage is full. Free up space there, then sync again.</string>
   <string name="error_foreignFrame">This field belongs to another site embedded in the page, so Mosaic won\'t fill it.</string>
   <string name="error_insecureOrigin">This page isn\'t using a secure connection, so Mosaic won\'t fill it. Open the https version of the page.</string>
   <string name="error_internal">Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.</string>
@@ -44,9 +50,12 @@
   <string name="error_storeUnavailable">Mosaic couldn\'t open your vault file on this device. Check that the disk is available and has free space, then restart Mosaic.</string>
   <string name="error_syncAccountRekeyed">Your account\'s keys were renewed on another device. Use the Secret Key from the new Emergency Kit to continue.</string>
   <string name="error_syncFailed">Mosaic couldn\'t sync. Check your connection, then try again.</string>
+  <string name="error_syncFolderDamaged">Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.</string>
+  <string name="error_syncFolderNoAccount">This folder holds no sync data for this account. Choose the folder your other device syncs to.</string>
   <string name="error_syncHandoffExpired">The browser step ran out of time. Start it again.</string>
   <string name="error_syncNotConfigured">Sync isn\'t set up on this device yet. Set it up in Settings first.</string>
   <string name="error_syncPasswordChanged">Your master password was changed on the server or in the folder. Enter the new one below.</string>
+  <string name="error_syncPasswordRollback">The folder offers an older master password than this phone knows. Check the folder and your cloud service.</string>
   <string name="error_syncRateLimited">Too many attempts. Wait a few minutes, then try again.</string>
   <string name="error_syncServerIncompatible">This server runs a version that doesn\'t match your Mosaic. Update Mosaic or ask the server\'s owner to update it.</string>
   <string name="error_syncServerInsecure">Mosaic only connects to servers over https, so nobody on the way can read or change your data. Use an https:// address.</string>

@@ -7,7 +7,13 @@
   <string name="error_assetLinksUnavailable">Mosaic konnte nicht prüfen, ob diese App zur Website gehört. Prüfe deine Verbindung und versuche es noch einmal.</string>
   <string name="error_busy">Mosaic schließt noch den letzten Schritt ab. Warte kurz und versuche es dann noch einmal.</string>
   <string name="error_emptyPassword">Das Master-Passwort ist leer. Gib es ein, um weiterzumachen.</string>
-  <string name="error_folderAccountUnsupported">Dieses Konto synchronisiert über einen Cloud-Ordner, den Mosaic auf Smartphones noch nicht unterstützt. Nutze einen Desktop oder ein Konto auf einem Sync-Server.</string>
+  <string name="error_folderLinkExpired">Die Anmeldung hat zu lange gedauert. Starte sie noch einmal.</string>
+  <string name="error_folderLinkInvalid">Die Anmeldung hat nicht funktioniert oder wurde abgebrochen. Starte sie noch einmal.</string>
+  <string name="error_folderNotFound">Mosaic findet diesen Ordner nicht, oder es ist kein Mosaic-Ordner. Wähle den Ordner, mit dem dein Computer synchronisiert.</string>
+  <string name="error_folderProviderSignedOut">Dein Cloud-Dienst hat die Anmeldung beendet oder abgelehnt. Melde dich erneut an, damit die Synchronisierung weiterläuft.</string>
+  <string name="error_folderProviderUnsupported">Dieses Smartphone erreicht den Cloud-Ordner dieses Kontos nicht. Melde dich erneut beim Anbieter des Ordners an oder nutze einen Desktop.</string>
+  <string name="error_folderServerTlsTooOld">Dieser Server ist für eine sichere Verbindung zu alt. Mosaic braucht TLS 1.3. Bitte die Person, die den Server betreibt, ihn zu aktualisieren.</string>
+  <string name="error_folderStorageFull">Dein Cloud-Speicher ist voll. Schaffe dort Platz und synchronisiere danach erneut.</string>
   <string name="error_foreignFrame">Dieses Feld gehört zu einer anderen, in die Seite eingebetteten Website. Mosaic füllt es deshalb nicht aus.</string>
   <string name="error_insecureOrigin">Diese Seite nutzt keine sichere Verbindung, deshalb füllt Mosaic sie nicht aus. Öffne die https-Version der Seite.</string>
   <string name="error_internal">Etwas Unerwartetes hat diese Aktion gestoppt. Versuche es noch einmal und starte Mosaic neu, wenn es wieder passiert.</string>
@@ -44,9 +50,12 @@
   <string name="error_storeUnavailable">Mosaic konnte deine Tresordatei auf diesem Gerät nicht öffnen. Prüfe, ob das Laufwerk verfügbar ist und freien Speicher hat, und starte Mosaic dann neu.</string>
   <string name="error_syncAccountRekeyed">Die Schlüssel deines Kontos wurden auf einem anderen Gerät erneuert. Nutze den Secret Key aus dem neuen Emergency Kit, um weiterzumachen.</string>
   <string name="error_syncFailed">Mosaic konnte nicht synchronisieren. Prüfe deine Verbindung und versuche es noch einmal.</string>
+  <string name="error_syncFolderDamaged">Einige Sync-Dateien in diesem Ordner sind beschädigt. Lass deinen Cloud-Dienst fertig synchronisieren oder stelle den Ordner aus einer Sicherung wieder her und versuche es dann noch einmal.</string>
+  <string name="error_syncFolderNoAccount">In diesem Ordner liegen keine Sync-Daten für dieses Konto. Wähle den Ordner, mit dem dein anderes Gerät synchronisiert.</string>
   <string name="error_syncHandoffExpired">Der Schritt im Browser hat zu lange gedauert. Starte ihn noch einmal.</string>
   <string name="error_syncNotConfigured">Die Synchronisierung ist auf diesem Gerät noch nicht eingerichtet. Richte sie zuerst in den Einstellungen ein.</string>
   <string name="error_syncPasswordChanged">Dein Master-Passwort wurde auf dem Server oder im Ordner geändert. Gib unten das neue ein.</string>
+  <string name="error_syncPasswordRollback">Der Ordner bietet ein älteres Master-Passwort an, als dieses Smartphone kennt. Prüfe den Ordner und deinen Cloud-Dienst.</string>
   <string name="error_syncRateLimited">Zu viele Versuche. Warte ein paar Minuten und versuche es dann noch einmal.</string>
   <string name="error_syncServerIncompatible">Dieser Server läuft in einer Version, die nicht zu deinem Mosaic passt. Aktualisiere Mosaic oder bitte den Betreiber des Servers, ihn zu aktualisieren.</string>
   <string name="error_syncServerInsecure">Mosaic verbindet sich nur per https mit Servern, damit unterwegs niemand deine Daten lesen oder ändern kann. Nimm eine Adresse mit https://.</string>

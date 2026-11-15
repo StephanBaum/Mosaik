@@ -4,21 +4,33 @@
 //! `locked` and never deadlocks.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use mosaic_core::MasterPassword;
-use mosaic_sync::engine::{EngineConfig, SyncEngine, SyncError, SyncWarning as EngineWarning};
+use mosaic_core::{AccountId, InstallId, MasterPassword, PasswordParams, SecretKey};
+use mosaic_sync::clock::SystemClock;
+use mosaic_sync::engine::{
+    EngineConfig, OwnedSession, SyncEngine, SyncError, SyncWarning as EngineWarning,
+};
+use mosaic_sync::folder::remote::credential::{Provider, ProviderCredential};
+use mosaic_sync::folder::remote::dropbox::{DropboxAuth, dropbox_revoke};
+use mosaic_sync::folder::remote::location::FolderLocation;
+use mosaic_sync::folder::remote::nextcloud::revoke_app_password;
+use mosaic_sync::folder::{FolderParts, FolderTransport, RelPath};
 use mosaic_sync::http::{HttpTransport, StoredToken, Token as _, hosted};
 use mosaic_sync::transport::{Rejection, TransportError, TransportKind};
-use mosaic_vault::session::{SharingFinding, UnlockedSession};
-use mosaic_vault::storage::{SyncHalt, SyncKind, VaultFlag};
+use mosaic_sync::wire::SessionCrypto;
+use mosaic_sync::wire::device_info::{DeviceInfo, Platform as DevicePlatform};
+use mosaic_vault::session::{LockedSession, SharingFinding, UnlockedSession};
+use mosaic_vault::storage::{SyncConfig, SyncHalt, SyncKind, VaultFlag};
 use zeroize::Zeroizing;
 
 use crate::Core;
-use crate::error::{MobileError, Result};
+use crate::error::{MobileError, Result, folder_error, folder_sync_error};
+use crate::folder::{FolderOverview, KeptEngine, NoSink, SecureSink, nextcloud_origin, open_store};
 use crate::quick_unlock::params::Params;
 use crate::secret::text_of;
 use crate::state::{Phase, SessionState, Slots};
-use crate::storage::{read, secret_key_name, sync_token_name};
+use crate::storage::{folder_credential_name, hex, read, secret_key_name, sync_token_name};
 use crate::unlock::Taken;
 
 /// Where sync stands, for the settings screen.
@@ -30,6 +42,11 @@ pub struct SyncOverview {
     pub signed_in: bool,
     /// The server's origin.
     pub server_url: Option<String>,
+    /// Where the folder of a folder account is (`None` for a hosted account).
+    pub folder: Option<FolderOverview>,
+    /// What the person types to confirm a reset: the email of a hosted account, the first
+    /// eight hex characters of the account ID of a folder account (`""` while unknown).
+    pub reset_phrase: String,
     /// Local changes not yet uploaded (0 while locked).
     pub pending_uploads: u32,
     /// The last successful run (Unix ms), since this process started.
@@ -184,9 +201,21 @@ fn clear_findings(s: &mut UnlockedSession, shown: &[SharingFinding]) -> Result<(
     Ok(())
 }
 
-/// The confirmation of a device reset: the account email, typed.
+/// What the person types to confirm a reset: the email of a hosted account, the first eight
+/// hex characters of the account ID of a folder account (it has no email).
+fn reset_phrase(config: &SyncConfig, account: Option<&AccountId>) -> String {
+    match config.kind {
+        SyncKind::Hosted => config.email.clone().unwrap_or_default(),
+        SyncKind::Folder => account
+            .map(|a| hex(a.as_bytes()).chars().take(8).collect())
+            .unwrap_or_default(),
+    }
+}
+
+/// The confirmation of a device reset: the account email (a folder account: the first eight
+/// hex characters of its ID), typed.
 pub struct ResetConfirm {
-    /// The email of the account, as the user types it.
+    /// The phrase of the account, as the user types it.
     pub typed_email: String,
 }
 
@@ -256,6 +285,8 @@ impl Core {
             configured: false,
             signed_in: false,
             server_url: None,
+            folder: None,
+            reset_phrase: String::new(),
             pending_uploads: 0,
             last_synced_at_ms: None,
             last_error: None,
@@ -265,16 +296,20 @@ impl Core {
         if self.account_id().is_err() {
             return overview;
         }
-        let (config, last_sync, last_error, unlocked, signed_in, run_warnings) = {
+        let (config, remote, last_sync, last_error, unlocked, signed_in, run_warnings) = {
             let Ok(guard) = self.guard() else {
                 return overview;
             };
-            let config = match &guard.phase {
-                Phase::Locked(ls) => ls.sync_config().ok().flatten(),
-                _ => None,
+            let (config, remote) = match &guard.phase {
+                Phase::Locked(ls) => (
+                    ls.sync_config().ok().flatten(),
+                    ls.folder_remote().ok().flatten(),
+                ),
+                _ => (None, None),
             };
             (
                 config,
+                remote,
                 guard.last_sync_at_ms,
                 guard.last_sync_error,
                 matches!(guard.phase, Phase::Unlocked(_)),
@@ -284,27 +319,28 @@ impl Core {
         };
         overview.last_synced_at_ms = last_sync;
         overview.last_error = last_error;
-        let mut config = config;
+        let (mut config, mut remote) = (config, remote);
         if unlocked {
             let facts = self.with_session(|s| {
                 let findings = s.sync_findings()?;
                 let sharing = s.sharing_findings()?;
                 let pending = s.pending_uploads(1000)?.len();
                 Ok((
-                    s.sync_config()?,
+                    (s.sync_config()?, s.folder_remote()?),
                     !findings.is_clear() || !sharing.is_empty(),
                     pending,
                     finding_warnings(&findings, !sharing.is_empty()),
                     sharing,
                 ))
             });
-            if let Ok((c, halted, pending, stored, sharing)) = facts {
+            if let Ok(((c, r), halted, pending, stored, sharing)) = facts {
                 // What this overview shows: an acknowledgement clears only
                 // these sharing findings (SYNC-3).
                 if let Ok(mut guard) = self.guard() {
                     guard.shown_sharing = sharing;
                 }
                 config = c;
+                remote = r;
                 overview.halted = halted;
                 let mut warnings = stored;
                 merge_warnings(&mut warnings, run_warnings);
@@ -313,7 +349,21 @@ impl Core {
             }
         }
         if let Some(config) = config {
-            overview.configured = config.kind == SyncKind::Hosted;
+            overview.configured = true;
+            overview.reset_phrase = reset_phrase(&config, self.account_id().ok().as_ref());
+            if config.kind == SyncKind::Folder {
+                let location = remote
+                    .as_deref()
+                    .and_then(|text| FolderLocation::decode(text).ok());
+                overview.folder = location.map(|l| FolderOverview {
+                    provider: l.provider.into(),
+                    path: config
+                        .folder_path
+                        .as_deref()
+                        .and_then(Path::to_str)
+                        .map_or(l.root.clone(), str::to_owned),
+                });
+            }
             overview.server_url = config.server_url;
         }
         // Cached (G1-2): the token is not read from secure storage to tell
@@ -326,11 +376,19 @@ impl Core {
     ///
     /// # Errors
     /// `invalidInput` in the extension context, `locked`,
-    /// `syncNotConfigured`, `folderAccountUnsupported`, `syncSignedOut`,
+    /// `syncNotConfigured`, `folderProviderUnsupported`, `folderProviderSignedOut`,
+    /// `folderNotFound`, `folderStorageFull`, `syncSignedOut`,
     /// `syncPasswordChanged`, `syncAccountRekeyed`, `syncRateLimited`,
     /// `syncServerUnreachable` and the other sync codes.
     pub fn sync_now(&self) -> Result<SyncOverview> {
         self.require_app()?;
+        self.sync_recorded()?;
+        Ok(self.sync_overview())
+    }
+
+    /// One run whose outcome the overview reports (`last_synced_at_ms`, `last_error`, the
+    /// warnings).
+    pub(crate) fn sync_recorded(&self) -> Result<()> {
         let result = self.sync_once();
         if let Ok(mut guard) = self.guard() {
             match &result {
@@ -342,8 +400,7 @@ impl Core {
                 Err(e) => guard.last_sync_error = Some(*e),
             }
         }
-        result?;
-        Ok(self.sync_overview())
+        result.map(|_| ())
     }
 
     fn sync_once(&self) -> Result<Vec<SyncWarning>> {
@@ -353,8 +410,8 @@ impl Core {
             .with_session(|s| (s.sync_config(), s.install_id(), s.account_id()))
             .ok_or(MobileError::Locked)?;
         let config = config?.ok_or(MobileError::SyncNotConfigured)?;
-        if config.kind != SyncKind::Hosted {
-            return Err(MobileError::FolderAccountUnsupported);
+        if config.kind == SyncKind::Folder {
+            return self.sync_folder(&owned, &config, install, account);
         }
         let url = config.server_url.ok_or(MobileError::SyncNotConfigured)?;
         let token_name = sync_token_name(&account);
@@ -391,6 +448,227 @@ impl Core {
                 }
                 Err(error.into())
             }
+        }
+    }
+
+    /// What a master password adopted from another device did to this one: the quick-unlock
+    /// enrolment is gone (the platform reads the key alias to delete from the state).
+    fn note_adopted(&self, changed: &mosaic_vault::session::PasswordChanged) {
+        if let Some(removed) = &changed.removed_quick_unlock {
+            let alias = Params::decode(&removed.platform_params, self.config.platform)
+                .ok()
+                .map(|p| p.key_alias());
+            if let Ok(mut guard) = self.guard() {
+                guard.expired_alias = alias;
+            }
+            self.update_info(|i| i.quick_unlock_enrolled = false);
+        }
+    }
+
+    /// The transport of a folder account over the unlocked session: the store of the stored
+    /// location with the stored credential (a rotated refresh token goes to secure storage
+    /// before it is used). The grant is probed first, so a revoked one is `folderProviderSignedOut`
+    /// and not a folder that seems to be missing.
+    fn open_folder_transport(
+        &self,
+        owned: &OwnedSession,
+        config: &SyncConfig,
+        install: InstallId,
+        account: AccountId,
+    ) -> Result<FolderTransport<SessionCrypto<OwnedSession>>> {
+        use mosaic_sync::wire::SessionHandle as _;
+        let remote = owned
+            .with_session(UnlockedSession::folder_remote)
+            .ok_or(MobileError::Locked)??;
+        let location = remote
+            .as_deref()
+            .and_then(|text| FolderLocation::decode(text).ok())
+            .ok_or(MobileError::FolderProviderUnsupported)?;
+        let name = folder_credential_name(&account);
+        let Some(stored) = read(self.storage.as_ref(), &name)? else {
+            self.note_stored(None, Some(false));
+            return Err(MobileError::FolderProviderSignedOut);
+        };
+        let credential = ProviderCredential::decode(&stored)
+            .map_err(|_| MobileError::FolderProviderSignedOut)?;
+        if credential.provider() != location.provider {
+            return Err(MobileError::FolderProviderUnsupported);
+        }
+        let env = self.folder_env()?;
+        let http = env.http()?;
+        let sink = Arc::new(SecureSink {
+            storage: Arc::clone(&self.storage),
+            name,
+        });
+        let store = open_store(&env, http, &location, credential, sink)?;
+        store.begin_run().map_err(folder_error)?;
+        store.stat(&RelPath::root()).map_err(folder_error)?;
+        let crypto = SessionCrypto::new(owned.clone()).map_err(|_| MobileError::Locked)?;
+        FolderTransport::open_with_store(
+            store,
+            FolderParts {
+                account_id: account,
+                install_id: install,
+                crypto,
+                clock: Arc::new(SystemClock),
+                device: DeviceInfo {
+                    created_at_ms: self.now_ms(),
+                    name: config.device_name.clone(),
+                    // The folder format knows desktop platforms only; Android is Linux.
+                    platform: DevicePlatform::Linux,
+                },
+            },
+        )
+        .map_err(folder_error)
+    }
+
+    /// A provider that ended the grant: the credential is deleted and the phone reports signed
+    /// out until the person signs in again.
+    fn folder_signed_out(&self, account: &AccountId) {
+        let _ = self.storage.delete(&folder_credential_name(account));
+        self.note_stored(None, Some(false));
+        if let Ok(mut guard) = self.guard() {
+            guard.folder_engine = None;
+        }
+    }
+
+    /// One run over a folder account. The engine is kept between runs of one unlock.
+    fn sync_folder(
+        &self,
+        owned: &OwnedSession,
+        config: &SyncConfig,
+        install: InstallId,
+        account: AccountId,
+    ) -> Result<Vec<SyncWarning>> {
+        let generation = self.generation();
+        let kept = self.guard()?.folder_engine.take();
+        let mut engine = match kept {
+            Some(kept) if kept.generation == generation => kept.engine,
+            _ => {
+                let transport = self
+                    .open_folder_transport(owned, config, install, account)
+                    .inspect_err(|e| {
+                        if *e == MobileError::FolderProviderSignedOut {
+                            self.folder_signed_out(&account);
+                        }
+                    })?;
+                SyncEngine::new(transport, EngineConfig::for_kind(TransportKind::Folder))
+            }
+        };
+        let mut access = owned.clone();
+        let run = engine
+            .transport_mut()
+            .begin_run()
+            .map_err(|e| folder_sync_error(SyncError::Transport(e)))
+            .and_then(|()| {
+                self.work_pause();
+                engine
+                    .sync_once(&mut access, &self.clock)
+                    .map_err(folder_sync_error)
+            });
+        match run {
+            Ok(report) => {
+                if let Ok(mut guard) = self.guard()
+                    && self.generation() == generation
+                    && matches!(guard.phase, Phase::Unlocked(_))
+                {
+                    guard.folder_engine = Some(KeptEngine { generation, engine });
+                }
+                Ok(report
+                    .warnings
+                    .iter()
+                    .filter_map(SyncWarning::from_engine)
+                    .collect())
+            }
+            Err(e) => {
+                if e == MobileError::FolderProviderSignedOut {
+                    self.folder_signed_out(&account);
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Recovers a master password changed on another device of a folder account: the folder's
+    /// newest verified account file must be newer than the one this phone knows, and the new
+    /// password must open it.
+    fn recover_folder(
+        &self,
+        owned: &OwnedSession,
+        config: &SyncConfig,
+        install: InstallId,
+        account: AccountId,
+        secret_key: &SecretKey,
+        mut password: Zeroizing<String>,
+    ) -> Result<SyncOverview> {
+        use mosaic_sync::wire::SessionHandle as _;
+        let master = MasterPassword::new(std::mem::take(&mut *password));
+        let transport = self.open_folder_transport(owned, config, install, account)?;
+        // Only a file whose MAC verifies under this account's own key counts.
+        let file = transport
+            .verified_account_file()
+            .map_err(folder_error)?
+            .ok_or(MobileError::SyncFolderNoAccount)?;
+        drop(transport);
+        // At or below the version this phone wrote or adopted is an older password offered
+        // again (CRYPTO_SPEC 9.4).
+        let last = owned
+            .with_session(UnlockedSession::folder_account_version)
+            .ok_or(MobileError::Locked)??;
+        if file.account_version <= last {
+            return Err(MobileError::SyncPasswordRollback);
+        }
+        let params = PasswordParams {
+            account_id: file.account_id,
+            salt: file.salt,
+            profile: file.profile,
+        };
+        let keys = LockedSession::derive_join_keys(&params, &master, secret_key)?;
+        self.work_pause();
+        let changed = owned
+            .with_session_mut(|s| {
+                let changed = s.adopt_remote_password(keys, &file.wrapped_ak, params)?;
+                s.raise_folder_account_version(file.account_version)?;
+                Ok::<_, MobileError>(changed)
+            })
+            .ok_or(MobileError::Locked)??;
+        self.note_adopted(&changed);
+        if let Ok(mut guard) = self.guard() {
+            guard.last_sync_error = None;
+            guard.folder_engine = None;
+        }
+        Ok(self.sync_overview())
+    }
+
+    /// Revokes the grant of a folder account at its provider, best effort: the secrets are
+    /// deleted already, and no failure is reported (Dropbox: `auth/token/revoke`; Nextcloud:
+    /// the app password; `OneDrive` has no call for it and is left to the account page).
+    fn revoke_folder_grant(&self, location: &str, credential: &[u8]) {
+        let (Ok(location), Ok(credential), Ok(env)) = (
+            FolderLocation::decode(location),
+            ProviderCredential::decode(credential),
+            self.folder_env(),
+        ) else {
+            return;
+        };
+        let Ok(http) = env.http() else {
+            return;
+        };
+        match location.provider {
+            Provider::Dropbox => {
+                let Ok(key) = env.dropbox_key() else {
+                    return;
+                };
+                let auth = DropboxAuth::new(key.to_owned(), credential, Arc::new(NoSink));
+                auth.bind(&http, &env.endpoints);
+                let _ = dropbox_revoke(&http, &env.endpoints, &auth);
+            }
+            Provider::WebDav => {
+                if let Some(origin) = location.server.as_deref().and_then(nextcloud_origin) {
+                    let _ = revoke_app_password(&http, &origin, &credential);
+                }
+            }
+            Provider::OneDrive => {}
         }
     }
 
@@ -450,8 +728,8 @@ impl Core {
                 .ok_or(MobileError::Locked)?
         };
         let config = config?.ok_or(MobileError::SyncNotConfigured)?;
-        if config.kind != SyncKind::Hosted {
-            return Err(MobileError::FolderAccountUnsupported);
+        if config.kind == SyncKind::Folder {
+            return self.recover_folder(&owned, &config, install, account, &secret_key, password);
         }
         let (url, email) = config
             .server_url
@@ -491,15 +769,7 @@ impl Core {
         let restored = self.restore_unlocked(unlocked);
         let (changed, token) = adopted?;
         let changed = changed?;
-        if let Some(removed) = changed.removed_quick_unlock {
-            let alias = Params::decode(&removed.platform_params, self.config.platform)
-                .ok()
-                .map(|p| p.key_alias());
-            if let Ok(mut guard) = self.guard() {
-                guard.expired_alias = alias;
-            }
-            self.update_info(|i| i.quick_unlock_enrolled = false);
-        }
+        self.note_adopted(&changed);
         self.storage
             .put(&sync_token_name(&account), token.as_slice())?;
         self.note_stored(None, Some(true));
@@ -529,9 +799,13 @@ impl Core {
             });
         };
         let account = locked.account_id();
-        let email = locked.sync_config().ok().flatten().and_then(|c| c.email);
+        let config = locked.sync_config().ok().flatten();
+        let expected = config
+            .as_ref()
+            .map(|c| reset_phrase(c, account.as_ref().ok()));
         let typed = confirm.typed_email.trim().to_lowercase();
-        let matches = email.is_some_and(|e| e.trim().to_lowercase() == typed) && !typed.is_empty();
+        let matches = expected.is_some_and(|p| !p.is_empty() && p.trim().to_lowercase() == typed)
+            && !typed.is_empty();
         if !matches || account.is_err() {
             self.put_back(Taken::Locked(locked));
             return Err(MobileError::InvalidInput);
@@ -548,6 +822,15 @@ impl Core {
             aliases.extend(guard.expired_alias.take());
         }
         let account = account?;
+        // What a folder account must revoke at its provider, read before the secrets go.
+        let revocation = (config.as_ref().map(|c| c.kind) == Some(SyncKind::Folder)).then(|| {
+            (
+                locked.folder_remote().ok().flatten(),
+                read(self.storage.as_ref(), &folder_credential_name(&account))
+                    .ok()
+                    .flatten(),
+            )
+        });
         // A reset that fails half way must not leave a phone that quick-unlocks:
         // the enrolment and the boot marker go first, and the key alias is
         // reported by the state until the platform deleted the key (N7).
@@ -559,7 +842,8 @@ impl Core {
         let deleted = self
             .storage
             .delete(&secret_key_name(&account))
-            .and_then(|()| self.storage.delete(&sync_token_name(&account)));
+            .and_then(|()| self.storage.delete(&sync_token_name(&account)))
+            .and_then(|()| self.storage.delete(&folder_credential_name(&account)));
         if let Err(e) = deleted {
             self.put_back(Taken::Locked(locked));
             if let Ok(mut guard) = self.guard() {
@@ -579,6 +863,7 @@ impl Core {
             guard.phase = phase;
             guard.store_busy = busy;
             guard.slots = Slots::default();
+            guard.folder_engine = None;
             // A wipe that failed keeps the alias of the removed enrolment
             // reported (N7).
             guard.expired_alias = if wiped.is_err() {
@@ -591,6 +876,11 @@ impl Core {
             guard.sync_warnings.clear();
             guard.settings = crate::settings::SettingsGuard::load(self.config.settings_path());
             guard.settle_fresh_phase();
+        }
+        // The secrets are gone: the provider grant is revoked best effort (a failure does
+        // not stop the reset).
+        if let Some((Some(location), Some(credential))) = revocation {
+            self.revoke_folder_grant(&location, &credential);
         }
         wiped?;
         Ok(ResetOutcome {
