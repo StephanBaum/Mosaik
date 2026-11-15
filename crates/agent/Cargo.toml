@@ -1,0 +1,62 @@
+[package]
+name = "mosaic-agent"
+description = "Mosaic agent access: bindings, masking, the request path, the policy engine and the agent wire protocol (ADR-0159, ADR-0160)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# The HTTPS sender of the request path (ADR-0046 stack: blocking reqwest over rustls with the
+# `ring` provider, the OS trust store).
+http = ["dep:reqwest", "dep:rustls", "dep:rustls-platform-verifier"]
+# The agent endpoint server loop (ADR-0159): accepts connections, runs the handshake and
+# dispatches requests to a host. Needs tokio.
+server = ["dep:tokio"]
+# Test-only constructors and fixtures (a fixture CA for the HTTPS sender, a local TLS server, a
+# host for the server loop). Debug builds only (see `src/lib.rs`).
+test-util = ["http", "server"]
+
+[dependencies]
+mosaic-core = { path = "../core" }
+# Exact https destinations for bindings (ADR-0159).
+mosaic-origin = { path = "../origin" }
+# Reference candidates of an ambiguous reference and, from the vault source on, the session (workspace crate).
+mosaic-vault = { path = "../vault" }
+# The agent wire types name the channel's `VaultState`/`AccessState`; the server loop uses its
+# endpoint, framing, handshake and transport (workspace crate).
+mosaic-native-messaging = { path = "../native-messaging" }
+# The binding digest is the SHA-256 of its canonical JSON (already in the tree through mosaic-core).
+sha2.workspace = true
+# The patterns and the stream carry are secrets (already in the tree through mosaic-core).
+zeroize.workspace = true
+thiserror.workspace = true
+# Log entries are sealed as JSON (already in the tree through mosaic-vault).
+serde_json.workspace = true
+# Derive for the error codes and the wire types (the desktop crate enables the same feature).
+serde = { workspace = true, features = ["derive"] }
+# The checked request URL is the URL that is sent: one WHATWG parse (already in the tree through mosaic-origin).
+url.workspace = true
+# HTTPS client of the request path (ADR-0046, ADR-0159), only with feature `http`; the versions are the
+# workspace's, already in the tree through the sync transport.
+reqwest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-platform-verifier = { workspace = true, optional = true }
+# The server loop's tasks, timers and channels (already in the tree through the sync transport
+# and mosaic-native-messaging), only with feature `server`.
+tokio = { workspace = true, optional = true }
+# The Basic header value, in zeroizing buffers (already in the tree through mosaic-core).
+base64ct = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+# Properties of the request path (already in the tree through mosaic-core).
+proptest.workspace = true
+# An independent URI parser: the sent URL has the checked host and port.
+http.workspace = true
+# A private directory for the test socket (already in the tree through mosaic-vault tests).
+tempfile.workspace = true

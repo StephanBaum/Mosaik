@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- the sample items of every kind, one literal each. */
 /**
  * Sample data for the mock IPC. Illustrative only: the Secret Key is the one from the
  * design mockups (docs/design/README.md), the master password is `mosaic`.
@@ -90,6 +91,7 @@ function login(spec: LoginSpec): MockItem {
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: null,
       passkey: null,
+      agentBindings: [],
     },
     secrets: { password },
     history: [],
@@ -142,6 +144,7 @@ function kindItem(spec: KindSpec): MockItem {
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: spec.sshKey ?? null,
       passkey: null,
+      agentBindings: [],
     },
     secrets: spec.secrets,
     history: [],
@@ -290,6 +293,7 @@ export function sampleItems(): MockItem[] {
         review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
         sshKey: null,
         passkey: null,
+        agentBindings: [],
       },
       secrets: { wifiPassword: "meadow-lantern-quiet-74" },
       history: [],
@@ -346,6 +350,7 @@ export function passkeyItem(
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: null,
       passkey: summary_,
+      agentBindings: [],
     },
     secrets: {},
     history: [],
@@ -398,6 +403,7 @@ function codeItem(itemId: string, title: string, issuer: string): MockItem {
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: null,
       passkey: null,
+      agentBindings: [],
     },
     secrets: {},
     history: [],

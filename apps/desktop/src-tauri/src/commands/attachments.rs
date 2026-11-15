@@ -16,7 +16,6 @@ use tauri::State;
 use tauri::ipc::Response;
 use zeroize::Zeroizing;
 
-use super::items::detail;
 use crate::attachment_files::{
     read_bounded, render_preview, safe_file_name, sniff_mime, stored_name, write_file_atomic,
 };
@@ -173,12 +172,7 @@ impl Backend {
         drop(bytes);
         self.items_changed(session);
         Ok(AttachmentAdded::Added {
-            item: Box::new(detail(
-                session.store(),
-                vault_id,
-                item_id,
-                session.item(vault_id, item_id)?,
-            )?),
+            item: Box::new(self.detail_in(session, vault_id, item_id)?),
         })
     }
 
@@ -236,12 +230,7 @@ impl Backend {
         let session = slot.unlocked_mut()?;
         session.remove_attachment(vault_id, item_id, request.attachment_id.get())?;
         self.items_changed(session);
-        detail(
-            session.store(),
-            vault_id,
-            item_id,
-            session.item(vault_id, item_id)?,
-        )
+        self.detail_in(session, vault_id, item_id)
     }
 
     /// The account and the stored name of an attachment that is on this

@@ -1,0 +1,146 @@
+/*
+ * Agent access (ADR-0159): the access dialog, the in-use indicator, the item editor section and
+ * the settings screen. Tokens only (styles.test.ts enforces it).
+ */
+
+.agent-sites {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* What the agent wrote: set apart from Mosaic's own text, so it can never pass for it. */
+.agent-reason {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: var(--border-width-hairline) dashed var(--color-border-strong);
+  border-radius: var(--radius-panel);
+  background: var(--color-bg-subtle);
+}
+
+.agent-reason__text {
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  border-inline-start: var(--border-width-focus) solid var(--color-border-strong);
+  color: var(--color-text-secondary);
+  font-style: italic;
+  max-height: calc(var(--space-9) * 3);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-prompt__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* The in-use indicator in the top bar: a dot that says an agent is using a key right now. */
+.agent-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+}
+
+.agent-indicator__dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+}
+
+/* Settings: the setup help and the activity list. */
+.agent-snippet {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-hairline) solid var(--color-divider);
+  border-radius: var(--radius-field);
+  background: var(--color-bg-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+  overflow-x: auto;
+  white-space: pre;
+  user-select: all;
+}
+
+.agent-snippet__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.agent-activity__entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-width-hairline) solid var(--color-divider);
+}
+
+.agent-activity__entry--refused .agent-activity__line {
+  color: var(--color-danger);
+}
+
+.agent-activity__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* The item editor: one section per bound field. */
+.agent-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: var(--border-width-hairline) solid var(--color-divider);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+
+.agent-editor__sites {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.agent-editor__site {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.agent-editor__site .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-width-hairline) solid var(--color-warning-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-warning-subtle);
+}
+
+/* The agent access of an item in the detail pane. */
+.detail__agent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}

@@ -47,6 +47,7 @@
 #![forbid(unsafe_code)]
 
 mod aead;
+mod agent_keys;
 pub mod attachment;
 pub mod browser_channel;
 pub mod cli_session;
@@ -72,6 +73,9 @@ pub mod unlock;
 #[cfg(test)]
 mod golden;
 
+pub use agent_keys::{
+    AGENT_LOG_ENTRY_ID_LEN, AGENT_MARK_LEN, AgentLogKey, AgentMarkKey, new_agent_log_entry_id,
+};
 pub use attachment::{MAX_ATTACHMENT_LEN, open_attachment, seal_attachment};
 #[cfg(fuzzing)]
 #[doc(hidden)]

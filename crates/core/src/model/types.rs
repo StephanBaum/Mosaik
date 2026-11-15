@@ -14,8 +14,9 @@ use core::fmt;
 
 use super::clock::Timestamp;
 use super::doc::parse_uuid;
-use super::value::{Object, Text, Value};
+use super::value::{Object, Text, Value, to_json};
 use crate::attachment::MAX_ATTACHMENT_LEN;
+use crate::envelope::MAX_ITEM_PLAINTEXT_LEN;
 use crate::error::{Error, Result};
 use crate::ids::AttachmentId;
 use crate::secret::{AttachmentKey, SecretBytes, SecretString, SecretVec};
@@ -125,7 +126,8 @@ redacted_debug!(
     AttachmentRef,
     OtpConfig,
     PasskeyCredential,
-    SshKeyMaterial
+    SshKeyMaterial,
+    AgentBindingRecord
 );
 
 // ---------------------------------------------------------------------------
@@ -205,6 +207,325 @@ impl LoginUrl {
             allow_http,
             extra: r.done(),
         })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Agent bindings
+// ---------------------------------------------------------------------------
+
+/// Where the user name of an HTTP Basic agent binding comes from (agent
+/// access design §6.2).
+#[derive(Debug)]
+pub enum AgentBasicUser {
+    /// A fixed user name: `{"literal": "..."}`.
+    Literal(Text),
+    /// The key of a text field of the item: `{"field": "api_key.key_id"}`.
+    Field(Text),
+    /// The secret value is the user name and the password is empty
+    /// (Stripe style): `"secretIsUser"`.
+    SecretIsUser,
+}
+
+impl AgentBasicUser {
+    fn dup(&self) -> Self {
+        match self {
+            Self::Literal(t) => Self::Literal(t.dup()),
+            Self::Field(t) => Self::Field(t.dup()),
+            Self::SecretIsUser => Self::SecretIsUser,
+        }
+    }
+
+    fn to_value(&self) -> Value {
+        match self {
+            Self::Literal(t) => {
+                let mut o = Object::new();
+                o.insert("literal", Value::String(t.dup()));
+                Value::Object(o)
+            }
+            Self::Field(t) => {
+                let mut o = Object::new();
+                o.insert("field", Value::String(t.dup()));
+                Value::Object(o)
+            }
+            Self::SecretIsUser => Value::text("secretIsUser"),
+        }
+    }
+
+    fn from_value(v: &Value) -> Result<Self> {
+        if let Some(s) = v.as_str() {
+            return if s == "secretIsUser" {
+                Ok(Self::SecretIsUser)
+            } else {
+                Err(Error::Malformed)
+            };
+        }
+        let o = v.as_object().ok_or(Error::Malformed)?;
+        if o.len() != 1 {
+            return Err(Error::Malformed);
+        }
+        match (o.get("literal"), o.get("field")) {
+            (Some(Value::String(t)), None) => Ok(Self::Literal(t.dup())),
+            (None, Some(Value::String(t))) => Ok(Self::Field(t.dup())),
+            _ => Err(Error::Malformed),
+        }
+    }
+}
+
+/// How the request path places the value of an agent binding (design §6.2).
+#[derive(Debug)]
+pub enum AgentInject {
+    /// `Authorization: Bearer <v>`.
+    Bearer,
+    /// `<name>: <prefix><v>`.
+    Header {
+        /// The header name.
+        name: Text,
+        /// The text before the value, possibly empty.
+        prefix: Text,
+    },
+    /// `Authorization: Basic base64(user ":" v)`.
+    Basic {
+        /// Where the user name comes from.
+        user: AgentBasicUser,
+    },
+    /// `?<name>=<percent-encoded v>`.
+    Query {
+        /// The query parameter name.
+        name: Text,
+    },
+}
+
+impl AgentInject {
+    fn dup(&self) -> Self {
+        match self {
+            Self::Bearer => Self::Bearer,
+            Self::Header { name, prefix } => Self::Header {
+                name: name.dup(),
+                prefix: prefix.dup(),
+            },
+            Self::Basic { user } => Self::Basic { user: user.dup() },
+            Self::Query { name } => Self::Query { name: name.dup() },
+        }
+    }
+
+    fn to_value(&self, extra: &Object) -> Value {
+        let mut o = writer(extra);
+        match self {
+            Self::Bearer => o.insert("kind", Value::text("bearer")),
+            Self::Header { name, prefix } => {
+                o.insert("kind", Value::text("header"));
+                o.insert("name", Value::String(name.dup()));
+                o.insert("prefix", Value::String(prefix.dup()));
+            }
+            Self::Basic { user } => {
+                o.insert("kind", Value::text("basic"));
+                o.insert("user", user.to_value());
+            }
+            Self::Query { name } => {
+                o.insert("kind", Value::text("query"));
+                o.insert("name", Value::String(name.dup()));
+            }
+        }
+        Value::Object(o)
+    }
+
+    /// The injection and the members of its object this build does not know.
+    fn from_value(v: &Value) -> Result<(Self, Object)> {
+        let mut r = Reader::new(v)?;
+        let kind = r.text("kind")?;
+        let inject = match kind.as_str() {
+            "bearer" => Self::Bearer,
+            "header" => Self::Header {
+                name: r.text("name")?,
+                prefix: r.opt_text("prefix")?.unwrap_or_else(|| Text::new("")),
+            },
+            "basic" => Self::Basic {
+                user: AgentBasicUser::from_value(&r.opt("user").ok_or(Error::Malformed)?)?,
+            },
+            "query" => Self::Query {
+                name: r.text("name")?,
+            },
+            _ => return Err(Error::Malformed),
+        };
+        Ok((inject, r.done()))
+    }
+}
+
+/// The value of a `null`-or-string member.
+fn null_or_text(v: Option<Value>) -> Result<Option<Text>> {
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(t)) => Ok(Some(t)),
+        Some(_) => Err(Error::Malformed),
+    }
+}
+
+fn text_array(items: &[Value]) -> Result<Vec<Text>> {
+    items
+        .iter()
+        .map(|v| match v {
+            Value::String(t) => Ok(t.dup()),
+            _ => Err(Error::Malformed),
+        })
+        .collect()
+}
+
+fn null_or_text_array(v: Option<Value>) -> Result<Option<Vec<Text>>> {
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(a)) => text_array(&a).map(Some),
+        Some(_) => Err(Error::Malformed),
+    }
+}
+
+fn text_array_value(items: &[Text]) -> Value {
+    Value::Array(items.iter().map(|t| Value::String(t.dup())).collect())
+}
+
+/// Integers are the only numbers a canonical agent binding holds
+/// (CRYPTO_SPEC §11).
+fn check_integers_only(v: &Value) -> Result<()> {
+    match v {
+        Value::Number(n) if n.as_i64().is_none() && n.as_u64().is_none() => Err(Error::Malformed),
+        Value::Array(a) => a.iter().try_for_each(check_integers_only),
+        Value::Object(o) => o.iter().try_for_each(|(_, v)| check_integers_only(v)),
+        _ => Ok(()),
+    }
+}
+
+/// The policy that lets an agent use one secret value of an item
+/// (`agent:<id>`, agent access design §6.1): which field, where it may be
+/// sent, how it is placed.
+///
+/// The core type checks shape only (strings, arrays, booleans, a known
+/// `kind`). Semantic validation (canonical origins, header names, the
+/// environment deny list, field kinds) is `mosaic-agent`'s `Binding`.
+/// Members this build does not know are kept, at the top level and inside
+/// `inject`.
+pub struct AgentBindingRecord {
+    /// A [`crate::model::SecretField`] key, or `field:<element id>` of a
+    /// hidden custom field.
+    pub field: Text,
+    /// The origins the value may be sent to, as stored.
+    pub origins: Vec<Text>,
+    /// How the value is placed in a request.
+    pub inject: AgentInject,
+    /// The environment variable name for commands and the proxy.
+    pub env: Option<Text>,
+    /// Whether commands may receive the value.
+    pub run: bool,
+    /// Allowed methods; `None` means any.
+    pub methods: Option<Vec<Text>>,
+    /// Allowed path prefixes; `None` means any.
+    pub paths: Option<Vec<Text>>,
+    inject_extra: Object,
+    extra: Object,
+}
+
+impl AgentBindingRecord {
+    /// A binding with `env`, `methods` and `paths` unset and `run` false.
+    #[must_use]
+    pub fn new(field: &str, origins: &[&str], inject: AgentInject) -> Self {
+        Self {
+            field: Text::new(field),
+            origins: origins.iter().map(|o| Text::new(o)).collect(),
+            inject,
+            env: None,
+            run: false,
+            methods: None,
+            paths: None,
+            inject_extra: Object::new(),
+            extra: Object::new(),
+        }
+    }
+
+    /// A second copy (the type is deliberately not `Clone`).
+    #[must_use]
+    pub fn dup(&self) -> Self {
+        Self {
+            field: self.field.dup(),
+            origins: self.origins.iter().map(Text::dup).collect(),
+            inject: self.inject.dup(),
+            env: self.env.as_ref().map(Text::dup),
+            run: self.run,
+            methods: self
+                .methods
+                .as_ref()
+                .map(|m| m.iter().map(Text::dup).collect()),
+            paths: self
+                .paths
+                .as_ref()
+                .map(|p| p.iter().map(Text::dup).collect()),
+            inject_extra: self.inject_extra.dup(),
+            extra: self.extra.dup(),
+        }
+    }
+
+    pub(crate) fn to_value(&self) -> Value {
+        let mut o = writer(&self.extra);
+        o.insert("field", Value::String(self.field.dup()));
+        o.insert("origins", text_array_value(&self.origins));
+        o.insert("inject", self.inject.to_value(&self.inject_extra));
+        o.insert(
+            "env",
+            self.env
+                .as_ref()
+                .map_or(Value::Null, |t| Value::String(t.dup())),
+        );
+        o.insert("run", Value::Bool(self.run));
+        o.insert(
+            "methods",
+            self.methods
+                .as_deref()
+                .map_or(Value::Null, text_array_value),
+        );
+        o.insert(
+            "paths",
+            self.paths.as_deref().map_or(Value::Null, text_array_value),
+        );
+        Value::Object(o)
+    }
+
+    pub(crate) fn from_value(v: &Value) -> Result<Self> {
+        let mut r = Reader::new(v)?;
+        let field = r.text("field")?;
+        let origins = match r.opt("origins") {
+            Some(Value::Array(a)) => text_array(&a)?,
+            _ => return Err(Error::Malformed),
+        };
+        let (inject, inject_extra) =
+            AgentInject::from_value(&r.opt("inject").ok_or(Error::Malformed)?)?;
+        let env = null_or_text(r.opt("env"))?;
+        let run = r.bool_or("run", false)?;
+        let methods = null_or_text_array(r.opt("methods"))?;
+        let paths = null_or_text_array(r.opt("paths"))?;
+        Ok(Self {
+            field,
+            origins,
+            inject,
+            env,
+            run,
+            methods,
+            paths,
+            inject_extra,
+            extra: r.done(),
+        })
+    }
+
+    /// The canonical form the device mark and the grant digest cover
+    /// (CRYPTO_SPEC §11): compact JSON with every object's keys in ascending
+    /// byte order, `env`, `methods` and `paths` written as `null` when unset,
+    /// and unknown members included.
+    ///
+    /// # Errors
+    /// [`Error::Malformed`] if an unknown member holds a number that is not
+    /// an integer (such a binding is not usable); [`Error::SizeLimit`] or
+    /// [`Error::Allocation`] if it cannot be serialized.
+    pub fn canonical_json(&self) -> Result<SecretVec> {
+        let v = self.to_value();
+        check_integers_only(&v)?;
+        to_json(&v, MAX_ITEM_PLAINTEXT_LEN)
     }
 }
 

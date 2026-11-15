@@ -77,6 +77,24 @@ export const errors = {
     "That browser is no longer connected. Reopen Settings to see the current list.",
   "error.browserHostMissing":
     "This copy of Mosaic has no browser connector installed, so there is nothing to repair. Install Mosaic with its installer to connect a browser.",
+  "error.agentOriginInvalid":
+    "Agents can send a key only to a site that starts with https:// and names just the site, like https://api.example.com. Check the address.",
+  "error.agentBindingInvalid":
+    "Mosaic can't use this setting for agents. Check the field, the sites and how the key is sent.",
+  "error.agentValueUnusable":
+    "This value is too short or has a line break in it, so agents can't use it. A key needs at least 12 characters on one line.",
+  "error.agentVaultShared":
+    "Agents can only use items in a vault that belongs to you and isn't shared. Move the item to one of your own vaults first.",
+  "error.agentAccessOff":
+    "Agent access is switched off. Turn it on in Settings, under Agents.",
+  "error.agentRequestExpired":
+    "That agent request has already ended. The agent can ask again if it still needs it.",
+  "error.agentAllowTooSoon":
+    "That was too quick to read the request. Check the details, then choose again.",
+  "error.agentPairingNotFound":
+    "That agent is no longer connected. Reopen Settings to see the current list.",
+  "error.agentEndpointUnavailable":
+    "Mosaic could not open the connection agents use. Close other copies of Mosaic and try again.",
   "error.kitNotVerified":
     "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
   "error.kitGroupMismatch":

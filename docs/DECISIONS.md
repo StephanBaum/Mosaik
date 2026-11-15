@@ -4608,6 +4608,7 @@ The data is crowdsourced and may be outdated: a wrong URL costs the user one cli
 - Status: accepted
 - Date: 2026-11-10
 - Milestone: M8
+- Amended by ADR-0159: `mosaic agent *` talks to the running desktop over the agent endpoint (OD-M8-1); `mosaic run` and every store command keep the direct store access described here.
 
 ### Context
 The brief (§5 "CLI", §2) asks for a Rust `mosaic` command line that shares the core crate: list, get, TOTP, generator, `run` and `inject`, SSH key listing, import and encrypted export, one-shot sync. The desktop app holds its store open for its whole run, under the exclusive OS lock that `Store::open` takes on `<path>-lock`.
@@ -6227,3 +6228,141 @@ and Q3. The rules are pure and live in `crates/origin/src/program.rs`; the captu
 
 ### Consequences
 THREAT_MODEL §4.10. `crates/program-fill` (identity, policy, re-verification) builds on these rules.
+
+## ADR-0160: Agent channel labels, device marks and the agent log
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: agent access, phase 0 (spec `docs/superpowers/specs/2026-11-14-agent-access-design.md` §5.2, §6.4, §9.4)
+
+### Context
+AI agents use vault secrets through a local MCP relay (`mosaic agent mcp`) that talks to the unlocked desktop. That needs (1) a local channel
+with its own pairings, (2) a way to make a binding that arrived by sync unusable until the user confirmed it on this device, and (3) a log of every
+agent use. The log holds item titles, origins and command lines, which are derived from item plaintext, so CRYPTO_SPEC §11 forbids storing them in
+cleartext.
+
+### Decision
+- **Channel labels.** CRYPTO_SPEC §15 becomes "Local app channels". The construction is unchanged and used by two channels with disjoint label sets:
+  `browser/auth|handshake|session|frame` and `agent/auth|handshake|session|frame`. Pairings, `K_pair` storage and endpoints are per channel. Every
+  derivation and the frame AAD carry the channel's labels, so a key of one channel fails the other's handshake. The agent `K_pair` is stored by the
+  desktop in `agent-pairings.json` as §4 stores browser pairings, and by the client only in the OS keystore. The browser golden vector stays
+  byte-identical; a second vector pins the agent labels.
+- **Device marks.** `K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)`; `mark = HMAC-SHA-256(K_agent_mark, item_id[16] || u32(len(binding_id)) || binding_id || canonical(v))` (the binding ID is in the mark, a binding with
+  concurrent register entries is unconfirmed, numbers are integers only);
+  local-only table `agent_marks(vault_id, item_id, mark)`; no binding content in cleartext. A binding is usable on a device when a mark of its item
+  matches its canonical form, so a binding that arrives by sync, or is changed by another writer, needs the user's confirmation on this device.
+- **Agent log.** `K_agent_log = HKDF(AK, "", ctx("agent-log-key"), 32)`; each record
+  `0x01 || 0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, random nonce, plaintext, AAD = header || aad("agent-log", entry_id, at_ms))`; local-only
+  table `agent_log(entry_id, at_ms, sealed)` with the time in cleartext for pruning (90 days or 10,000 entries) and bound into the AAD. Never synced,
+  never in the outbox. When the count cap removes an entry younger than 90 days, the log screen says so.
+- **Labels are not reused.** The plan text of the spec used `agent-log` as the HKDF info and as the AAD label. §3 says every derived key and every AEAD
+  use has a unique label, so the HKDF info is `agent-log-key` and `agent-log` stays the AAD label (the `export` / `export-key` precedent).
+- **Settings (B2).** `canonical(settings)` gains the key `agentAccessEnabled`, which sorts first. It is written as `"agentAccessEnabled":true,` only
+  while true and omitted while false, so every existing MAC still verifies: no migration, no version bump. While locked it reads `false`; a missing
+  or invalid MAC sets it `false`, and the `settingsReset` notice fires if the file had it `true`.
+
+### Alternatives
+- A separate key agreement for agents: rejected. It is a new construction; the same OS access control and the user's approval authenticate the pairing.
+- Marks stored per element ID in cleartext: rejected. Element IDs live in item plaintext (§11).
+- The log in `settings.json` or a plain file: rejected. Titles and origins are derived from plaintext.
+- A counter nonce for log records: rejected. §7.2 requires a fresh random nonce, and the records are independent (a counter nonce is used only for the
+  channel frames, ADR-0036, where each key lives for one connection).
+- The same HKDF label for the log key and the log AAD: rejected (§3, see above).
+
+### Consequences
+Unreadable log rows (a record that does not open, for example after a full re-key) are skipped and counted, never deleted on read; the count is shown. Skipping preserves evidence of tampering and never destroys data on a read error.
+
+No new primitive, crate or dependency: HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 and `random(n)` as in §2. The crypto-reviewer reviews this ADR
+and the spec text before `mosaic-core` code lands (Task 3 of the plan). THREAT_MODEL §4.11 rows cite this ADR; R179 records the cleartext time
+column of the log. A disk reader of the store learns when agent use happened and how many records exist, not what was used.
+
+## ADR-0159: Desktop agent mode: an MCP request tool
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: agent access, phase 0 and phase 1 (spec `docs/superpowers/specs/2026-11-14-agent-access-design.md`, plan `2026-11-14-agent-access-phase1.md`)
+- Amends ADR-0071. Answers OD-M8-1. The cryptography is ADR-0160.
+
+### Context
+An agent in Claude Code, Claude Desktop, Cursor or Codex that needs an API key today gets it pasted into the chat, from a `.env` file or from
+`mosaic get --reveal`; in all three the value enters the model's context, its transcript and its provider's logs. Mosaic can act for the agent instead:
+the agent names a secret by reference, Mosaic adds the value to one slot of an HTTPS request to an origin the user allowed, and returns the response with
+the value masked. ADR-0071 rejected a CLI that talks to the running desktop because such a channel "adds a path to every secret". The agent channel has
+no op that returns a value, serves only secrets the user marked for agents, and only at their bound destinations.
+
+### Decision
+`mosaic agent *` (`pair`, `status`, `mcp`) talks to the running desktop over a second local endpoint (the agent endpoint, CRYPTO_SPEC §15 with `agent/*`
+labels, `docs/NATIVE_MESSAGING.md` §9) and never opens the store or a CLI session. `mosaic run` and every store command keep ADR-0071's direct access.
+`mosaic agent mcp` is a stdio MCP relay that never holds a value. The desktop resolves the reference, checks the device mark, the grant and the
+destination, injects the value into one slot of one request, masks the response and logs the use in an encrypted local table (ADR-0160). Phase 1 covers
+spec phases 0 and 1: the request tool only. `mosaic agent run` (phase 2) and `mosaic agent proxy` with `methods`/`paths` editing (phase 3) are not part of
+this ADR's code.
+
+Decisions made on top of the spec (D = spec decision, Q = spec open question, B = spec "Builder check"):
+
+- **D6.** The desktop is the only process that holds a value. **D7.** One binary; the agent subcommands never open the store. **D8.** Destinations are
+  edited only in the item editor, never in an agent-triggered dialog. **D9.** Grants live in memory and end at lock. **D10.** Redirects are never
+  followed; a 3xx returns its masked `Location`.
+- **Q1.** Hand-written MCP subset over `serde_json` (five methods, one capability, newline framing). No MCP library and no new dependency.
+- **Q2.** TLS 1.3 only, as the sync client (ADR-0046).
+- **Q3.** Grants are in memory and end at lock, quit, revoke, unpairing, switching agent access off and a change of the binding's digest.
+- **Q4.** Durations: once, 15 minutes (default), 1 hour, until lock. Nothing longer.
+- **Q5.** The agent's `reason` is shown, labeled "The agent says:", at most 200 characters, control and bidirectional characters escaped.
+- **Q6.** Every usable binding is listed to every paired client.
+- **Q7.** A binary response is reported as type and size.
+- **Q8.** `Accept-Encoding: identity` is forced (an agent-supplied `Accept-Encoding` is replaced). A response with any other `Content-Encoding` is reported
+  as binary `{contentType, bytes, contentEncoding}`; nothing is decoded in phase 1.
+- **Q9.** A value must be at least 12 bytes to be marked, with no CR, LF or NUL.
+- **Q10.** (a) Docs advice in `docs/CLI.md`: do not keep a CLI session open while an agent has a shell. (b) `get --reveal` and `inject` to a non-terminal
+  refuse with `agentContext` when `CLAUDECODE` is set, unless `--i-know` is passed. Only `CLAUDECODE` is listed: the variables of the other clients are
+  not verified. This stops accidents, not an injected agent, which can unset the variable.
+- **Q12.** The policy syncs inside the item; each device confirms it with a keyed mark (ADR-0160). **Q13.** Model-facing text (tool descriptions, error
+  sentences) is English protocol text in Rust constants, like op names; it is not UI, so the i18n rule is not broken. The desktop UI and the CLI's terminal
+  text stay DE and EN. **Q14.** The client keeps the pairing only in the OS keystore, no file fallback (Linux kernel keyring: a reboot forgets the pairing,
+  pair again). **Q15.** Destinations that resolve to private addresses are allowed; TLS with the platform verifier is the binding. **Q16.** No peer identity
+  is shown on Windows in phase 1. **Q18.** Text request bodies only; no secret in a body or a path. **Q19.** ChatGPT on the web is not supported (it needs a
+  remote MCP server, which would expose the unlocked desktop to the network). **Q20.** No notification per use; the in-window indicator and the log.
+- **B1 (marks).** Saving a binding in this device's editor confirms it on this device. A binding that arrived by sync needs review on each device. Marks
+  survive lock and restart; a change of the binding's content invalidates its mark; only grants end at lock.
+- **B2.** `agentAccessEnabled` in the canonical settings, omitted while false (ADR-0160).
+- **B3 (a dialog the user cannot see).** The desktop brings the main window forward (the `focus` hook) and requests attention. An unanswered dialog is
+  refused at its timeout, never granted. Rate limits count shown dialogs. The "OS notification if hidden or in the tray" branch of the spec cannot occur
+  today (there is no tray and the main window is never hidden), so no notification dependency is added; it comes with a tray.
+- **B4.** Bindings are served only from vaults this account owns and that are not shared (`owns_vault && !vault_shared`).
+- **B5, B6.** Phase 2 (run grants, a Windows job object).
+- **Agent reference resolution** sees only items with a usable binding. A name that matches a non-agent item is invisible to agents, so the candidates of
+  `ambiguousRef` never leak the titles of other items.
+- **Error codes** beyond the spec's list: `invalidRef`, `invalidRequest`, `requestFailed`, `internal`.
+- **The log** never keeps a value, a header, a body or a query string.
+- **Copies in buffers.** The injected value may leave copies inside `reqwest` and `hyper` buffers that this code cannot zeroize, as serde's buffers in
+  ADR-0009 (THREAT_MODEL R184).
+- **MCP protocol versions** supported by `mosaic agent mcp`: `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05` (all with the `initialize` handshake over newline-delimited JSON-RPC on stdio; checked against modelcontextprotocol.io on 2026-11-15). `initialize` echoes the client's version if it is in the list, else the newest. `structuredContent` is sent from `2025-06-18`, tool `annotations` from `2025-03-26`; no `outputSchema`. The current revision `2026-07-28` is stateless (no `initialize`, `server/discover`) and is not implemented: its clients fall back to the revisions above. Tools only; no resources, prompts, sampling, elicitation, roots or logging.
+- **Tests** reach a TLS server through a fixture CA and a test-only sender constructor, because the sync tests use plain-http loopback and there was
+  nothing to reuse. Agent requests use `no_proxy()` (the sync client uses the system proxy for https).
+
+### Red-team follow-ups and accepted residuals
+- **The log under flood.** A request whose `url` fails the agent URL checks (or whose origin is over 256 characters) logs the fixed marker `invalid` as its
+  origin and no path. More than 60 refusals a minute from one pairing are answered `rateLimited` and logged as one `rateLimited` summary row a minute (they
+  count in the pairing's limits). Refusal rows have their own cap of 2,000 (schema v13, a `noisy` flag in the clear) and never evict other rows, which keep
+  the 10,000 cap. A flood of bad references therefore leaves earlier grant and pairing entries in place.
+- **`reason` rendering.** Besides controls and bidirectional characters, Unicode format characters (`Cf`), the line and paragraph separators and every combining
+  mark beyond the second of a run are written out as backslash-u text; the text sits in a scroll box with a token-based maximum height.
+- **Query injection** (`inject: query`) puts the value into a `Url` and reqwest's request: a copy that is not zeroizing, the same class as the header `Bytes`
+  copy (R184). A send error is a fieldless code (`SendError`); a test pins that it never holds the request URL or the value.
+- **Pairing IDs** are not an oracle (NATIVE_MESSAGING section 9.2), and two pairings cannot share a name (compared without case); the CLI says to remove the old
+  one or choose another name.
+- **Accepted residuals.** (1) The desktop's `agent-pairings.json` holds `K_pair` in clear, the same model as `browser-pairings.json`; the client side is
+  keystore-only. (2) Pre-auth `status` answers any local process. (3) `MAX_PREAUTH = 4` lets a local flooder abort other relays' handshakes (denial of service
+  only, no access). (4) User or enterprise roots in the platform store can intercept an allowed origin, as for sync. (5) A request already sent when the vault locks
+  or a grant is revoked completes at the server; only its answer is dropped. THREAT_MODEL R191 to R193.
+
+### Alternatives
+- The existing browser channel for agents: rejected; a browser pairing key must not give agent access (disjoint labels, ADR-0160).
+- An MCP library (`rmcp`): rejected for Q1.
+- Placing the secret into the MCP client's environment or the tool result: rejected; that is the leak this feature removes.
+- Remote MCP (streamable HTTP): rejected; it would expose the unlocked desktop to the network (A6).
+
+### Consequences
+`crates/agent` (new), `crates/native-messaging` (agent endpoint), `crates/cli/src/agent`, the desktop `AgentService` and the item editor follow in the
+plan's later tasks. THREAT_MODEL §4.11 and R179 to R185, `docs/NATIVE_MESSAGING.md` §9 and `docs/CLI.md` "Agent access" are normative for them. The
+landing page may make a claim only after the red-team pass of the plan (spec §11.5); this ADR makes none. The README stays pre-audit.

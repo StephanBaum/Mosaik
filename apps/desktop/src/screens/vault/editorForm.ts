@@ -10,12 +10,14 @@ import type {
   ItemDraft,
   ItemKind,
   SecretFieldKey,
+  SecretRef,
   TextFieldChange,
   TextFieldKey,
   UrlChange,
   UrlMatchMode,
   VaultSummary,
 } from "../../ipc/contract/index.ts";
+import { agentChanges, initialAgentRows, type AgentRows } from "./agentForm.ts";
 import { OTP_UNCHANGED, type OtpFormValue } from "./otp/OtpSection.tsx";
 import { normalizeCardNumber, normalizeExpiry } from "./kinds/cardFormat.ts";
 import { hasSshKey, hasUrls, layoutOf } from "./kinds/layouts.ts";
@@ -68,6 +70,8 @@ export interface Form {
   sshPrivateKey: string;
   /** What to do with the one-time code (ADR-0031). */
   otp: OtpFormValue;
+  /** Fields marked for AI agents (ADR-0159), by `agentKey`. */
+  agent: AgentRows;
 }
 
 export type CustomRowError = "labelRequired" | "labelTooLong" | "kindNeedsValue";
@@ -162,6 +166,7 @@ export function initialForm(
     custom: storedCustom(editing),
     sshPrivateKey: "",
     otp: OTP_UNCHANGED,
+    agent: initialAgentRows(editing),
   };
 }
 
@@ -304,10 +309,27 @@ function otpChange(value: OtpFormValue): ItemDraft["otp"] {
   return null;
 }
 
+/** The field an agent row names: a secret field of this kind, or a stored hidden custom field. */
+function agentField(form: Form): (key: string) => SecretRef | null {
+  const secrets = new Set<string>(layoutOf(form.kind).filter((spec) => spec.secret).map((spec) => spec.key));
+  return (key) => {
+    if (key.startsWith("field:")) {
+      const field = key.slice("field:".length);
+      return secrets.has(field) ? { kind: "field", field: field as SecretFieldKey } : null;
+    }
+    const id = key.slice("custom:".length);
+    return form.custom.some((row) => row.elementId === id && row.kind === "hidden")
+      ? { kind: "customField", elementId: id }
+      : null;
+  };
+}
+
 /** The draft for `add_item` or `update_item`: what differs from `initial`, for this kind only. */
 export function buildDraft(form: Form, initial: Form): ItemDraft {
   const sshKey = form.sshPrivateKey.trim();
+  const agent = agentChanges(form.agent, initial.agent, agentField(form));
   return {
+    ...(agent.length > 0 ? { agentBindings: agent } : {}),
     text: textChanges(form, initial),
     secrets: secretChanges(form),
     urls: urlChanges(form, initial),

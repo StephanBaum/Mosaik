@@ -90,6 +90,11 @@ Copy the requested field to the clipboard.
 .B \-\-clear\-after 30s
 Clear the clipboard after this long (5s to 300s).
 .RE
+.RS
+.TP
+.B \-\-i\-know
+Print secrets even in an AI agent session.
+.RE
 .TP
 .B mosaic totp REF
 Print the current one\-time code.
@@ -187,6 +192,11 @@ Write the result to FILE (mode 0600, never overwrites).
 .B \-\-reveal
 Allow secrets on a terminal.
 .RE
+.RS
+.TP
+.B \-\-i\-know
+Print secrets even in an AI agent session.
+.RE
 .TP
 .B mosaic ssh list|public\-key|agent\-status [REF]
 List SSH keys, print a public key, or explain the agent.
@@ -255,6 +265,24 @@ The sync account's email.
 .TP
 .B mosaic recover
 Recover after a password or key change made elsewhere.
+.TP
+.B mosaic agent pair|status|mcp
+Pair an AI client and run its MCP server (secrets never enter the model).
+.RS
+.TP
+.B \-\-name NAME
+pair: the client name (letters, digits, space, . _ \- ( )).
+.RE
+.RS
+.TP
+.B \-\-client NAME
+status, mcp: the paired client name.
+.RE
+.RS
+.TP
+.B \-\-replace
+pair: replace an existing pairing of that name.
+.RE
 .TP
 .B mosaic completions bash|zsh|fish|powershell
 Print a shell completion script.

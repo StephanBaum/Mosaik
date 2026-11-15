@@ -7,6 +7,7 @@
 //! - Only `output.rs` prints. Only `testing.rs` (feature `test-util`, debug builds) fakes the OS.
 #![forbid(unsafe_code)]
 
+mod agent;
 mod app;
 mod backends;
 mod clipboard;
@@ -99,6 +100,8 @@ fn run(parsed: &Parsed) -> Result<u8> {
             out.write_raw(spec::completion(shell).as_bytes());
         }
         "__clipboard-hold" => clipboard::hold(parsed)?,
+        // Before `App::new`: no store, no session, no sweep (ADR-0159).
+        "agent" => return agent::run(parsed, &out),
         _ => {
             input::install_interrupt_handler();
             let mut app = App::new(parsed, out)?;

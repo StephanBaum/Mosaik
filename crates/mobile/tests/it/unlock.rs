@@ -66,9 +66,27 @@ fn unlock_password_records_boot_marker() {
 fn wrong_secret_key_checksum_is_mistyped() {
     let (phone, sk) = Phone::with_account();
     phone.core.lock();
-    // Change the first data character: the key changes, the checksum stays.
+    // Change the first data character so that the key changes and the one-byte checksum no
+    // longer matches. A fixed replacement still matched it about once in 256 accounts (a flaky
+    // test), so pick one that `SecretKey::parse` reports as mistyped.
     let mut typed = sk.clone().into_bytes();
-    typed[3] = if typed[3] == b'0' { b'2' } else { b'0' };
+    let original = typed[3];
+    let replacement = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+        .iter()
+        .copied()
+        .filter(|&c| !c.eq_ignore_ascii_case(&original))
+        .find(|&c| {
+            let mut candidate = typed.clone();
+            candidate[3] = c;
+            std::str::from_utf8(&candidate).is_ok_and(|text| {
+                matches!(
+                    mosaic_core::SecretKey::parse(text),
+                    Err(mosaic_core::Error::SecretKeyMistyped)
+                )
+            })
+        })
+        .expect("a one-character change that breaks the checksum");
+    typed[3] = replacement;
     assert_eq!(
         phone
             .core

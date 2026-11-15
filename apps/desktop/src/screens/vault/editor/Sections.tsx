@@ -1,12 +1,15 @@
 /** The editor's sections below the header, in the order of D10. */
 import { Callout } from "../../../components/Callout.tsx";
+import { ErrorAlert } from "../../../components/ErrorAlert.tsx";
 import { TextArea } from "../../../components/TextArea.tsx";
 import { TextField } from "../../../components/TextField.tsx";
 import { useI18n } from "../../../i18n/I18nProvider.tsx";
-import type { ItemDetail, SecretFieldKey, VaultSummary } from "../../../ipc/contract/index.ts";
+import type { IpcError, ItemDetail, SecretFieldKey, VaultSummary } from "../../../ipc/contract/index.ts";
 import { canAddCustomField, type Form, type FormErrors } from "../editorForm.ts";
-import { hasOtpSection, hasSshKey, hasUrls } from "../kinds/layouts.ts";
+import { agentKey, type AgentRow } from "../agentForm.ts";
+import { hasOtpSection, hasSshKey, hasUrls, layoutOf } from "../kinds/layouts.ts";
 import { OtpSection } from "../otp/OtpSection.tsx";
+import { AgentAccessEditor } from "./AgentAccessEditor.tsx";
 import { CustomFieldsEditor } from "./CustomFieldsEditor.tsx";
 import { KindFields } from "./KindFields.tsx";
 import { SshKeyInput } from "./SshKeyInput.tsx";
@@ -51,6 +54,10 @@ export interface SectionsProps {
   otpMissing: boolean;
   onChange: (patch: Partial<Form>) => void;
   onGenerate: (key: SecretFieldKey) => void;
+  /** Agent access is on: offer the section under the values an agent could use. */
+  agentEnabled: boolean;
+  /** What the last save answered for agent access (shown in the section). */
+  agentError: IpcError | null;
 }
 
 function NotesAndTags({ form, onChange }: Pick<SectionsProps, "form" | "onChange">) {
@@ -92,6 +99,64 @@ function NotesAndTags({ form, onChange }: Pick<SectionsProps, "form" | "onChange
       {filesAfterSave}
     </>
   );
+}
+
+/** The kinds whose secrets are not an API key an agent could send (a passkey, an SSH key). */
+const NO_AGENT_KINDS: readonly Form["kind"][] = ["passkey", "sshKey"];
+
+/**
+ * "Agent access" under the values an agent could use: the kind's secret fields and the stored
+ * hidden custom fields (ADR-0159). Only while the user switched agent access on.
+ */
+function AgentAccessSection({ form, error, onChange }: Pick<SectionsProps, "form" | "onChange"> & { error: IpcError | null }) {
+  const { t } = useI18n();
+  const layout = layoutOf(form.kind);
+  const textFields = layout
+    .filter((spec) => !spec.secret)
+    .map((spec) => ({ value: spec.key, label: t(spec.labelKey ?? `item.field.${spec.key}`) }));
+  const fields = [
+    ...layout
+      .filter((spec) => spec.secret)
+      .map((spec) => ({
+        key: agentKey({ kind: "field", field: spec.key as SecretFieldKey }),
+        label: t(spec.labelKey ?? `item.field.${spec.key}`),
+      })),
+    ...form.custom
+      .filter((row) => row.kind === "hidden" && row.elementId !== null)
+      .map((row) => ({ key: agentKey({ kind: "customField", elementId: row.elementId ?? "" }), label: row.label })),
+  ];
+  if (fields.length === 0) {
+    return null;
+  }
+  const set = (key: string, row: AgentRow) => {
+    onChange({ agent: { ...form.agent, [key]: row } });
+  };
+  return (
+    <>
+      <h3 className="editor__group-heading">{t("agent.editor.title")}</h3>
+      <p className="field__hint">{t("agent.editor.shared")}</p>
+      <ErrorAlert error={error} />
+      {fields.map((field) => (
+        <AgentAccessEditor
+          key={field.key}
+          label={field.label}
+          row={form.agent[field.key]}
+          textFields={textFields}
+          onChange={(row) => {
+            set(field.key, row);
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
+/** The agent section for the kinds that can have one. */
+function AgentSlot({
+  enabled,
+  ...props
+}: Pick<SectionsProps, "form" | "onChange"> & { enabled: boolean; error: IpcError | null }) {
+  return enabled && !NO_AGENT_KINDS.includes(props.form.kind) ? <AgentAccessSection {...props} /> : null;
 }
 
 /** Why a passkey has so few fields to edit. */
@@ -139,6 +204,7 @@ export function Sections(props: SectionsProps) {
         onChange={onChange}
         onGenerate={props.onGenerate}
       />
+      <AgentSlot enabled={props.agentEnabled} form={form} error={props.agentError} onChange={onChange} />
       {hasUrls(form.kind) && (
         <UrlListEditor
           rows={form.urls}

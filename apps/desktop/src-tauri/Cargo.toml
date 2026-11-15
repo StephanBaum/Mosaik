@@ -30,6 +30,9 @@ preview = ["mosaic-native-messaging/preview"]
 
 [dependencies]
 getrandom.workspace = true
+# Agent access: bindings, the policy engine, the HTTPS sender and the agent endpoint server (ADR-0159;
+# a workspace crate; reqwest and tokio are already in the tree through the sync client).
+mosaic-agent = { path = "../../../crates/agent", features = ["http", "server"] }
 mosaic-core = { path = "../../../crates/core" }
 mosaic-generator = { path = "../../../crates/generator" }
 mosaic-import = { path = "../../../crates/import" }
@@ -82,6 +85,8 @@ x11rb.workspace = true
 tauri-build.workspace = true
 
 [dev-dependencies]
+# The fixture CA and the local TLS server of the agent tests (debug builds only).
+mosaic-agent = { path = "../../../crates/agent", features = ["test-util"] }
 mosaic-qr = { path = "../../../crates/qr", features = ["testing"] }
 proptest.workspace = true
 tempfile.workspace = true

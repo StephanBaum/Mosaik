@@ -59,3 +59,10 @@ path = "fuzz_targets/program_url.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "agent_url"
+path = "fuzz_targets/agent_url.rs"
+test = false
+doc = false
+bench = false

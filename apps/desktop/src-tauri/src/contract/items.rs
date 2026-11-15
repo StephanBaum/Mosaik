@@ -5,6 +5,7 @@
 use mosaic_core::model::{ItemType, SecretField, TextField};
 use serde::{Deserialize, Serialize};
 
+use super::agent::{AgentBindingChange, AgentBindingView};
 use super::credential_rotation::{ChangeUrlView, HistoryEntryView, RotationAttemptView};
 use super::ids::{UnixMillis, WireAttachmentId, WireItemId, WireVaultId};
 use super::macros::wire_enum;
@@ -417,11 +418,13 @@ pub struct ItemDetail {
     /// The passkey, summarized (`null` unless the item has one). Never the
     /// private key.
     pub passkey: Option<PasskeySummary>,
+    /// The agent bindings of the item, without values. Empty unless the user
+    /// switched agent access on (ADR-0159).
+    pub agent_bindings: Vec<AgentBindingView>,
 }
 
 /// A secret to reveal or copy.
-#[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(test, derive(Serialize))]
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -640,6 +643,10 @@ pub struct ItemDraft {
     /// The SSH key material (`null`: unchanged; other than `null` only for
     /// `sshKey` items, else `invalidInput`).
     pub ssh_key: Option<SshKeyChange>,
+    /// Changes to the agent bindings (empty: unchanged). Refused in a shared
+    /// vault and while agent access is off.
+    #[serde(default)]
+    pub agent_bindings: Vec<AgentBindingChange>,
 }
 
 /// `add_item`.
@@ -803,6 +810,7 @@ pub(crate) mod samples {
             },
             ssh_key: None,
             passkey: None,
+            agent_bindings: crate::contract::agent::samples::views(),
         }
     }
 
@@ -944,6 +952,7 @@ AAAA
 -----END OPENSSH PRIVATE KEY-----",
                 ),
             }),
+            agent_bindings: crate::contract::agent::samples::changes(),
         }
     }
 

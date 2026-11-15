@@ -16,6 +16,7 @@ import type {
 } from "../../ipc/contract/index.ts";
 import { usePlatform } from "../../platform/platform.ts";
 import { useAppShortcuts } from "../../platform/shortcuts.ts";
+import { AgentBindingReview } from "./AgentBindingReview.tsx";
 import { DetailFields } from "./DetailFields.tsx";
 import { DetailHeader, type ItemCommand } from "./DetailHeader.tsx";
 import { DetailRotation } from "./DetailRotation.tsx";
@@ -147,6 +148,7 @@ function DetailBody({
     <>
       {isDocument && files}
       <DetailFields detail={detail} item={item} />
+      <AgentBindingReview detail={detail} item={item} trash={trash} onDetail={onDetail} />
       <DetailRotation detail={detail} item={item} trash={trash} onDetail={onDetail} />
       {!isDocument && files}
       <DetailNotes notes={notes} />
