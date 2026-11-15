@@ -5,6 +5,12 @@
 //!
 //! `cargo run -p mosaic-program-fill --example probe [-- <saved winapp:// URL>...]`
 //! Saved URLs are checked with `link_again_needed` (signer or file changed).
+//!
+//! `cargo run -p mosaic-program-fill --example probe -- --host` starts a
+//! `WindowsHost` instead and prints each event (program, class, role, rectangle,
+//! never a value). Type `f` and Enter in this console to fill the latest offer
+//! with the user name `mosaic-test` and a test password (submit off), `q` to
+//! quit. The fill is the real one: the program must be a test dialog.
 #![cfg_attr(
     windows,
     expect(clippy::print_stdout, reason = "manual Windows check harness")
@@ -20,13 +26,16 @@ fn main() {}
 
 #[cfg(windows)]
 mod harness {
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
+    use mosaic_core::SecretString;
     use mosaic_core::model::LoginUrl;
+    use mosaic_program_fill::host::{FillRequest, Host, HostEvent, monotonic_ms};
     use mosaic_program_fill::identity::CapturedIdentity;
     use mosaic_program_fill::policy::{link_again_needed, propose_binding};
     use mosaic_program_fill::verify::{FieldKind, WriteKind, check};
-    use mosaic_program_fill::windows::{CaptureError, WindowsProbe};
+    use mosaic_program_fill::windows::{CaptureError, WindowsHost, WindowsProbe};
 
     const WAIT: Duration = Duration::from_secs(5);
     const LOOP_FOR: Duration = Duration::from_secs(30);
@@ -67,7 +76,67 @@ mod harness {
         println!("path:     {}", identity.final_path);
     }
 
+    /// The password of the `--host` fill: accents, a character outside the
+    /// BMP and more than eight UTF-16 units, so batches and pairs are exercised.
+    const TEST_PASSWORD: &str = "P\u{e4}ssw\u{f6}rd-\u{1F600}-12345678";
+
+    fn describe(event: &HostEvent) -> String {
+        match event {
+            HostEvent::Field(offer) => format!(
+                "field #{}: {} ({:?}) {:?} at {:?}",
+                offer.token, offer.identity.exe_name, offer.identity.class, offer.role, offer.rect
+            ),
+            other => format!("{other:?}"),
+        }
+    }
+
+    fn run_host() {
+        let latest: Arc<Mutex<Option<u64>>> = Arc::new(Mutex::new(None));
+        let seen = Arc::clone(&latest);
+        let host = WindowsHost::new();
+        let started = host.start(Arc::new(move |event| {
+            println!("event: {}", describe(&event));
+            if let Ok(mut slot) = seen.lock() {
+                match &event {
+                    HostEvent::Field(offer) => *slot = Some(offer.token),
+                    HostEvent::Continue { token } => *slot = Some(*token),
+                    _ => {}
+                }
+            }
+        }));
+        if let Err(err) = started {
+            return println!("host failed to start: {err}");
+        }
+        println!("Watching focus. f + Enter fills the latest offer, q + Enter quits.");
+        for line in std::io::stdin().lines().map_while(Result::ok) {
+            match line.trim() {
+                "q" => break,
+                "f" => {
+                    let token = latest.lock().ok().and_then(|slot| *slot);
+                    let Some(token) = token else {
+                        println!("no offer yet");
+                        continue;
+                    };
+                    let request = FillRequest {
+                        token,
+                        username: Some("mosaic-test".to_owned()),
+                        password: SecretString::from_str_copy(TEST_PASSWORD).ok(),
+                        submit: false,
+                        picked_at_ms: monotonic_ms(),
+                        continuation: false,
+                    };
+                    println!("fill: {:?}", host.fill(request));
+                }
+                _ => {}
+            }
+        }
+        host.stop();
+    }
+
     pub fn run() {
+        if std::env::args().any(|a| a == "--host") {
+            return run_host();
+        }
         let saved: Vec<LoginUrl> = std::env::args()
             .skip(1)
             .map(|a| LoginUrl::new(&a))

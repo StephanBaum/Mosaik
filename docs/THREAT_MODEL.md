@@ -277,7 +277,7 @@ Design: `docs/MOBILE.md`, CRYPTO_SPEC §6.9, ADR-0088 to ADR-0096. Until OD-M10-
 | Mosaic itself runs as administrator and would drive elevated programs | program fill does not start above medium integrity (`an_elevated_mosaic_does_not_watch_programs`, ADR-0164) |
 | A federated sign-in broker shows any tenant's page as if it were one program | the AAD broker and CloudExperienceHost are excluded as `Broker`, `wwahost.exe` as `Host` (`federated_sign_in_brokers_and_web_app_hosts_are_excluded`, ADR-0164) |
 | A WebView2 process of another program, a browser or an unsigned host is taken for a signed host's own content, or the host is replaced between the offer and the write | the WebView2 browser process must descend from the focused signed, non-browser host; the binding is the host's; PIDs and start times are re-verified before each write; an unsigned or browser host is refused (ADR-0164 amendment; tests `webview2_*` in `mosaic-program-fill`) |
-| A browser renamed to another file name (still signed by its vendor) is bound or offered logins as a program | excluded by signer organization plus product name from the version resource (ADR-0164); R206 covers an unreadable resource |
+| A browser renamed to another file name (still signed by its vendor) is bound or offered logins as a program | excluded by the product name of its version resource, whoever signed it (`product_class`, ADR-0164); R206 covers a resource that cannot be read or names another product |
 
 ### 4.11 Agent access (ADR-0159, ADR-0160)
 
@@ -487,7 +487,7 @@ Phase 1 covers the request tool only; the rows for `run` and the proxy come with
 | R174 | Electron, CEF and WebView2 programs that render remote web content (in their own process, or in a WebView2 process descended from the signed host) receive the linked login when that content has focus | accepted (spec §6.4; owner decision 2026-11-15 for WebView2) |
 | R175 | An abort after part of the password was typed leaves those characters in the field when focus already moved (Mosaic clears only the same field) and delivers at most one batch (8 units) to whatever took focus before the check saw it | accepted |
 | R176 | The block list is outside the settings MAC; an outside edit can remove entries so Mosaic offers logins again where the user said no (it never fills without a pick) | accepted |
-| R206 | A browser renamed to another file name whose version resource cannot be read (stripped or localized) is signed by its vendor and so passes the exe-name exclusion; the signer-plus-product exclusion needs a readable product name. Linking it still needs the user's own action in the link flow, which shows the signer | accepted (same user, R177) |
+| R206 | A browser renamed to another file name whose version resource cannot be read (stripped or localized) is signed by its vendor and so passes the exe-name exclusion; the product-name exclusion needs a readable product name. Linking it still needs the user's own action in the link flow, which shows the signer | accepted (same user, R177) |
 
 ## 6. Review log
 

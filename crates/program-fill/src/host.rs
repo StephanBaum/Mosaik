@@ -3,12 +3,13 @@
 //! every OS the fake in `crate::fake` stands in for it in tests.
 
 use core::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use mosaic_core::SecretString;
 
 use crate::detect::FieldRole;
-use crate::fill::{Continuation, FillOutcome};
+use crate::fill::{Clock, Continuation, FillOutcome};
 use crate::identity::{CaptureRefusal, CapturedIdentity};
 use crate::verify::{ProbeError, Rect, RuntimeId};
 
@@ -134,6 +135,29 @@ pub trait Host: Send + Sync {
     /// # Errors
     /// [`ProbeError`].
     fn window_clear(&self, own_hwnd: isize, rect: Rect) -> Result<bool, ProbeError>;
+}
+
+/// Milliseconds on a process-wide monotonic clock (the same base for the
+/// desktop service's pick time and the worker's checks).
+#[must_use]
+pub fn monotonic_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    let start = START.get_or_init(Instant::now);
+    u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// The real clock of a fill: [`monotonic_ms`] and `thread::sleep`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now_ms(&self) -> u64 {
+        monotonic_ms()
+    }
+
+    fn sleep_ms(&self, ms: u64) {
+        std::thread::sleep(Duration::from_millis(ms));
+    }
 }
 
 #[cfg(test)]

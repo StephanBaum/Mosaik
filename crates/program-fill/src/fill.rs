@@ -338,20 +338,33 @@ where
             clock,
         )?;
         if plan.submit {
-            verify(probe, session, WriteKind::Submit, clock)
-                .map_err(|r| Failure::new(WriteKind::Submit, r))?;
-            match driver.send_key(Key::Enter) {
-                Ok(n) if n >= 2 => submitted = true,
-                Ok(_) => {
-                    return Err(Failure::new(WriteKind::Submit, FillAbort::InputBlocked));
-                }
-                Err(e) => {
-                    return Err(Failure::new(WriteKind::Submit, FillAbort::Probe(e)));
-                }
-            }
+            submitted = press_enter(probe, driver, session, WriteKind::Submit, clock)?;
         }
+    } else if plan.submit && plan.password.is_none() && username.is_some() {
+        // A lone text field: the first page of a two-step login.
+        submitted = press_enter(probe, driver, session, WriteKind::SubmitText, clock)?;
     }
     Ok(submitted)
+}
+
+/// Enter after a full check; at least two input events must go in.
+fn press_enter<P, D>(
+    probe: &P,
+    driver: &D,
+    session: &PickSession<P::Held>,
+    write: WriteKind,
+    clock: &dyn Clock,
+) -> Result<bool, Failure>
+where
+    P: ProgramProbe,
+    D: FillDriver<Held = P::Held>,
+{
+    verify(probe, session, write, clock).map_err(|r| Failure::new(write, r))?;
+    match driver.send_key(Key::Enter) {
+        Ok(n) if n >= 2 => Ok(true),
+        Ok(_) => Err(Failure::new(write, FillAbort::InputBlocked)),
+        Err(e) => Err(Failure::new(write, FillAbort::Probe(e))),
+    }
 }
 
 /// Runs a fill: user name, then password, then Enter. The first abort wins and
@@ -361,7 +374,8 @@ where
 /// - Held modifier keys are waited for up to [`MODIFIER_WAIT_MS`].
 /// - The user name is set through `SetValue` where the driver allows it (read
 ///   back), else typed. The password is always typed, never set.
-/// - Enter only when the plan says so and a password was typed.
+/// - Enter only when the plan says so and a password was typed, or, for a plan
+///   without a password field (a lone text field), after the user name.
 #[must_use]
 pub fn run_fill<P, D>(
     probe: &P,
@@ -866,6 +880,34 @@ mod tests {
             &clock,
         );
         assert_eq!(out, FillOutcome::NothingToFill);
+    }
+
+    #[test]
+    fn a_lone_text_field_gets_the_user_name_and_enter() {
+        let probe = ScriptedProbe::new(vec![Step::Good]);
+        let driver = FakeDriver::default();
+        let clock = FakeClock::new(PICKED);
+        let lone = FillPlan {
+            username: Some(id(1)),
+            password: None,
+            submit: true,
+        };
+        let secrets = FillSecrets {
+            username: Some("alice"),
+            password: None,
+        };
+        let out = run_fill(&probe, &driver, &mut session(), &lone, &secrets, &clock);
+        assert_eq!(out, FillOutcome::Done { submitted: true });
+        assert!(driver.calls().ends_with(&[DriverCall::SendKey(Key::Enter)]));
+        // With submit off nothing is pressed.
+        let driver = FakeDriver::default();
+        let quiet = FillPlan {
+            submit: false,
+            ..lone
+        };
+        let out = run_fill(&probe, &driver, &mut session(), &quiet, &secrets, &clock);
+        assert_eq!(out, FillOutcome::Done { submitted: false });
+        assert!(!driver.calls().contains(&DriverCall::SendKey(Key::Enter)));
     }
 
     #[test]

@@ -121,3 +121,34 @@ with a text field focused).
 - [ ] VS Code (one folder open) and a heavy web page: idle CPU and private
       memory with and without a UI Automation client (ADR-0157 D3): at most 5 %
       CPU and 150 MB more, else Chromium and Electron programs become opt-in.
+
+### Phase 2: shim writes, input and the host (Windows; ADR-0163, ADR-0164)
+
+Tasks 5 and 6 of the phase 2 plan. The automated tests run without a person; these
+interactive ones are `#[ignore]` and need `MOSAIC_MANUAL_TESTS=1` plus the harness
+`cargo run -p mosaic-program-fill --example probe -- --host` (prints each event, never a
+value; `f` + Enter fills the latest offer with the user name `mosaic-test` and the password
+`Pässwörd-😀-12345678`, submit off; `q` + Enter quits).
+
+- [ ] A WinForms test dialog with a user name and a password field (a copy of a signed
+      program under another name hosts it; a PowerShell form script was used in the
+      development run): the password field gets focus, one `field` event with role
+      `Password { username: Some(0) }` follows after about 150 ms, `f` fills both fields
+      exactly (checked by eye, including the accents and the emoji) and prints
+      `Done { submitted: false }`. Result of the 2026-11-15 run: passed.
+- [ ] `cargo test -p mosaic-winshim -- --ignored --test-threads=1` with
+      `MOSAIC_MANUAL_TESTS=1`: `focus_events_arrive_with_the_pid` (click into another program
+      within 5 s), `set_value_and_value_round_trip_in_notepad_and_refuse_passwords` (focus an
+      empty edit, then a password field), `send_unicode_types_into_the_focused_field` (focus an
+      empty Notepad), `edits_near_and_in_window_list_a_dialogs_edits_in_order` (focus a field of
+      a dialog with several edits).
+- [ ] `cargo test -p mosaic-program-fill -- --ignored --test-threads=1`:
+      `a_focused_password_field_produces_one_offer_after_the_debounce` (focus a password field
+      within 10 s), `a_hung_program_times_out_and_the_host_recovers` (the phase 1 hung window).
+- [ ] Held Ctrl+Shift while `f` is pressed (the hotkey case) and AltGr on a German keyboard:
+      nothing is typed until the keys are released; held longer than 2 s the fill reports
+      `ModifiersHeld`.
+- [ ] A WebView2 program (new Teams, a WebView2 sample app) with a signed host: the harness
+      reports a `field` for the host's exe and signer, never `msedgewebview2.exe`. A WebView2
+      sample app that is unsigned reports `Refused(UnsignedWebViewHost)`.
+- [ ] A copy of Chrome or Edge renamed to another file name: `Refused(Excluded(Browser))`.

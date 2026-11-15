@@ -19,6 +19,7 @@ mod sys_input;
 mod sys_process;
 mod sys_trust;
 mod sys_uia;
+mod sys_version;
 mod sys_window;
 
 pub use error::{Result, ShimError};

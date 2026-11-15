@@ -6395,9 +6395,15 @@ chip without taking focus.
   not wiped. A longer slice is `TooLong`.
 - **Narrow permissions.** `set_value` and `value` refuse password elements (`AccessDenied`); `show_no_activate` accepts only
   windows of Mosaic's own process (`NotOwnWindow`); `set_foreground` accepts only top-level windows.
-- **Hardening carried from the phase 1 red team** (open items of ADR-0158): the shim exposes the file ID of the process image
-  and of the mapped file name of the image base, so the program-fill policy can compare them instead of trusting the path
-  alone (R178); the worker is respawned after a hung call (ADR-0164, timers); renamed browsers are handled by ADR-0164.
+- **Also added** (same rules): `ProcessHandle::start_time` (`GetProcessTimes`, to tell a reused parent process ID from the
+  parent, for the `WebView2` chain of ADR-0164) and `ImageFile::product_name` (`GetFileVersionInfoW`, `VerQueryValueW`, both
+  in the already enabled `Win32_Storage_FileSystem`; read by the final path of the image that is held open without write or
+  delete sharing; display data used only to refuse a renamed browser).
+- **Hardening carried from the phase 1 red team** (open items of ADR-0158): the worker is respawned after a hung call
+  (ADR-0164, timers); renamed browsers are handled by ADR-0164. **Still open:** comparing the file ID of the held image with
+  `GetMappedFileNameW` of the image base (R178). It needs `PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` on the target, which
+  the shim does not take today (`PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE`); widening the rights on every program
+  Mosaic looks at is a security change of its own and needs its own review. R178 stands.
 
 ### Alternatives
 - A second UIA client for events: rejected (ADR-0157 D5).
@@ -6449,7 +6455,8 @@ linked on the spot. Spec `docs/superpowers/specs/2026-11-14-autofill-everywhere-
   every batch, a focus event since the last `SetFocus` (after a 50 ms settle) aborts, a short `SendInput` count aborts; on
   abort, if the same field still verifies, Ctrl+A then Backspace.
 - **Submit.** Enter, after `check(Submit)`, when the global `programFillSubmit` is on and no matched binding has
-  `extra.submit = false`. Never on an empty password.
+  `extra.submit = false`. Never on an empty password. On a lone text field (the first page of a two-step login) Enter follows
+  the user name after `check(SubmitText)`, which needs the same text field of the pick (`WriteKind::SubmitText`).
 - **Two-step.** A pick on a lone text field fills the user name (and presses Enter when submit is on) and arms a
   continuation: a password field focused in the same root window, window PID and element PID within 60 s of the pick gets
   the password and Enter, once; the worker keeps the old process handle until the continuation ends. The code step (TOTP)
@@ -6485,6 +6492,7 @@ linked on the spot. Spec `docs/superpowers/specs/2026-11-14-autofill-everywhere-
   | continuation | 60 s |
   | UIA timeouts | 2000 ms |
   | host call timeout (then the worker is abandoned and respawned) | 5000 ms |
+  | fill call timeout (a fill ends by its own 30 s pick expiry) | 35 s |
   | rect poll | 250 ms |
   | notice | 6000 ms |
   | unlock resume | 60 s |
@@ -6503,8 +6511,10 @@ R174 is widened accordingly.
 
 ### Renamed browsers (open item of the phase 1 red team)
 A browser copied to another file name keeps the vendor's signature, so the name list of ADR-0158 does not exclude it.
-Phase 2 adds an exclusion by signer organization plus the exe's product name where the version resource names a browser
-product; a renamed browser whose version resource cannot be read is covered by R206.
+Phase 2 adds an exclusion by the product name of the version resource (`Google Chrome`, `Microsoft Edge`, `Mozilla Firefox`,
+`Brave`, `Opera`, `Vivaldi` and the other browsers of the name list; the whole name or the name followed by a space), whoever
+signed the file and whatever it is called. That is stricter than "signer plus product": a stripped or re-signed copy is excluded
+too. A renamed browser whose version resource cannot be read or carries another name is covered by R206.
 
 ### Alternatives considered
 One picker window with `set_focusable` toggling (not verified at runtime in tao 0.37.2); polling focus instead of events

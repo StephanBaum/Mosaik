@@ -270,6 +270,7 @@ fn public_api_has_no_unsafe_fn_and_no_windows_types() {
         include_str!("sys_process.rs"),
         include_str!("sys_trust.rs"),
         include_str!("sys_uia.rs"),
+        include_str!("sys_version.rs"),
         include_str!("sys_window.rs"),
     ];
     let public_unsafe = ["pub", " unsafe", " fn"].concat();
@@ -482,4 +483,32 @@ fn edits_near_and_in_window_list_a_dialogs_edits_in_order() {
     assert!(!in_window.is_empty());
     let refreshed = uia.refresh(&element).unwrap();
     assert_eq!(refreshed.facts().runtime_id, element.facts().runtime_id);
+}
+
+#[test]
+fn a_system_image_has_a_product_name_and_a_test_binary_may_not() {
+    let image = ImageFile::open(KERNEL32).unwrap();
+    let product = image
+        .product_name()
+        .unwrap()
+        .expect("kernel32 names its product");
+    assert!(product.contains("Windows"), "{product}");
+    // A binary without a version resource, or with one, never fails.
+    let exe = std::env::current_exe().unwrap();
+    let own = ImageFile::open(exe.to_str().unwrap()).unwrap();
+    assert!(own.product_name().is_ok());
+}
+
+#[test]
+fn an_installed_browser_names_its_product_whatever_the_file_is_called() {
+    let edge = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+    if !std::path::Path::new(edge).exists() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let copy = dir.path().join("notabrowser.exe");
+    std::fs::copy(edge, &copy).unwrap();
+    let image = ImageFile::open(copy.to_str().unwrap()).unwrap();
+    let product = image.product_name().unwrap().unwrap_or_default();
+    assert!(product.contains("Edge"), "{product}");
 }
