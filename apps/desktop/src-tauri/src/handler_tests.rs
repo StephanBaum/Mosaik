@@ -2783,3 +2783,233 @@ fn program_fill_status_reports_availability_and_the_block_list() {
         .program_fill_unblock(&ProgramFillUnblockRequest { key: "nope".into() })
         .unwrap();
 }
+
+// ---------------------------------------------------------------------------
+// Program bindings in the item view (ADR-0164)
+// ---------------------------------------------------------------------------
+
+const SLACK_SIGNER_ID: [u8; 32] = [0x11; 32];
+
+/// A login that holds one web address and one `winapp://` binding, made the way the picker's link
+/// step makes it (the editor cannot).
+fn login_with_binding(h: &Harness, signed: bool) -> ItemDetail {
+    use mosaic_core::model::{ItemType, LoginUrl};
+    use mosaic_origin::program::ProgramUrl;
+    use mosaic_program_fill::binding::{ProgramDisplay, set_program_display};
+    let vault = h.backend.list_vaults().unwrap()[0].vault_id.0;
+    let mut binding = if signed {
+        LoginUrl::new(
+            &ProgramUrl::signed("slack.exe", SLACK_SIGNER_ID)
+                .unwrap()
+                .canonical(),
+        )
+    } else {
+        LoginUrl::new(
+            &ProgramUrl::path(r"C:\Users\a\Tool\tool.exe", [0x41; 32])
+                .unwrap()
+                .canonical(),
+        )
+    };
+    set_program_display(
+        &mut binding,
+        &ProgramDisplay {
+            name: if signed { "Slack" } else { "tool.exe" }.to_owned(),
+            signer: signed.then(|| "Slack Technologies".to_owned()),
+        },
+    );
+    let item = {
+        let mut slot = h.backend.slot().unwrap();
+        slot.unlocked_mut()
+            .unwrap()
+            .add_item(vault, &ItemType::Login, |e| {
+                e.set_title("Slack")?;
+                e.set_text(mosaic_core::model::TextField::Username, "alex")?;
+                e.add_url(&LoginUrl::new("https://slack.com"))?;
+                e.add_url(&binding)?;
+                Ok(())
+            })
+            .unwrap()
+    };
+    h.backend
+        .get_item(req(
+            json!({ "vaultId": vault.to_string(), "itemId": item.to_string() }),
+        ))
+        .unwrap()
+}
+
+#[test]
+fn the_item_editor_cannot_add_or_edit_a_program_binding() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let vault = vault_id(&h.backend);
+    let binding = "winapp://signed/evil.exe?signer=ERERERERERERERERERERERERERERERERERERERERERE";
+    for url in [
+        binding.to_owned(),
+        format!(" {binding}"),
+        binding.replace("winapp", "WinApp"),
+        format!("\twinapp:{}", &binding[7..]),
+    ] {
+        let error = h
+            .backend
+            .add_item(req(json!({ "vaultId": vault, "kind": "login", "draft": {
+                "text": [{ "field": "title", "value": "Evil" }],
+                "secrets": [],
+                "urls": [{ "op": "add", "url": url, "matchMode": "exactOrigin", "allowHttp": false }],
+                "customFields": []
+            }})))
+            .unwrap_err();
+        assert_eq!(code(error), ErrorCode::InvalidInput, "{url:?}");
+    }
+    assert!(
+        h.backend
+            .list_items(&req(json!({ "vaultId": vault, "trash": "exclude", "favoritesOnly": false, "query": null })))
+            .unwrap()
+            .is_empty(),
+        "a refused draft stores nothing"
+    );
+
+    // Update: neither a new binding nor a web address turned into one.
+    let detail = login_with_binding(&h, true);
+    let web = detail.urls.iter().find(|u| u.program.is_none()).unwrap();
+    for change in [
+        json!({ "op": "add", "url": binding, "matchMode": "exactOrigin", "allowHttp": false }),
+        json!({ "op": "update", "elementId": web.element_id, "url": binding, "matchMode": "exactOrigin", "allowHttp": false }),
+    ] {
+        let error = h
+            .backend
+            .update_item(req(with_item(
+                &detail,
+                json!({ "draft": {
+                    "text": [{ "field": "title", "value": "Changed" }],
+                    "secrets": [], "urls": [change], "customFields": []
+                }}),
+            )))
+            .unwrap_err();
+        assert_eq!(code(error), ErrorCode::InvalidInput);
+    }
+    let after = h.backend.get_item(req(item_req(&detail))).unwrap();
+    assert_eq!(
+        after.summary.title.as_deref(),
+        Some("Slack"),
+        "the item is unchanged"
+    );
+    assert_eq!(after.urls, detail.urls);
+}
+
+#[test]
+fn a_program_binding_shows_its_program_and_submit_switch() {
+    use crate::contract::items::ProgramBindingView;
+    use crate::contract::picker::ProgramKind;
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let signed = login_with_binding(&h, true);
+    assert_eq!(signed.urls.len(), 2);
+    assert!(
+        signed
+            .urls
+            .iter()
+            .any(|u| u.program.is_none() && u.url == "https://slack.com")
+    );
+    let program = signed.urls.iter().find_map(|u| u.program.clone()).unwrap();
+    assert_eq!(
+        program,
+        ProgramBindingView {
+            kind: ProgramKind::Signed,
+            name: "Slack".into(),
+            signer: Some("Slack Technologies".into()),
+            path: None,
+            submit: true,
+        }
+    );
+    let unsigned = login_with_binding(&h, false);
+    let program = unsigned
+        .urls
+        .iter()
+        .find_map(|u| u.program.clone())
+        .unwrap();
+    assert_eq!(program.kind, ProgramKind::Unsigned);
+    assert_eq!(program.path.as_deref(), Some(r"C:\Users\a\Tool\tool.exe"));
+    assert_eq!(program.signer, None);
+}
+
+#[test]
+fn program_submit_switch_round_trips_and_keeps_the_binding() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let detail = login_with_binding(&h, true);
+    let binding = detail.urls.iter().find(|u| u.program.is_some()).unwrap();
+    let web = detail.urls.iter().find(|u| u.program.is_none()).unwrap();
+    let switch = |element: &str, submit: bool| {
+        h.backend.update_item(req(with_item(
+            &detail,
+            json!({ "draft": {
+                "text": [], "secrets": [], "customFields": [],
+                "urls": [{ "op": "programSubmit", "elementId": element, "submit": submit }]
+            }}),
+        )))
+    };
+    let off = switch(&binding.element_id, false).unwrap();
+    let after = off.urls.iter().find(|u| u.program.is_some()).unwrap();
+    assert!(!after.program.as_ref().unwrap().submit);
+    assert_eq!(after.url, binding.url, "the URL is unchanged");
+    assert_eq!(after.element_id, binding.element_id);
+    assert_eq!(
+        after.program.as_ref().unwrap().name,
+        "Slack",
+        "the display data stays"
+    );
+    assert_eq!(
+        after.program.as_ref().unwrap().signer.as_deref(),
+        Some("Slack Technologies")
+    );
+    assert_eq!(off.urls.len(), 2, "the web address stays");
+    // And back on.
+    let on = switch(&binding.element_id, true).unwrap();
+    assert!(
+        on.urls
+            .iter()
+            .find_map(|u| u.program.as_ref())
+            .unwrap()
+            .submit
+    );
+    // A web address has no such switch, and neither has an element that does not exist.
+    assert_eq!(
+        code(switch(&web.element_id, false).unwrap_err()),
+        ErrorCode::InvalidInput
+    );
+    assert_eq!(
+        code(switch("99-019a2b3c4d5e7000", false).unwrap_err()),
+        ErrorCode::InvalidInput
+    );
+    // A new item has no element to switch.
+    let vault = vault_id(&h.backend);
+    let error = h
+        .backend
+        .add_item(req(json!({ "vaultId": vault, "kind": "login", "draft": {
+            "text": [{ "field": "title", "value": "New" }], "secrets": [], "customFields": [],
+            "urls": [{ "op": "programSubmit", "elementId": "1-019a2b3c4d5e7000", "submit": false }]
+        }})))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::InvalidInput);
+}
+
+#[test]
+fn unlinking_removes_only_the_binding() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let detail = login_with_binding(&h, true);
+    let binding = detail.urls.iter().find(|u| u.program.is_some()).unwrap();
+    let after = h
+        .backend
+        .update_item(req(with_item(
+            &detail,
+            json!({ "draft": {
+                "text": [], "secrets": [], "customFields": [],
+                "urls": [{ "op": "remove", "elementId": binding.element_id }]
+            }}),
+        )))
+        .unwrap();
+    assert_eq!(after.urls.len(), 1);
+    assert_eq!(after.urls[0].url, "https://slack.com");
+    assert!(after.urls[0].program.is_none());
+}

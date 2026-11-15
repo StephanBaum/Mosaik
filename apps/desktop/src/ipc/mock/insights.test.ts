@@ -52,7 +52,7 @@ function variant(base: MockItem, itemId: string, password: string, url: string):
   copy.detail.summary.itemId = itemId;
   copy.detail.summary.modifiedAt = NOW - 10 * 86_400_000;
   copy.detail.otp = null;
-  copy.detail.urls = [{ elementId: `${itemId}-url`, url, matchMode: "exactOrigin", allowHttp: false }];
+  copy.detail.urls = [{ elementId: `${itemId}-url`, url, matchMode: "exactOrigin", allowHttp: false, program: null }];
   copy.secrets = { password };
   return copy;
 }

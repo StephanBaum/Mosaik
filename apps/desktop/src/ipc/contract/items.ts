@@ -5,6 +5,7 @@
 import type { AgentBindingChange, AgentBindingView } from "./agent.ts";
 import type { AttachmentId, ItemId, UnixMillis, VaultId } from "./common.ts";
 import type { ChangeUrlView, HistoryEntryView, PolicyDays, RotationAttemptView } from "./credentialRotation.ts";
+import type { ProgramKind } from "./picker.ts";
 
 export const itemKinds = [
   "login",
@@ -110,11 +111,25 @@ export interface TextFieldEntry {
   value: string;
 }
 
+/** What the item view shows of a `winapp://` binding (ADR-0164): the program a login is linked to. */
+export interface ProgramBindingView {
+  kind: ProgramKind;
+  /** The stored display name, else the exe, the package or the file name. */
+  name: string;
+  signer: string | null;
+  /** For an unsigned program only. */
+  path: string | null;
+  /** Whether Enter is pressed after the fill. */
+  submit: boolean;
+}
+
 export interface UrlEntry {
   elementId: string;
   url: string;
   matchMode: UrlMatchMode;
   allowHttp: boolean;
+  /** Set exactly for a `winapp://` URL, which the UI shows as a program, never as a link. */
+  program: ProgramBindingView | null;
 }
 
 export interface CustomFieldEntry {
@@ -247,7 +262,9 @@ export interface SecretFieldChange {
 export type UrlChange =
   | { op: "add"; url: string; matchMode: UrlMatchMode; allowHttp: boolean }
   | { op: "update"; elementId: string; url: string; matchMode: UrlMatchMode; allowHttp: boolean }
-  | { op: "remove"; elementId: string };
+  | { op: "remove"; elementId: string }
+  /** The Enter switch of a program binding; any other element is `invalidInput`. */
+  | { op: "programSubmit"; elementId: string; submit: boolean };
 
 export type CustomFieldChange =
   | { op: "add"; label: string; kind: CustomFieldKind; value: string }

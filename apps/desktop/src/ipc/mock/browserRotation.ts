@@ -89,6 +89,7 @@ function commitRotation(state: MockState, open: BrowserRotationRequest, decision
       url: open.newOrigin,
       matchMode: "exactOrigin",
       allowHttp: false,
+      program: null,
     });
     refreshDetail(item);
   }

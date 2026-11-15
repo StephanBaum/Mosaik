@@ -2,9 +2,13 @@
 //! secret that leaves here is the one `reveal_secret` was asked for.
 
 use mosaic_core::model::{
-    CustomFieldValue, Item, ItemType, OtpKind, PasskeyPublic, SecretField, TextField, UrlMatch,
+    CustomFieldValue, Item, ItemType, LoginUrl, OtpKind, PasskeyPublic, SecretField, TextField,
+    UrlMatch,
 };
 use mosaic_core::{ItemId, Timestamp, VaultId};
+use mosaic_origin::program::ProgramUrl;
+use mosaic_program_fill::binding::{program_display, submit_enabled};
+use mosaic_program_fill::identity::exe_name_of;
 use mosaic_vault::session::{ItemFilter, ItemRef, TrashFilter as CoreTrashFilter, UnlockedSession};
 use mosaic_vault::storage::Store;
 use tauri::State;
@@ -19,10 +23,11 @@ use crate::contract::ids::WireVaultId;
 use crate::contract::items::{
     AddItemRequest, AttachmentEntry, CustomFieldEntry, CustomFieldKind, ItemDetail, ItemKind,
     ItemRequest, ItemSummary, ListItemsRequest, MoveItemRequest, MovedItem, OtpScheme, OtpSummary,
-    PasskeyAlgorithm, PasskeySummary, RevealRequest, RevealedSecret, ReviewState, SecretFieldKey,
-    SecretRef, SetFavoriteRequest, SshKeySummary, TextFieldEntry, TextFieldKey, TrashFilter,
-    UpdateItemRequest, UrlEntry, UrlMatchMode,
+    PasskeyAlgorithm, PasskeySummary, ProgramBindingView, RevealRequest, RevealedSecret,
+    ReviewState, SecretFieldKey, SecretRef, SetFavoriteRequest, SshKeySummary, TextFieldEntry,
+    TextFieldKey, TrashFilter, UpdateItemRequest, UrlEntry, UrlMatchMode,
 };
+use crate::contract::picker::ProgramKind;
 use crate::contract::secret::SecretOut;
 use crate::contract::session::ReauthPurpose;
 use crate::state::{AppState, Backend};
@@ -116,6 +121,31 @@ pub async fn move_item(
     request: MoveItemRequest,
 ) -> IpcResult<MovedItem> {
     state.run(move |b| b.move_item(request)).await
+}
+
+/// What the item view shows of a `winapp://` binding: `None` for any other URL (ADR-0164).
+fn program_binding(url: &LoginUrl) -> Option<ProgramBindingView> {
+    let parsed = ProgramUrl::parse(url.url.as_str()).ok()?;
+    let display = program_display(url);
+    let (kind, fallback, path) = match parsed {
+        ProgramUrl::Package { family } => (
+            ProgramKind::Package,
+            family.split('_').next().unwrap_or(&family).to_owned(),
+            None,
+        ),
+        ProgramUrl::Signed { exe, .. } => (ProgramKind::Signed, exe, None),
+        ProgramUrl::Path { path, .. } => {
+            let name = exe_name_of(&path).unwrap_or_else(|| path.clone());
+            (ProgramKind::Unsigned, name, Some(path))
+        }
+    };
+    Some(ProgramBindingView {
+        kind,
+        name: display.as_ref().map_or(fallback, |d| d.name.clone()),
+        signer: display.and_then(|d| d.signer),
+        path,
+        submit: submit_enabled(url),
+    })
 }
 
 const fn core_trash(filter: TrashFilter) -> CoreTrashFilter {
@@ -358,6 +388,7 @@ pub(super) fn detail(
             .urls()
             .into_iter()
             .map(|(id, url)| UrlEntry {
+                program: program_binding(&url),
                 element_id: id.as_str().to_owned(),
                 url: url.url.as_str().to_owned(),
                 match_mode: match url.match_mode {
@@ -548,7 +579,7 @@ impl Backend {
         let mut touched = Vec::new();
         let item_id = session
             .add_item(vault_id, item_type, |edit| {
-                prepared.apply(edit, &[], Vec::new())?;
+                prepared.apply(edit, &[], Vec::new(), Vec::new())?;
                 apply_ops(ops, edit, &[], &mut touched)
             })
             .map_err(draft::edit_error)?;
@@ -603,10 +634,11 @@ impl Backend {
         }
         let tags: Vec<String> = current.tags().into_iter().map(str::to_owned).collect();
         let fields = current.custom_fields();
+        let urls = current.urls();
         let mut touched = Vec::new();
         session
             .update_item(vault_id, item_id, |edit| {
-                prepared.apply(edit, &tags, fields)?;
+                prepared.apply(edit, &tags, fields, urls)?;
                 apply_ops(ops, edit, &bindings, &mut touched)
             })
             .map_err(draft::edit_error)?;

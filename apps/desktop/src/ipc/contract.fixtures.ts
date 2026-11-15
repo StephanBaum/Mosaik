@@ -1884,6 +1884,11 @@ export const fixtures = {
             {
               "elementId": "6-019a2b3c4d5e7000",
               "op": "remove"
+            },
+            {
+              "elementId": "8-019a2b3c4d5e7000",
+              "op": "programSubmit",
+              "submit": false
             }
           ]
         },
@@ -3272,6 +3277,11 @@ export const fixtures = {
             {
               "elementId": "6-019a2b3c4d5e7000",
               "op": "remove"
+            },
+            {
+              "elementId": "8-019a2b3c4d5e7000",
+              "op": "programSubmit",
+              "submit": false
             }
           ]
         },
@@ -3395,6 +3405,11 @@ export const fixtures = {
             {
               "elementId": "6-019a2b3c4d5e7000",
               "op": "remove"
+            },
+            {
+              "elementId": "8-019a2b3c4d5e7000",
+              "op": "programSubmit",
+              "submit": false
             }
           ]
         },
@@ -3515,6 +3530,11 @@ export const fixtures = {
             {
               "elementId": "6-019a2b3c4d5e7000",
               "op": "remove"
+            },
+            {
+              "elementId": "8-019a2b3c4d5e7000",
+              "op": "programSubmit",
+              "submit": false
             }
           ]
         },
@@ -3616,6 +3636,11 @@ export const fixtures = {
             {
               "elementId": "6-019a2b3c4d5e7000",
               "op": "remove"
+            },
+            {
+              "elementId": "8-019a2b3c4d5e7000",
+              "op": "programSubmit",
+              "submit": false
             }
           ]
         },
@@ -3896,6 +3921,7 @@ export const fixtures = {
             "allowHttp": false,
             "elementId": "3-019a2b3c4d5e7000",
             "matchMode": "exactOrigin",
+            "program": null,
             "url": "https://github.com/login"
           }
         ]
@@ -4181,6 +4207,7 @@ export const fixtures = {
             "allowHttp": false,
             "elementId": "3-019a2b3c4d5e7000",
             "matchMode": "exactOrigin",
+            "program": null,
             "url": "https://github.com/login"
           }
         ]
@@ -4608,6 +4635,7 @@ export const fixtures = {
               "allowHttp": false,
               "elementId": "3-019a2b3c4d5e7000",
               "matchMode": "exactOrigin",
+              "program": null,
               "url": "https://github.com/login"
             }
           ]
@@ -4767,6 +4795,7 @@ export const fixtures = {
             "allowHttp": false,
             "elementId": "3-019a2b3c4d5e7000",
             "matchMode": "exactOrigin",
+            "program": null,
             "url": "https://github.com/login"
           }
         ]
@@ -5310,6 +5339,7 @@ export const fixtures = {
             "allowHttp": false,
             "elementId": "3-019a2b3c4d5e7000",
             "matchMode": "exactOrigin",
+            "program": null,
             "url": "https://github.com/login"
           }
         ]
@@ -9300,6 +9330,7 @@ export const fixtures = {
             "allowHttp": false,
             "elementId": "3-019a2b3c4d5e7000",
             "matchMode": "exactOrigin",
+            "program": null,
             "url": "https://github.com/login"
           }
         ]
