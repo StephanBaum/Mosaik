@@ -49,6 +49,7 @@ Use pnpm, never npm. The Rust toolchain is pinned in `rust-toolchain.toml`.
 - `crates/core`: crypto, vault model, item types, sync types (CRYPTO_SPEC)
 - `crates/{totp,generator,passkey,import,insights,ssh-agent,qr}`: feature crates on top of core (`qr` reads QR images into `otpauth://` entries; `passkey` is the software WebAuthn authenticator, ES256, M5)
 - `crates/origin`: exact-origin matching, HTTP rules, IDN and look-alike checks for fills. `crates/native-messaging`: the host `mosaic-native-host` and the extension channel (`docs/NATIVE_MESSAGING.md`)
+- `crates/agent`: agent access (bindings, masking, request path, policy engine, agent wire protocol; ADR-0159, ADR-0160)
 - `crates/server`: axum sync server. `crates/cli`: the `mosaic` binary
 - `packages/{design-tokens,i18n}`: shared TS for the apps
 - `apps/desktop`: Tauri v2 app (M3). IPC contract: `docs/DESKTOP_IPC.md`;

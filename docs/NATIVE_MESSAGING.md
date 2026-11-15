@@ -522,3 +522,73 @@ validator, the handshake over in-memory streams (success, a wrong key, a replay,
 pairing, protocol versions, per-step timeouts), the relay, and the host binary against an
 in-test desktop built from `server_handshake` and the session code. The fuzz targets are
 `envelope`, `preauth_message` and `channel_open` (`crates/native-messaging/fuzz`).
+
+## 9. Agent endpoint (ADR-0159, ADR-0160)
+
+A second local endpoint of the running desktop, for `mosaic agent *` (the MCP relay, pairing and status). It follows §1 with `agent` in place of `browser`
+and uses the construction of CRYPTO_SPEC §15 with the labels `agent/auth|handshake|session|frame`, so a browser pairing key fails its handshake and the
+reverse. Code: `mosaic_native_messaging::{endpoint, agent_preauth, agent_handshake}` and `crates/agent` (`wire`, `server`). The threats are THREAT_MODEL §4.11.
+The endpoint exists only while `agentAccessEnabled` is on and the app runs; turning the setting off closes the listener and every connection. The desktop never
+listens on TCP.
+
+### 9.1 Endpoint
+
+| OS | Endpoint |
+|---|---|
+| Linux | `$XDG_RUNTIME_DIR/mosaic/agent.sock`, else `<data>/io.github.stephanbaum.mosaic/agent/agent.sock` (the data-dir fallback of §1) |
+| macOS | `$HOME/Library/Application Support/io.github.stephanbaum.mosaic/agent/agent.sock` |
+| Windows | `\\.\pipe\mosaic-agent-<32 hex>`, a fresh name per desktop start, published in `%LOCALAPPDATA%\io.github.stephanbaum.mosaic\agent\endpoint.json` under a lease and probed by the client, as in §1 |
+
+Unix: a `0700` directory, a `0600` socket and a peer-UID check on both sides. Windows: first pipe instance, remote clients rejected. Limits: 16 agent
+pairings, 8 connections (a 9th is refused `busy` before authentication), 4 requests in flight per connection (a 5th is answered `busy`), 256 KiB frames
+(the plaintext leaves 26 bytes for header and tag), idle close after 10 minutes, the access dialog 120 s.
+
+### 9.2 Pre-auth messages
+
+As §4.2: JSON, one per frame, `"type"` and `"v": 1`, unknown fields rejected, hex lowercase with a fixed length. A message with another `v` is answered
+`refused protocolVersion`; one that does not parse, `refused invalidRequest`.
+
+| Direction | Message |
+|---|---|
+| client to desktop | `hello {pairingId, nonce}`, `finish {proof}`, `pairRequest {name}`, `status {}` |
+| desktop to client | `challenge {nonce, proof}`, `refused {reason}`, `status {vault: "locked" \| "unlocked", agentAccess: "on" \| "off"}`, `pairPending {code, expiresInSeconds}`, `pairApproved {pairingId, key}` |
+
+- `reason` is one of `notPaired`, `locked`, `agentAccessOff`, `pairingDenied`, `pairingExpired`, `pairingLimit`, `pairingBlocked`, `rateLimited`, `busy`,
+  `protocolVersion`, `invalidRequest`, `internal`.
+- `name` is 1 to 64 characters of ASCII letters, digits, space, `.`, `_`, `-`, `(`, `)`, with no leading or trailing space. It is a label the user sees in the
+  pairing dialog; the desktop never decides anything from it.
+- A pair request is refused `agentAccessOff` or `locked` while the setting is off or the vault is locked. Otherwise the desktop answers `pairPending` (the code
+  is 30 random bits as six Crockford base32 symbols, `XXX-XXX`, as §4.2; `expiresInSeconds` is 120), shows the pairing dialog, and answers `pairApproved`
+  or `refused`. The connection closes after `pairApproved`. Three pairing dialogs a minute per name and a block after three denials apply as for the browser.
+- `status` is answered and the connection closes.
+- `hello` against an unknown pairing and `finish` with a wrong proof are both answered `refused notPaired`, at different steps, as §15 of CRYPTO_SPEC.
+
+### 9.3 Messages after the handshake
+
+Frames carry JSON. The desktop's first frame is the `state` event.
+
+```text
+request   {"v":1,"id":<u32>,"op":<name>,"body":{…}}
+response  {"v":1,"id":<u32>,"ok":true,"body":{…}}
+          {"v":1,"id":<u32>,"ok":false,"error":{"code":<code>,"candidates":[{"vault","title","id"}]?}}
+event     {"v":1,"event":"state","vault":…,"agentAccess":…} | {"v":1,"event":"unpaired"} | {"v":1,"event":"grantRevoked","ref":<ref>}
+```
+
+Every body object rejects unknown members. An unknown `op` is `invalidRequest`.
+
+| Op | Request body | Response body |
+|---|---|---|
+| `status` | `{}` | `{vault, agentAccess}` |
+| `listSecrets` | `{query?}` (at most 128 characters) | `{secrets: [{ref, title, vault, field, origins, inject, env, runAllowed, grant, needsReview}]}`, at most 50 entries; `grant` is `none`, `once`, `untilLock` or an expiry in milliseconds |
+| `requestAccess` | `{ref, use: "request", reason?}` (`reason` at most 200 characters) | `{decision: "granted" \| "denied" \| "timeout", expiresAt?, grant}`, after the user answers or 120 s pass |
+| `httpRequest` | `{ref, method, url, headers?, body?, maxBytes?}` | `{status, headers: [[name, value]…], body? \| binary?: {contentType, bytes, contentEncoding}, truncated, masked, redirect?}` |
+
+There is no op that returns a vault value, and no `get`, `reveal`, `copy` or `inject` (THREAT_MODEL §4.11). `runStart`, `runStdin` and `runSignal` belong to
+a later phase; this version answers them `invalidRequest`. The relay forwards only these four ops.
+
+Limits for `httpRequest`: URL at most 8 KiB; at most 32 headers, each at most 8 KiB and 32 KiB together; text body of UTF-8 at most 1 MiB; `maxBytes`
+default 256 KiB, at most 1 MiB; response headers at most 64 KiB; connect timeout 10 s, total 60 s; 60 requests a minute per grant. `reason` is at most 200
+characters. The error codes are `desktopNotRunning`, `locked`, `agentAccessOff`, `notPaired`, `notAgentUsable`, `needsReview`, `ambiguousRef`, `noGrant`,
+`denied`, `destinationNotAllowed`, `methodNotAllowed`, `headerNotAllowed`, `requestTooLarge`, `responseTooLarge`, `timeout`, `tlsFailed`, `rateLimited`, `busy`,
+`invalidRef`, `invalidRequest`, `requestFailed` and `internal`. An error carries a code and a candidate list (vault, title, ID) only for `ambiguousRef`;
+never a value and never an echo of the input.
