@@ -18,6 +18,7 @@ complete -c mosaic -n '__fish_seen_subcommand_from get' -l field
 complete -c mosaic -n '__fish_seen_subcommand_from get' -l reveal
 complete -c mosaic -n '__fish_seen_subcommand_from get' -l copy
 complete -c mosaic -n '__fish_seen_subcommand_from get' -l clear-after
+complete -c mosaic -n '__fish_seen_subcommand_from get' -l i-know
 complete -c mosaic -n __fish_use_subcommand -a totp -d 'Print the current one-time code.'
 complete -c mosaic -n '__fish_seen_subcommand_from totp' -l copy
 complete -c mosaic -n '__fish_seen_subcommand_from totp' -l clear-after
@@ -39,6 +40,7 @@ complete -c mosaic -n __fish_use_subcommand -a inject -d 'Fill {{ mosaic://... }
 complete -c mosaic -n '__fish_seen_subcommand_from inject' -l in
 complete -c mosaic -n '__fish_seen_subcommand_from inject' -l out
 complete -c mosaic -n '__fish_seen_subcommand_from inject' -l reveal
+complete -c mosaic -n '__fish_seen_subcommand_from inject' -l i-know
 complete -c mosaic -n __fish_use_subcommand -a ssh -d 'List SSH keys, print a public key, or explain the agent.'
 complete -c mosaic -n __fish_use_subcommand -a import -d 'Import a file from another password manager or a Mosaic export.'
 complete -c mosaic -n '__fish_seen_subcommand_from import' -l vault
@@ -55,6 +57,10 @@ complete -c mosaic -n '__fish_seen_subcommand_from setup' -l folder
 complete -c mosaic -n '__fish_seen_subcommand_from setup' -l server
 complete -c mosaic -n '__fish_seen_subcommand_from setup' -l email
 complete -c mosaic -n __fish_use_subcommand -a recover -d 'Recover after a password or key change made elsewhere.'
+complete -c mosaic -n __fish_use_subcommand -a agent -d 'Pair an AI client and run its MCP server (secrets never enter the model).'
+complete -c mosaic -n '__fish_seen_subcommand_from agent' -l name
+complete -c mosaic -n '__fish_seen_subcommand_from agent' -l client
+complete -c mosaic -n '__fish_seen_subcommand_from agent' -l replace
 complete -c mosaic -n __fish_use_subcommand -a completions -d 'Print a shell completion script.'
 complete -c mosaic -n __fish_use_subcommand -a help -d 'Show help or the manual page.'
 complete -c mosaic -n '__fish_seen_subcommand_from help' -l man

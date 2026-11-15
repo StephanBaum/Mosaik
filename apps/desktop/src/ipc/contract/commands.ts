@@ -4,6 +4,17 @@
  * `src-tauri/src/commands/names.rs`. `subscribe_events` is not here: its argument is a
  * Channel, and `MosaicIpc.subscribe` wraps it.
  */
+import type {
+  AgentAccessRespondRequest,
+  AgentAccessStatus,
+  AgentBindingConfirmRequest,
+  AgentGrantRevokeRequest,
+  AgentLogPage,
+  AgentLogRequest,
+  AgentPairingRemoveRequest,
+  AgentPairingRespondRequest,
+  AgentSetEnabledRequest,
+} from "./agent.ts";
 import type { AttachmentAdded, AttachmentRequest, AttachmentSaved } from "./attachments.ts";
 import type {
   BrowserPairingRespondRequest,
@@ -17,11 +28,14 @@ import type {
 import type { CopyReceipt, CopyRequest } from "./clipboard.ts";
 import type { CredentialRotationCommands } from "./credentialRotation.ts";
 import type { ExportPasskeysRequest, PasskeysExported } from "./export.ts";
+import type { SetupCodeShowRequest, SetupCodeShown } from "./setupCode.ts";
 import type { Generated, GenerateRequest } from "./generator.ts";
 import type {
   ImportCancelRequest,
-  ImportChooseRequest,
   ImportCommitRequest,
+  ImportDeleteRequest,
+  ImportDetected,
+  ImportDetectRequest,
   ImportFileChoice,
   ImportPreview,
   ImportPreviewRequest,
@@ -184,6 +198,15 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   restore_item: Command<ItemRequest, null>;
   purge_item: Command<ItemRequest, null>;
   move_item: Command<MoveItemRequest, MovedItem>;
+  agent_binding_confirm: Command<AgentBindingConfirmRequest, ItemDetail>;
+  agent_access_status: Command<null, AgentAccessStatus>;
+  agent_access_set_enabled: Command<AgentSetEnabledRequest, AgentAccessStatus>;
+  agent_pairing_respond: Command<AgentPairingRespondRequest, null>;
+  agent_pairing_remove: Command<AgentPairingRemoveRequest, AgentAccessStatus>;
+  agent_access_respond: Command<AgentAccessRespondRequest, null>;
+  agent_grant_revoke: Command<AgentGrantRevokeRequest, AgentAccessStatus>;
+  agent_stop_all: Command<null, AgentAccessStatus>;
+  agent_log: Command<AgentLogRequest, AgentLogPage>;
   // Attachments
   attachment_add: Command<ItemRequest, AttachmentAdded>;
   /** Binary response: `[width u32 LE][height u32 LE][width * height * 4 RGBA bytes]`. */
@@ -207,12 +230,16 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   // Security insights
   security_report: Command<null, SecurityReport>;
   // Import
-  import_choose_file: Command<ImportChooseRequest, ImportFileChoice>;
+  import_choose_file: Command<null, ImportFileChoice>;
+  import_detect: Command<ImportDetectRequest, ImportDetected>;
+  import_delete_file: Command<ImportDeleteRequest, null>;
   import_preview: Command<ImportPreviewRequest, ImportPreview>;
   import_commit: Command<ImportCommitRequest, ImportResult>;
   import_cancel: Command<ImportCancelRequest, null>;
   // Export
   export_passkeys_cxf: Command<ExportPasskeysRequest, PasskeysExported>;
+  // Setup code for a phone
+  setup_code_show: Command<SetupCodeShowRequest, SetupCodeShown>;
   // SSH agent
   ssh_agent_status: Command<null, SshAgentStatus>;
   ssh_agent_set_enabled: Command<SshSetEnabledRequest, SshAgentStatus>;
@@ -337,6 +364,15 @@ const commandSet = {
   restore_item: true,
   purge_item: true,
   move_item: true,
+  agent_binding_confirm: true,
+  agent_access_status: true,
+  agent_access_set_enabled: true,
+  agent_pairing_respond: true,
+  agent_pairing_remove: true,
+  agent_access_respond: true,
+  agent_grant_revoke: true,
+  agent_stop_all: true,
+  agent_log: true,
   attachment_add: true,
   attachment_preview: true,
   attachment_save: true,
@@ -353,10 +389,13 @@ const commandSet = {
   update_settings: true,
   security_report: true,
   import_choose_file: true,
+  import_detect: true,
+  import_delete_file: true,
   import_preview: true,
   import_commit: true,
   import_cancel: true,
   export_passkeys_cxf: true,
+  setup_code_show: true,
   ssh_agent_status: true,
   ssh_agent_set_enabled: true,
   ssh_respond: true,

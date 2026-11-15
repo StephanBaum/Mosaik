@@ -21,6 +21,24 @@ pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
 }
 
+/// Like [`contains`], but the match must not continue with another digit (a whole number), and a
+/// needle that starts with `:` (a port) must follow an address: a digit or `]`. A JSON field
+/// such as `"elapsed":51873` is not the port.
+fn contains_number(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty()
+        && haystack.windows(needle.len()).enumerate().any(|(i, w)| {
+            let after_address = needle[0] != b':'
+                || i.checked_sub(1)
+                    .and_then(|p| haystack.get(p))
+                    .is_some_and(|b| b.is_ascii_digit() || *b == b']');
+            w == needle
+                && after_address
+                && !haystack
+                    .get(i + needle.len())
+                    .is_some_and(u8::is_ascii_digit)
+        })
+}
+
 /// Every file under `dir` that is a database file, its WAL or a blob.
 pub(crate) fn stored_bytes(dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut out = Vec::new();
@@ -63,6 +81,14 @@ fn detector_catches_a_logged_peer_address() {
     ] {
         assert!(needles.iter().all(|n| !contains(line, n)));
     }
+    // The whole-number port check: after an address only, never inside a longer number.
+    assert!(contains_number(b"peer=203.0.113.77:51873 ok", b":51873"));
+    assert!(contains_number(b"addr: [::1]:51873", b":51873"));
+    assert!(!contains_number(
+        br#"{"elapsed":51873,"route":"/v1"}"#,
+        b":51873"
+    ));
+    assert!(!contains_number(b"x 10.0.0.1:518734 y", b":51873"));
 }
 
 #[tokio::test(start_paused = true)]
@@ -135,7 +161,14 @@ async fn no_plaintext_and_no_ip_on_disk_or_in_logs() {
         "{text}"
     );
     for (what, bytes) in &forbidden {
-        assert!(!contains(&log, bytes), "log contains the {what}");
+        // A port is a whole number: ":51873" inside a longer number (a duration such as
+        // "elapsed":518734) is not the port, and matched it at random.
+        let found = if bytes.ends_with(b"51873") {
+            contains_number(&log, bytes)
+        } else {
+            contains(&log, bytes)
+        };
+        assert!(!found, "log contains the {what}");
     }
     for s in [
         u.email.as_str(),

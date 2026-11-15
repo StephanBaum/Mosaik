@@ -45,6 +45,16 @@ pub const COMMANDS: &[&str] = &[
     "restore_item",
     "purge_item",
     "move_item",
+    "agent_binding_confirm",
+    // Agent access
+    "agent_access_status",
+    "agent_access_set_enabled",
+    "agent_pairing_respond",
+    "agent_pairing_remove",
+    "agent_access_respond",
+    "agent_grant_revoke",
+    "agent_stop_all",
+    "agent_log",
     // Attachments
     "attachment_add",
     "attachment_preview",
@@ -68,11 +78,15 @@ pub const COMMANDS: &[&str] = &[
     "security_report",
     // Import
     "import_choose_file",
+    "import_detect",
+    "import_delete_file",
     "import_preview",
     "import_commit",
     "import_cancel",
     // Export
     "export_passkeys_cxf",
+    // Setup code for a phone
+    "setup_code_show",
     // SSH agent
     "ssh_agent_status",
     "ssh_agent_set_enabled",

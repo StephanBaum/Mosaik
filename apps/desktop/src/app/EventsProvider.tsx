@@ -10,7 +10,9 @@ import { useToast } from "../components/ToastProvider.tsx";
 import { useIpcEvent } from "../hooks/useIpcEvent.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import type { AppEvent, LockReason, SshApprovalRequest, SyncState } from "../ipc/contract/index.ts";
+import { useAgentPrompts, type AgentPrompts } from "./useAgentPrompts.ts";
 import { useBrowserPrompts, type BrowserPrompts } from "./useBrowserPrompts.ts";
+import { useImportDrop, type ImportDrop } from "./useImportDrop.ts";
 import { useNoticeEvents, type NoticeEvents } from "./useNoticeEvents.ts";
 import { useSharingEvents, type SharingEvents } from "./useSharingEvents.ts";
 import { useSecrets } from "./SecretsContext.tsx";
@@ -21,6 +23,8 @@ interface EventsContextValue {
   removeSsh: (requestId: string) => void;
   /** The browser extension's pairing, save and passkey prompts, and the paired-browsers counter. */
   browser: BrowserPrompts;
+  /** The agent endpoint's pairing and access prompts, and whether a request is being sent. */
+  agent: AgentPrompts;
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
   /** Why the vault locked last, until the next unlock. */
@@ -32,6 +36,9 @@ interface EventsContextValue {
   syncDataVersion: number;
   /** Invites and emergency-access requests that wait for this account. */
   sharing: SharingEvents;
+  /** A file dropped onto the window, as a token Rust holds (never a path), until the import flow takes it. */
+  importDrop: ImportDrop | null;
+  clearImportDrop: () => void;
   /** Notices the user dismisses (vault details that were shortened in a merge). */
   notices: NoticeEvents;
 }
@@ -55,15 +62,17 @@ export function EventsProvider({
   const secrets = useSecrets();
   const [ssh, setSsh] = useState<SshApprovalRequest[]>([]);
   const browser = useBrowserPrompts();
+  const agent = useAgentPrompts();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [lockReason, setLockReason] = useState<LockReason | null>(null);
   const [sync, setSync] = useState<SyncState | null>(null);
   const [syncDataVersion, setSyncDataVersion] = useState(0);
+  const importDrop = useImportDrop();
   const sharing = useSharingEvents();
   const notices = useNoticeEvents();
 
   useIpcEvent((event: AppEvent) => {
-    if (taken(event, browser, notices)) {
+    if (taken(event, browser, agent, notices, importDrop)) {
       return;
     }
     switch (event.type) {
@@ -71,8 +80,10 @@ export function EventsProvider({
         secrets.clearAll();
         setSsh([]);
         browser.clear();
+        agent.clear();
         notices.clear();
         setPaletteOpen(false);
+        importDrop.clear();
         setLockReason(event.reason);
         onLocked();
         break;
@@ -110,6 +121,7 @@ export function EventsProvider({
     () => ({
       ssh,
       browser,
+      agent,
       removeSsh: (requestId) => {
         setSsh((queue) => queue.filter((request) => request.requestId !== requestId));
       },
@@ -121,10 +133,12 @@ export function EventsProvider({
       },
       sync,
       syncDataVersion,
+      importDrop: importDrop.drop,
+      clearImportDrop: importDrop.clear,
       sharing,
       notices,
     }),
-    [ssh, browser, paletteOpen, lockReason, sync, syncDataVersion, sharing, notices],
+    [ssh, browser, agent, paletteOpen, lockReason, sync, syncDataVersion, importDrop, sharing, notices],
   );
   return <EventsContext value={value}>{children}</EventsContext>;
 }

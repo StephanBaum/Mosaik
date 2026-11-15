@@ -36,6 +36,7 @@ fuzz_target!(|data: &[u8]| {
         assert_eq!(persist::normalize(s.settings.clone()), s.settings);
         assert_eq!(persist::stricter_than_default(&s.settings), s.settings);
         assert!(!s.ssh_agent_enabled);
+        assert!(!s.agent_access_enabled);
         // The file's own values and MAC survive a render and parse round trip.
         let rendered = persist::render(&file.state, file.mac.as_ref()).expect("render");
         let (again, again_file) = persist::parse_checked(&rendered).expect("reparse");

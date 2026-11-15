@@ -30,14 +30,14 @@
 //! item gets its vault's name as a tag.
 
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+#[cfg(test)]
+use std::io::Cursor;
 
 use mosaic_core::model::{ItemType, SecretField, TextField};
-use zip::ZipArchive;
-use zip::result::ZipError;
 
 use crate::Format;
-use crate::buf::{self, Buf};
+use crate::archive;
+use crate::buf::Buf;
 use crate::draft::{AttachmentBudget, Builder, EntryWarning, Kind};
 use crate::entries::{Collector, Import, SkipReason};
 use crate::error::{Error, Result};
@@ -59,13 +59,7 @@ pub fn parse(input: &[u8]) -> Result<Import> {
     if input.len() > crate::MAX_FILE_LEN {
         return Err(Error::TooLarge);
     }
-    // Bound the central directory before the zip crate reads it: every
-    // member needs one central directory header (`PK\x01\x02`).
-    let headers = input.windows(4).filter(|w| *w == b"PK\x01\x02").count();
-    if headers > MAX_ARCHIVE_MEMBERS {
-        return Err(Error::LimitExceeded);
-    }
-    let mut zip = ZipArchive::new(Cursor::new(input)).map_err(|_| Error::Malformed)?;
+    let mut zip = archive::open(input, MAX_ARCHIVE_MEMBERS)?;
     let data = member(&mut zip, "export.data", MAX_EXPORT_DATA_LEN)?.ok_or(Error::Malformed)?;
     let doc = json::parse(&data)?;
     drop(data);
@@ -94,39 +88,16 @@ pub fn parse(input: &[u8]) -> Result<Import> {
 }
 
 /// Reads one archive member by exact name into a zeroizing buffer.
-fn member(zip: &mut ZipArchive<Cursor<&[u8]>>, name: &str, limit: usize) -> Result<Option<Buf>> {
+fn member(zip: &mut archive::Archive<'_>, name: &str, limit: usize) -> Result<Option<Buf>> {
     let Some(index) = zip.index_for_name(name) else {
         return Ok(None);
     };
-    read_member(zip, index, limit).map(Some)
-}
-
-fn read_member(zip: &mut ZipArchive<Cursor<&[u8]>>, index: usize, limit: usize) -> Result<Buf> {
-    let file = zip.by_index(index).map_err(|e| match e {
-        ZipError::UnsupportedArchive(ZipError::PASSWORD_REQUIRED) => Error::Encrypted,
-        ZipError::UnsupportedArchive(_) | ZipError::CompressionMethodNotSupported(_) => {
-            Error::Unsupported
-        }
-        _ => Error::Malformed,
-    })?;
-    // zip 9.5 instantiates the decompressor lazily, so an unsupported method
-    // would otherwise only surface as a read error: check it up front.
-    if !matches!(
-        file.compression(),
-        zip::CompressionMethod::Stored | zip::CompressionMethod::Deflated
-    ) {
-        return Err(Error::Unsupported);
-    }
-    let hint = usize::try_from(file.size()).unwrap_or(limit);
-    // Read one byte past the limit so an oversized member is detected
-    // whatever size its header declares.
-    let reader = file.take(u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1));
-    buf::read_limited(reader, limit, hint.min(limit))
+    archive::read_member(zip, index, limit).map(Some)
 }
 
 /// The attachment files of the archive, looked up by document ID.
 struct Files<'a> {
-    zip: ZipArchive<Cursor<&'a [u8]>>,
+    zip: archive::Archive<'a>,
     budget: AttachmentBudget,
     /// `files/<name>`: the member index of each exact name after `files/`
     /// (the lowest index for a repeated name).
@@ -143,7 +114,7 @@ struct Files<'a> {
 }
 
 impl<'a> Files<'a> {
-    fn new(zip: ZipArchive<Cursor<&'a [u8]>>) -> Self {
+    fn new(zip: archive::Archive<'a>) -> Self {
         let mut exact: HashMap<Box<[u8]>, usize> = HashMap::new();
         let mut prefixed: HashMap<Box<[u8]>, usize> = HashMap::new();
         for (i, raw) in zip.file_names_raw().enumerate() {
@@ -185,7 +156,7 @@ impl<'a> Files<'a> {
     }
 
     fn read(&mut self, index: usize) -> Result<Buf> {
-        read_member(&mut self.zip, index, mosaic_core::MAX_ATTACHMENT_LEN)
+        archive::read_member(&mut self.zip, index, mosaic_core::MAX_ATTACHMENT_LEN)
     }
 }
 
@@ -522,7 +493,7 @@ mod tests {
     #[test]
     fn find_matches_document_id_and_double_underscore_names() {
         let bytes = archive(&["files/a__b__c".into(), "files/ab".into(), "files/a".into()]);
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         // Member 0 is keyed by the text before its FIRST `__`: "a".
         assert_eq!(files.find("a"), Some(0));
         // An ID with a `__` of its own matches only an exact name.
@@ -541,7 +512,7 @@ mod tests {
             "files/__z".into(),   // 2: key ""; exact match for ID "__z" only
             "files/a_".into(),    // 3: no `__`; exact match for ID "a_" only
         ]);
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         assert_eq!(files.find("a_"), Some(3));
         assert_eq!(files.find("_"), None);
         assert_eq!(files.find("__z"), Some(2));
@@ -560,7 +531,7 @@ mod tests {
     fn find_is_bounded_for_ids_that_match_no_member() {
         let names: Vec<String> = (0..20_000).map(|i| format!("files/doc__{i}")).collect();
         let bytes = archive(&names);
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         assert_eq!(files.find("doc__zz"), None);
         assert!(
             files.probes.get() <= 2,
@@ -573,7 +544,7 @@ mod tests {
     fn find_is_linear_in_lookups() {
         let names: Vec<String> = (0..10_000).map(|i| format!("files/m{i}__x.bin")).collect();
         let bytes = archive(&names);
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         for i in 0..10_000 {
             assert!(files.find(&format!("m{i}")).is_some());
         }
@@ -590,7 +561,7 @@ mod tests {
     fn prefix_map_is_linear_in_the_member_name_length() {
         let name = format!("files/{}", "_".repeat(20_000));
         let bytes = archive(std::slice::from_ref(&name));
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         let key_bytes: usize = files.prefixed.keys().map(|k| k.len()).sum();
         assert!(
             key_bytes <= 64 * name.len(),

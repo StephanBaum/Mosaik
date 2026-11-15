@@ -25,11 +25,15 @@ mosaic-totp = { path = "../totp" }
 rusqlite.workspace = true
 thiserror.workspace = true
 zeroize.workspace = true
+# Constant-time comparison of the boot marker (M10, CRYPTO_SPEC 6.9.2); already in the tree through mosaic-core.
+subtle.workspace = true
 # The encrypted export's plaintext schema (CRYPTO_SPEC 11.2), shared with the importer:
 # derive for the typed items, base64url for attachment data (M8).
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 base64ct = { workspace = true, features = ["alloc"] }
+# NFC-exact name matching of references (moved from the CLI, already in the tree through it).
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

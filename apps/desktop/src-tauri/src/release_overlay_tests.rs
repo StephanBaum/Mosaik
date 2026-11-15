@@ -76,7 +76,10 @@ fn release_overlay_installs_the_protected_layout() {
         serde_json::json!(["wix/native-messaging.wxs"])
     );
     let wxs = include_str!("../wix/native-messaging.wxs");
-    let group = bundle["windows"]["wix"]["componentRefs"][0]
+    // A ComponentGroup must be named in componentGroupRefs: componentRefs makes light.exe fail
+    // with LGHT0094 (an unresolved Component), which only a release MSI build shows.
+    assert!(bundle["windows"]["wix"].get("componentRefs").is_none());
+    let group = bundle["windows"]["wix"]["componentGroupRefs"][0]
         .as_str()
         .unwrap();
     assert!(wxs.contains(&format!("ComponentGroup Id=\"{group}\"")));

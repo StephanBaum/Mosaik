@@ -326,3 +326,35 @@ fn sync_without_a_backend_and_unsupported_commands() {
     let recover = f.cmd(&["--json", "recover"]).run();
     assert_eq!(recover.error_json()["error"]["code"], "syncNotConfigured");
 }
+
+#[test]
+fn import_auto_detects_a_lastpass_csv() {
+    let f = Fixture::fresh(&["Main"]);
+    let good = f.tmp.path().join("lastpass.csv");
+    std::fs::write(
+        &good,
+        "url,username,password,totp,extra,name,grouping,fav\nhttps://bank.example,carol,pw1,,,Bank,,0\nhttps://forum.example,dave,pw2,,,Forum,,0\n",
+    )
+    .unwrap();
+    let out = f
+        .cmd(&[
+            "--json",
+            "import",
+            "auto",
+            good.to_str().unwrap(),
+            "--dry-run",
+        ])
+        .prompts(&[PASSWORD])
+        .run();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.json()["data"]["count"], 2);
+
+    let bad = f.tmp.path().join("hello.txt");
+    std::fs::write(&bad, b"hello").unwrap();
+    let out = f
+        .cmd(&["--json", "import", "auto", bad.to_str().unwrap()])
+        .prompts(&[PASSWORD])
+        .run();
+    assert_ne!(out.code, 0);
+    assert!(out.stderr.contains("importFailed") || out.stdout.contains("importFailed"));
+}

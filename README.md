@@ -17,7 +17,7 @@ a local, authenticated channel; it is a development build, not yet in any store.
 stores passkeys (ES256) and answers passkey requests in the browser after you confirm each one
 in the desktop app; passkeys can be imported (Bitwarden, KeePassXC, FIDO CXF) and exported as a
 CXF file. Sync runs through a folder in your own cloud storage or the self-hostable
-server; it is off by default and unreleased. See
+server; it is off by default and unreleased. Android and iOS apps (system autofill and passkeys) exist but are built and tested in CI emulators and simulators only, not yet on a real device or in a store; pre-audit like the rest. See
 [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 ## Documents

@@ -10,6 +10,7 @@
 //! | [`TextField`] / [`SecretField`] keys | one string each (`login.username`, `login.password`, `card.number`, ...) |
 //! | `url:<id>` | a [`LoginUrl`] |
 //! | `field:<id>` | a [`CustomField`] |
+//! | `agent:<id>` | an [`AgentBindingRecord`]: the policy that lets an agent use one secret value (agent access, ADR-0159) |
 //! | `attachment:<uuid>` | an [`AttachmentRef`] |
 //! | `tag:<name>` | `true` |
 //! | `history:<id>` | a password history entry (`field`, `value`, `changed_at`, optional `reason`) |
@@ -45,8 +46,8 @@ use super::doc::{
 };
 use super::tombstone::Tombstone;
 use super::types::{
-    AttachmentRef, CustomField, LoginUrl, OtpConfig, PasskeyCredential, PasskeyPublic,
-    SshKeyMaterial,
+    AgentBindingRecord, AttachmentRef, CustomField, LoginUrl, OtpConfig, PasskeyCredential,
+    PasskeyPublic, SshKeyMaterial,
 };
 use super::value::{Value, to_json};
 use crate::envelope::{ItemCiphertext, MAX_ITEM_PLAINTEXT_LEN};
@@ -70,6 +71,7 @@ const PASSKEY_SIGN_COUNT: &str = "passkey.sign_count";
 const SSH_KEY: &str = "ssh.key";
 const URL_PREFIX: &str = "url:";
 const FIELD_PREFIX: &str = "field:";
+const AGENT_PREFIX: &str = "agent:";
 const ATTACHMENT_PREFIX: &str = "attachment:";
 const TAG_PREFIX: &str = "tag:";
 const HISTORY_PREFIX: &str = "history:";
@@ -577,6 +579,29 @@ impl Item {
         self.elements(FIELD_PREFIX, CustomField::from_value)
     }
 
+    /// The agent bindings in creation order (ADR-0159). A binding whose
+    /// register holds more than one distinct value (a conflict between
+    /// concurrent edits) is **not listed**: it has no single value to confirm,
+    /// so it is unusable until the user resolves it (CRYPTO_SPEC §11). The
+    /// key stays in [`Item::conflicts`]. A binding this build cannot read
+    /// (an unknown `inject` kind, a mistyped member) is not listed either and
+    /// is named by [`Item::unreadable_fields`].
+    #[must_use]
+    pub fn agent_bindings(&self) -> Vec<(ElementId, AgentBindingRecord)> {
+        self.doc
+            .registers()
+            .filter_map(|(k, r)| {
+                let id = k.strip_prefix(AGENT_PREFIX)?;
+                let winner = r.winner()?;
+                if r.entries().any(|e| e.value() != winner.value()) {
+                    return None;
+                }
+                let b = AgentBindingRecord::from_value(winner.value()).ok()?;
+                Some((ElementId(id.to_owned()), b))
+            })
+            .collect()
+    }
+
     /// The attachment references.
     #[must_use]
     pub fn attachments(&self) -> Vec<AttachmentRef> {
@@ -848,6 +873,7 @@ fn readable(key: &str, v: &Value) -> bool {
         DELETED_KEY => true,
         _ if key.starts_with(URL_PREFIX) => LoginUrl::from_value(v).is_ok(),
         _ if key.starts_with(FIELD_PREFIX) => CustomField::from_value(v).is_ok(),
+        _ if key.starts_with(AGENT_PREFIX) => AgentBindingRecord::from_value(v).is_ok(),
         _ if key.starts_with(ATTACHMENT_PREFIX) => AttachmentRef::from_value(v).is_ok(),
         ROTATION_POLICY => rotation::policy_of(v).is_some(),
         _ if key.starts_with(ROTATION_PREFIX) => rotation::attempt_readable(key, v),
@@ -899,6 +925,8 @@ fn history_stamp(key: &str) -> Option<Stamp> {
     parse_element_id(key.strip_prefix(HISTORY_PREFIX)?).map(|(s, _)| s)
 }
 
+#[cfg(test)]
+mod agent_tests;
 #[cfg(test)]
 mod rotation_tests;
 

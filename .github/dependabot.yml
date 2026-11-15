@@ -56,3 +56,13 @@ updates:
     groups:
       actions-minor-patch:
         update-types: ["minor", "patch"]
+  # The Android app (M10). Swift has no packages: dependency verification and the allowlist
+  # (scripts/mobile/check-android-deps.sh) still gate every update.
+  - package-ecosystem: gradle
+    directory: /apps/mobile/android
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 2
+    groups:
+      android-gradle:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

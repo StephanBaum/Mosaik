@@ -5,6 +5,7 @@
 //! - `MOSAIC_TEST_DIR/keystore/secret-key-<account hex>`: the Secret Key display string.
 //! - `MOSAIC_TEST_DIR/run/session-<account hex>.mcls` and `keystore/session-<account hex>.key`.
 //! - `MOSAIC_TEST_DIR/keystore/sync-token-<account hex>`: the hosted session token (hex).
+//! - `MOSAIC_TEST_DIR/keystore/agent-pairing-<name hex>`: an agent pairing (`id || key`, base64url).
 //! - `MOSAIC_TEST_KEYSTORE=refuse`: saving a session fails, as a refusing keystore does.
 //! - `MOSAIC_TEST_DIR/clipboard.txt`: the clipboard (a missing or empty file is an empty clipboard).
 //! - `MOSAIC_TEST_PROMPTS`: a file of lines; every prompt (secret or not) consumes the first line.
@@ -13,10 +14,14 @@
 use std::fs;
 use std::path::PathBuf;
 
+use mosaic_core::browser_channel::PairingKey;
 use mosaic_core::{AccountId, CliSessionFile, CliSessionKey, SecretKey, SecretString};
 use mosaic_platform::PlatformError;
 use mosaic_platform::clipboard::{Clipboard, ImageRead};
-use mosaic_platform::keystore::{CliSessionStore, SecretKeyStore, SyncTokenStore};
+use mosaic_platform::keystore::{
+    AgentPairingStore, CliSessionStore, SecretKeyStore, SyncTokenStore, decode_agent_pairing,
+    encode_agent_pairing,
+};
 use mosaic_sync::http::{StoredToken, Token as _};
 use zeroize::Zeroizing;
 
@@ -114,6 +119,40 @@ impl SyncTokenStore for FileTokens {
 
     fn delete(&self, account: AccountId) -> PResult<()> {
         let _ = fs::remove_file(self.path(account));
+        Ok(())
+    }
+}
+
+/// `MOSAIC_TEST_DIR/keystore/agent-pairing-<name hex>`.
+struct FileAgentPairings(PathBuf);
+
+impl FileAgentPairings {
+    fn path(&self, name: &str) -> PathBuf {
+        self.0
+            .join("keystore")
+            .join(format!("agent-pairing-{}", hex(name.as_bytes())))
+    }
+}
+
+impl AgentPairingStore for FileAgentPairings {
+    fn load(&self, name: &str) -> PResult<Option<([u8; 16], PairingKey)>> {
+        let Ok(text) = fs::read_to_string(self.path(name)) else {
+            return Ok(None);
+        };
+        Ok(decode_agent_pairing(text.trim()))
+    }
+
+    fn save(&self, name: &str, id: &[u8; 16], key: &PairingKey) -> PResult<()> {
+        let path = self.path(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|_| PlatformError::Keystore)?;
+        }
+        let text = encode_agent_pairing(id, key)?;
+        fs::write(path, text.as_bytes()).map_err(|_| PlatformError::Keystore)
+    }
+
+    fn delete(&self, name: &str) -> PResult<()> {
+        let _ = fs::remove_file(self.path(name));
         Ok(())
     }
 }
@@ -269,6 +308,11 @@ pub fn backends() -> Option<Backends> {
         })),
         tokens: Box::new(FileTokens(root)),
     })
+}
+
+/// The file agent pairing store, if `MOSAIC_TEST_DIR` is set.
+pub fn agent_pairings() -> Option<Box<dyn AgentPairingStore>> {
+    Some(Box::new(FileAgentPairings(dir()?)))
 }
 
 /// The file clipboard, if `MOSAIC_TEST_DIR` is set.

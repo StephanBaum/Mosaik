@@ -23,6 +23,10 @@ export const settings = {
   "settings.language.system": "Follow the system",
   "settings.language.en": "English",
   "settings.language.de": "Deutsch",
+  "settings.import": "Import",
+  "settings.import.body":
+    "Bring your logins over from a browser or another password manager. Mosaic walks you through the export and helps you delete the file afterwards.",
+  "settings.import.open": "Import passwords",
   "settings.ssh": "SSH agent",
   "settings.ssh.enable": "Use my SSH keys from Mosaic",
   "settings.ssh.hint":

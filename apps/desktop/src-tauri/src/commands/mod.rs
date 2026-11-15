@@ -10,6 +10,8 @@
     reason = "errors are documented on the Backend methods and in DESKTOP_IPC.md"
 )]
 
+pub mod agent;
+pub mod agent_bindings;
 pub mod attachments;
 pub mod breach;
 pub mod browser;
@@ -28,6 +30,7 @@ pub mod quick_unlock;
 pub mod rotation;
 pub mod session;
 pub mod settings;
+pub mod setup_code;
 pub mod sharing;
 pub mod ssh;
 pub mod sync;
@@ -87,6 +90,15 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         items::restore_item,
         items::purge_item,
         items::move_item,
+        agent_bindings::agent_binding_confirm,
+        agent::agent_access_status,
+        agent::agent_access_set_enabled,
+        agent::agent_pairing_respond,
+        agent::agent_pairing_remove,
+        agent::agent_access_respond,
+        agent::agent_grant_revoke,
+        agent::agent_stop_all,
+        agent::agent_log,
         attachments::attachment_add,
         attachments::attachment_preview,
         attachments::attachment_save,
@@ -103,10 +115,13 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         settings::update_settings,
         insights::security_report,
         import::import_choose_file,
+        import::import_detect,
+        import::import_delete_file,
         import::import_preview,
         import::import_commit,
         import::import_cancel,
         export::export_passkeys_cxf,
+        setup_code::setup_code_show,
         ssh::ssh_agent_status,
         ssh::ssh_agent_set_enabled,
         ssh::ssh_respond,

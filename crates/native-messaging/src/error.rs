@@ -47,6 +47,9 @@ pub enum Error {
     /// The peer refused with this code.
     #[error("the peer refused: {0:?}")]
     Refused(ErrorCode),
+    /// The desktop refused on the agent channel with this reason.
+    #[error("the desktop refused: {0:?}")]
+    AgentRefused(crate::agent_preauth::AgentRefusal),
     /// The desktop did not prove knowledge of the pairing key.
     #[error("the desktop is not authentic")]
     NotAuthentic,

@@ -24,6 +24,8 @@ export default tseslint.config(
       // Hostile pages are browser-side test fixtures, not app code.
       "apps/extension/test/hostile-site/pages/**",
       "apps/extension/test/evil-extension/**",
+      // Kotlin, Swift and generated sources of the mobile apps (M10); no TypeScript lives there.
+      "apps/mobile/**",
     ],
   },
   js.configs.recommended,

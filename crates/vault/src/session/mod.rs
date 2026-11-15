@@ -60,7 +60,9 @@
 //! # }
 //! ```
 
+mod agent;
 mod attachments;
+mod boot_marker;
 mod cli_session;
 mod credential_rotation;
 mod error;
@@ -88,7 +90,9 @@ use mosaic_core::{
 
 use crate::storage::{Origin, RecordBody, Store, VaultKeyWrap, VaultState};
 
+pub use agent::{AGENT_LOG_MAX_AGE_MS, AGENT_LOG_MAX_ENTRIES, AgentLogPage};
 pub use attachments::MAX_ACCOUNT_ATTACHMENT_BYTES;
+pub use boot_marker::BootId;
 pub use credential_rotation::{
     MAX_ATTEMPTS_FOR_ORIGIN, QueueState, QueueStates, RotationOutcome, RotationRef, ScanError,
     ScanSummary,
@@ -825,10 +829,17 @@ impl UnlockedSession {
     #[must_use]
     pub fn lock_requiring_password(self) -> LockedSession {
         let Self {
-            store,
+            mut store,
             password_unlocked,
             ..
         } = self;
+        // CRYPTO_SPEC §6.9.2: the boot marker goes too, so a new process of a
+        // phone app cannot adopt it. This call cannot fail; the counter below
+        // still refuses quick unlock in this session if the delete did not work.
+        // A delete that failed is tried again (and the marker overwritten with
+        // an ID that matches no boot) by `LockedSession::enforce_boot_marker_limit`,
+        // which the phone core calls whenever it reports the locked state.
+        let _ = store.clear_boot_marker();
         LockedSession {
             store,
             quick: QuickState {
@@ -971,6 +982,8 @@ impl UnlockedSession {
     }
 }
 
+#[cfg(test)]
+mod boot_marker_tests;
 #[cfg(test)]
 mod cli_export_tests;
 #[cfg(test)]

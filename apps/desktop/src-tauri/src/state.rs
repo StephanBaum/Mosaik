@@ -16,6 +16,7 @@ use mosaic_vault::session::{LockedSession, UnlockedSession};
 use tauri::ipc::Channel;
 
 use crate::adapters::{Adapters, EventSink};
+use crate::agent::AgentService;
 use crate::autolock::Activity;
 use crate::browser::BrowserService;
 use crate::clipboard::{BackendFactory, ClipboardService, MemoryClipboard};
@@ -25,6 +26,7 @@ use crate::contract::events::{AppEvent, LockReason};
 use crate::contract::settings::Settings;
 use crate::dialogs::{Dialogs, NoDialogs};
 use crate::events::Events;
+use crate::export_cleanup::FileIdentity;
 use crate::keystore::{
     LayeredSyncTokens, MemorySyncTokens, OsSyncTokens, SecretKeyStore, SyncTokenStore,
 };
@@ -98,6 +100,10 @@ pub type UnlockHook = Box<dyn Fn() + Send + Sync>;
 pub struct FileTokens {
     next: u64,
     paths: BTreeMap<String, PathBuf>,
+    /// Tokens whose file was imported into the vault in this session, with
+    /// the identity the file had when it was read: only that file may be
+    /// deleted (a file replaced or edited since is refused).
+    committed: BTreeMap<String, FileIdentity>,
 }
 
 impl FileTokens {
@@ -115,9 +121,31 @@ impl FileTokens {
         self.paths.get(token)
     }
 
+    /// Records that the file behind `token` was imported completely;
+    /// `identity` is what it was when it was read.
+    pub fn mark_committed(&mut self, token: &str, identity: FileIdentity) {
+        if self.paths.contains_key(token) {
+            self.committed.insert(token.to_owned(), identity);
+        }
+    }
+
+    /// The identity of the file behind `token` if it was imported
+    /// completely (so it may be deleted).
+    #[must_use]
+    pub fn committed_identity(&self, token: &str) -> Option<&FileIdentity> {
+        self.committed.get(token)
+    }
+
+    /// Forgets `token` and returns its path.
+    pub fn remove(&mut self, token: &str) -> Option<PathBuf> {
+        self.committed.remove(token);
+        self.paths.remove(token)
+    }
+
     /// Forgets every token.
     pub fn clear(&mut self) {
         self.paths.clear();
+        self.committed.clear();
     }
 }
 
@@ -196,6 +224,8 @@ pub struct Backend {
     focus: Option<Attention>,
     /// The browser extension endpoint (M4).
     pub browser: BrowserService,
+    /// The agent endpoint (ADR-0159): AI clients use marked secrets through it.
+    pub agent: AgentService,
     /// The opt-in breach scan (M7b): whether one runs and where answers
     /// come from.
     pub breach: BreachService,
@@ -213,6 +243,11 @@ pub struct Backend {
     /// The account whose *new* Emergency Kit (a rotation's pending Secret
     /// Key) was saved and verified in this process; every lock clears it.
     pub(crate) pending_kit_verified: Mutex<Option<AccountId>>,
+    /// The account whose rotation or re-key was staged with the master
+    /// password in this process: while it matches, the pending kit saves
+    /// without the password. Only a prepare (which checks the password) sets
+    /// it, every lock clears it, and a quick unlock never reopens it (KEY-1).
+    pub(crate) pending_kit_window: Mutex<Option<AccountId>>,
     lock_hooks: Mutex<Vec<LockHook>>,
     unlock_hooks: Mutex<Vec<UnlockHook>>,
 }
@@ -265,11 +300,13 @@ impl Backend {
             attention: None,
             focus: None,
             browser: BrowserService::new(),
+            agent: AgentService::new(),
             breach: BreachService::default(),
             last_user_verification: Mutex::new(None),
             os_sources: Mutex::new(Vec::new()),
             kit_pending: Mutex::new(None),
             pending_kit_verified: Mutex::new(None),
+            pending_kit_window: Mutex::new(None),
             lock_hooks: Mutex::new(Vec::new()),
             unlock_hooks: Mutex::new(Vec::new()),
         }
@@ -506,6 +543,8 @@ impl Backend {
                     | AppEvent::BrowserPairingRequested { .. }
                     | AppEvent::BrowserSaveRequested { .. }
                     | AppEvent::BrowserPasskeyRequested { .. }
+                    | AppEvent::AgentPairingRequested { .. }
+                    | AppEvent::AgentAccessRequested { .. }
             );
             if let (true, Some(attention)) = (wants_attention, &attention) {
                 attention();

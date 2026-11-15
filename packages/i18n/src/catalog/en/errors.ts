@@ -56,6 +56,10 @@ export const errors = {
     "Mosaic couldn't use the clipboard. Close apps that might be holding it, then try again.",
   "error.importFileUnreadable":
     "Mosaic couldn't read that file. Check that it still exists and isn't open in another app, then try again.",
+  "error.importDeleteNotAllowed":
+    "Import the file first. Mosaic only deletes an export after its items are in your vault.",
+  "error.importDeleteFailed":
+    "The file couldn't be deleted. It may be open in another app or read-only. Delete it yourself, then empty the recycle bin.",
   "error.importFormatInvalid":
     "That file isn't in the format you chose. Choose the matching format, or export the file again.",
   "error.importPreviewExpired": "This import was cancelled. Choose the file again to start over.",
@@ -77,6 +81,24 @@ export const errors = {
     "That browser is no longer connected. Reopen Settings to see the current list.",
   "error.browserHostMissing":
     "This copy of Mosaic has no browser connector installed, so there is nothing to repair. Install Mosaic with its installer to connect a browser.",
+  "error.agentOriginInvalid":
+    "Agents can send a key only to a site that starts with https:// and names just the site, like https://api.example.com. Check the address.",
+  "error.agentBindingInvalid":
+    "Mosaic can't use this setting for agents. Check the field, the sites and how the key is sent.",
+  "error.agentValueUnusable":
+    "This value is too short or has a line break in it, so agents can't use it. A key needs at least 12 characters on one line.",
+  "error.agentVaultShared":
+    "Agents can only use items in a vault that belongs to you and isn't shared. Move the item to one of your own vaults first.",
+  "error.agentAccessOff":
+    "Agent access is switched off. Turn it on in Settings, under Agents.",
+  "error.agentRequestExpired":
+    "That agent request has already ended. The agent can ask again if it still needs it.",
+  "error.agentAllowTooSoon":
+    "That was too quick to read the request. Check the details, then choose again.",
+  "error.agentPairingNotFound":
+    "That agent is no longer connected. Reopen Settings to see the current list.",
+  "error.agentEndpointUnavailable":
+    "Mosaic could not open the connection agents use. Close other copies of Mosaic and try again.",
   "error.kitNotVerified":
     "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
   "error.kitGroupMismatch":
@@ -243,6 +265,7 @@ export const errors = {
     "Your master password was changed on the server or in the folder. Enter the new one below.",
   "error.sharingNotHosted":
     "Sharing needs a Mosaic server. Connect one in the Sync settings first.",
+  "error.setupCodeNeedsServer": "A phone can only join an account on a Mosaic server.",
   "error.sharingContactUnverified":
     "Compare this person's safety code first. Mosaic only shares with people you verified.",
   "error.sharingKeyChanged":

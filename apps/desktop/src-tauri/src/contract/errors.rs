@@ -142,6 +142,10 @@ wire_enum!(
         ClipboardUnavailable,
         /// The import file could not be read.
         ImportFileUnreadable,
+        /// The export file may only be deleted after its import succeeded.
+        ImportDeleteNotAllowed,
+        /// The export file could not be deleted.
+        ImportDeleteFailed,
         /// The import file is not in the chosen format.
         ImportFormatInvalid,
         /// The import preview is gone (cancelled, locked or too old).
@@ -178,6 +182,29 @@ wire_enum!(
         /// No browser host program is installed with this app (a developer
         /// build), so there is nothing to repair the connections to.
         BrowserHostMissing,
+        /// A destination of an agent binding is not a valid `https` origin.
+        AgentOriginInvalid,
+        /// An agent binding breaks a rule (the field, the way the value is
+        /// sent, the variable name, or no destination).
+        AgentBindingInvalid,
+        /// The value to bind is shorter than 12 characters or holds a line
+        /// break or a null character.
+        AgentValueUnusable,
+        /// Agents can use only items of vaults that belong to this account
+        /// and are not shared.
+        AgentVaultShared,
+        /// Agent access is switched off.
+        AgentAccessOff,
+        /// The agent pairing or access request was already answered or
+        /// expired.
+        AgentRequestExpired,
+        /// An agent request was allowed less than a second after the dialog
+        /// appeared; the request is still open.
+        AgentAllowTooSoon,
+        /// No agent pairing with that ID.
+        AgentPairingNotFound,
+        /// The agent endpoint could not be started.
+        AgentEndpointUnavailable,
         /// Sync is not set up.
         SyncNotConfigured,
         /// Sync is already set up; disconnect first.
@@ -248,6 +275,9 @@ wire_enum!(
         /// Sharing and emergency access need the Mosaic server; a folder or
         /// no sync has neither.
         SharingNotHosted,
+        /// The setup code for a phone needs a hosted account; a folder or no
+        /// sync has none (M10).
+        SetupCodeNeedsServer,
         /// The contact's safety code has not been compared yet.
         SharingContactUnverified,
         /// The contact's key changed since it was pinned; compare the new code first.

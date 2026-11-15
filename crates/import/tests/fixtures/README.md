@@ -17,3 +17,14 @@ reader against more than this crate's own test writer
 parameters lowered in `kdf_parameters`, then `add_group`, `add_entry`
 (with tags, URL, notes, `otp`, a protected and a plain custom property,
 `save_history` twice, an attachment) and `trash_entry`, and saved once.
+
+The importers below were written from public format descriptions and are unverified against a current export of the product (launch gate). Their synthetic files live inline in the tests named here, not in this folder:
+
+| Export | Where | Covers |
+|---|---|---|
+| LastPass CSV | `tests/it/lastpass.rs` (inline) | login, plain secure note, structured notes (card, address, Wi-Fi, passport), `http://` URL |
+| NordPass CSV | `tests/it/nordpass.rs` (inline) | password, note, credit_card, identity, folder and unknown types; additional URLs; custom fields as JSON |
+| RoboForm and KeePassXC CSV | `tests/it/csv_presets.rs` (inline) | folder paths, root group, TOTP, a header with an extra column |
+| Dashlane zip | `tests/it/dashlane.rs` (built in the test) | credentials, secure notes, payments (card and bank), ids, personal info, an unknown CSV member |
+| Keeper JSON and CSV | `tests/it/keeper.rs` (inline) | typed `custom_fields`, folders and shared folders; the CSV has no header row |
+| Proton Pass zip and JSON | `tests/it/proton_pass.rs` (inline) | two vaults, login with extra fields, alias, passkey, trashed, card, identity |

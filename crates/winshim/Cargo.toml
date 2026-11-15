@@ -1,0 +1,67 @@
+[package]
+name = "mosaic-winshim"
+description = "The one Windows shim with unsafe: process identity, Authenticode, window and UI Automation reads behind a safe API (ADR-0157)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# The only crate of the workspace that may contain `unsafe` (ADR-0157 D2), and only
+# in modules named `sys_*`. These are the workspace lints with `unsafe_code`
+# lowered from forbid to deny (a module expects it with a reason) and the unsafe
+# hygiene lints added. tools/check-unsafe-confined.sh keeps the exception confined.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+unused_must_use = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "warn"
+module_name_repetitions = "allow"
+allow_attributes_without_reason = "deny"
+allow_attributes = "warn"
+cognitive_complexity = "warn"
+excessive_nesting = "warn"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+missing_safety_doc = "deny"
+
+# Empty on every other target (the crate is `#![cfg(windows)]`).
+[target.'cfg(windows)'.dependencies]
+# Win32 and COM bindings; the version is already pinned in the workspace. Features are only those the
+# shim's calls need (ADR-0157 D2, plus ToolHelp for the parent process id).
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Security_Cryptography_Catalog",
+    "Win32_Security_Cryptography_Sip",
+    "Win32_Security_WinTrust",
+    "Win32_Storage_FileSystem",
+    "Win32_Storage_Packaging_Appx",
+    "Win32_System_Com",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Ole",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+    "Win32_UI_WindowsAndMessaging",
+] }
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

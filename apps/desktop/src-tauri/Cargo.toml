@@ -30,6 +30,9 @@ preview = ["mosaic-native-messaging/preview"]
 
 [dependencies]
 getrandom.workspace = true
+# Agent access: bindings, the policy engine, the HTTPS sender and the agent endpoint server (ADR-0159;
+# a workspace crate; reqwest and tokio are already in the tree through the sync client).
+mosaic-agent = { path = "../../../crates/agent", features = ["http", "server"] }
 mosaic-core = { path = "../../../crates/core" }
 mosaic-generator = { path = "../../../crates/generator" }
 mosaic-import = { path = "../../../crates/import" }
@@ -49,6 +52,9 @@ mosaic-vault = { path = "../../../crates/vault" }
 # in the tree, and the surface test keeps it out. Called from one place, with a URL Rust builds.
 open = "=5.3.2"
 pdf-writer.workspace = true
+# The setup code QR for a phone (ADR-0096): Rust renders the module matrix, the webview draws it.
+# Pinned by the workspace (ADR-0031), no new crate in the tree.
+qrcodegen.workspace = true
 rfd.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
@@ -79,6 +85,8 @@ x11rb.workspace = true
 tauri-build.workspace = true
 
 [dev-dependencies]
+# The fixture CA and the local TLS server of the agent tests (debug builds only).
+mosaic-agent = { path = "../../../crates/agent", features = ["test-util"] }
 mosaic-qr = { path = "../../../crates/qr", features = ["testing"] }
 proptest.workspace = true
 tempfile.workspace = true

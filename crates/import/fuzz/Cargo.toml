@@ -76,3 +76,45 @@ path = "fuzz_targets/kdbx_payload.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "csv_presets"
+path = "fuzz_targets/csv_presets.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dashlane"
+path = "fuzz_targets/dashlane.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "keeper_json"
+path = "fuzz_targets/keeper_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "keeper_csv"
+path = "fuzz_targets/keeper_csv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proton_pass"
+path = "fuzz_targets/proton_pass.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "detect"
+path = "fuzz_targets/detect.rs"
+test = false
+doc = false
+bench = false

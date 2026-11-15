@@ -5,6 +5,7 @@
 
 use serde::Serialize;
 
+use super::agent_access::{AgentAccessRequest, AgentCloseReason, AgentPairingRequest};
 use super::browser::{
     BrowserCloseReason, BrowserPairingRequest, BrowserPasskeyRequest, BrowserRotationRequest,
     BrowserSaveRequest,
@@ -129,6 +130,15 @@ pub enum AppEvent {
     /// edited outside Mosaic, or is from an older version) and weaker
     /// protection settings in it were reset to safe defaults (ADR-0030).
     SettingsReset,
+    /// The user dropped one file onto the window while unlocked. Rust holds
+    /// the path behind the token (the webview never gets a path): choose
+    /// the import flow with it (`import_detect`, `import_preview`).
+    ImportFileDropped {
+        /// Opaque handle, as from `import_choose_file`.
+        file_token: String,
+        /// The file name, for display.
+        file_name: String,
+    },
     /// A browser asks to be paired. The UI shows the code and waits for the
     /// user (`browser_pairing_respond`).
     BrowserPairingRequested {
@@ -186,6 +196,40 @@ pub enum AppEvent {
     /// A browser was paired or removed, or connected or disconnected: read
     /// `browser_status` again.
     BrowserPairingsChanged,
+    /// An agent client asks to be paired. The UI shows the name and the code and
+    /// waits for the user (`agent_pairing_respond`).
+    AgentPairingRequested {
+        /// The request.
+        request: AgentPairingRequest,
+    },
+    /// An agent pairing request is no longer open.
+    AgentPairingClosed {
+        /// The request.
+        request_id: String,
+        /// Why.
+        reason: AgentCloseReason,
+    },
+    /// An agent asks to use a secret. The UI shows the facts and waits for the
+    /// user (`agent_access_respond`); no value is in it. The same request is sent
+    /// again when the number of waiting requests changes.
+    AgentAccessRequested {
+        /// The request.
+        request: AgentAccessRequest,
+    },
+    /// An agent access request is no longer open.
+    AgentAccessClosed {
+        /// The request.
+        request_id: String,
+        /// Why.
+        reason: AgentCloseReason,
+    },
+    /// The number of agent requests being sent changed (the in-use indicator).
+    AgentActivity {
+        /// Requests being sent now.
+        in_flight: u32,
+    },
+    /// Agent pairings, grants or the endpoint changed: read `agent_access_status` again.
+    AgentStateChanged,
     /// A sync run changed these vaults: read their items again.
     SyncDataChanged {
         /// The vaults.
@@ -252,6 +296,7 @@ pub enum AppEvent {
 #[cfg(test)]
 pub(crate) mod samples {
     use super::*;
+    use crate::contract::agent_access::samples as agent;
     use crate::contract::browser::samples as browser;
     use crate::contract::ids::samples as ids;
     use crate::contract::ssh::samples as ssh;
@@ -281,6 +326,26 @@ pub(crate) mod samples {
                 vault_id: ids::vault(3),
             },
             AppEvent::SettingsReset,
+            AppEvent::AgentPairingRequested {
+                request: agent::pairing_request(),
+            },
+            AppEvent::AgentPairingClosed {
+                request_id: agent::request_id(),
+                reason: AgentCloseReason::Expired,
+            },
+            AppEvent::AgentAccessRequested {
+                request: agent::access_request(),
+            },
+            AppEvent::AgentAccessClosed {
+                request_id: agent::request_id(),
+                reason: AgentCloseReason::Answered,
+            },
+            AppEvent::AgentActivity { in_flight: 1 },
+            AppEvent::AgentStateChanged,
+            AppEvent::ImportFileDropped {
+                file_token: "file-9".into(),
+                file_name: "export.csv".into(),
+            },
             AppEvent::BrowserPairingRequested {
                 request: browser::pairing_request(),
             },
@@ -368,6 +433,13 @@ pub(crate) mod samples {
                 | AppEvent::QuickSearchRequested
                 | AppEvent::HardwareVaultClosed { .. }
                 | AppEvent::SettingsReset
+                | AppEvent::AgentPairingRequested { .. }
+                | AppEvent::AgentPairingClosed { .. }
+                | AppEvent::AgentAccessRequested { .. }
+                | AppEvent::AgentAccessClosed { .. }
+                | AppEvent::AgentActivity { .. }
+                | AppEvent::AgentStateChanged
+                | AppEvent::ImportFileDropped { .. }
                 | AppEvent::BrowserPairingRequested { .. }
                 | AppEvent::BrowserPairingClosed { .. }
                 | AppEvent::BrowserSaveRequested { .. }

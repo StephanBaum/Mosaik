@@ -12,45 +12,13 @@
 
 use std::io::Write;
 
+use crate::support::{draft, entry, fixture, labels, secret, tags, urls};
 use mosaic_core::SecretString;
-use mosaic_core::model::{CustomFieldValue, ItemType, OtpKind, SecretField, Text, TextField};
+use mosaic_core::model::{CustomFieldValue, ItemType, OtpKind, SecretField, TextField};
 use mosaic_import::csv::{CsvColumn, CsvMapping};
 use mosaic_import::{
-    EntryWarning, Error, Format, Import, ImportEntry, ImportWarning, ItemDraft, SkipReason,
-    SkippedEntry, parse,
+    EntryWarning, Error, Format, Import, ImportWarning, ItemDraft, SkipReason, SkippedEntry, parse,
 };
-
-fn fixture(name: &str) -> Vec<u8> {
-    std::fs::read(format!(
-        "{}/tests/fixtures/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .unwrap()
-}
-
-fn entry(import: &Import, index: u32) -> &ImportEntry {
-    import.entries.iter().find(|e| e.index == index).unwrap()
-}
-
-fn draft(import: &Import, index: u32) -> &ItemDraft {
-    &entry(import, index).draft
-}
-
-fn secret(d: &ItemDraft, f: SecretField) -> &str {
-    d.secret(f).unwrap().expose_secret()
-}
-
-fn labels(d: &ItemDraft) -> Vec<&str> {
-    d.custom_fields.iter().map(|c| c.label.as_str()).collect()
-}
-
-fn tags(d: &ItemDraft) -> Vec<&str> {
-    d.tags.iter().map(Text::as_str).collect()
-}
-
-fn urls(d: &ItemDraft) -> Vec<&str> {
-    d.urls.iter().map(Text::as_str).collect()
-}
 
 fn history(d: &ItemDraft) -> Vec<&str> {
     d.password_history
@@ -485,9 +453,17 @@ fn onepassword_check_remaining_entries(import: &Import) {
     assert_eq!(d.attachments[0].data.expose_secret(), b"pngbytes");
 
     let e = entry(import, 9);
-    assert_eq!(urls(&e.draft), ["ssh://server.example.com"]);
+    // A non-web URL is kept as a text field, never used for matching.
+    assert!(urls(&e.draft).is_empty());
+    assert_eq!(labels(&e.draft), ["URL"]);
     assert_eq!(secret(&e.draft, SecretField::Password), "server-pw");
-    assert_eq!(e.warnings, [EntryWarning::PasskeysNotImported]);
+    assert_eq!(
+        e.warnings,
+        [
+            EntryWarning::PasskeysNotImported,
+            EntryWarning::UrlKeptAsText
+        ]
+    );
 
     let e = entry(import, 10);
     assert!(e.warnings.is_empty());

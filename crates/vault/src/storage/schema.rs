@@ -819,6 +819,89 @@ BEGIN
 END;
 ";
 
+/// Version 11: the boot marker (M10, CRYPTO_SPEC §6.9.2, ADR-0090): the boot
+/// ID of the device boot in which the master password last unlocked, and the
+/// time it was written. One row, written only on iOS and Android. It is
+/// cleartext, not secret and not derived from a secret. Next to it, the count
+/// of wrong re-authentications (`reauth_failures`).
+const V11: &str = r"
+CREATE TABLE boot_marker (
+    id             INTEGER PRIMARY KEY CHECK (id = 1),
+    boot_id        BLOB    NOT NULL CHECK (length(boot_id) BETWEEN 1 AND 32),
+    recorded_at_ms INTEGER NOT NULL
+) STRICT;
+
+-- The wrong master passwords in a row at a re-authentication on an unlocked
+-- phone (CRYPTO_SPEC §6.9.2, N2): kept across processes so that a restart
+-- does not start the count again. One row, local-only, never synced. A right
+-- password deletes it; the boot marker's deletion does not.
+CREATE TABLE reauth_failures (
+    id       INTEGER PRIMARY KEY CHECK (id = 1),
+    failures INTEGER NOT NULL CHECK (failures BETWEEN 0 AND 255)
+) STRICT;
+";
+
+/// Version 12: the view-comparison bookkeeping gets a column of its own for
+/// this device's checkpoint counter (`own_counter`). Until now the table packed
+/// both counters into `counter` (peer in the low 32 bits, own in the high 32).
+/// The migration unpacks every existing row: `counter` keeps the peer half
+/// and `own_counter` takes the high half (0 for a row written before the
+/// packing), so no row is lost or misread.
+const V12: &str = r"
+ALTER TABLE sync_view_compare ADD COLUMN own_counter INTEGER NOT NULL DEFAULT 0
+    CHECK (own_counter >= 0);
+UPDATE sync_view_compare
+   SET own_counter = counter >> 32,
+       counter = counter & 4294967295;
+";
+
+/// Version 13: agent access (CRYPTO_SPEC §11, ADR-0160). `agent_marks` holds the keyed marks that
+/// confirm, on this device, that the user saw an item's agent binding (32-byte HMACs; no binding
+/// content in cleartext). `agent_log` holds one sealed record per agent decision (`at_ms` in the
+/// clear for the 90-day pruning, bound into the AAD). Neither table is synced, put in the outbox,
+/// exported or touched by `reset_sync_state`. Marks go with the item (a purged or tombstoned
+/// record, here by trigger) and with the vault (cascade).
+const V13: &str = r"
+CREATE TABLE agent_marks (
+    vault_id  BLOB NOT NULL CHECK (length(vault_id) = 16)
+                   REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    item_id   BLOB NOT NULL CHECK (length(item_id) = 16),
+    mark      BLOB NOT NULL CHECK (length(mark) = 32),
+    PRIMARY KEY (vault_id, item_id, mark)
+) STRICT;
+
+CREATE TABLE agent_log (
+    entry_id  BLOB    NOT NULL PRIMARY KEY CHECK (length(entry_id) = 16),
+    at_ms     INTEGER NOT NULL CHECK (at_ms >= 0),
+    sealed    BLOB    NOT NULL CHECK (length(sealed) BETWEEN 42 AND 65536),
+    -- 1 for a refusal row: those keep their own, smaller cap (ADR-0159).
+    noisy     INTEGER NOT NULL DEFAULT 0 CHECK (noisy IN (0, 1))
+) STRICT;
+
+CREATE INDEX agent_log_at_ms ON agent_log (at_ms);
+CREATE INDEX agent_log_noisy_at_ms ON agent_log (noisy, at_ms);
+
+CREATE TRIGGER records_agent_marks_delete
+AFTER DELETE ON records
+BEGIN
+    DELETE FROM agent_marks WHERE vault_id = OLD.vault_id AND item_id = OLD.record_id;
+END;
+
+CREATE TRIGGER records_agent_marks_tombstone_insert
+AFTER INSERT ON records
+WHEN NEW.kind = 2
+BEGIN
+    DELETE FROM agent_marks WHERE vault_id = NEW.vault_id AND item_id = NEW.record_id;
+END;
+
+CREATE TRIGGER records_agent_marks_tombstone_update
+AFTER UPDATE ON records
+WHEN NEW.kind = 2
+BEGIN
+    DELETE FROM agent_marks WHERE vault_id = NEW.vault_id AND item_id = NEW.record_id;
+END;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -861,10 +944,22 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 10,
         sql: V10,
     },
+    Migration {
+        version: 11,
+        sql: V11,
+    },
+    Migration {
+        version: 12,
+        sql: V12,
+    },
+    Migration {
+        version: 13,
+        sql: V13,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 10;
+pub const LATEST_VERSION: u32 = 13;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -1018,10 +1113,22 @@ mod tests {
             },
             Migration {
                 version: 11,
+                sql: V11,
+            },
+            Migration {
+                version: 12,
+                sql: V12,
+            },
+            Migration {
+                version: 13,
+                sql: V13,
+            },
+            Migration {
+                version: 14,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 11);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 14);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -1035,11 +1142,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 11,
-                supported: 10
+                found: 14,
+                supported: 13
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 11);
+        assert_eq!(user_version(&c).unwrap(), 14);
     }
 
     #[test]
@@ -1089,11 +1196,23 @@ mod tests {
             },
             Migration {
                 version: 11,
+                sql: V11,
+            },
+            Migration {
+                version: 12,
+                sql: V12,
+            },
+            Migration {
+                version: 13,
+                sql: V13,
+            },
+            Migration {
+                version: 14,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 10);
+        assert_eq!(user_version(&c).unwrap(), 13);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1102,6 +1221,49 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    /// v11 to v12: a row written with the two counters packed into `counter`
+    /// (and one written before the packing) is unpacked, not lost or misread.
+    #[test]
+    fn migration_v11_to_v12_unpacks_the_view_compare_counters() {
+        let mut c = conn();
+        migrate(&mut c, &MIGRATIONS[..11]).unwrap();
+        let packed: i64 = (9_i64 << 32) | 7;
+        for (device, since, counter) in [
+            (1_u8, Some(50_i64), packed),
+            (2, None, 4),
+            (3, Some(60), 4_294_967_295),
+        ] {
+            c.execute(
+                "INSERT INTO sync_view_compare (device_id, vault_id, since_ms, counter)
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![[device; 16], [8u8; 16], since, counter],
+            )
+            .unwrap();
+        }
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
+        let rows: Vec<(u8, Option<i64>, i64, i64)> = c
+            .prepare(
+                "SELECT device_id, since_ms, counter, own_counter
+                 FROM sync_view_compare ORDER BY device_id",
+            )
+            .unwrap()
+            .query_map([], |r| {
+                let d: Vec<u8> = r.get(0)?;
+                Ok((d[0], r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (1, Some(50), 7, 9),
+                (2, None, 4, 0),
+                (3, Some(60), 4_294_967_295, 0)
+            ]
+        );
     }
 
     #[test]
@@ -1684,7 +1846,7 @@ mod tests {
                          x'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a', 1, 1, x'0102', 6);",
         )
         .unwrap();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 10);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
         assert_eq!(user_version(&c).unwrap(), LATEST_VERSION);
         // Existing data is kept, the new tables start empty.
         let (updated, record_updated): (i64, i64) = c
@@ -1720,6 +1882,55 @@ mod tests {
             .query_row("SELECT count(*) FROM breach_state", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn migration_v10_to_v11() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..10]).unwrap(), 10);
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..11]).unwrap(), 11);
+        assert_eq!(user_version(&c).unwrap(), 11);
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM boot_marker", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "the marker starts absent");
+        // One row, an id of 1, a boot ID of 1 to 32 bytes.
+        for sql in [
+            "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (2, x'01', 0)",
+            "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (1, x'', 0)",
+            "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (1, zeroblob(33), 0)",
+        ] {
+            assert!(c.execute(sql, []).is_err(), "{sql}");
+        }
+        c.execute(
+            "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (1, zeroblob(32), 0)",
+            [],
+        )
+        .unwrap();
+        assert!(
+            c.execute(
+                "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (1, x'01', 0)",
+                [],
+            )
+            .is_err()
+        );
+        // The re-authentication counter: absent at the start, one row, 0 to 255.
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM reauth_failures", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "the counter starts absent");
+        for sql in [
+            "INSERT INTO reauth_failures (id, failures) VALUES (2, 1)",
+            "INSERT INTO reauth_failures (id, failures) VALUES (1, -1)",
+            "INSERT INTO reauth_failures (id, failures) VALUES (1, 256)",
+        ] {
+            assert!(c.execute(sql, []).is_err(), "{sql}");
+        }
+        c.execute(
+            "INSERT INTO reauth_failures (id, failures) VALUES (1, 255)",
+            [],
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1770,5 +1981,68 @@ mod tests {
             [],
         )
         .unwrap();
+    }
+
+    /// v12 to v13: the agent tables start empty and take only well-formed rows; a record's
+    /// deletion or its turning into a tombstone removes the item's marks.
+    #[test]
+    fn v13_migrates_from_v12_and_checks_lengths() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..12]).unwrap(), 12);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 13);
+        for table in ["agent_marks", "agent_log"] {
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table} starts empty");
+        }
+        let vault = "x'02020202020202020202020202020202'";
+        let item = "x'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a'";
+        // The length checks refuse these before the foreign key is looked at.
+        for sql in [
+            format!("INSERT INTO agent_marks VALUES ({vault}, x'0a', zeroblob(32))"),
+            format!("INSERT INTO agent_marks VALUES (x'02', {item}, zeroblob(32))"),
+            format!("INSERT INTO agent_marks VALUES ({vault}, {item}, zeroblob(31))"),
+            format!("INSERT INTO agent_marks VALUES ({vault}, {item}, zeroblob(33))"),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(15), 0, zeroblob(60))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), -1, zeroblob(60))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(41))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(65537))".to_owned(),
+        ] {
+            assert!(c.execute(&sql, []).is_err(), "{sql}");
+        }
+        c.execute(
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(42))",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (x'01010101010101010101010101010101', 0, zeroblob(65536))",
+            [],
+        )
+        .unwrap();
+    }
+
+    /// v13: `agent_log.noisy` exists, defaults to 0 and takes only 0 or 1.
+    #[test]
+    fn v13_agent_log_has_the_noisy_flag() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 13);
+        c.execute(
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(42))",
+            [],
+        )
+        .unwrap();
+        let noisy: i64 = c
+            .query_row("SELECT noisy FROM agent_log", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(noisy, 0);
+        assert!(
+            c.execute(
+                "INSERT INTO agent_log VALUES (x'01010101010101010101010101010101', 0, zeroblob(42), 2)",
+                [],
+            )
+            .is_err()
+        );
     }
 }

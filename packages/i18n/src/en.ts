@@ -12,6 +12,8 @@ import { generator } from "./catalog/en/generator.ts";
 import { clipboard } from "./catalog/en/clipboard.ts";
 import { insights } from "./catalog/en/insights.ts";
 import { importMessages } from "./catalog/en/import.ts";
+import { agent } from "./catalog/en/agent.ts";
+import { importGuide } from "./catalog/en/importGuide.ts";
 import { browser } from "./catalog/en/browser.ts";
 import { ssh } from "./catalog/en/ssh.ts";
 import { settings } from "./catalog/en/settings.ts";
@@ -25,6 +27,8 @@ import { sharing } from "./catalog/en/sharing.ts";
 import { rotation } from "./catalog/en/rotation.ts";
 import { credentialRotation } from "./catalog/en/credentialRotation.ts";
 import { breach } from "./catalog/en/breach.ts";
+import { mobile } from "./catalog/en/mobile.ts";
+import { mobileUx } from "./catalog/en/mobileUx.ts";
 
 export const en = {
   ...app,
@@ -37,8 +41,10 @@ export const en = {
   ...clipboard,
   ...insights,
   ...importMessages,
+  ...importGuide,
   ...ssh,
   ...browser,
+  ...agent,
   ...settings,
   ...palette,
   ...shell,
@@ -50,6 +56,8 @@ export const en = {
   ...rotation,
   ...credentialRotation,
   ...breach,
+  ...mobile,
+  ...mobileUx,
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

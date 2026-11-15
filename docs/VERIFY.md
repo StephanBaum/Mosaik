@@ -89,6 +89,35 @@ codesign -dv --verbose=4 /Applications/Mosaic.app
 xcrun stapler validate Mosaic_0.1.0_aarch64.dmg
 ```
 
+### The Android app (APK)
+
+The release holds `Mosaic-<version>-android.apk` when the project built one. Its checksum is in
+`SHA256SUMS` like every other file, so steps 2 and 3 above apply to it. Android adds a second
+check: the APK carries its own signature, and updates install only over an app with the **same
+signer**. Compare the signer's fingerprint with the one published here and in `SECURITY.md`:
+
+```
+SHA-256 of the Android signing certificate: (published with the first release; also in release/android-signer.sha256)
+```
+
+With the Android SDK build tools (`apksigner`):
+
+```
+apksigner verify --print-certs Mosaic-<version>-android.apk
+```
+
+It must print `Verified using v2 scheme (APK Signature Scheme v2): true` (or v3), exactly one signer
+and a line `Signer #1 certificate SHA-256 digest:` whose value equals the published fingerprint (case
+and colons do not matter). With only a JDK:
+
+```
+keytool -printcert -jarfile Mosaic-<version>-android.apk
+```
+
+Compare its `SHA256:` line (colon separated) with the published value. If the fingerprint differs,
+do not install the file. A file from a preview build is signed with a throwaway key and never
+matches. A release key that changes cannot update an installed app: Android refuses the update.
+
 ### Unsigned builds
 
 Until the project has a Windows code-signing certificate and an Apple Developer account, releases

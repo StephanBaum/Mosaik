@@ -1,4 +1,5 @@
 /** The top bar (Main): breadcrumb, search, and the "New item" action. */
+import { useEvents } from "../../app/EventsProvider.tsx";
 import { Button } from "../../components/Button.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
 import { Icon } from "../../components/icons.tsx";
@@ -62,6 +63,22 @@ function Breadcrumb(props: TopBarProps) {
   );
 }
 
+/** An agent is using a key right now: a dot and a polite announcement, no sound. */
+export function AgentActivityIndicator() {
+  const { t } = useI18n();
+  const { agent } = useEvents();
+  return (
+    <span className="agent-indicator" role="status" aria-live="polite">
+      {agent.inFlight > 0 && (
+        <>
+          <span className="agent-indicator__dot" aria-hidden="true" />
+          <span>{t("agent.inUse")}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
 export function TopBar(props: TopBarProps) {
   const { t } = useI18n();
   const platform = usePlatform();
@@ -69,6 +86,7 @@ export function TopBar(props: TopBarProps) {
   return (
     <header className="topbar">
       <Breadcrumb {...props} />
+      <AgentActivityIndicator />
       <div className="search">
         <Icon name="search" />
         <input

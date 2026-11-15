@@ -39,7 +39,7 @@ export const onboarding = {
     "Du hast dein Emergency Kit noch nicht bestätigt. Gib dein Master-Passwort ein, um es noch einmal zu speichern, und bestätige dann die letzte Gruppe deines Secret Keys.",
   "onboarding.import.title": "Bring deine Passwörter mit",
   "onboarding.import.body":
-    "Importiere jetzt aus einem anderen Passwortmanager oder später im Tresor.",
+    "Aus Chrome, Edge, Firefox, Safari und anderen Browsern oder aus 1Password, Bitwarden, LastPass, Dashlane, Keeper, NordPass, Proton Pass, RoboForm, KeePass und Enpass. Das dauert ein paar Minuten. Du kannst es auch später in den Einstellungen machen.",
   "onboarding.import.start": "Aus einer anderen App importieren",
   "onboarding.import.skip": "Jetzt überspringen",
   "onboarding.done.title": "Alles bereit",

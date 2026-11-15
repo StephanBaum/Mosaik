@@ -19,6 +19,10 @@ url.workspace = true
 # IDNA to-Unicode for the IDN warning.
 idna.workspace = true
 thiserror.workspace = true
+# Digital Asset Links and the privileged-browser allowlist are JSON (M10, ADR-0092).
+serde_json.workspace = true
+# The app URL's certificate hash is base64url (M10, ADR-0092).
+base64ct = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
 proptest.workspace = true

@@ -111,6 +111,22 @@ pub mod label {
     /// AAD of a browser channel frame (§15).
     pub(crate) const BROWSER_FRAME: Label = Label::new("browser/frame");
 
+    /// HKDF info of the agent channel's authentication key (§15, ADR-0160).
+    pub(crate) const AGENT_AUTH: Label = Label::new("agent/auth");
+    /// Prefix of the agent channel handshake transcript (§15, ADR-0160).
+    pub(crate) const AGENT_HANDSHAKE: Label = Label::new("agent/handshake");
+    /// HKDF info of the agent channel's session keys (§15, ADR-0160).
+    pub(crate) const AGENT_SESSION: Label = Label::new("agent/session");
+    /// AAD of an agent channel frame (§15, ADR-0160).
+    pub(crate) const AGENT_FRAME: Label = Label::new("agent/frame");
+    /// HKDF info of the agent device-mark key `K_agent_mark` (§11, ADR-0160).
+    pub(crate) const AGENT_MARK: Label = Label::new("agent-mark");
+    /// HKDF info of the agent log key `K_agent_log` (§11, ADR-0160).
+    pub(crate) const AGENT_LOG_KEY: Label = Label::new("agent-log-key");
+    /// AAD of one agent log record (§11, ADR-0160). Only an AAD label, followed
+    /// by `0x00`; `agent-log-key` is only an HKDF info.
+    pub(crate) const AGENT_LOG: Label = Label::new("agent-log");
+
     /// HKDF info of the checkpoint key `K_cp` (§10).
     pub(crate) const CHECKPOINT_KEY: Label = Label::new("checkpoint-key");
     /// Prefix of the checkpoint MAC input (§10).
@@ -184,6 +200,12 @@ pub mod label {
     /// The HKDF info of the export key `K_x` (§11.2).
     pub(crate) const EXPORT_KEY: Label = Label::new("export-key");
 
+    /// The AAD label of an Android secure-store file (§6.9.1, M10). Only used
+    /// inside an AAD by the platform's AES-256-GCM, followed by `0x00`.
+    pub const MOBILE_SECURE_STORE: Label = Label::new("mobile/secure-store");
+    /// The AAD label of the Android quick-unlock body (§6.2, M10).
+    pub const QUICK_UNLOCK_ANDROID: Label = Label::new("quick-unlock/android");
+
     /// Input of the pre-login fake salt (§9.2); raw, like the others.
     pub const PRELOGIN_SALT: Label = Label::new("prelogin/salt");
     /// Input of the pre-login fake profile (§9.2); raw, like the others.
@@ -191,7 +213,7 @@ pub mod label {
 
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 56] = [
+    pub(crate) const ALL: [Label; 65] = [
         SERVER_PRELOGIN_KEY,
         SERVER_TOTP_KEY,
         SERVER_TOTP_AT_REST,
@@ -218,6 +240,13 @@ pub mod label {
         BROWSER_HANDSHAKE,
         BROWSER_SESSION,
         BROWSER_FRAME,
+        AGENT_AUTH,
+        AGENT_HANDSHAKE,
+        AGENT_SESSION,
+        AGENT_FRAME,
+        AGENT_MARK,
+        AGENT_LOG_KEY,
+        AGENT_LOG,
         CHECKPOINT_KEY,
         CHECKPOINT,
         SESSION,
@@ -248,6 +277,8 @@ pub mod label {
         CLI_SESSION,
         EXPORT,
         EXPORT_KEY,
+        MOBILE_SECURE_STORE,
+        QUICK_UNLOCK_ANDROID,
     ];
 }
 
@@ -476,7 +507,7 @@ mod tests {
     /// new pair has to be added here on purpose.
     #[test]
     fn label_prefix_pairs_are_reviewed() {
-        const REVIEWED: [(&str, &str); 10] = [
+        const REVIEWED: [(&str, &str); 11] = [
             ("secret-key", "secret-key-checksum"),
             // Hashed as `ctx || 0x00 || ...` with SHA-256; `secret-key` is an
             // HKDF info, so the two never meet (§3, §6.7).
@@ -491,6 +522,9 @@ mod tests {
             // `export` is only an AAD label (followed by 0x00), `export-key` only
             // an HKDF info (§3, §11.2).
             ("export", "export-key"),
+            // `agent-log` is only an AAD label, `agent-log-key` only an HKDF info
+            // (§3, §11, ADR-0160).
+            ("agent-log", "agent-log-key"),
         ];
         let mut found = Vec::new();
         for (i, a) in label::ALL.iter().enumerate() {

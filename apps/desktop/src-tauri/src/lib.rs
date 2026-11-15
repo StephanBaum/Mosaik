@@ -35,6 +35,7 @@
 #![forbid(unsafe_code)]
 
 pub mod adapters;
+pub mod agent;
 pub mod attachment_files;
 pub mod autolock;
 pub mod browser;
@@ -45,6 +46,7 @@ pub mod contract;
 pub mod dialogs;
 pub mod emergency_kit;
 pub mod events;
+pub mod export_cleanup;
 pub mod keystore;
 pub mod navigation;
 pub mod otp_pending;
@@ -222,6 +224,8 @@ pub fn run() -> tauri::Result<()> {
             }));
             // After the state exists: the endpoint reaches the vault through it.
             state.backend().browser.start(&dir, state.downgrade());
+            // The agent endpoint binds at the first unlock that finds the setting on.
+            state.backend().agent.start(&dir, state.downgrade());
 
             let wanted = state.backend().settings_snapshot().global_shortcut;
             let accelerator = shortcut::parse_accelerator(&wanted)
@@ -246,6 +250,13 @@ pub fn run() -> tauri::Result<()> {
             {
                 state.backend().touch();
             }
+            // The webview never listens to drops (paths): Rust takes the file
+            // and sends the webview a token (`importFileDropped`).
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event
+                && let Some(state) = window.app_handle().try_state::<AppState>()
+            {
+                state.backend().import_file_dropped(paths);
+            }
         })
         .invoke_handler(commands::handler())
         .build(context())?;
@@ -262,6 +273,7 @@ pub fn run() -> tauri::Result<()> {
                 state.backend().adapters.ssh.shutdown();
                 // Closes the sessions and, on Windows, deletes `endpoint.json`.
                 state.backend().browser.stop();
+                state.backend().agent.stop();
                 let _ = state.backend().lock(LockReason::Manual);
                 state.backend().clipboard.shutdown();
             }
@@ -270,6 +282,10 @@ pub fn run() -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod agent_binding_tests;
+#[cfg(test)]
+mod agent_tests;
 #[cfg(test)]
 mod browser_rotation_tests;
 #[cfg(test)]
@@ -298,6 +314,8 @@ mod release_overlay_tests;
 mod rotation_handler_tests;
 #[cfg(test)]
 mod settings_integrity_tests;
+#[cfg(test)]
+mod setup_code_tests;
 #[cfg(test)]
 mod sharing_tests;
 #[cfg(test)]

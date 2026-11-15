@@ -359,3 +359,14 @@
 .user-text {
   unicode-bidi: isolate;
 }
+
+/* The setup code for a phone: drawn in the print colors so a camera reads it in both themes. */
+.setup-code {
+  display: block;
+  inline-size: 100%;
+  max-inline-size: var(--size-column);
+  block-size: auto;
+  margin-inline: auto;
+  border-radius: var(--radius-field);
+  image-rendering: pixelated;
+}

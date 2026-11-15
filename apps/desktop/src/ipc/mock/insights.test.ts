@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMockIpc } from "../mock.ts";
+import { defaultAgent } from "./agent.ts";
 import { defaultBrowser } from "./browser.ts";
 import { sampleItems, sampleVaults } from "./data.ts";
 import { defaultQuick } from "./quickUnlock.ts";
@@ -21,6 +22,7 @@ function state(items: MockItem[]): MockState {
     kitVerified: true,
     sshEnabled: false,
     sshRequest: false,
+    agent: defaultAgent(),
     browser: defaultBrowser(() => NOW),
     rotation: seedRotation({}),
     credRotation: seedCredRotation(undefined),
@@ -36,7 +38,9 @@ function state(items: MockItem[]): MockState {
     otpPending: new Map(),
     otpPendingCounter: 0,
     attachments: new Map(),
-    options: { otpScan: null, screenScan: true, attachAdd: null, attachSave: null, shortcut: "registered", metaDropped: [] },
+    options: { otpScan: null, screenScan: true, attachAdd: null, attachSave: null,
+      importDetected: null,
+      importDeleteFails: false, shortcut: "registered", metaDropped: [] },
     emit: () => undefined,
     now: () => NOW,
     nextId: () => "019a2b3c-0000-7000-8000-000000000000",

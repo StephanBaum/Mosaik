@@ -147,8 +147,8 @@ fn check_valid_mac_is_accepted(d: &Path, secret_key: &str) {
             })
             .unwrap_err()
             .code,
-            ErrorCode::Locked,
-            "a protection setting does not change while locked"
+            ErrorCode::ReauthRequired,
+            "a later idle lock is a weakening: it needs the password, whether locked or not"
         );
         unlock(&b, secret_key);
         let expected = Settings {
@@ -517,4 +517,55 @@ fn an_invalid_mac_is_replaced_even_when_the_values_are_the_strict_ones() {
     let (b, log) = start(d);
     unlock(&b, &secret_key);
     assert_eq!(resets(&log), 0);
+}
+
+#[test]
+fn agent_access_reads_false_while_locked_and_after_a_bad_mac() {
+    let _kdf = crate::test_support::kdf_permit();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let secret_key = new_account(d);
+    {
+        let (b, _) = start(d);
+        unlock(&b, &secret_key);
+        b.update_stored(|s| s.agent_access_enabled = true).unwrap();
+    }
+    assert_eq!(read_file(d)["agentAccessEnabled"], true);
+    {
+        let (b, log) = start(d);
+        assert!(!b.stored().agent_access_enabled, "locked: reads off");
+        unlock(&b, &secret_key);
+        assert!(b.stored().agent_access_enabled, "verified: on");
+        assert_eq!(resets(&log), 0);
+        b.update_stored(|s| s.agent_access_enabled = false).unwrap();
+    }
+    assert!(
+        read_file(d).get("agentAccessEnabled").is_none(),
+        "off is not written"
+    );
+    // Malware turns agent access on in the file.
+    let mut file = read_file(d);
+    file["agentAccessEnabled"] = json!(true);
+    write_file(d, &file);
+    let (b, log) = start(d);
+    assert!(!b.stored().agent_access_enabled);
+    unlock(&b, &secret_key);
+    assert!(!b.stored().agent_access_enabled, "invalid MAC: stays off");
+    assert_eq!(resets(&log), 1, "the user is told");
+    assert!(read_file(d).get("agentAccessEnabled").is_none());
+}
+
+#[test]
+fn an_existing_mac_still_verifies() {
+    // A file written before agent access existed has no such key; its MAC covers the
+    // bytes without it, and the check passes with the flag off.
+    let _kdf = crate::test_support::kdf_permit();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let secret_key = new_account(d);
+    assert!(read_file(d).get("agentAccessEnabled").is_none());
+    let (b, log) = start(d);
+    unlock(&b, &secret_key);
+    assert_eq!(resets(&log), 0);
+    assert!(!b.stored().agent_access_enabled);
 }

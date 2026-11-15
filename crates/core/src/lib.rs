@@ -47,6 +47,7 @@
 #![forbid(unsafe_code)]
 
 mod aead;
+mod agent_keys;
 pub mod attachment;
 pub mod browser_channel;
 pub mod cli_session;
@@ -63,6 +64,7 @@ mod rng;
 mod secret;
 mod secret_key;
 mod settings_mac;
+pub mod setup_code;
 pub mod share;
 mod spoofing;
 pub mod sync_auth;
@@ -71,6 +73,9 @@ pub mod unlock;
 #[cfg(test)]
 mod golden;
 
+pub use agent_keys::{
+    AGENT_LOG_ENTRY_ID_LEN, AGENT_MARK_LEN, AgentLogKey, AgentMarkKey, new_agent_log_entry_id,
+};
 pub use attachment::{MAX_ATTACHMENT_LEN, open_attachment, seal_attachment};
 #[cfg(fuzzing)]
 #[doc(hidden)]
@@ -96,6 +101,7 @@ pub use model::{
     Causality, Contact, ContactBook, ContactState, Item, ItemEdit, ItemType, MergeOutcome, Stamp,
     Timestamp, Tombstone, VaultMeta, VersionVector,
 };
+pub use rng::random_public_bytes;
 pub use secret::{
     AccountKey, AttachmentKey, CheckpointKey, ContactsKey, DeviceInfoKey, FolderMacKey, Kek,
     MasterPassword, OpaquePassword, SecretBytes, SecretKey, SecretString, SecretVec, SessionToken,

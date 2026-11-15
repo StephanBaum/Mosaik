@@ -7,6 +7,14 @@ import { catalogs, type MessageKey } from "@mosaic/i18n";
 import { describe, expect, it } from "vitest";
 import { fixtures } from "./contract.fixtures.ts";
 import {
+  agentAccessDecisions,
+  agentBasicUserKinds,
+  agentCloseReasons,
+  agentEndpointStates,
+  agentGrantStates,
+  agentInjectKinds,
+  agentLogKinds,
+  agentRefusalCodes,
   attemptStages,
   binaryCommands,
   breachModes,
@@ -23,7 +31,9 @@ import {
   customFieldKinds,
   errorCodes,
   importEntryWarnings,
+  importDetectedSources,
   importFormats,
+  importSyncedFolders,
   importSkipReasons,
   importWarnings,
   insightActions,
@@ -101,6 +111,14 @@ describe("contract parity with Rust", () => {
   });
 
   const enums: { [K in keyof EnumFixtures]: readonly string[] } = {
+    agentInjectKind: agentInjectKinds,
+    agentBasicUserKind: agentBasicUserKinds,
+    agentEndpointState: agentEndpointStates,
+    agentGrantState: agentGrantStates,
+    agentAccessDecision: agentAccessDecisions,
+    agentCloseReason: agentCloseReasons,
+    agentLogKind: agentLogKinds,
+    agentRefusalCode: agentRefusalCodes,
     biometricPlatformKind: biometricPlatformKinds,
     errorCode: errorCodes,
     rotationKind: rotationKinds,
@@ -136,6 +154,8 @@ describe("contract parity with Rust", () => {
     historyReasonKey: historyReasonKeys,
     breachScanError: breachScanErrors,
     importFormat: importFormats,
+    importDetectedSource: importDetectedSources,
+    importSyncedFolder: importSyncedFolders,
     importWarning: importWarnings,
     importEntryWarning: importEntryWarnings,
     importSkipReason: importSkipReasons,

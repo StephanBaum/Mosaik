@@ -138,7 +138,7 @@ No master key, no support override, no "account recovery" that is really a backd
 | Passkeys (3×1) | **Passkeys, everywhere.** | Create and use passkeys in your browser and on your phone, synced and end-to-end encrypted. |
 | 2FA codes (3×1, TOTP ring) | **Codes that fill themselves.** | TOTP, HOTP and Steam Guard. Scan a QR code from your screen, and the code fills right after your password. Want more? Keep them in a vault only your hardware key opens. |
 | SSH agent | **Your SSH keys, on a leash.** | A built-in SSH agent serves keys from your vault. Every use asks first. |
-| Import | **Switch in minutes.** | Enpass, Bitwarden, KeePass, 1Password and CSV, with a preview and duplicate check. Passkeys come along via the FIDO exchange format. |
+| Import | **Switch in minutes.** | Chrome, Edge, Brave, Opera, Vivaldi, Arc, Firefox, Safari and Apple Passwords, or 1Password, Bitwarden, KeePass and KeePassXC, Enpass, LastPass, Dashlane, Keeper, NordPass, Proton Pass, RoboForm and CSV. Open Mosaic, then Settings → Import: it shows the export steps for your app, a preview with duplicate check, and what will not come across. Mosaic helps you delete the export file afterwards. Passkeys come along via the FIDO exchange format. |
 | Sync | **Your cloud or ours.** | Dropbox, iCloud Drive, OneDrive, Nextcloud, a NAS or a team folder. Or our hosted server. Or your own, with one Docker Compose command. Works offline, merges cleanly, never silently drops an edit. |
 | Sharing | **Share without trusting the middle.** | Shared vaults sealed to each person's key. Check a safety code once, and a swapped key can't slip past you. Remove someone and the vault re-keys. |
 | Emergency access | **A way in for the people you trust.** | Name someone. If you can't be reached, they get access after the waiting period you set, unless you say no. |
@@ -257,7 +257,7 @@ Yes, for free. Point {NAME} at a folder in Dropbox, iCloud Drive, OneDrive, Next
 Then nobody can recover your data. Not us, not your server's operator. Your Emergency Kit holds your Secret Key for new devices, and emergency access lets a person you trust in after a waiting period, if you set it up in advance. There is no third way, on purpose.
 
 **6. Can I import from my current manager?**
-Yes: Enpass, Bitwarden, KeePass (KDBX 4), 1Password (1PUX) and CSV, so LastPass and others work via CSV. Passkeys come along from Bitwarden, KeePassXC and the FIDO exchange format.
+Yes. Browsers: Chrome, Edge, Brave, Opera, Vivaldi, Arc, Firefox, Safari and Apple Passwords. Managers: 1Password, Bitwarden (unencrypted export), KeePass and KeePassXC, Enpass, LastPass, Dashlane, Keeper, NordPass, Proton Pass (unencrypted export), RoboForm, and any CSV with a header row. Open Mosaic, then Settings → Import, and it walks you through the export. An export file holds your passwords in plain text, so Mosaic helps you delete it afterwards. Passkeys come along from Bitwarden, KeePassXC and the FIDO exchange format; browsers and most managers leave them out of their exports, so keep your old app until you have set up new passkeys.
 
 **7. Does it work on my phone?**
 Yes. iOS and Android, with system autofill and passkeys.

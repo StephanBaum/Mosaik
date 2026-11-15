@@ -331,6 +331,71 @@ on the sync server; per-user manifests can still shadow the installer's system m
 reported by the override audit); an oversized metadata merge drops values and tells the person which (R122); the
 Authenticode signing step still runs with the certificate in a hosted runner (R118).
 
+## M10 Mobile
+
+Status: **done** (2026-11-14). Sources: the commit messages named below, `docs/PROGRESS.md` ("M10 Mobile") and
+`docs/MOBILE.md`. The commit messages name findings by ID (G1-1, M1, L2, ...) and rarely give the severity of each;
+where a severity count was not written down, it says "not recorded". Everything was tested in CI simulators and
+emulators only; no real device was used.
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-12 | G1 crypto-reviewer on T1 to T3b (mobile core, vault v11, FFI) | opus | not recorded | 17 items named G1-1 to G1-17 | Fixed in `cdeeeae`, then verified twice: `0b0221f` (N1 to N8) and `4c0a512` (F1 to F5), docs `f9076bb`, test hooks `f534979` (G1-20). Lock flag under the core mutex, re-authentication limit, fill sessions, quick-unlock age bound to the verified setting, one signer per Android app login |
+| 2026-11-13 | G2 crypto-reviewer on the Android key code (and one desktop item) | opus | 1 / 4 / 7 / not recorded | none | Fixed in `0204ecc`, `94f4940`, `9b92ce0`: H1 (a browser without `webDomain` was matchable and linkable), M1 to M4 (lock during Busy, clipboard deadline, exported activity link token, desktop setup-code copies of the Secret Key), L1 to L7. Counts are the finding IDs the commit messages name. Docs `96753a0` |
+| 2026-11-13 | G2 round 2 (Android and mobile core) | opus | not recorded | 6 items named N1 to N6 (N1 to N5 named in commits) | Fixed in `5c49780`, `9ce8c2c`, `e7ecff4`, `03c8b42` (field selection by target kind, a join keeps a lock that came meanwhile, onboarding key expiry, clipboard guard, scheme inherited with the domain); N6 in docs `2424990` |
+| 2026-11-13 | G2 crypto-reviewer on the iOS key code and extension | opus | 0 / 3 / 4 / not recorded | Info items named, number not recorded | Fixed in `dd3825b` (M1 to M3, L1), `291cc22` (L2 to L4), `bce474f` (Info); docs `8ebb707`. The extension ends on dismissal, expired keys are deleted, a QuickType suggestion fills only after a confirm and Face ID |
+| 2026-11-13 | G3 extension-attacker on the Android Autofill Service and Credential Manager provider | opus | not recorded | 6 items (G3-1 to G3-6), round 2: 4 items (N1 to N4) | Fixed in `6b582ca`, `141b914`, `6ad0122`, `0c37b9a` with the evidence tests of `5eee0a6`; R141 and the ADR-0092 amendments. The first review's findings were held as ignored tests until fixed |
+| 2026-11-13 | G3 extension-attacker on the iOS provider (core tests and extension lifecycle) | opus | not recorded | 4 items (G3i-1 to G3i-4) | Fixed in `673b7cb` and `bd2ab36` with the tests of `20a3420` and `dacc97f`; the iOS device questions are in `docs/MOBILE.md` §7 |
+| 2026-11-14 | G4 ux-reviewer on the Android and iOS screens | sonnet | not recorded | 13 numbered items plus a list of minors, counts not recorded | Fixed in `111e041`, `bfaaaa2`, `bc91ce4`: sync after the join, phone error texts, look-alike confirm before a fill, German terms, touch targets, Dynamic Type |
+| 2026-11-13 | G5 test-engineer | sonnet | not graded | test counts not recorded | Tests `c007fe9`, `4c594a2` (error mapping, OTP scan, property tests, two fuzz targets, asset-links and TLS anchor limits); CI coverage, fuzz smoke and cargo-deny `5de5271`. No new bug named in the messages |
+| 2026-11-14 | G5b sync-chaos against the phone core (hostile server, lifecycle cuts, three devices) | opus | not graded | 3 findings (G5b-1 to G5b-3) | Fixed in `89ef98a` (the phone shows and acknowledges sync findings, a minimum of three runs before NoCommonView) and `66f1395` (store v12 own-run counter); scenario tests `640eb36`; `42fd4a2` is an ignored test for the packed counter bound |
+
+Total: not recorded for most rows; the named severities add up to High 1, Medium 7, Low 11 (G2 only). Finding IDs named
+in the commit messages: G1 17 plus 13 follow-ups, G3 10 (Android) plus 4 (iOS), G5b 3.
+
+The headline limits (THREAT_MODEL R125 to R141): some secret copies on the platform side of the FFI are not wiped;
+Android quick unlock lasts per device boot; iOS cannot block screenshots; the Android provider grace keeps the vault
+unlocked up to 60 s in a provider flow; the asset-links fetch tells the relying party the device's IP address; Chrome
+sends one `webDomain` per form.
+
+## Red-team campaign 2026-11
+
+Status: round 1 **done and landed in `main`** (PRs #73 to #78, plus the iOS and Android fixes in the M10 branch);
+round 2 **fixed in PR #80, not yet merged**. A whole-app red team of every surface by Fable (model tier fable), each fix
+re-verified adversarially. Sources: the commit messages named below, the PR descriptions and the task brief for round 2.
+Fixes were written with Opus 5.5 (commit trailers). Severity is given only where a commit message or the brief states it.
+
+### Round 1, by surface (2026-11-13 to 2026-11-14)
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-13 | Release scripts and supply chain (`e945ac1`, PR #75) | fable | not recorded | 5 findings (RT-release-1 to -5) | Fixed in `f72c020`; the verification found exemption patterns in `verify.sh` that passed unlisted files, fixed in `31ac5cb`. R118 reworded, R150 (downgrade) added |
+| 2026-11-13 | Browser extension and native host (`7e17e23`, PR #78) | fable | not recorded | 3 findings (RT-EXT-1 to -3); verification added 1 (RT-verify-ext-1, the hit-test majority) | Fixed in `50a75fc` and `a79748b`: a label is no hit, a stratified jittered hit test (all but 2 of 12 points), a save from a frame other than the top is refused. Held: origin clobber, loopback spellings, caller argument tricks |
+| 2026-11-13 | Sync server and auth (`59ba52a`, PR #76) | fable | 0 / 1 / 0 / 0 | none | RT-server-1 (Medium: the second-factor budget was not claimed on the account routes). Fixed in `65e7852` plus two follow-ups (a refund is spent once, inside its window, for its account); R64 note. Held: cross-vault attachment IDOR, a non-member's change feed |
+| 2026-11-13 | Core (`f27ecae`, PR #77) | fable | 0 / 0 / 0 / 0 | none | No finding: the AAD binding of roster, contact book and attachments held, regression tests added |
+| 2026-11-13 | Desktop app (`7118cfa`, PR #74) | fable | not recorded | 2 findings (RT-desktop-1, -2) plus Info items | Fixed in `3fe66d0` and the follow-ups: a re-authentication grant is bound to its purpose (ADR-0151), `settings.json` 0600 and data directory 0700, capped folder accounts |
+| 2026-11-13 | Parsers, SSH agent, QR (`88c6c97`, PR #73) | fable | 1 / 2 / 3 / 0 | none | RT-parsers-1 (High, quadratic notes), -2 (Medium, 1PUX lookup), -3 (Low), -4 (Medium, forwarded agent), -5 (Low), -6 (Low). Fixed in `3027651` (ADR-0152, R152) |
+| 2026-11-13 | Fix review of the parsers round | fable | 1 / 0 / 0 / 0 | not recorded | New High: the 1PUX prefix map used memory quadratic in the member name (`d0eff58`); fixed in `20feefe` (also a connection-origin enum for the agent and a notes-truncated warning) |
+| 2026-11-13 to 2026-11-14 | iOS provider: G3 fixes re-verified (RT-verify-ios-1/2, RT-verify2-ios-1/2) | fable | not recorded | 4 items | Lifecycle races: a close during an unlock, a request kept for a join outliving it. Fixed in `9997855` (lock and close decided in one critical section, requests numbered) and `4a6bfac`, `8a409e3` |
+| 2026-11-14 | Android providers, round 4 (`aff0d2f`) | fable | not recorded | 3 findings (RT-android-1 to -3) | Fixed in `6811e80`: a missing `webScheme` fails closed, the provider grace ends when a non-provider activity returns, empty task affinity on every activity, obscured touches filtered |
+
+Total (round 1): High 2 (RT-parsers-1 and the 1PUX memory finding of its fix review), Medium 3, Low 3 where graded
+(parsers 1 / 2 / 3 plus the fix-review High, server 0 / 1 / 0); release, extension, desktop, iOS and Android findings
+are counted by ID but not graded in the sources: release 5, extension 4, desktop 2, iOS 4, Android 3.
+
+The headline limits (THREAT_MODEL R150 to R153): a genuine old release can be offered as a downgrade; a typed master
+password opens a two-minute window for one action only; an SSH agent connection forwarded to a remote host is treated as
+untrusted and gets no grant.
+
+### Round 2, chained attacks across components (PR #80, not yet merged)
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-14 | Round 2 red team: chained attacks across the components | fable | 1 / 2 / 5 / 2 | none | High: SYNC-1. Medium: SYNC-2, KEY-1. Low: SYNC-3, KEY-2, KEY-3, CHAIN-1, CHAIN-3. Info: CHAIN-2, MOBILE-1. Every finding was confirmed by an adversarial verifier and none was refuted. Fixed in PR #80. CHAIN-3 is accepted as THREAT_MODEL R162 |
+| 2026-11-14 | Fix review of the round 2 fixes | fable | 0 / 0 / 1 / 2 | none | Low: FIX-1 (the release guard could be bypassed). Info: FIX-2, FIX-3. All closed in PR #80 (`95ebbf4`: FIX-1 to FIX-3 and the KEY-1 test) |
+
+Total (round 2): High 1, Medium 2, Low 6, Info 4 (the round 2 findings and the fix review together).
+
 ## Appending a milestone
 
 Each milestone close adds one section here and updates the totals table:

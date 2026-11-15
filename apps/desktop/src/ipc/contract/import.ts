@@ -2,8 +2,41 @@
 import type { ItemId, VaultId } from "./common.ts";
 import type { ItemKind } from "./items.ts";
 
-export const importFormats = ["enpass", "bitwarden", "keepass", "onePassword", "cxf", "csv"] as const;
+export const importFormats = [
+  "enpass",
+  "bitwarden",
+  "keepass",
+  "onePassword",
+  "cxf",
+  "dashlane",
+  "keeper",
+  "keeperCsv",
+  "protonPass",
+  "csv",
+] as const;
 export type ImportFormat = (typeof importFormats)[number];
+
+/** The product an export file comes from, as far as its content tells (`import_detect`). */
+export const importDetectedSources = [
+  "chromium",
+  "firefox",
+  "safari",
+  "bitwardenCsv",
+  "bitwarden",
+  "enpass",
+  "keepass",
+  "keepassxcCsv",
+  "onePassword",
+  "cxf",
+  "lastpass",
+  "dashlane",
+  "keeper",
+  "nordpass",
+  "protonPass",
+  "roboform",
+  "csv",
+] as const;
+export type ImportDetectedSource = (typeof importDetectedSources)[number];
 
 export const importWarnings = [
   "unmappedFields",
@@ -36,14 +69,32 @@ export const importEntryWarnings = [
   "passkeyUnsupported",
   "passkeysLimit",
   "notesTruncated",
+  "urlKeptAsText",
+  "idnHost",
 ] as const;
 export type ImportEntryWarning = (typeof importEntryWarnings)[number];
 
 export const importSkipReasons = ["malformed", "empty", "tooLarge"] as const;
 export type ImportSkipReason = (typeof importSkipReasons)[number];
 
-export interface ImportChooseRequest {
-  format: ImportFormat;
+/** A cloud service whose sync folder holds the file. */
+export const importSyncedFolders = ["oneDrive", "dropbox", "googleDrive", "icloud", "box"] as const;
+export type ImportSyncedFolder = (typeof importSyncedFolders)[number];
+
+export interface ImportDeleteRequest {
+  fileToken: string;
+}
+
+export interface ImportDetectRequest {
+  fileToken: string;
+}
+
+/** What the file's content says it is. Both are `null` for a file Mosaic does not read. */
+export interface ImportDetected {
+  source: ImportDetectedSource | null;
+  format: ImportFormat | null;
+  /** The cloud service that syncs the file's folder: deleting it does not remove copies already made. */
+  syncedFolder: ImportSyncedFolder | null;
 }
 
 export type ImportFileChoice =
@@ -110,4 +161,6 @@ export interface ImportResult {
   failed: number;
   attachments: number;
   attachmentsFailed: number;
+  /** Everything came across (bar what was left out on purpose): the file may be deleted. */
+  clean: boolean;
 }
