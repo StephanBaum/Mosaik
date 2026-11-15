@@ -154,6 +154,9 @@ import {
 import { totpHandlers } from "./mock/totp.ts";
 import { vaultAsyncHandlers, vaultHandlers } from "./mock/vaults.ts";
 
+// The picker windows of program fill have their own mock (`picker.html?mockPicker=`).
+export { createMockPickerIpc, mockPickerFromUrl } from "./mock/picker.ts";
+
 export type MockStart = "noAccount" | "locked" | "unlocked";
 
 export interface MockOptions extends QuickOptions {
