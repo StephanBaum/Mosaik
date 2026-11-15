@@ -4,12 +4,12 @@
 
 use mosaic_agent::error::AgentErrorCode;
 
-/// The MCP protocol revisions this relay speaks, newest first. All use the `initialize`
-/// handshake over newline-delimited JSON-RPC on stdio. The newer stateless revision `2026-07-28`
-/// (no `initialize`, `server/discover`) is not implemented; a client that wants it falls back to
-/// the newest revision listed here.
-pub const SUPPORTED_PROTOCOL_VERSIONS: [&str; 4] =
-    ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+/// The MCP protocol revisions with the `initialize` handshake this relay speaks, newest first.
+pub const INITIALIZE_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+
+/// The stateless MCP protocol revisions this relay speaks, newest first: no handshake, the
+/// version and the client's capabilities in every request's `_meta`, `server/discover`.
+pub const STATELESS_VERSIONS: [&str; 1] = ["2026-07-28"];
 
 /// The first revision with `structuredContent` in tool results.
 pub const STRUCTURED_FROM: &str = "2025-06-18";
