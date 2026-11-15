@@ -65,6 +65,8 @@ pub enum AgentRefusal {
     PairingExpired,
     /// 16 agent pairings exist already.
     PairingLimit,
+    /// A pairing with this name exists already (compared without case).
+    PairingNameTaken,
     /// Too many denials: pairing dialogs are blocked for a while.
     PairingBlocked,
     /// A rate limit was hit.

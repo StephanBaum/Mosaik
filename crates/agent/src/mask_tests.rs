@@ -298,3 +298,114 @@ fn masker_debug_is_redacted() {
     assert_eq!(format!("{masker:?}"), "[REDACTED]");
     assert_eq!(format!("{:?}", masker.stream()), "[REDACTED]");
 }
+
+/// Characters whose base64 holds a `/` (`???` is `Pz8/`) and that percent and HTML escaping change.
+const SLASHY: &str = "sk-???-/&<>\"'-a b-0123456789";
+
+/// The HTML forms of `value` as common escapers write them (independent of the encoder).
+fn html_forms(value: &str) -> Vec<String> {
+    let named = |apos: &str, slash: Option<&str>| {
+        let mut s = value
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', apos);
+        if let Some(slash) = slash {
+            s = s.replace('/', slash);
+        }
+        s
+    };
+    let numeric = |f: &dyn Fn(u32) -> String| {
+        let mut s = String::new();
+        for c in value.chars() {
+            if matches!(c, '&' | '<' | '>' | '"' | '\'') {
+                s.push_str(&f(u32::from(c)));
+            } else {
+                s.push(c);
+            }
+        }
+        s
+    };
+    vec![
+        named("&#39;", None),
+        named("&#39;", Some("&#x2F;")),
+        named("&#39;", Some("&#47;")),
+        named("&#x27;", None),
+        named("&#x27;", Some("&#x2f;")),
+        named("&#x27;", Some("&#47;")),
+        numeric(&|n| format!("&#{n};")),
+        numeric(&|n| format!("&#x{n:x};")).replace('/', "&#x2f;"),
+        numeric(&|n| format!("&#x{n:X};")).replace('/', "&#x2F;"),
+        numeric(&|n| format!("&#{n};")).replace('/', "&#47;"),
+    ]
+}
+
+#[test]
+fn json_escaped_base64_forms_are_masked() {
+    let masker = Masker::new(&[SLASHY.as_bytes()]);
+    let b = SLASHY.as_bytes();
+    let mut seen = 0;
+    for form in [
+        Base64::encode_string(b),
+        Base64Unpadded::encode_string(b),
+        // The URL alphabet has no slash: its escaped form is the plain one.
+        Base64Url::encode_string(b),
+        Base64UrlUnpadded::encode_string(b),
+    ] {
+        let escaped = form.replace('/', r"\/");
+        if escaped != form {
+            seen += 1;
+        }
+        let (out, n) = masker.mask(format!("a{escaped}b").as_bytes());
+        assert_eq!(
+            (n, out),
+            (1, format!("a{MASK_TEXT}b").into_bytes()),
+            "{escaped}"
+        );
+    }
+    assert_eq!(seen, 2, "both standard forms hold a slash");
+    // Split across chunks at every position, as a stream.
+    let body = format!("x{}y", Base64::encode_string(b).replace('/', r"\/"));
+    let (expected, n) = masker.mask(body.as_bytes());
+    assert_eq!(n, 1);
+    for i in 0..=body.len() {
+        let mut s = masker.stream();
+        let mut out = s.push(&body.as_bytes()[..i]);
+        out.extend(s.push(&body.as_bytes()[i..]));
+        out.extend(s.finish());
+        assert_eq!(out, expected, "split at {i}");
+    }
+}
+
+#[test]
+fn html_entity_forms_are_masked() {
+    let masker = Masker::new(&[SLASHY.as_bytes()]);
+    for form in html_forms(SLASHY) {
+        assert_ne!(form, SLASHY);
+        let (out, n) = masker.mask(format!("<p>{form}</p>").as_bytes());
+        assert_eq!(
+            (n, out),
+            (1, format!("<p>{MASK_TEXT}</p>").into_bytes()),
+            "{form}"
+        );
+        let body = format!("<p>{form}</p>");
+        let (expected, _) = masker.mask(body.as_bytes());
+        for i in 0..=body.len() {
+            let mut s = masker.stream();
+            let mut out = s.push(&body.as_bytes()[..i]);
+            out.extend(s.push(&body.as_bytes()[i..]));
+            out.extend(s.finish());
+            assert_eq!(out, expected, "{form} split at {i}");
+        }
+    }
+}
+
+#[test]
+fn lower_case_form_encoding_is_masked() {
+    let masker = Masker::new(&[SLASHY.as_bytes()]);
+    let form = percent(SLASHY, false, true);
+    assert!(form.contains('+') && form.contains("%2f"));
+    let (out, n) = masker.mask(format!("q={form}&r=1").as_bytes());
+    assert_eq!((n, out), (1, format!("q={MASK_TEXT}&r=1").into_bytes()));
+}

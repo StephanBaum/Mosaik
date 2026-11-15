@@ -265,3 +265,52 @@ fn a_closed_port_is_a_connect_error() {
         "{result:?}"
     );
 }
+
+/// A request with the value in the query: the send error never holds the URL or the value, in
+/// its text or its `Debug` form, whether the handshake fails or the connection is refused
+/// (reqwest's own errors carry the URL; `SendError` is a fieldless code).
+#[test]
+fn send_errors_never_hold_the_request_url_or_a_query_value() {
+    const CANARY: &str = "QUERY-CANARY-9f8e7d6c5b4a";
+    let server = TlsTestServer::start(vec![TestRoute {
+        path: "/ok",
+        respond: ok,
+    }]);
+    let origin = format!("https://{API_HOST}:{}", server.addr().port());
+    let binding = Binding::from_record(&AgentBindingRecord::new(
+        "api_key.secret",
+        &[origin.as_str()],
+        AgentInject::Query {
+            name: mosaic_core::model::Text::new("key"),
+        },
+    ))
+    .unwrap();
+    let input = HttpRequestInput {
+        method: "GET".to_owned(),
+        url: format!("{origin}/ok"),
+        headers: Vec::new(),
+        body: None,
+        max_bytes: Some(1000),
+    };
+    let make = || {
+        validate(&binding, &input).unwrap().inject(
+            &binding.inject,
+            &SecretString::from_str_copy(CANARY).unwrap(),
+            None,
+        )
+    };
+    let addr = server.addr();
+    let trusting = sender(&server);
+    let distrusting = HttpsSender::for_test(OTHER_CA_DER, &[(API_HOST, addr)]).unwrap();
+    let tls = distrusting.send(make(), 0).err().unwrap();
+    drop(server);
+    std::thread::sleep(Duration::from_millis(200));
+    let closed = trusting.send(make(), 0).err().unwrap();
+    for error in [tls, closed] {
+        for text in [format!("{error}"), format!("{error:?}")] {
+            assert!(!text.contains(CANARY), "{text}");
+            assert!(!text.contains(API_HOST), "{text}");
+            assert!(!text.contains("key="), "{text}");
+        }
+    }
+}

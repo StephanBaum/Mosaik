@@ -66,6 +66,9 @@ fn conn_error(e: ConnError, name: &str) -> CliError {
             AgentRefusal::PairingLimit => {
                 CliError::new("pairingLimit", EXIT_OTHER, Msg::ErrPairingLimit)
             }
+            AgentRefusal::PairingNameTaken => {
+                CliError::new("pairingNameTaken", EXIT_OTHER, Msg::ErrPairingNameTaken)
+            }
             AgentRefusal::PairingBlocked => {
                 CliError::new("pairingBlocked", EXIT_OTHER, Msg::ErrPairingBlocked)
             }

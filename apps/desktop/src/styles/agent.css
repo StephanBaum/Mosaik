@@ -30,6 +30,8 @@
   border-inline-start: var(--border-width-focus) solid var(--color-border-strong);
   color: var(--color-text-secondary);
   font-style: italic;
+  max-height: calc(var(--space-9) * 3);
+  overflow: auto;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

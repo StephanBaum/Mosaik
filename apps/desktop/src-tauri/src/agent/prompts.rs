@@ -39,7 +39,7 @@ const DENIAL_WINDOW: Duration = Duration::from_mins(10);
 const DENIALS_TO_BLOCK: usize = 3;
 /// How long pairing prompts stay blocked.
 const BLOCK_FOR: Duration = Duration::from_mins(10);
-/// Pairing requests per minute, shown or not.
+/// Pairing requests per minute, shown or not (all clients together).
 const PAIR_REQUESTS_PER_MINUTE: usize = 6;
 
 /// What a pairing request ends with: the new pairing's ID and key, or why the client is refused.
@@ -183,6 +183,9 @@ impl Shared {
             if registry.list().len() >= super::MAX_PAIRINGS {
                 return Err(AgentRefusal::PairingLimit);
             }
+            if registry.name_taken(name) {
+                return Err(AgentRefusal::PairingNameTaken);
+            }
         }
         let mut prompts = lock(&self.prompts);
         if prompts.is_blocked(now) {
@@ -300,9 +303,9 @@ impl Shared {
         let added = lock(&self.registry).add(name.clone(), unix_millis_of(wall_ms()));
         let (id, key) = added.map_err(|e| {
             IpcError::new(match e {
-                super::RegistryError::Full | super::RegistryError::Unreadable => {
-                    ErrorCode::InvalidInput
-                }
+                super::RegistryError::Full
+                | super::RegistryError::NameTaken
+                | super::RegistryError::Unreadable => ErrorCode::InvalidInput,
                 super::RegistryError::Storage => ErrorCode::Internal,
             })
         })?;
@@ -334,6 +337,15 @@ impl Shared {
     /// Queues the access prompt for `facts`; the first of the queue is shown at once.
     ///
     /// # Errors
+    /// Whether this client has an access prompt open or queued already (a new one would be
+    /// refused `busy`, so it must not count against the dialog budget).
+    pub(crate) fn access_pending_for(&self, pairing: &[u8; 16]) -> bool {
+        lock(&self.prompts)
+            .access
+            .iter()
+            .any(|p| p.pairing == *pairing)
+    }
+
     /// `busy` (this client has a prompt open or queued), `internal`.
     pub(crate) fn enqueue_access(
         &self,

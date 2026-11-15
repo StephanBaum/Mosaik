@@ -47,8 +47,8 @@ fn schema_v10_fixture_upgrades_to_the_latest_version() {
     assert!(!has_table(&path, "boot_marker"));
 
     let store = Store::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 13);
-    assert_eq!(LATEST_VERSION, 13);
+    assert_eq!(store.schema_version().unwrap(), 14);
+    assert_eq!(LATEST_VERSION, 14);
     assert_eq!(store.boot_marker().unwrap(), None);
     let mut locked = LockedSession::open(store);
     // The old data is there: the account and the quick-unlock wrapping.
@@ -79,7 +79,7 @@ fn schema_v10_fixture_upgrades_to_the_latest_version() {
         vec![7; 8]
     );
     drop(s.lock().into_store());
-    assert_eq!(user_version(&path), 13);
+    assert_eq!(user_version(&path), 14);
     assert!(has_table(&path, "boot_marker"));
     // The agent tables (v13) exist after the upgrade.
     assert!(has_table(&path, "agent_marks"));

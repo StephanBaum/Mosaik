@@ -107,6 +107,7 @@
   "cli.err.pairingDenied": "The pairing was denied in the Mosaic app.",
   "cli.err.pairingExpired": "The pairing request ran out of time.",
   "cli.err.pairingLimit": "The Mosaic app has the most pairings it allows. Remove one first.",
+  "cli.err.pairingNameTaken": "A pairing with this name exists; remove it first or choose another name.",
   "cli.err.pairingBlocked": "Pairing is blocked for a few minutes after repeated denials.",
   "cli.err.notPaired": "This client is not paired. Run `mosaic agent pair --name {name}`.",
   "cli.err.agentRefused": "The Mosaic app refused the request ({reason}).",

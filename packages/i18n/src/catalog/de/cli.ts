@@ -134,6 +134,8 @@ export const cli: Record<keyof typeof en, string> = {
   "cli.err.pairingExpired": "Die Kopplungsanfrage ist abgelaufen.",
   "cli.err.pairingLimit":
     "Die Mosaic-App hat die höchste erlaubte Zahl an Kopplungen. Entferne zuerst eine.",
+  "cli.err.pairingNameTaken":
+    "Eine Kopplung mit diesem Namen gibt es schon. Entferne sie zuerst oder wähle einen anderen Namen.",
   "cli.err.pairingBlocked": "Nach mehreren Ablehnungen ist das Koppeln einige Minuten gesperrt.",
   "cli.err.notPaired":
     "Dieser Client ist nicht gekoppelt. Führe `mosaic agent pair --name {name}` aus.",

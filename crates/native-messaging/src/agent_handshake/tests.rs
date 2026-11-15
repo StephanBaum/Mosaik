@@ -127,64 +127,76 @@ fn browser_pairing_key_fails_the_agent_handshake() {
     });
 }
 
-#[test]
-fn unknown_pairing_and_wrong_proof_get_the_same_refusal() {
-    block_on(async {
-        let id = new_pairing_id().unwrap();
+/// What a prober that sends `hello` and then a wrong `finish` sees, and how the desktop ends.
+async fn probe(server_key: Option<PairingKey>) -> (Vec<&'static str>, Error) {
+    let (mut relay, mut desk) = duplex(1 << 16);
+    let id = new_pairing_id().unwrap();
+    let nonce_h = new_channel_nonce().unwrap();
+    let server = tokio::spawn(async move {
+        let AgentClientMessage::Hello {
+            pairing_id, nonce, ..
+        } = agent_read_client_message(&mut desk).await?
+        else {
+            return Err(Error::Malformed);
+        };
+        agent_server_handshake(
+            &mut desk,
+            &pairing_id.0,
+            &nonce.0,
+            server_key.as_ref(),
+            b"x",
+        )
+        .await
+    });
+    let hello = AgentClientMessage::Hello {
+        v: 1,
+        pairing_id: Hex(id),
+        nonce: Hex(nonce_h),
+    };
+    write_message(&mut relay, &hello).await.unwrap();
+    let mut seen = Vec::new();
+    let AgentServerMessage::Challenge { .. } = agent_read_server_message(&mut relay).await.unwrap()
+    else {
+        panic!("no challenge: an unknown ID must be answered like a known one");
+    };
+    seen.push("challenge");
+    let finish = AgentClientMessage::Finish {
+        v: 1,
+        proof: Hex([9; 32]),
+    };
+    write_message(&mut relay, &finish).await.unwrap();
+    match agent_read_server_message(&mut relay).await.unwrap() {
+        AgentServerMessage::Refused {
+            reason: AgentRefusal::NotPaired,
+            ..
+        } => seen.push("refused notPaired"),
+        _ => panic!("another answer"),
+    }
+    (seen, server.await.unwrap().map(|_| ()).unwrap_err())
+}
 
-        // Unknown ID: refused at `hello`.
+#[test]
+fn unknown_pairing_and_wrong_proof_are_indistinguishable_until_the_proof() {
+    block_on(async {
+        let known = probe(Some(key(7))).await;
+        let unknown = probe(None).await;
+        assert_eq!(known, unknown);
+        assert_eq!(known.0, vec!["challenge", "refused notPaired"]);
+        assert_eq!(known.1, Error::AgentRefused(AgentRefusal::NotPaired));
+
+        // A relay that holds a key (a removed pairing) gets a challenge it cannot verify.
+        let id = new_pairing_id().unwrap();
         let (mut relay, desk) = duplex(1 << 16);
         let server = spawn_server(desk, None, b"first");
         let err = agent_client_handshake(&mut relay, &key(7), &id)
             .await
             .map(|_| ())
             .unwrap_err();
-        assert_eq!(err, Error::AgentRefused(AgentRefusal::NotPaired));
+        assert_eq!(err, Error::NotAuthentic);
+        drop(relay);
         assert_eq!(
             server.await.unwrap().0.map(|_| ()).unwrap_err(),
-            Error::AgentRefused(AgentRefusal::NotPaired)
-        );
-
-        // Wrong proof after `finish`: a relay that proves with another key
-        // but accepts the desktop's proof cannot exist (the desktop's proof
-        // already fails), so send the finish by hand.
-        let (mut relay, mut desk) = duplex(1 << 16);
-        let nonce_h = new_channel_nonce().unwrap();
-        let server = tokio::spawn(async move {
-            let AgentClientMessage::Hello {
-                pairing_id, nonce, ..
-            } = agent_read_client_message(&mut desk).await?
-            else {
-                return Err(Error::Malformed);
-            };
-            agent_server_handshake(&mut desk, &pairing_id.0, &nonce.0, Some(&key(7)), b"x").await
-        });
-        let hello = AgentClientMessage::Hello {
-            v: 1,
-            pairing_id: Hex(id),
-            nonce: Hex(nonce_h),
-        };
-        write_message(&mut relay, &hello).await.unwrap();
-        let AgentServerMessage::Challenge { .. } =
-            agent_read_server_message(&mut relay).await.unwrap()
-        else {
-            panic!("no challenge");
-        };
-        let finish = AgentClientMessage::Finish {
-            v: 1,
-            proof: Hex([9; 32]),
-        };
-        write_message(&mut relay, &finish).await.unwrap();
-        assert!(matches!(
-            agent_read_server_message(&mut relay).await.unwrap(),
-            AgentServerMessage::Refused {
-                reason: AgentRefusal::NotPaired,
-                ..
-            }
-        ));
-        assert_eq!(
-            server.await.unwrap().map(|_| ()).unwrap_err(),
-            Error::AgentRefused(AgentRefusal::NotPaired)
+            Error::Closed
         );
     });
 }

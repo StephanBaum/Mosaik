@@ -899,6 +899,14 @@ BEGIN
 END;
 ";
 
+/// Version 14: refusal rows of the agent log get their own retention (ADR-0159). `noisy` is 1 for a
+/// refusal row; those keep their own, smaller cap and can never push other rows out. Rows that
+/// exist stay 0 (a plain row), so the first prune after the upgrade cannot lose more than before.
+const V14: &str = r"
+ALTER TABLE agent_log ADD COLUMN noisy INTEGER NOT NULL DEFAULT 0 CHECK (noisy IN (0, 1));
+CREATE INDEX agent_log_noisy_at_ms ON agent_log (noisy, at_ms);
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -953,10 +961,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 13,
         sql: V13,
     },
+    Migration {
+        version: 14,
+        sql: V14,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 13;
+pub const LATEST_VERSION: u32 = 14;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -1122,10 +1134,14 @@ mod tests {
             },
             Migration {
                 version: 14,
+                sql: V14,
+            },
+            Migration {
+                version: 15,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 14);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 15);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -1139,11 +1155,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 14,
-                supported: 13
+                found: 15,
+                supported: 14
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 14);
+        assert_eq!(user_version(&c).unwrap(), 15);
     }
 
     #[test]
@@ -1205,11 +1221,15 @@ mod tests {
             },
             Migration {
                 version: 14,
+                sql: V14,
+            },
+            Migration {
+                version: 15,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 13);
+        assert_eq!(user_version(&c).unwrap(), 14);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1986,7 +2006,7 @@ mod tests {
     fn v13_migrates_from_v12_and_checks_lengths() {
         let mut c = conn();
         assert_eq!(migrate(&mut c, &MIGRATIONS[..12]).unwrap(), 12);
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 13);
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..13]).unwrap(), 13);
         for table in ["agent_marks", "agent_log"] {
             let n: i64 = c
                 .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
@@ -2018,5 +2038,29 @@ mod tests {
             [],
         )
         .unwrap();
+    }
+
+    /// v13 to v14: existing log rows become plain rows; `noisy` takes only 0 or 1.
+    #[test]
+    fn v14_adds_the_noisy_flag_to_the_agent_log() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..13]).unwrap(), 13);
+        c.execute(
+            "INSERT INTO agent_log VALUES (zeroblob(16), 0, zeroblob(42))",
+            [],
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 14);
+        let noisy: i64 = c
+            .query_row("SELECT noisy FROM agent_log", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(noisy, 0);
+        assert!(
+            c.execute(
+                "INSERT INTO agent_log VALUES (x'01010101010101010101010101010101', 0, zeroblob(42), 2)",
+                [],
+            )
+            .is_err()
+        );
     }
 }

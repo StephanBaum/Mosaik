@@ -1294,3 +1294,62 @@ fn log_page_lists_requests_and_refusals_without_values() {
         .unwrap_err();
     assert_eq!(bad.code, ErrorCode::InvalidInput);
 }
+
+#[test]
+fn a_pairing_name_that_exists_is_refused_without_a_dialog() {
+    let env = Env::enabled();
+    env.add_pairing("Claude Code");
+    run(async {
+        for name in ["Claude Code", "claude code"] {
+            let (mut stream, _) = pair_request(&env.endpoint, name).await;
+            let answer = agent_read_server_message(&mut stream).await;
+            assert_eq!(refusal(&answer), Some(AgentRefusal::PairingNameTaken));
+        }
+        assert!(env.events_of("agentPairingRequested").is_empty());
+    });
+}
+
+#[test]
+fn a_busy_refusal_does_not_spend_the_dialog_budget() {
+    let env = Env::enabled();
+    let api = env.api();
+    let (id, key) = env.add_pairing("Claude Code");
+    run(async {
+        let (mut client, _) = Client::open(&env.endpoint, &id, &key).await.unwrap();
+        client
+            .request(
+                1,
+                "requestAccess",
+                json!({ "ref": api.reference, "use": "request" }),
+            )
+            .await;
+        let dialog = env.shown_for("Claude Code").await;
+        let request_id = dialog["request"]["requestId"].as_str().unwrap().to_owned();
+        // More requests while the dialog is open: busy every time, never rateLimited.
+        for n in 2..8 {
+            client
+                .request(
+                    n,
+                    "requestAccess",
+                    json!({ "ref": api.reference, "use": "request" }),
+                )
+                .await;
+            let busy = client.response().await;
+            assert_eq!(error_code(&busy), Some("busy"), "request {n}");
+        }
+        env.access_respond(&request_id, AgentAccessDecision::Deny)
+            .unwrap();
+        let denied = client.response().await;
+        assert_eq!(body_of(&denied)["decision"], "denied");
+        // The budget still holds a dialog.
+        client
+            .request(
+                9,
+                "requestAccess",
+                json!({ "ref": api.reference, "use": "request" }),
+            )
+            .await;
+        let again = env.shown_for("Claude Code").await;
+        assert_eq!(again["request"]["itemTitle"], "Example API");
+    });
+}

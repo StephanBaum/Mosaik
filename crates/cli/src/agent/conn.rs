@@ -58,7 +58,11 @@ impl From<NmError> for ConnError {
     fn from(e: NmError) -> Self {
         match e {
             NmError::DesktopNotRunning => Self::DesktopNotRunning,
-            NmError::AgentRefused(AgentRefusal::NotPaired) => Self::NotPaired,
+            // An unknown pairing is answered with a challenge that cannot be verified (the desktop
+            // runs the handshake against a dummy key), so the relay sees the desktop's proof fail.
+            NmError::AgentRefused(AgentRefusal::NotPaired) | NmError::NotAuthentic => {
+                Self::NotPaired
+            }
             NmError::AgentRefused(AgentRefusal::Locked) => Self::Locked,
             NmError::AgentRefused(AgentRefusal::AgentAccessOff) => Self::AgentAccessOff,
             NmError::AgentRefused(other) => Self::Refused(other),

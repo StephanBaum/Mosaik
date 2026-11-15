@@ -127,6 +127,7 @@ messages! {
     ErrPairingDenied => "cli.err.pairingDenied",
     ErrPairingExpired => "cli.err.pairingExpired",
     ErrPairingLimit => "cli.err.pairingLimit",
+    ErrPairingNameTaken => "cli.err.pairingNameTaken",
     ErrPairingBlocked => "cli.err.pairingBlocked",
     ErrNotPaired => "cli.err.notPaired",
     ErrAgentRefused => "cli.err.agentRefused",

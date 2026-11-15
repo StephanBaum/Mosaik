@@ -6004,6 +6004,22 @@ Decisions made on top of the spec (D = spec decision, Q = spec open question, B 
 - **Tests** reach a TLS server through a fixture CA and a test-only sender constructor, because the sync tests use plain-http loopback and there was
   nothing to reuse. Agent requests use `no_proxy()` (the sync client uses the system proxy for https).
 
+### Red-team follow-ups and accepted residuals
+- **The log under flood.** A request whose `url` fails the agent URL checks (or whose origin is over 256 characters) logs the fixed marker `invalid` as its
+  origin and no path. More than 60 refusals a minute from one pairing are answered `rateLimited` and logged as one `rateLimited` summary row a minute (they
+  count in the pairing's limits). Refusal rows have their own cap of 2,000 (schema v14, a `noisy` flag in the clear) and never evict other rows, which keep
+  the 10,000 cap. A flood of bad references therefore leaves earlier grant and pairing entries in place.
+- **`reason` rendering.** Besides controls and bidirectional characters, Unicode format characters (`Cf`), the line and paragraph separators and every combining
+  mark beyond the second of a run are written out as backslash-u text; the text sits in a scroll box with a token-based maximum height.
+- **Query injection** (`inject: query`) puts the value into a `Url` and reqwest's request: a copy that is not zeroizing, the same class as the header `Bytes`
+  copy (R184). A send error is a fieldless code (`SendError`); a test pins that it never holds the request URL or the value.
+- **Pairing IDs** are not an oracle (NATIVE_MESSAGING section 9.2), and two pairings cannot share a name (compared without case); the CLI says to remove the old
+  one or choose another name.
+- **Accepted residuals.** (1) The desktop's `agent-pairings.json` holds `K_pair` in clear, the same model as `browser-pairings.json`; the client side is
+  keystore-only. (2) Pre-auth `status` answers any local process. (3) `MAX_PREAUTH = 4` lets a local flooder abort other relays' handshakes (denial of service
+  only, no access). (4) User or enterprise roots in the platform store can intercept an allowed origin, as for sync. (5) A request already sent when the vault locks
+  or a grant is revoked completes at the server; only its answer is dropped. THREAT_MODEL R191 to R193.
+
 ### Alternatives
 - The existing browser channel for agents: rejected; a browser pairing key must not give agent access (disjoint labels, ADR-0160).
 - An MCP library (`rmcp`): rejected for Q1.

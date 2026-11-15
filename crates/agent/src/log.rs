@@ -118,6 +118,13 @@ impl LogEntry {
         }
     }
 
+    /// Whether this is a refusal row (any `refused` entry, including the `rateLimited` summary).
+    /// These are kept under their own, smaller cap in the store and can never evict other kinds.
+    #[must_use]
+    pub fn is_noisy(&self) -> bool {
+        self.kind == LogKind::Refused
+    }
+
     /// The JSON bytes that are sealed into the log.
     #[must_use]
     pub fn to_json(&self) -> Vec<u8> {

@@ -556,14 +556,18 @@ As §4.2: JSON, one per frame, `"type"` and `"v": 1`, unknown fields rejected, h
 | desktop to client | `challenge {nonce, proof}`, `refused {reason}`, `status {vault: "locked" \| "unlocked", agentAccess: "on" \| "off"}`, `pairPending {code, expiresInSeconds}`, `pairApproved {pairingId, key}` |
 
 - `reason` is one of `notPaired`, `locked`, `agentAccessOff`, `pairingDenied`, `pairingExpired`, `pairingLimit`, `pairingBlocked`, `rateLimited`, `busy`,
-  `protocolVersion`, `invalidRequest`, `internal`.
+  `protocolVersion`, `invalidRequest`, `internal`, `pairingNameTaken`.
 - `name` is 1 to 64 characters of ASCII letters, digits, space, `.`, `_`, `-`, `(`, `)`, with no leading or trailing space. It is a label the user sees in the
   pairing dialog; the desktop never decides anything from it.
 - A pair request is refused `agentAccessOff` or `locked` while the setting is off or the vault is locked. Otherwise the desktop answers `pairPending` (the code
   is 30 random bits as six Crockford base32 symbols, `XXX-XXX`, as §4.2; `expiresInSeconds` is 120), shows the pairing dialog, and answers `pairApproved`
-  or `refused`. The connection closes after `pairApproved`. Three pairing dialogs a minute per name and a block after three denials apply as for the browser.
+  or `refused`. The connection closes after `pairApproved`. At most six pairing requests a minute (all clients together, shown or not) and a block after three denials
+  in ten minutes apply. A name that equals, without regard to case, the name of an existing pairing is refused `pairingNameTaken` before any dialog opens: the user
+  removes the old pairing or the client chooses another name.
 - `status` is answered and the connection closes.
-- `hello` against an unknown pairing and `finish` with a wrong proof are both answered `refused notPaired`, at different steps, as §15 of CRYPTO_SPEC.
+- `hello` against an unknown pairing and `finish` with a wrong proof are both answered `refused notPaired`, **at the same step**: for an unknown ID the desktop runs
+  the challenge with a random dummy key, reads the `finish` and answers `refused notPaired` there, so a prober learns nothing about which IDs exist before it can
+  prove a key (a relay that holds a key for a removed pairing sees the desktop's proof fail, `notAuthentic`, and reports it as not paired).
 
 ### 9.3 Messages after the handshake
 

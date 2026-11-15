@@ -168,7 +168,9 @@ where
 ///
 /// # Errors
 /// - [`Error::AgentRefused`]`(`[`AgentRefusal::NotPaired`]`)`: no such
-///   pairing, or the relay's proof is wrong (the same answer in both cases).
+///   pairing, or the relay's proof is wrong. Both are answered after the
+///   challenge and the `finish`, at the same step (an unknown ID is run
+///   against a random dummy key).
 /// - [`Error::Timeout`], [`Error::Closed`] (for example when the relay
 ///   rejected the desktop's proof and hung up), [`Error::Malformed`].
 pub async fn agent_server_handshake<S>(
@@ -181,13 +183,14 @@ pub async fn agent_server_handshake<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let Some(key) = key else {
-        let _ = write_message(
-            stream,
-            &AgentServerMessage::refused(AgentRefusal::NotPaired),
-        )
-        .await;
-        return Err(Error::AgentRefused(AgentRefusal::NotPaired));
+    // An unknown pairing runs every step with a random dummy key and fails where a wrong proof
+    // fails, so a probe cannot tell a known ID from an unknown one before it proves the key.
+    let dummy;
+    let (key, known) = if let Some(key) = key {
+        (key, true)
+    } else {
+        dummy = PairingKey::generate()?;
+        (&dummy, false)
     };
     let nonce_d = new_channel_nonce()?;
     let proof_d = key.proof_on(Channel::Agent, Role::Desktop, pairing_id, nonce_h, &nonce_d)?;
@@ -205,7 +208,7 @@ where
         .await;
         return Err(Error::Malformed);
     };
-    if key
+    let proof_ok = key
         .verify_proof_on(
             Channel::Agent,
             Role::Host,
@@ -214,8 +217,8 @@ where
             &nonce_d,
             &proof.0,
         )
-        .is_err()
-    {
+        .is_ok();
+    if !proof_ok || !known {
         let _ = write_message(
             stream,
             &AgentServerMessage::refused(AgentRefusal::NotPaired),

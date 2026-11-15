@@ -2692,6 +2692,10 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   The first two bytes of `sealed` are the version (`0x01`) and the algorithm (`0x01`, XChaCha20-Poly1305),
   the header of §3, and a reader refuses any other value of either.
 
+  Store v14 adds a cleartext flag `noisy` (0 or 1) to `agent_log`, outside the AAD and the sealed bytes: it is 1
+  for a refusal row, which keeps its own cap (2,000 newest) so that a flood of refusals never pushes other rows out
+  (ADR-0159). It reveals only that a row is a refusal. No key, nonce or sealed format changes.
+
   **The binding and its canonical form.** A binding is the entry `agent:<binding_id>` of the item plaintext
   (§7.5); `binding_id` is the element ID in the key, as the UTF-8 bytes of its stored text, and `v` is the
   value of that entry. The mark covers the item, the binding ID **and** the value, so two confirmed

@@ -91,7 +91,7 @@ impl Shared {
         entry: &LogEntry,
     ) -> Result<(), AgentErrorCode> {
         session
-            .append_agent_log(entry.at_ms, &entry.to_json())
+            .append_agent_log_class(entry.at_ms, &entry.to_json(), entry.is_noisy())
             .map_err(|_| AgentErrorCode::Internal)
     }
 
@@ -144,6 +144,10 @@ impl Shared {
         })?;
         let check = checked.map_err(WireError::from)?;
         if matches!(check, AccessCheck::NeedsDialog(_)) {
+            // A client with a prompt open is refused `busy` without spending the dialog budget.
+            if self.access_pending_for(&pairing.id) {
+                return Err(WireError::code(AgentErrorCode::Busy));
+            }
             lock(&self.engine)
                 .dialog_allowed(&pairing.id, self.engine_now())
                 .map_err(WireError::code)?;
@@ -270,7 +274,9 @@ impl Shared {
             match begun {
                 Ok(pair) => Ok(pair),
                 Err((failure, entry)) => {
-                    let _ = Self::append(session, &entry);
+                    if let Some(entry) = entry {
+                        let _ = Self::append(session, &entry);
+                    }
                     Err(failure)
                 }
             }

@@ -533,7 +533,7 @@ fn a_client_that_hangs_up_ends_the_pairing_dialog() {
 }
 
 #[test]
-fn an_unknown_pairing_is_refused_not_paired() {
+fn an_unknown_pairing_fails_like_a_wrong_proof() {
     block_on(async {
         let host = FakeHost::new();
         let (_dir, endpoint, server) = setup(&host);
@@ -542,7 +542,8 @@ fn an_unknown_pairing_is_refused_not_paired() {
             .await
             .map(|_| ())
             .unwrap_err();
-        assert_eq!(err, NmError::AgentRefused(AgentRefusal::NotPaired));
+        // The relay holds a key the desktop does not know: its challenge cannot be verified.
+        assert_eq!(err, NmError::NotAuthentic);
         assert_eq!(server.connections(), 0);
         // Raw garbage is refused and closed.
         let mut stream = connect(&endpoint).await.unwrap();

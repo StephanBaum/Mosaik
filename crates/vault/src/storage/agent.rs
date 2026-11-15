@@ -22,6 +22,17 @@ pub struct AgentLogRow {
     pub sealed: Vec<u8>,
 }
 
+/// Which kind of row is added and the caps of the two kinds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AgentLogCaps {
+    /// The row is a refusal row.
+    pub noisy: bool,
+    /// Most plain rows kept.
+    pub max_entries: usize,
+    /// Most refusal rows kept.
+    pub max_noisy: usize,
+}
+
 fn to_sql_ms(at_ms: u64) -> Result<i64> {
     i64::try_from(at_ms).map_err(|_| Error::Corrupt)
 }
@@ -104,8 +115,10 @@ impl Store {
         Ok(())
     }
 
-    /// Adds a sealed log record, then prunes: records older than `min_at_ms` go, and so does
-    /// everything beyond the newest `max_entries`. One transaction.
+    /// Adds a sealed log record, then prunes: records older than `min_at_ms` go, plain rows
+    /// beyond the newest `caps.max_entries` go, and refusal rows beyond the newest
+    /// `caps.max_noisy`. The two kinds are counted apart, so a flood of refusals can never push a
+    /// plain row out. One transaction.
     ///
     /// # Errors
     /// [`Error::Database`] (also for a record outside 42 to 65536 bytes or a repeated entry ID),
@@ -114,21 +127,28 @@ impl Store {
         &mut self,
         row: &AgentLogRow,
         min_at_ms: u64,
-        max_entries: usize,
+        caps: AgentLogCaps,
     ) -> Result<()> {
         let at = to_sql_ms(row.at_ms)?;
         let min = to_sql_ms(min_at_ms)?;
-        let keep = i64::try_from(max_entries).map_err(|_| Error::Corrupt)?;
+        let keep = i64::try_from(if caps.noisy {
+            caps.max_noisy
+        } else {
+            caps.max_entries
+        })
+        .map_err(|_| Error::Corrupt)?;
+        let noisy = i64::from(caps.noisy);
         let tx = self.write()?;
         tx.execute(
-            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (?1, ?2, ?3)",
-            params![row.entry_id, at, row.sealed],
+            "INSERT INTO agent_log (entry_id, at_ms, sealed, noisy) VALUES (?1, ?2, ?3, ?4)",
+            params![row.entry_id, at, row.sealed, noisy],
         )?;
         tx.execute("DELETE FROM agent_log WHERE at_ms < ?1", [min])?;
         tx.execute(
             "DELETE FROM agent_log WHERE rowid IN
-               (SELECT rowid FROM agent_log ORDER BY at_ms DESC, rowid DESC LIMIT -1 OFFSET ?1)",
-            [keep],
+               (SELECT rowid FROM agent_log WHERE noisy = ?2
+                ORDER BY at_ms DESC, rowid DESC LIMIT -1 OFFSET ?1)",
+            params![keep, noisy],
         )?;
         tx.commit()?;
         Ok(())

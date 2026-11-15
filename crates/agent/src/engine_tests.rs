@@ -246,7 +246,7 @@ impl World {
             .engine
             .request_begin(&self.src, &self.pairing, &reference, input, now);
         match begun {
-            Err((failure, entry)) => (Err(failure.code), vec![entry]),
+            Err((failure, entry)) => (Err(failure.code), entry.into_iter().collect()),
             Ok((prepared, ticket)) => {
                 let outcome = self.sender.send(prepared, ticket.holdback());
                 let (result, entry) = self.engine.request_end(ticket, outcome, now);
@@ -802,7 +802,7 @@ fn ambiguous_candidates_only_name_usable_items() {
         .err()
         .unwrap();
     assert_eq!(failure.0.code, AgentErrorCode::AmbiguousRef);
-    assert_eq!(failure.1.kind, LogKind::Refused);
+    assert_eq!(failure.1.unwrap().kind, LogKind::Refused);
     // Other failures carry none.
     let failure = w
         .engine
@@ -902,4 +902,126 @@ fn send_errors_map_to_codes() {
         Some(format!("\u{e4}{MASK_TEXT}\u{e4}").as_str())
     );
     assert_no_canary(&json(&response), "the response");
+}
+
+/// Red team, audit log: the origin of a `url` that failed the agent URL checks is never logged
+/// (an oversized host cannot fill a row), and a flood of refusals is answered `rateLimited`
+/// with one summary row a minute.
+#[test]
+fn refusal_flood_is_limited_and_logs_no_hostile_origin() {
+    let mut w = bearer_world();
+    let huge = HttpRequestInput {
+        url: format!("https://{}.example/x", "a".repeat(4000)),
+        ..w.input("/echo")
+    };
+    let (failure, entry) = w
+        .engine
+        .request_begin(&w.src, &w.pairing, "invalid", &huge, w.at(0))
+        .err()
+        .unwrap();
+    assert_eq!(failure.code, AgentErrorCode::InvalidRef);
+    let entry = entry.unwrap();
+    assert_eq!(entry.origin.as_deref(), Some("invalid"));
+    assert_eq!(entry.path, None);
+    let plain = HttpRequestInput {
+        url: "http://insecure.example/x".to_owned(),
+        ..w.input("/echo")
+    };
+    let (_, entry) = w
+        .engine
+        .request_begin(&w.src, &w.pairing, "invalid", &plain, w.at(0))
+        .err()
+        .unwrap();
+    assert_eq!(entry.unwrap().origin.as_deref(), Some("invalid"));
+    // A good URL keeps its origin and path in the log.
+    let (_, entry) = w
+        .engine
+        .request_begin(&w.src, &w.pairing, "invalid", &w.input("/echo"), w.at(0))
+        .err()
+        .unwrap();
+    let entry = entry.unwrap();
+    assert_eq!(entry.origin.as_deref(), Some(w.origin.as_str()));
+    assert_eq!(entry.path.as_deref(), Some("/echo"));
+
+    // Three refusals are counted so far; 57 more still log, then the limit trips.
+    let mut logged = 3;
+    let mut limited = 0;
+    let mut summaries = 0;
+    for _ in 0..200 {
+        let (failure, entry) = w
+            .engine
+            .request_begin(&w.src, &w.pairing, "invalid", &w.input("/echo"), w.at(1))
+            .err()
+            .unwrap();
+        if failure.code == AgentErrorCode::RateLimited {
+            limited += 1;
+            if let Some(e) = entry {
+                assert_eq!(e.code, Some(AgentErrorCode::RateLimited));
+                summaries += 1;
+            }
+        } else {
+            assert_eq!(failure.code, AgentErrorCode::InvalidRef);
+            assert!(entry.is_some());
+            logged += 1;
+        }
+    }
+    assert_eq!(logged, 60);
+    assert_eq!(limited, 143);
+    assert_eq!(summaries, 1, "one summary row a minute");
+    // A minute on, the pairing is served again and the next flood logs one more summary.
+    let (failure, entry) = w
+        .engine
+        .request_begin(&w.src, &w.pairing, "invalid", &w.input("/echo"), w.at(70))
+        .err()
+        .unwrap();
+    assert_eq!(failure.code, AgentErrorCode::InvalidRef);
+    assert!(entry.is_some());
+    // Another pairing is not limited by this one.
+    let other = PairingRef {
+        id: [9; 16],
+        name: "other".to_owned(),
+    };
+    let (failure, _) = w
+        .engine
+        .request_begin(&w.src, &other, "invalid", &w.input("/echo"), w.at(71))
+        .err()
+        .unwrap();
+    assert_eq!(failure.code, AgentErrorCode::InvalidRef);
+}
+
+/// Red team, reason rendering: format characters, line separators and stacks of combining marks
+/// are written out; a normal accent and plain text stay as they are.
+#[test]
+fn reason_escapes_format_characters_separators_and_mark_stacks() {
+    let mut w = bearer_world();
+    let reference = w.reference();
+    let mut shown = |reason: &str| match w
+        .engine
+        .access_check(&w.src, &w.pairing, &reference, Some(reason), w.at(0))
+        .unwrap()
+    {
+        AccessCheck::NeedsDialog(f) => f.reason.unwrap(),
+        AccessCheck::Granted(_) => panic!("no grant yet"),
+    };
+    let hidden = "a\u{200b}b\u{2060}c\u{feff}d\u{ad}e\u{2028}f\u{2029}g\u{200d}h";
+    assert_eq!(
+        shown(hidden),
+        r"a\u{200b}b\u{2060}c\u{feff}d\u{ad}e\u{2028}f\u{2029}g\u{200d}h"
+    );
+    // Two marks stay (a letter with two accents), the third and later are written out.
+    let stack = format!("e{}", "\u{301}".repeat(5));
+    assert_eq!(
+        shown(&stack),
+        r"e\u{301}\u{301}\u{301}\u{301}\u{301}".replacen(r"\u{301}", "\u{301}", 2)
+    );
+    // A base letter between marks starts a new run.
+    assert_eq!(
+        shown("e\u{301}\u{302}x\u{301}\u{302}"),
+        "e\u{301}\u{302}x\u{301}\u{302}"
+    );
+    // Ordinary text, accents and CJK are untouched.
+    assert_eq!(
+        shown("Gr\u{fc}\u{df}e, \u{65e5}\u{672c}"),
+        "Gr\u{fc}\u{df}e, \u{65e5}\u{672c}"
+    );
 }

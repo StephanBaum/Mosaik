@@ -7,10 +7,13 @@
 use mosaic_core::{ItemId, SecretVec, VaultId, new_agent_log_entry_id};
 
 use super::{Result, UnlockedSession};
-use crate::storage::AgentLogRow;
+use crate::storage::{AgentLogCaps, AgentLogRow};
 
 /// The log keeps at most this many entries (the newest).
 pub const AGENT_LOG_MAX_ENTRIES: usize = 10_000;
+/// Refusal rows (a flood of bad requests) keep this many, apart from the 10,000 of every other
+/// kind: they can never push a grant or pairing entry out.
+pub const AGENT_LOG_MAX_NOISY: usize = 2_000;
 /// The log drops entries older than this many milliseconds (90 days).
 pub const AGENT_LOG_MAX_AGE_MS: u64 = 90 * 24 * 3600 * 1000;
 
@@ -91,14 +94,36 @@ impl UnlockedSession {
     /// # Errors
     /// [`super::Error::Core`], [`super::Error::Store`].
     pub fn append_agent_log(&mut self, at_ms: u64, plaintext: &[u8]) -> Result<()> {
-        self.append_agent_log_capped(at_ms, plaintext, AGENT_LOG_MAX_ENTRIES)
+        self.append_agent_log_class(at_ms, plaintext, false)
+    }
+
+    /// As [`Self::append_agent_log`]; a `noisy` (refusal) row is kept under its own cap of
+    /// [`AGENT_LOG_MAX_NOISY`] and the other rows keep the 10,000 of their own.
+    ///
+    /// # Errors
+    /// As [`Self::append_agent_log`].
+    pub fn append_agent_log_class(
+        &mut self,
+        at_ms: u64,
+        plaintext: &[u8],
+        noisy: bool,
+    ) -> Result<()> {
+        self.append_agent_log_capped(
+            at_ms,
+            plaintext,
+            AgentLogCaps {
+                noisy,
+                max_entries: AGENT_LOG_MAX_ENTRIES,
+                max_noisy: AGENT_LOG_MAX_NOISY,
+            },
+        )
     }
 
     fn append_agent_log_capped(
         &mut self,
         at_ms: u64,
         plaintext: &[u8],
-        max_entries: usize,
+        caps: AgentLogCaps,
     ) -> Result<()> {
         let entry_id = new_agent_log_entry_id()?;
         let sealed = self
@@ -112,7 +137,7 @@ impl UnlockedSession {
                 sealed,
             },
             at_ms.saturating_sub(AGENT_LOG_MAX_AGE_MS),
-            max_entries,
+            caps,
         )?;
         Ok(())
     }
@@ -152,7 +177,7 @@ mod tests {
     use mosaic_core::{Argon2Profile, ItemId, MasterPassword, SecretKey, VaultId};
 
     use crate::session::{LockedSession, UnlockedSession};
-    use crate::storage::{PendingPolicy, Store};
+    use crate::storage::{AgentLogCaps, PendingPolicy, Store};
 
     const CANON: &[u8] = br#"{"field":"api_key.secret"}"#;
     const DAY: u64 = 24 * 3600 * 1000;
@@ -282,7 +307,15 @@ mod tests {
         assert_eq!(session.agent_log(None, 10).unwrap().len(), 1);
         for n in 0..5u64 {
             session
-                .append_agent_log_capped(now + n, format!("e{n}").as_bytes(), 3)
+                .append_agent_log_capped(
+                    now + n,
+                    format!("e{n}").as_bytes(),
+                    AgentLogCaps {
+                        noisy: false,
+                        max_entries: 3,
+                        max_noisy: 2,
+                    },
+                )
                 .unwrap();
         }
         let page = session.agent_log_page(None, 10).unwrap();
@@ -303,6 +336,46 @@ mod tests {
         // Paging.
         assert_eq!(session.agent_log(Some(now + 3), 10).unwrap().len(), 1);
         assert_eq!(session.agent_log(None, 2).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn refusal_rows_have_their_own_cap_and_never_evict_other_rows() {
+        let mut session = memory();
+        let now = 200 * DAY;
+        let caps = |noisy| AgentLogCaps {
+            noisy,
+            max_entries: 3,
+            max_noisy: 2,
+        };
+        session
+            .append_agent_log_capped(now, b"grant", caps(false))
+            .unwrap();
+        session
+            .append_agent_log_capped(now + 1, b"pairing", caps(false))
+            .unwrap();
+        for n in 0..50u64 {
+            session
+                .append_agent_log_capped(now + 2 + n, format!("r{n}").as_bytes(), caps(true))
+                .unwrap();
+        }
+        let text = |rows: Vec<(u64, mosaic_core::SecretVec)>| -> Vec<String> {
+            rows.into_iter()
+                .map(|(_, p)| String::from_utf8(p.expose_secret().to_vec()).unwrap())
+                .collect()
+        };
+        assert_eq!(
+            text(session.agent_log(None, 100).unwrap()),
+            vec!["r49", "r48", "pairing", "grant"]
+        );
+        // And plain rows never evict refusal rows.
+        for n in 0..5u64 {
+            session
+                .append_agent_log_capped(now + 100 + n, b"plain", caps(false))
+                .unwrap();
+        }
+        let got = text(session.agent_log(None, 100).unwrap());
+        assert_eq!(got.len(), 5, "3 plain + 2 refusals");
+        assert!(got.contains(&"r49".to_owned()));
     }
 
     #[test]
@@ -327,7 +400,18 @@ mod tests {
         let mut row = session.store.agent_log_rows(None, 1).unwrap().remove(0);
         row.entry_id = [7; 16];
         row.at_ms = 6;
-        session.store.append_agent_log(&row, 0, 10).unwrap();
+        session
+            .store
+            .append_agent_log(
+                &row,
+                0,
+                AgentLogCaps {
+                    noisy: false,
+                    max_entries: 10,
+                    max_noisy: 10,
+                },
+            )
+            .unwrap();
         let page = session.agent_log_page(None, 10).unwrap();
         assert_eq!(page.entries.len(), 1);
         assert_eq!(page.unreadable, 1);

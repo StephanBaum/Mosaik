@@ -262,24 +262,114 @@ fn forms(value: &[u8]) -> Vec<Form> {
     let mut out: Vec<Form> = vec![(Zeroizing::new(value.to_vec()), false)];
     for alphabet in [STD_ALPHABET, URL_ALPHABET] {
         for pad in [true, false] {
-            out.push((base64(value, alphabet, pad), false));
+            push_base64(&mut out, base64(value, alphabet, pad));
         }
         for offset in 0..3 {
             let core = base64_core(value, alphabet, offset);
             if core.len() >= MIN_CORE_CHARS {
-                out.push((core, false));
+                push_base64(&mut out, core);
             }
         }
     }
     for upper in [true, false] {
         out.push((percent(value, upper, false), false));
     }
-    out.push((percent(value, true, true), false));
+    // Form encoding (`+` for a space) in both digit cases.
+    for upper in [true, false] {
+        out.push((percent(value, upper, true), false));
+    }
     out.push((hex_lower(value), true));
     if let Ok(text) = core::str::from_utf8(value) {
         for slash in [false, true] {
             for unicode in [Unicode::Off, Unicode::Lower, Unicode::Upper] {
                 out.push((json_escape(text, slash, unicode), false));
+            }
+        }
+        for style in HtmlStyle::ALL {
+            for slash in [
+                None,
+                Some(HtmlStyle::Decimal),
+                Some(HtmlStyle::HexLower),
+                Some(HtmlStyle::HexUpper),
+            ] {
+                let form = html_escape(text, style, slash);
+                if *form != value {
+                    out.push((form, false));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Adds a base64 form, and the JSON `\/` variant of it when it holds a `/` (JSON writers may
+/// escape the slash).
+fn push_base64(out: &mut Vec<Form>, form: Zeroizing<Vec<u8>>) {
+    if form.contains(&b'/') {
+        let mut escaped = Zeroizing::new(Vec::with_capacity(form.len() + 8));
+        for b in form.iter() {
+            if *b == b'/' {
+                escaped.extend_from_slice(br"\/");
+            } else {
+                escaped.push(*b);
+            }
+        }
+        out.push((escaped, false));
+    }
+    out.push((form, false));
+}
+
+/// How an HTML escaper writes a character reference.
+#[derive(Clone, Copy)]
+enum HtmlStyle {
+    /// `&amp; &lt; &gt; &quot;` and `&#39;`.
+    Named,
+    /// Named, with `&#x27;` for the apostrophe.
+    NamedHexApos,
+    /// `&#38;`, `&#60;`, ...
+    Decimal,
+    /// `&#x26;` with lower-case digits.
+    HexLower,
+    /// `&#x26;` with upper-case digits.
+    HexUpper,
+}
+
+impl HtmlStyle {
+    const ALL: [Self; 5] = [
+        Self::Named,
+        Self::NamedHexApos,
+        Self::Decimal,
+        Self::HexLower,
+        Self::HexUpper,
+    ];
+}
+
+fn push_number(out: &mut Zeroizing<Vec<u8>>, c: char, style: HtmlStyle) {
+    let n = u32::from(c);
+    let text = match style {
+        HtmlStyle::Decimal | HtmlStyle::Named => format!("&#{n};"),
+        HtmlStyle::HexLower | HtmlStyle::NamedHexApos => format!("&#x{n:x};"),
+        HtmlStyle::HexUpper => format!("&#x{n:X};"),
+    };
+    out.extend_from_slice(text.as_bytes());
+}
+
+/// `text` as an HTML escaper writes it: `& < > " '` always, and `/` when `slash` is `Some`, as a
+/// number in that style (decimal, or hex in either case).
+fn html_escape(text: &str, style: HtmlStyle, slash: Option<HtmlStyle>) -> Zeroizing<Vec<u8>> {
+    let mut out = Zeroizing::new(Vec::with_capacity(text.len()));
+    for c in text.chars() {
+        match (c, style) {
+            ('&', HtmlStyle::Named | HtmlStyle::NamedHexApos) => out.extend_from_slice(b"&amp;"),
+            ('<', HtmlStyle::Named | HtmlStyle::NamedHexApos) => out.extend_from_slice(b"&lt;"),
+            ('>', HtmlStyle::Named | HtmlStyle::NamedHexApos) => out.extend_from_slice(b"&gt;"),
+            ('"', HtmlStyle::Named | HtmlStyle::NamedHexApos) => out.extend_from_slice(b"&quot;"),
+            ('\'', HtmlStyle::Named) => out.extend_from_slice(b"&#39;"),
+            ('&' | '<' | '>' | '"' | '\'', _) => push_number(&mut out, c, style),
+            ('/', _) if slash.is_some() => push_number(&mut out, c, slash.unwrap_or(style)),
+            _ => {
+                let mut buf = [0u8; 4];
+                out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
             }
         }
     }

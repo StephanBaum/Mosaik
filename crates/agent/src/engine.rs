@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use mosaic_core::model::ElementId;
 use mosaic_core::{ItemId, VaultId};
+use mosaic_origin::parse_agent_url;
 use mosaic_vault::refs::RefCandidate;
 use serde::Serialize;
 
@@ -24,7 +25,7 @@ use crate::error::AgentErrorCode;
 use crate::grants::{Expiry, Found, GrantState, Grants};
 use crate::log::{LogEntry, LogKind, hex16};
 use crate::mask::Masker;
-use crate::request::{HttpRequestInput, PreparedRequest, validate};
+use crate::request::{HttpRequestInput, MAX_LOG_PATH_CHARS, PreparedRequest, validate};
 use crate::response::{RawResponse, SendError};
 use crate::source::{ResolveError, SecretSource, SourceBinding};
 
@@ -42,6 +43,14 @@ pub const DENIALS_BEFORE_BLOCK: usize = 3;
 pub const DENIAL_WINDOW: Duration = Duration::from_mins(10);
 /// How long a pairing's dialogs stay blocked.
 pub const DIALOG_BLOCK: Duration = Duration::from_mins(10);
+
+/// Refusals of one pairing within a minute that are logged one by one; beyond it the answer is
+/// `rateLimited` and one summary row a minute is logged.
+pub const REFUSALS_PER_MINUTE: usize = 60;
+/// Longest origin written to the log, in characters; a longer one is logged as the marker.
+const MAX_LOG_ORIGIN_CHARS: usize = 256;
+/// What the log holds instead of an origin that did not pass the agent URL checks.
+pub const INVALID_ORIGIN_MARKER: &str = "invalid";
 
 const MINUTE: Duration = Duration::from_mins(1);
 
@@ -245,6 +254,21 @@ impl LogFacts {
         }
     }
 
+    /// Only an origin that passed the agent URL checks is logged; anything else (and anything
+    /// oversized) is one fixed marker, so a hostile `url` cannot fill the log.
+    fn set_url(&mut self, raw: &str) {
+        let checked = parse_agent_url(raw)
+            .ok()
+            .map(|url| (url.origin().ascii_serialization(), url));
+        match checked {
+            Some((origin, url)) if origin.chars().count() <= MAX_LOG_ORIGIN_CHARS => {
+                self.origin = Some(origin);
+                self.path = Some(url.path().chars().take(MAX_LOG_PATH_CHARS).collect());
+            }
+            _ => self.origin = Some(INVALID_ORIGIN_MARKER.to_owned()),
+        }
+    }
+
     fn entry(&self, kind: LogKind, now: Now) -> LogEntry {
         let mut e = LogEntry::new(kind, now.wall_ms);
         e.pairing_id = Some(hex16(&self.pairing.id));
@@ -295,6 +319,8 @@ pub struct BinaryInfo {
 #[derive(Default)]
 struct PairingLimits {
     dialogs: VecDeque<Instant>,
+    refusals: VecDeque<Instant>,
+    last_refusal_summary: Option<Instant>,
     denials: VecDeque<Instant>,
     blocked_until: Option<Instant>,
 }
@@ -324,24 +350,88 @@ fn reference_of(b: &SourceBinding) -> String {
     format!("mosaic://{}/{}/{}", b.vault_id, b.item_id, field_part(b))
 }
 
+/// Controls (`Cc`), format characters (`Cf`: bidirectional controls, zero-width characters, soft
+/// hyphen, the byte-order mark, tags) and the line and paragraph separators (`Zl`, `Zp`).
 fn is_hidden_char(c: char) -> bool {
     matches!(
         c,
         '\u{0}'..='\u{1f}'
             | '\u{7f}'..='\u{9f}'
-            | '\u{200e}'
-            | '\u{200f}'
-            | '\u{202a}'..='\u{202e}'
-            | '\u{2066}'..='\u{2069}'
+            | '\u{ad}'
+            | '\u{600}'..='\u{605}'
+            | '\u{61c}'
+            | '\u{6dd}'
+            | '\u{70f}'
+            | '\u{890}'..='\u{891}'
+            | '\u{8e2}'
+            | '\u{180e}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{2028}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}'
+            | '\u{feff}'
+            | '\u{fff9}'..='\u{fffb}'
+            | '\u{110bd}'
+            | '\u{110cd}'
+            | '\u{13430}'..='\u{1343f}'
+            | '\u{1bca0}'..='\u{1bca3}'
+            | '\u{1d173}'..='\u{1d17a}'
+            | '\u{e0001}'
+            | '\u{e0020}'..='\u{e007f}'
     )
 }
 
-/// The agent's reason as the dialog may show it: at most 200 characters, every control and
-/// bidirectional character written out as `\u{..}` text.
+/// Nonspacing marks (`Mn`) of the common scripts and the combining blocks. Not every `Mn` of
+/// Unicode: the point is to stop a stack of marks that smears over the lines around it.
+fn is_combining_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{300}'..='\u{36f}'
+            | '\u{483}'..='\u{487}'
+            | '\u{591}'..='\u{5bd}'
+            | '\u{5bf}'
+            | '\u{5c1}'..='\u{5c2}'
+            | '\u{5c4}'..='\u{5c5}'
+            | '\u{5c7}'
+            | '\u{610}'..='\u{61a}'
+            | '\u{64b}'..='\u{65f}'
+            | '\u{670}'
+            | '\u{6d6}'..='\u{6dc}'
+            | '\u{6df}'..='\u{6e4}'
+            | '\u{6e7}'..='\u{6e8}'
+            | '\u{6ea}'..='\u{6ed}'
+            | '\u{900}'..='\u{902}'
+            | '\u{93a}'
+            | '\u{93c}'
+            | '\u{941}'..='\u{948}'
+            | '\u{94d}'
+            | '\u{951}'..='\u{957}'
+            | '\u{962}'..='\u{963}'
+            | '\u{e31}'
+            | '\u{e34}'..='\u{e3a}'
+            | '\u{e47}'..='\u{e4e}'
+            | '\u{1ab0}'..='\u{1aff}'
+            | '\u{1dc0}'..='\u{1dff}'
+            | '\u{20d0}'..='\u{20f0}'
+            | '\u{3099}'..='\u{309a}'
+            | '\u{fe00}'..='\u{fe0f}'
+            | '\u{fe20}'..='\u{fe2f}'
+            | '\u{e0100}'..='\u{e01ef}'
+    )
+}
+
+/// Most combining marks in a row that are shown as they are.
+const MAX_MARK_RUN: usize = 2;
+
+/// The agent's reason as the dialog may show it: at most 200 characters, every control, format,
+/// bidirectional and line-separator character written out as `\u{..}` text, and every combining
+/// mark beyond the second of a run too.
 fn clean_reason(reason: &str) -> Option<String> {
     let mut out = String::new();
+    let mut run = 0usize;
     for c in reason.chars().take(MAX_REASON_CHARS) {
-        if is_hidden_char(c) {
+        let mark = is_combining_mark(c);
+        run = if mark { run + 1 } else { 0 };
+        if is_hidden_char(c) || (mark && run > MAX_MARK_RUN) {
             let _ = write!(out, "\\u{{{:x}}}", u32::from(c));
         } else {
             out.push(c);
@@ -625,14 +715,67 @@ impl Engine {
         reference: &str,
         input: &HttpRequestInput,
         now: Now,
+    ) -> Result<(PreparedRequest, RequestTicket), (AgentFailure, Option<LogEntry>)> {
+        match self.begin_checked(src, pairing, reference, input, now) {
+            Ok(pair) => Ok(pair),
+            Err((failure, entry)) => Err(self.limit_refusals(pairing, failure, entry, now)),
+        }
+    }
+
+    /// Counts a refusal toward the pairing's limit. Up to [`REFUSALS_PER_MINUTE`] a minute they
+    /// pass unchanged; beyond it the answer is `rateLimited` and only one summary row a minute is
+    /// logged (`None` otherwise), so a flood of bad references cannot fill the log.
+    fn limit_refusals(
+        &mut self,
+        pairing: &PairingRef,
+        failure: AgentFailure,
+        entry: LogEntry,
+        now: Now,
+    ) -> (AgentFailure, Option<LogEntry>) {
+        let limits = self.limits.entry(pairing.id).or_default();
+        while limits
+            .refusals
+            .front()
+            .is_some_and(|t| now.mono.saturating_duration_since(*t) >= MINUTE)
+        {
+            limits.refusals.pop_front();
+        }
+        limits.refusals.push_back(now.mono);
+        if limits.refusals.len() <= REFUSALS_PER_MINUTE {
+            return (failure, Some(entry));
+        }
+        // Keep the queue bounded while the flood goes on.
+        limits.refusals.pop_front();
+        let summary_due = limits
+            .last_refusal_summary
+            .is_none_or(|t| now.mono.saturating_duration_since(t) >= MINUTE);
+        let summary = summary_due.then(|| {
+            limits.last_refusal_summary = Some(now.mono);
+            let mut e = LogEntry::new(LogKind::Refused, now.wall_ms);
+            e.pairing_id = Some(hex16(&pairing.id));
+            e.pairing_name = Some(pairing.name.clone());
+            e.code = Some(AgentErrorCode::RateLimited);
+            e
+        });
+        (AgentFailure::code(AgentErrorCode::RateLimited), summary)
+    }
+
+    #[expect(
+        clippy::result_large_err,
+        reason = "a refusal is rare and carries its log entry, as the host needs both"
+    )]
+    fn begin_checked(
+        &mut self,
+        src: &dyn SecretSource,
+        pairing: &PairingRef,
+        reference: &str,
+        input: &HttpRequestInput,
+        now: Now,
     ) -> Result<(PreparedRequest, RequestTicket), (AgentFailure, LogEntry)> {
         self.grants.sweep(now);
         let mut facts = LogFacts::new(pairing);
         facts.method = Method::parse(&input.method).map(|m| m.as_str().to_owned());
-        if let Ok(url) = url::Url::parse(&input.url) {
-            facts.origin = Some(url.origin().ascii_serialization());
-            facts.path = Some(url.path().chars().take(512).collect());
-        }
+        facts.set_url(&input.url);
         let refuse = |facts: &LogFacts, failure: AgentFailure| {
             let mut entry = facts.entry(LogKind::Refused, now);
             entry.code = Some(failure.code);

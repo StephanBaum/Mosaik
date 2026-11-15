@@ -245,7 +245,9 @@ impl TestHost {
         let (prepared, ticket) = match begun {
             Ok(pair) => pair,
             Err((failure, entry)) => {
-                self.push(entry);
+                if let Some(entry) = entry {
+                    self.push(entry);
+                }
                 return Err(failure.into());
             }
         };

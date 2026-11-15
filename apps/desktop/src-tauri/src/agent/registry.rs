@@ -52,6 +52,15 @@ pub enum RegistryError {
     /// The saved file exists but could not be read; it is left as it is.
     #[error("the saved agent pairings could not be read")]
     Unreadable,
+    /// A pairing with this name exists (compared without case).
+    #[error("a pairing with this name exists")]
+    NameTaken,
+}
+
+/// A name as compared for duplicates: lower case. Names are ASCII (the endpoint checks that), so
+/// Unicode normalisation (NFC) is the identity here.
+fn folded(name: &str) -> String {
+    name.to_lowercase()
 }
 
 /// One paired agent client.
@@ -157,6 +166,13 @@ impl AgentRegistry {
         self.unreadable
     }
 
+    /// Whether a pairing with this name exists (compared without case).
+    #[must_use]
+    pub fn name_taken(&self, name: &str) -> bool {
+        let wanted = folded(name);
+        self.pairings.iter().any(|p| folded(&p.name) == wanted)
+    }
+
     /// The pairings, oldest first.
     #[must_use]
     pub fn list(&self) -> &[Pairing] {
@@ -173,8 +189,8 @@ impl AgentRegistry {
     /// handle on the same key for `pairApproved`.
     ///
     /// # Errors
-    /// [`RegistryError::Full`], [`RegistryError::Storage`], [`RegistryError::Unreadable`]
-    /// (nothing is added then).
+    /// [`RegistryError::Full`], [`RegistryError::NameTaken`], [`RegistryError::Storage`],
+    /// [`RegistryError::Unreadable`] (nothing is added then).
     pub fn add(
         &mut self,
         name: String,
@@ -185,6 +201,9 @@ impl AgentRegistry {
         }
         if self.pairings.len() >= MAX_PAIRINGS {
             return Err(RegistryError::Full);
+        }
+        if self.name_taken(&name) {
+            return Err(RegistryError::NameTaken);
         }
         let id = new_pairing_id().map_err(|_| RegistryError::Storage)?;
         let key = PairingKey::generate().map_err(|_| RegistryError::Storage)?;
@@ -331,6 +350,22 @@ mod tests {
             Some(RegistryError::Unreadable)
         );
         assert_eq!(fs::read(&path).unwrap(), b"{\"version\":2,\"pairings\":[]}");
+    }
+
+    #[test]
+    fn a_second_pairing_with_the_same_name_is_refused() {
+        let mut registry = AgentRegistry::memory();
+        registry.add("Claude Code".into(), 1).unwrap();
+        for name in ["Claude Code", "claude code", "CLAUDE CODE"] {
+            assert!(registry.name_taken(name));
+            assert_eq!(
+                registry.add(name.into(), 2).err(),
+                Some(RegistryError::NameTaken)
+            );
+        }
+        assert_eq!(registry.list().len(), 1);
+        assert!(!registry.name_taken("Claude Code 2"));
+        registry.add("Claude Code 2".into(), 3).unwrap();
     }
 
     #[test]
