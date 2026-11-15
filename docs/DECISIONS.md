@@ -6016,6 +6016,16 @@ setting can default to on for Chromium and Electron programs.
   (4) `cargo deny check` and `cargo audit --deny warnings` pass with the D2 features. Tasks 2 to 7 of the phase 1
   plan go ahead, with Task 6 building exactly D2.
 
+### Amendment (Task 6, 2026-11-15): parent process chain
+WebView2 and other embedded-web programs must work in phase 2 (owner decision), and for them the focused
+element's process is a child of the program that owns the window. D2's API already returns the element's process
+id (`ElementFacts::pid`) and the window owner (`WindowFacts::owner_pid`); it had no parent lookup. The shim adds two
+safe functions, `parent_pid(pid) -> Result<Option<u32>>` and `process_chain(pid, max_depth) -> Result<Vec<u32>>`
+(Toolhelp process snapshot; the `windows` feature `Win32_System_Diagnostics_ToolHelp` is added to the D2 list; one
+more `unsafe` use per snapshot call, in `sys_process`). A parent id is a hint: the parent may have exited and its
+id been reused, so the phase 2 caller must open the parent with `ProcessHandle` and verify its image and signer
+before trusting it. The chain stops at a repeated id, a missing parent, or `max_depth`.
+
 ### Alternatives considered
 - **`uiautomation` for all UIA work:** no `IUIAutomation2` timeouts, so a hung program could hang the pick, and
   reaching the timeouts would put `unsafe` into Mosaic's code anyway. Revisit if upstream adds them.

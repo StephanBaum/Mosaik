@@ -3596,6 +3596,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaic-winshim"
+version = "0.0.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+ "windows",
+]
+
+[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
