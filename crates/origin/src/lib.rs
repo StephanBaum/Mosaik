@@ -25,6 +25,9 @@
 //! is for), [`fields`] (which fields of a view tree to fill, never those of a
 //! cross-origin frame) and [`assetlinks`] (Digital Asset Links parsing).
 //!
+//! Windows (ADR-0158): [`program`] (`winapp://` program URLs bound to a package,
+//! a trusted signer or an unsigned file, and the exclusion classes).
+//!
 //! Agent access (ADR-0159): [`AgentOrigin`], [`parse_agent_url`] and
 //! [`agent_destination_allowed`] decide where a vault secret may be sent for an
 //! agent: exact `https` origin only, one WHATWG parse, no userinfo, no IP
@@ -38,6 +41,7 @@ pub mod android_browsers;
 pub mod app;
 pub mod assetlinks;
 pub mod fields;
+pub mod program;
 pub mod target;
 
 pub use agent::{
@@ -521,6 +525,8 @@ fn is_one_deletion(long: &[char], short: &[char]) -> bool {
 mod agent_tests;
 #[cfg(test)]
 mod mobile_tests;
+#[cfg(test)]
+mod program_tests;
 #[cfg(test)]
 mod redteam_android_tests;
 #[cfg(test)]

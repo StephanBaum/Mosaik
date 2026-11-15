@@ -492,8 +492,8 @@ owner registers them (`STORE_CHROMIUM_EXTENSION_IDS` is empty) a release host ac
 
 The Linux packages get the tree below `<dir>` (`etc/opt/chrome/native-messaging-hosts/...`) through
 `bundle.linux.{deb,rpm}.files` of `tauri.release.conf.json` and `/usr/bin/mosaic` through `externalBin`. The MSI gets
-`chromium.json` and `firefox.json` from the directory named by the environment variable `MOSAIC_NM_MANIFEST_DIR`, which
-the WiX fragment reads when the MSI is built. The release job must run the generator (once per OS, for `--os linux` and `--os windows`) into
+`chromium.json` and `firefox.json` from `apps/desktop/src-tauri/binaries/native-messaging/windows`, which the WiX
+fragment names relative to itself (`$(sys.SOURCEFILEDIR)`; tauri-bundler does not pass the build environment to candle). The release job must run the generator (once per OS, for `--os linux` and `--os windows`) into
 `apps/desktop/src-tauri/binaries/native-messaging/{linux,windows}` before `tauri build`. The fragment does not touch the system `PATH`
 (ADR-0082, M9-F74: the install folder cannot be pinned, so a folder the user picked must not be on the `PATH` of every user). The manifests name the default
 folder; the desktop's connector audit reports an HKLM entry whose host is not the installed one (M9-F3). Uninstalling the package removes the host, the manifests and the HKLM keys.

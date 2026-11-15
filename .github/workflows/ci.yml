@@ -31,6 +31,8 @@ jobs:
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --all --check
+      # `unsafe` lives only in crates/winshim (ADR-0157 D2).
+      - run: bash tools/check-unsafe-confined.sh
       # The desktop app needs the webview toolchain; it has its own job below.
       - run: cargo clippy --workspace --exclude mosaic-desktop --all-targets --locked -- -D warnings
       - run: cargo test --workspace --exclude mosaic-desktop --locked
