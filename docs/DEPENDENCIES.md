@@ -55,7 +55,7 @@ the bans.
 | `arboard`, `keyring` | Clipboard with history exclusion; Secret Key in the OS keystore | ADR-0020 |
 | `rfd` | Native save dialog (Emergency Kit) | ADR-0020 |
 | `pdf-writer` | Emergency Kit PDF | ADR-0020 |
-| `windows`, `security-framework`, `security-framework-sys`, `zbus` | Windows Hello, Touch ID, Linux lock signals. `windows` is also used by `winshim` (Win32 features, ADR-0157; `Win32_System_Variant` added for the runtime ID array type check): the program-fill shim, the only crate allowed `unsafe` | ADR-0028, ADR-0020, ADR-0157 |
+| `windows`, `security-framework`, `security-framework-sys`, `zbus` | Windows Hello, Touch ID, Linux lock signals. `windows` is also used by `winshim` (Win32 features, ADR-0157; `Win32_System_Variant` added for the runtime ID array type check; phase 2 adds `Win32_UI_Input_KeyboardAndMouse` for `SendInput` and the modifier check, and `windows-core` `=0.62.2`, already in the tree through `windows`, as a direct edge because `windows::core::implement` emits `::windows_core` paths, ADR-0163): the program-fill shim, the only crate allowed `unsafe` | ADR-0028, ADR-0020, ADR-0157 |
 | `win-screenshot`, `x11rb` | "Scan screen" for QR codes | ADR-0031 |
 | `open` | Opens the browser for the WebAuthn handoff | ADR-0077 |
 

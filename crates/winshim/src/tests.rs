@@ -4,8 +4,9 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    ImageFile, ProcessHandle, ShimError, Signature, Uia, current_integrity_rid, final_path,
-    foreground_window, parent_pid, process_chain, window_facts,
+    ImageFile, Key, ProcessHandle, ShimError, Signature, Uia, current_integrity_rid, final_path,
+    foreground_window, modifiers_down, parent_pid, process_chain, send_key, send_unicode,
+    set_foreground, show_no_activate, window_facts,
 };
 
 fn soon() -> Instant {
@@ -265,9 +266,11 @@ fn public_api_has_no_unsafe_fn_and_no_windows_types() {
     let sources = [
         include_str!("lib.rs"),
         include_str!("error.rs"),
+        include_str!("sys_input.rs"),
         include_str!("sys_process.rs"),
         include_str!("sys_trust.rs"),
         include_str!("sys_uia.rs"),
+        include_str!("sys_version.rs"),
         include_str!("sys_window.rs"),
     ];
     let public_unsafe = ["pub", " unsafe", " fn"].concat();
@@ -324,4 +327,188 @@ fn a_signature_rooted_in_a_user_only_store_is_untrusted() {
     // accepts only because its root is in `HKCU\...\SystemCertificates\Root`.
     let path = std::env::var("MOSAIC_USER_ROOT_SIGNED").expect("set MOSAIC_USER_ROOT_SIGNED");
     assert_eq!(verify(&path).unwrap(), Signature::Untrusted);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 (ADR-0163): focus events, writes, input, window show
+// ---------------------------------------------------------------------------
+
+fn manual() -> bool {
+    // CI runs ignored tests in release, so opt in explicitly.
+    std::env::var_os("MOSAIC_MANUAL_TESTS").is_some()
+}
+
+#[test]
+fn send_unicode_refuses_more_than_sixteen_units() {
+    assert_eq!(send_unicode(&[0x41; 17]), Err(ShimError::TooLong));
+}
+
+#[test]
+fn send_unicode_of_nothing_sends_nothing() {
+    assert_eq!(send_unicode(&[]), Ok(0));
+}
+
+#[test]
+fn show_no_activate_refuses_other_processes_and_null() {
+    assert!(show_no_activate(0).is_err());
+    assert!(show_no_activate(0x7FFF_FFF0).is_err());
+    // A window of another process (the foreground window, if it is not ours).
+    if let Some(hwnd) = foreground_window()
+        && let Ok(facts) = window_facts(hwnd)
+        && facts.owner_pid != std::process::id()
+    {
+        assert_eq!(show_no_activate(hwnd), Err(ShimError::NotOwnWindow));
+    }
+}
+
+#[test]
+fn set_foreground_refuses_null_and_unknown_handles() {
+    assert!(set_foreground(0).is_err());
+    assert!(set_foreground(0x7FFF_FFF0).is_err());
+}
+
+#[test]
+fn modifiers_down_answers_without_input() {
+    let _ = modifiers_down();
+}
+
+#[test]
+fn send_key_enter_in_a_test_process_does_not_panic() {
+    // Nothing is asserted about delivery (no desktop in CI): only that the
+    // call is well formed. A bare Backspace into an idle desktop is harmless.
+    if manual() {
+        assert!(send_key(Key::Backspace).is_ok());
+    }
+}
+
+#[test]
+fn a_focus_subscription_starts_and_drops_on_a_worker_thread() {
+    std::thread::spawn(|| {
+        let uia = Uia::new(2000, 2000).unwrap();
+        let (sink, _events) = std::sync::mpsc::sync_channel::<u32>(4);
+        let subscription = uia.subscribe_focus(sink).unwrap();
+        drop(subscription);
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn edits_in_a_missing_window_is_not_found() {
+    std::thread::spawn(|| {
+        let uia = Uia::new(2000, 2000).unwrap();
+        assert_eq!(
+            uia.edits_in_window(0, 8).map(|_| ()).unwrap_err(),
+            ShimError::NotFound
+        );
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+#[ignore = "interactive desktop: docs/PROGRAM_FILL.md checklist"]
+fn focus_events_arrive_with_the_pid() {
+    if !manual() {
+        return;
+    }
+    // Click into any other program within 5 s; its process ID arrives.
+    std::thread::spawn(|| {
+        let uia = Uia::new(2000, 2000).unwrap();
+        let (sink, events) = std::sync::mpsc::sync_channel::<u32>(64);
+        let _subscription = uia.subscribe_focus(sink).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen = false;
+        while Instant::now() < deadline {
+            // Events are delivered on UIA threads; no message pump is needed.
+            if let Ok(pid) = events.recv_timeout(Duration::from_millis(200)) {
+                seen |= pid != 0;
+            }
+        }
+        assert!(seen, "no focus event with a process ID within 5 s");
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+#[ignore = "interactive desktop: docs/PROGRAM_FILL.md checklist"]
+fn set_value_and_value_round_trip_in_notepad_and_refuse_passwords() {
+    if !manual() {
+        return;
+    }
+    // Focus an empty Notepad (or any plain edit) within 5 s: SetValue then
+    // value() round-trips. Focus a password field instead: both are refused.
+    std::thread::sleep(Duration::from_secs(5));
+    let uia = Uia::new(2000, 2000).unwrap();
+    let element = uia.focused(soon()).unwrap().expect("something has focus");
+    if element.facts().is_password {
+        assert_eq!(uia.set_value(&element, "x"), Err(ShimError::AccessDenied));
+        assert_eq!(uia.value(&element), Err(ShimError::AccessDenied));
+    } else {
+        uia.set_value(&element, "mosaic-test").unwrap();
+        assert_eq!(uia.value(&element).unwrap(), "mosaic-test");
+    }
+}
+
+#[test]
+#[ignore = "interactive desktop: docs/PROGRAM_FILL.md checklist"]
+fn send_unicode_types_into_the_focused_field() {
+    if !manual() {
+        return;
+    }
+    // Focus an empty Notepad within 5 s: "Pässwörd-😀" appears exactly.
+    std::thread::sleep(Duration::from_secs(5));
+    let text: Vec<u16> = "P\u{e4}ssw\u{f6}rd-\u{1F600}".encode_utf16().collect();
+    for batch in text.chunks(8) {
+        assert_eq!(send_unicode(batch).unwrap() as usize, batch.len() * 2);
+    }
+}
+
+#[test]
+#[ignore = "interactive desktop: docs/PROGRAM_FILL.md checklist"]
+fn edits_near_and_in_window_list_a_dialogs_edits_in_order() {
+    if !manual() {
+        return;
+    }
+    // Focus a field of a dialog with several edits within 5 s.
+    std::thread::sleep(Duration::from_secs(5));
+    let uia = Uia::new(2000, 2000).unwrap();
+    let element = uia.focused(soon()).unwrap().expect("something has focus");
+    let near = uia.edits_near(&element, 3, 64).unwrap();
+    assert!(!near.is_empty());
+    let hwnd = foreground_window().unwrap();
+    let root = window_facts(hwnd).unwrap().root;
+    let in_window = uia.edits_in_window(root, 64).unwrap();
+    assert!(!in_window.is_empty());
+    let refreshed = uia.refresh(&element).unwrap();
+    assert_eq!(refreshed.facts().runtime_id, element.facts().runtime_id);
+}
+
+#[test]
+fn a_system_image_has_a_product_name_and_a_test_binary_may_not() {
+    let image = ImageFile::open(KERNEL32).unwrap();
+    let product = image
+        .product_name()
+        .unwrap()
+        .expect("kernel32 names its product");
+    assert!(product.contains("Windows"), "{product}");
+    // A binary without a version resource, or with one, never fails.
+    let exe = std::env::current_exe().unwrap();
+    let own = ImageFile::open(exe.to_str().unwrap()).unwrap();
+    assert!(own.product_name().is_ok());
+}
+
+#[test]
+fn an_installed_browser_names_its_product_whatever_the_file_is_called() {
+    let edge = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+    if !std::path::Path::new(edge).exists() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let copy = dir.path().join("notabrowser.exe");
+    std::fs::copy(edge, &copy).unwrap();
+    let image = ImageFile::open(copy.to_str().unwrap()).unwrap();
+    let product = image.product_name().unwrap().unwrap_or_default();
+    assert!(product.contains("Edge"), "{product}");
 }

@@ -7,8 +7,14 @@
 //! once; a fifth is answered `busy`. The connection to the desktop is opened on the first call,
 //! re-opened through a fresh `connect` after it closed (the desktop restarted or locked), and
 //! never starts a pairing.
+//!
+//! Dual-era: the `initialize` revisions keep their session, and a request whose `_meta` names the
+//! stateless revision `2026-07-28` is served on its own ([`stateless`]). A stateless tool call
+//! takes the same validation, connection and desktop path as a session one; only the result
+//! gains `resultType` and the server's identity, and a cancelled one gets no response.
 
 mod jsonrpc;
+mod stateless;
 mod text;
 mod tools;
 
@@ -16,6 +22,7 @@ mod tools;
 mod tests;
 
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::io::{BufRead, Read as _, Write};
 use std::rc::Rc;
 use std::time::Duration;
@@ -27,7 +34,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::time::{Instant, timeout_at};
 
 use super::conn::{ConnError, Connector, Link, RequestError};
-use text::SUPPORTED_PROTOCOL_VERSIONS;
+use stateless::Era;
+use text::INITIALIZE_VERSIONS;
 use tools::{Tool, err_result, list, ok_result, parse_call};
 
 /// The most tool calls in flight.
@@ -44,8 +52,8 @@ enum Msg {
     TooLong,
     /// Stdin closed.
     Eof,
-    /// A finished tool call: the response line.
-    Done(String),
+    /// A finished tool call: its ticket if it is stateless, and the response line.
+    Done(Option<u64>, String),
 }
 
 /// Reads one line of at most [`jsonrpc::MAX_LINE_BYTES`]. `Ok(None)` at the end of the stream.
@@ -110,6 +118,8 @@ pub fn run_mcp(
         tx,
         version: Cell::new(None),
         in_flight: Cell::new(0),
+        stateless_calls: RefCell::new(BTreeMap::new()),
+        next_ticket: Cell::new(0),
     };
     Ok(tokio::task::LocalSet::new().block_on(&rt, relay.serve(rx, stdout)))
 }
@@ -118,9 +128,13 @@ struct Relay {
     connector: Rc<dyn Connector>,
     link: Rc<RefCell<Option<Rc<dyn Link>>>>,
     tx: UnboundedSender<Msg>,
-    /// The negotiated protocol revision.
+    /// The revision negotiated by `initialize` (stateless requests never read or change it).
     version: Cell<Option<&'static str>>,
     in_flight: Cell<usize>,
+    /// Stateless tool calls in flight, by ticket: the request id and whether it was cancelled.
+    /// At most [`MAX_CALLS`] entries.
+    stateless_calls: RefCell<BTreeMap<u64, (Value, bool)>>,
+    next_ticket: Cell<u64>,
 }
 
 fn write_value(out: &mut impl Write, value: &Value) {
@@ -150,11 +164,7 @@ impl Relay {
                     );
                     return 1;
                 }
-                Some(Msg::Done(line)) => {
-                    self.in_flight.set(self.in_flight.get().saturating_sub(1));
-                    let _ = out.write_all(line.as_bytes());
-                    let _ = out.flush();
-                }
+                Some(Msg::Done(ticket, line)) => self.finish(&mut out, ticket, &line),
                 Some(Msg::Line(bytes)) => {
                     if let Some(response) = self.handle(&bytes) {
                         write_value(&mut out, &response);
@@ -165,8 +175,38 @@ impl Relay {
         0
     }
 
-    fn negotiated(&self) -> &'static str {
-        self.version.get().unwrap_or(SUPPORTED_PROTOCOL_VERSIONS[0])
+    /// Writes the answer of a finished tool call, unless it was a stateless call the client
+    /// cancelled (the stdio binding of `2026-07-28`: no further message for it).
+    fn finish(&self, out: &mut impl Write, ticket: Option<u64>, line: &str) {
+        self.in_flight.set(self.in_flight.get().saturating_sub(1));
+        let cancelled = ticket
+            .and_then(|t| self.stateless_calls.borrow_mut().remove(&t))
+            .is_some_and(|(_, cancelled)| cancelled);
+        if !cancelled {
+            let _ = out.write_all(line.as_bytes());
+            let _ = out.flush();
+        }
+    }
+
+    /// Marks the stateless calls in flight with this request id as cancelled. Session calls keep
+    /// their answer, as before; an unknown or finished id is ignored.
+    fn cancel(&self, params: &Value) {
+        let Some(target) = params.get("requestId") else {
+            return;
+        };
+        for (id, cancelled) in self.stateless_calls.borrow_mut().values_mut() {
+            if id == target {
+                *cancelled = true;
+            }
+        }
+    }
+
+    /// The revision of a request in `era`.
+    fn version_for(&self, era: Era) -> &'static str {
+        match era {
+            Era::Session => self.version.get().unwrap_or(INITIALIZE_VERSIONS[0]),
+            Era::Stateless(version) => version,
+        }
     }
 
     /// Handles one line. `Some` is the response to write now; a tool call answers later.
@@ -190,8 +230,12 @@ impl Relay {
             // match it to.
             return None;
         };
+        let params = object.get("params").unwrap_or(&Value::Null);
         let Some(id) = object.get("id") else {
             // A notification (`notifications/initialized`, `notifications/cancelled`, ...).
+            if method == "notifications/cancelled" {
+                self.cancel(params);
+            }
             return None;
         };
         if !jsonrpc::valid_id(id) {
@@ -201,36 +245,49 @@ impl Relay {
                 "Invalid request",
             ));
         }
-        let params = object.get("params").unwrap_or(&Value::Null);
+        match stateless::era(params) {
+            Ok(Era::Session) => self.session_request(id, method, params),
+            Ok(era @ Era::Stateless(version)) => match method {
+                "server/discover" => Some(jsonrpc::result(id, &stateless::discover())),
+                "tools/list" => Some(jsonrpc::result(
+                    id,
+                    &stateless::cacheable(stateless::complete(list(version))),
+                )),
+                "tools/call" => self.tools_call(id, params, era),
+                // `initialize` and `ping` do not exist in a stateless revision.
+                _ => Some(method_not_found(id)),
+            },
+            Err(refusal) => Some(stateless::refusal(id, &refusal)),
+        }
+    }
+
+    /// A request of the `initialize` session.
+    fn session_request(&self, id: &Value, method: &str, params: &Value) -> Option<Value> {
         match method {
             "initialize" => Some(jsonrpc::result(id, &self.initialize(params))),
             "ping" => Some(jsonrpc::result(id, &json!({}))),
-            "tools/list" => Some(jsonrpc::result(id, &list(self.negotiated()))),
-            "tools/call" => self.tools_call(id, params),
-            _ => Some(jsonrpc::error(
-                id,
-                jsonrpc::METHOD_NOT_FOUND,
-                "Method not found",
-            )),
+            "tools/list" => Some(jsonrpc::result(id, &list(self.version_for(Era::Session)))),
+            "tools/call" => self.tools_call(id, params, Era::Session),
+            _ => Some(method_not_found(id)),
         }
     }
 
     fn initialize(&self, params: &Value) -> Value {
         let asked = params.get("protocolVersion").and_then(Value::as_str);
-        let version = SUPPORTED_PROTOCOL_VERSIONS
+        let version = INITIALIZE_VERSIONS
             .iter()
             .copied()
             .find(|v| Some(*v) == asked)
-            .unwrap_or(SUPPORTED_PROTOCOL_VERSIONS[0]);
+            .unwrap_or(INITIALIZE_VERSIONS[0]);
         self.version.set(Some(version));
         json!({
             "protocolVersion": version,
             "capabilities": { "tools": { "listChanged": false } },
-            "serverInfo": { "name": "mosaic", "version": env!("CARGO_PKG_VERSION") },
+            "serverInfo": stateless::server_info(),
         })
     }
 
-    fn tools_call(&self, id: &Value, params: &Value) -> Option<Value> {
+    fn tools_call(&self, id: &Value, params: &Value, era: Era) -> Option<Value> {
         let invalid = || {
             Some(jsonrpc::error(
                 id,
@@ -257,14 +314,23 @@ impl Relay {
         let Ok(op) = parse_call(tool, params.get("arguments").unwrap_or(&Value::Null)) else {
             return invalid();
         };
-        let version = self.negotiated();
+        let version = self.version_for(era);
         if self.in_flight.get() >= MAX_CALLS {
-            return Some(jsonrpc::result(
-                id,
-                &err_result(version, AgentErrorCode::Busy, None),
-            ));
+            let busy = err_result(version, AgentErrorCode::Busy, None);
+            return Some(jsonrpc::result(id, &shape(era, busy)));
         }
         self.in_flight.set(self.in_flight.get() + 1);
+        let ticket = match era {
+            Era::Session => None,
+            Era::Stateless(_) => {
+                let ticket = self.next_ticket.get();
+                self.next_ticket.set(ticket.wrapping_add(1));
+                self.stateless_calls
+                    .borrow_mut()
+                    .insert(ticket, (id.clone(), false));
+                Some(ticket)
+            }
+        };
         let (connector, slot, tx, id) = (
             Rc::clone(&self.connector),
             Rc::clone(&self.link),
@@ -280,11 +346,23 @@ impl Relay {
                 version,
             )
             .await;
-            let line = jsonrpc::line(&jsonrpc::result(&id, &result));
-            let _ = tx.send(Msg::Done(line));
+            let line = jsonrpc::line(&jsonrpc::result(&id, &shape(era, result)));
+            let _ = tx.send(Msg::Done(ticket, line));
         });
         None
     }
+}
+
+/// A tool result as `era` expects it.
+fn shape(era: Era, result: Value) -> Value {
+    match era {
+        Era::Session => result,
+        Era::Stateless(_) => stateless::complete(result),
+    }
+}
+
+fn method_not_found(id: &Value) -> Value {
+    jsonrpc::error(id, jsonrpc::METHOD_NOT_FOUND, "Method not found")
 }
 
 /// The code the model sees for a failed connection.

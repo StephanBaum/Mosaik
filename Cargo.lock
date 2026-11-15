@@ -3288,12 +3288,14 @@ dependencies = [
  "mosaic-origin",
  "mosaic-passkey",
  "mosaic-platform",
+ "mosaic-program-fill",
  "mosaic-qr",
  "mosaic-server",
  "mosaic-ssh-agent",
  "mosaic-sync",
  "mosaic-totp",
  "mosaic-vault",
+ "mosaic-winshim",
  "open",
  "p256 0.14.0",
  "pdf-writer",
@@ -3478,6 +3480,7 @@ dependencies = [
 name = "mosaic-program-fill"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
  "mosaic-core",
  "mosaic-origin",
  "mosaic-winshim",
@@ -3485,6 +3488,7 @@ dependencies = [
  "sha2 0.11.1",
  "tempfile",
  "thiserror 2.0.21",
+ "zeroize",
 ]
 
 [[package]]
@@ -3632,6 +3636,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "windows",
+ "windows-core",
+ "zeroize",
 ]
 
 [[package]]

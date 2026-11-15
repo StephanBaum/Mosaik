@@ -52,6 +52,7 @@ pub mod navigation;
 pub mod otp_pending;
 pub mod passkey_export;
 pub mod persist;
+pub mod program_fill;
 pub mod quick_unlock;
 pub mod screen_capture;
 pub mod settings_integrity;
@@ -74,9 +75,15 @@ use crate::contract::events::LockReason;
 use crate::dialogs::NativeDialogs;
 use crate::keystore::{LayeredKeystore, OsKeystore};
 use crate::persist::Persistence;
+#[cfg(not(windows))]
+use crate::program_fill::NoPickerWindows;
+#[cfg(windows)]
+use crate::program_fill::TauriPickerWindows;
+use crate::program_fill::{BlockList, PickerWindows, ProgramFillService};
 use crate::quick_unlock::QuickUnlockService;
 use crate::screen_capture::NativeScreenCapture;
 use crate::state::{AppState, Backend, Slot, guard};
+use mosaic_program_fill::host::{Host, monotonic_ms};
 
 /// The window title of a preview build (ADR-0153): the English and German word for "preview".
 #[cfg(feature = "preview")]
@@ -141,6 +148,29 @@ pub fn run() -> tauri::Result<()> {
             } else {
                 Persistence::memory()
             };
+            // Windows program fill reads other programs' fields through the Windows host; no
+            // other system has one (ADR-0164).
+            let host: Option<Arc<dyn Host>> = {
+                #[cfg(windows)]
+                {
+                    Some(Arc::new(mosaic_program_fill::windows::WindowsHost::new()))
+                }
+                #[cfg(not(windows))]
+                {
+                    None
+                }
+            };
+            // The chip and the list: Tauri windows on Windows, none elsewhere (ADR-0164).
+            let picker_windows: Arc<dyn PickerWindows> = {
+                #[cfg(windows)]
+                {
+                    Arc::new(TauriPickerWindows::new(app.handle().clone()))
+                }
+                #[cfg(not(windows))]
+                {
+                    Arc::new(NoPickerWindows)
+                }
+            };
             let keystore =
                 LayeredKeystore::new(Box::new(OsKeystore::new(&app.config().identifier)));
             // The Secret Key of a rotation in progress: its own entries, so a
@@ -175,6 +205,12 @@ pub fn run() -> tauri::Result<()> {
                     })
                 })
                 .with_persistence(persistence)
+                .with_program_fill(ProgramFillService::new(
+                    host,
+                    picker_windows,
+                    BlockList::in_dir(&dir),
+                    Arc::new(monotonic_ms),
+                ))
                 .with_sync_storage(&app.config().identifier, dir.clone())
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
@@ -222,6 +258,20 @@ pub fn run() -> tauri::Result<()> {
             state.backend().on_unlock(Box::new(move || {
                 Backend::breach_weekly_after_unlock(weak.clone());
             }));
+            // Program fill follows the unlock and the lock (ADR-0164): the watcher starts when it
+            // is on, and the pickers close and forget their offer.
+            let weak = state.downgrade();
+            state.backend().on_unlock(Box::new(move || {
+                if let Some(backend) = weak.upgrade() {
+                    backend.program_fill_on_unlock();
+                }
+            }));
+            let weak = state.downgrade();
+            state.backend().on_lock(Box::new(move |_| {
+                if let Some(backend) = weak.upgrade() {
+                    backend.program_fill_on_lock();
+                }
+            }));
             // After the state exists: the endpoint reaches the vault through it.
             state.backend().browser.start(&dir, state.downgrade());
             // The agent endpoint binds at the first unlock that finds the setting on.
@@ -242,13 +292,37 @@ pub fn run() -> tauri::Result<()> {
             if let Ok(mut slot) = guard(&state.backend().shortcut_registrar) {
                 *slot = registrar;
             }
+            // The program fill hotkey: a second registration on the same plugin, none by default.
+            state
+                .backend()
+                .program_fill
+                .set_hotkey_registrar(shortcut::install_action(
+                    app.handle(),
+                    program_fill::on_program_fill_hotkey,
+                ));
+            if let Some(text) = state.backend().settings_snapshot().program_fill_hotkey
+                && let Ok(accelerator) = shortcut::parse_accelerator(&text)
+                && let Some(register) = state.backend().program_fill.hotkey_registrar()
+            {
+                // A conflict leaves the hotkey unregistered; the settings screen shows the
+                // error when the user sets it again.
+                let _ = register(Some(accelerator));
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Focused(true) = event
-                && let Some(state) = window.app_handle().try_state::<AppState>()
-            {
-                state.backend().touch();
+            let Some(state) = window.app_handle().try_state::<AppState>() else {
+                return;
+            };
+            match event {
+                tauri::WindowEvent::Focused(true) => state.backend().touch(),
+                // The list closes when it loses the focus (ADR-0164).
+                tauri::WindowEvent::Focused(false)
+                    if window.label() == commands::picker::LIST_LABEL =>
+                {
+                    state.backend().picker_list_blurred();
+                }
+                _ => {}
             }
             // The webview never listens to drops (paths): Rust takes the file
             // and sends the webview a token (`importFileDropped`).
@@ -300,6 +374,8 @@ mod handler_tests;
 mod m9_ui_tests;
 #[cfg(test)]
 mod otp_tests;
+#[cfg(test)]
+mod program_fill_tests;
 #[cfg(test)]
 mod quick_unlock_tests;
 #[cfg(test)]

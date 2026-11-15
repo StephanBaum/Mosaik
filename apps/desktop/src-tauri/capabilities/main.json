@@ -50,6 +50,8 @@
     "allow-agent-grant-revoke",
     "allow-agent-stop-all",
     "allow-agent-log",
+    "allow-program-fill-status",
+    "allow-program-fill-unblock",
     "allow-attachment-add",
     "allow-attachment-preview",
     "allow-attachment-save",

@@ -12,6 +12,8 @@ use mosaic_core::model::{
     CustomField, CustomFieldValue, ElementId, ItemEdit, LoginUrl, OtpConfig, SecretField,
     SshKeyMaterial, Text, TextField, UrlMatch,
 };
+use mosaic_origin::program::ProgramUrl;
+use mosaic_program_fill::binding::set_submit;
 use mosaic_totp::OtpAuth;
 use mosaic_vault::otp::config_from_otp_auth;
 
@@ -35,9 +37,20 @@ fn element(id: &str) -> IpcResult<ElementId> {
     ElementId::from_stored(id).map_err(|_| invalid())
 }
 
+/// Whether `text` names a program binding. The editor never writes one: a `winapp://` URL comes
+/// from the picker's link step (which proves the program) or not at all (ADR-0164).
+fn is_program_url_text(text: &str) -> bool {
+    text.trim()
+        .get(..7)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("winapp:"))
+}
+
 fn login_url(url: &str, match_mode: UrlMatchMode, allow_http: bool) -> IpcResult<LoginUrl> {
     let url = url.trim();
     if url.is_empty() || url.len() > MAX_URL_LEN || url.chars().any(char::is_control) {
+        return Err(invalid());
+    }
+    if is_program_url_text(url) {
         return Err(invalid());
     }
     let mut login = LoginUrl::new(url);
@@ -91,6 +104,8 @@ enum UrlOp {
     Add(LoginUrl),
     Set(ElementId, LoginUrl),
     Remove(ElementId),
+    /// The Enter switch of a program binding.
+    ProgramSubmit(ElementId, bool),
 }
 
 enum OtpOp {
@@ -125,6 +140,9 @@ fn url_op(change: UrlChange) -> IpcResult<UrlOp> {
             login_url(&url, match_mode, allow_http)?,
         ),
         UrlChange::Remove { element_id } => UrlOp::Remove(element(&element_id)?),
+        UrlChange::ProgramSubmit { element_id, submit } => {
+            UrlOp::ProgramSubmit(element(&element_id)?, submit)
+        }
     })
 }
 
@@ -331,6 +349,7 @@ impl Prepared {
         edit: &mut ItemEdit<'_>,
         current_tags: &[String],
         mut current_fields: Vec<(ElementId, CustomField)>,
+        mut current_urls: Vec<(ElementId, LoginUrl)>,
     ) -> mosaic_core::Result<()> {
         for (field, value) in self.text {
             match value {
@@ -351,6 +370,21 @@ impl Prepared {
                 }
                 UrlOp::Set(id, url) => edit.set_url(&id, &url)?,
                 UrlOp::Remove(id) => edit.remove_url(&id)?,
+                UrlOp::ProgramSubmit(id, submit) => {
+                    // Only a program binding has the switch; the rest of the URL element (the
+                    // URL itself and the display data) is written back as it is.
+                    let at = current_urls
+                        .iter()
+                        .position(|(stored, _)| *stored == id)
+                        .ok_or(mosaic_core::Error::Malformed)?;
+                    let (_, mut url) = current_urls.swap_remove(at);
+                    if ProgramUrl::parse(url.url.as_str()).is_err() {
+                        return Err(mosaic_core::Error::Malformed);
+                    }
+                    set_submit(&mut url, submit);
+                    edit.set_url(&id, &url)?;
+                    current_urls.push((id, url));
+                }
             }
         }
         for op in self.fields {
@@ -455,7 +489,7 @@ mod tests {
         };
         let prepared = prepare(draft, None).unwrap();
         prepared
-            .apply(&mut item.edit(device(), at()), &[], Vec::new())
+            .apply(&mut item.edit(device(), at()), &[], Vec::new(), Vec::new())
             .unwrap();
         let id = item.custom_fields()[0].0.as_str().to_owned();
         (item, id)
@@ -479,7 +513,7 @@ mod tests {
         let fields = item.custom_fields();
         prepare(draft, None)
             .unwrap()
-            .apply(&mut item.edit(device(), at()), &[], fields)
+            .apply(&mut item.edit(device(), at()), &[], fields, Vec::new())
     }
 
     #[test]
@@ -544,7 +578,7 @@ mod tests {
         assert!(prepared.sets_ssh_key());
         let mut item = Item::new(&ItemType::SshKey, device(), at()).unwrap();
         prepared
-            .apply(&mut item.edit(device(), at()), &[], Vec::new())
+            .apply(&mut item.edit(device(), at()), &[], Vec::new(), Vec::new())
             .unwrap();
         let key = item.ssh_key().unwrap();
         assert_eq!(key.public_key.as_str(), ED25519_PUB.trim());

@@ -101,32 +101,54 @@ function setText(item: MockItem, field: TextFieldKey, value: string | null): voi
   }
 }
 
+/** Like Rust `is_program_url_text`: the editor never writes a program binding. */
+function isProgramUrlText(url: string): boolean {
+  return url.trim().slice(0, 7).toLowerCase() === "winapp:";
+}
+
+/** One URL change of a draft, like Rust `draft::url_op` and `Prepared::apply`. */
+function applyUrlChange(detail: MockItem["detail"], change: UrlChange): void {
+  if ((change.op === "add" || change.op === "update") && isProgramUrlText(change.url)) {
+    fail("invalidInput");
+  }
+  if (change.op === "add") {
+    detail.urls.push({
+      elementId: crypto.randomUUID(),
+      url: change.url,
+      matchMode: change.matchMode,
+      allowHttp: change.allowHttp,
+      program: null,
+    });
+    return;
+  }
+  const at = detail.urls.findIndex((entry) => entry.elementId === change.elementId);
+  const entry = detail.urls[at];
+  if (entry === undefined) {
+    fail("invalidInput");
+  }
+  if (change.op === "remove") {
+    detail.urls.splice(at, 1);
+  } else if (change.op === "programSubmit") {
+    // Only a program binding has the switch.
+    if (entry.program === null) {
+      fail("invalidInput");
+    }
+    entry.program = { ...entry.program, submit: change.submit };
+  } else {
+    detail.urls[at] = {
+      elementId: change.elementId,
+      url: change.url,
+      matchMode: change.matchMode,
+      allowHttp: change.allowHttp,
+      program: null,
+    };
+  }
+}
+
 function applyUrls(item: MockItem, changes: readonly UrlChange[]): void {
   const detail = item.detail;
   for (const change of changes) {
-    if (change.op === "add") {
-      detail.urls.push({
-        elementId: crypto.randomUUID(),
-        url: change.url,
-        matchMode: change.matchMode,
-        allowHttp: change.allowHttp,
-      });
-    } else {
-      const at = detail.urls.findIndex((entry) => entry.elementId === change.elementId);
-      if (at < 0) {
-        fail("invalidInput");
-      }
-      if (change.op === "remove") {
-        detail.urls.splice(at, 1);
-      } else {
-        detail.urls[at] = {
-          elementId: change.elementId,
-          url: change.url,
-          matchMode: change.matchMode,
-          allowHttp: change.allowHttp,
-        };
-      }
-    }
+    applyUrlChange(detail, change);
   }
   const first = detail.urls[0]?.url;
   detail.summary.host = first !== undefined && URL.canParse(first) ? new URL(first).hostname : null;

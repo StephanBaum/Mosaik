@@ -18,14 +18,22 @@ mod draft;
 #[path = "../../src/persist.rs"]
 mod persist;
 /// `persist.rs` checks a stored shortcut with `crate::shortcut`, which needs
-/// Tauri. The harness stands in a check that accepts any non-empty text; the
-/// real parser has its own unit tests.
+/// Tauri. The harness stands in a check that accepts any non-empty text and
+/// compares the folded text; the real parser has its own unit tests.
 mod shortcut {
-    pub fn parse_accelerator(text: &str) -> Result<(), ()> {
+    pub struct Accelerator(String);
+
+    impl Accelerator {
+        pub fn shortcut(&self) -> &str {
+            &self.0
+        }
+    }
+
+    pub fn parse_accelerator(text: &str) -> Result<Accelerator, ()> {
         if text.is_empty() {
             Err(())
         } else {
-            Ok(())
+            Ok(Accelerator(text.to_lowercase()))
         }
     }
 }
@@ -47,6 +55,8 @@ use contract::import::{
     ImportPreviewRequest,
 };
 use contract::otp::{OtpParseRequest, OtpPendingRequest, OtpScanRequest};
+use contract::picker::{PickerGenerationRequest, PickerItemRequest, PickerSearchRequest};
+use contract::program_fill::ProgramFillUnblockRequest;
 use contract::items::{
     AddItemRequest, ItemRequest, ListItemsRequest, MoveItemRequest, RevealRequest,
     SetFavoriteRequest, UpdateItemRequest,
@@ -92,7 +102,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 82;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 86;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -224,10 +234,16 @@ fuzz_target!(|data: &[u8]| {
         80 => drop(parse::<ImportDeleteRequest>(json)),
         // A draft's binding changes are checked without a session: whatever parses either
         // becomes a list of checked changes or is refused with a binding error.
-        _ => {
+        81 => {
             if let Some(r) = parse::<UpdateItemRequest>(json) {
                 let _ = r.draft.agent_bindings.len();
             }
         }
+        // Program fill (ADR-0164): the picker windows' requests carry a generation, IDs and a
+        // search text, never a program path, a key or a secret.
+        82 => drop(parse::<PickerGenerationRequest>(json)),
+        83 => drop(parse::<PickerSearchRequest>(json)),
+        84 => drop(parse::<PickerItemRequest>(json)),
+        _ => drop(parse::<ProgramFillUnblockRequest>(json)),
     }
 });

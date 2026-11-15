@@ -6290,7 +6290,7 @@ Decisions made on top of the spec (D = spec decision, Q = spec open question, B 
 - **The log** never keeps a value, a header, a body or a query string.
 - **Copies in buffers.** The injected value may leave copies inside `reqwest` and `hyper` buffers that this code cannot zeroize, as serde's buffers in
   ADR-0009 (THREAT_MODEL R184).
-- **MCP protocol versions** supported by `mosaic agent mcp`: `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05` (all with the `initialize` handshake over newline-delimited JSON-RPC on stdio; checked against modelcontextprotocol.io on 2026-11-15). `initialize` echoes the client's version if it is in the list, else the newest. `structuredContent` is sent from `2025-06-18`, tool `annotations` from `2025-03-26`; no `outputSchema`. The current revision `2026-07-28` is stateless (no `initialize`, `server/discover`) and is not implemented: its clients fall back to the revisions above. Tools only; no resources, prompts, sampling, elicitation, roots or logging.
+- **MCP protocol versions** supported by `mosaic agent mcp` (newline-delimited JSON-RPC on stdio; checked against modelcontextprotocol.io on 2026-11-15): the stateless `2026-07-28` and the `initialize` revisions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`. The relay is dual-era and decides per request. A request whose `params._meta` names a version other than the four `initialize` ones in `io.modelcontextprotocol/protocolVersion` is stateless: it is served on its own, never reads or changes the `initialize` session, and needs `io.modelcontextprotocol/clientCapabilities` as an object (missing, or a version that is not a string: `-32602`). A version the relay does not speak gets `-32022` "Unsupported protocol version" with `data.supported` (all five, newest first) and `data.requested`. Stateless methods: `server/discover` (`supportedVersions`, `capabilities.tools.listChanged: false`, no `instructions`), `tools/list` and `tools/call`; `initialize`, `ping` and `subscriptions/listen` are `-32601` (nothing changes, so there is nothing to subscribe to). Every stateless result has `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`; `server/discover` and `tools/list` have `ttlMs: 0` and `cacheScope: "public"` (the list is the same for everyone). A stateless `tools/call` takes the same validation, busy limit, connection and desktop path as a session one; `clientInfo` is ignored, as `initialize`'s is. A stateless call cancelled by `notifications/cancelled` gets no response (the stdio binding); session calls keep their answer, as before. Without a version in `_meta`, `initialize` echoes the client's version if it is one of its four, else the newest, and the session serves requests by it. `structuredContent` is sent from `2025-06-18`, tool `annotations` from `2025-03-26`; no `outputSchema`, never `input_required`. Tools only; no resources, prompts, sampling, elicitation, roots or logging.
 - **Tests** reach a TLS server through a fixture CA and a test-only sender constructor, because the sync tests use plain-http loopback and there was
   nothing to reuse. Agent requests use `no_proxy()` (the sync client uses the system proxy for https).
 
@@ -6460,6 +6460,177 @@ own cloud folder, cannot use the Android app. Android has no path-based access t
   rollback halt apply unchanged. The own-log check asks an authoritative `stat` before it halts, so a lagging
   listing never causes a false halt.
 - New residual risks R166 to R170 in THREAT_MODEL §5.
+
+## ADR-0163: Windows program fill phase 2: shim scope for focus events, writes and input
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: autofill everywhere, part 1 (Windows program fill, phase 2)
+
+### Context
+ADR-0157 D1 left C-UIA-EVENTS, C-UIA-WRITE and C-INPUT open for phase 2 and D5 forbids a second UIA client. Phase 2 needs
+focus events (to offer a login at a field), `ValuePattern` reads and writes, keyboard input, and a way to show Mosaic's own
+chip without taking focus.
+
+### Decision
+- **All three go to `mosaic-winshim`.** Its UIA client already carries the `IUIAutomation2` timeouts (ADR-0157 D5);
+  `uiautomation` has none; `enigo` and `rdev` failed vetting in ADR-0157; `winsafe` copies `INPUT` into a non-zeroized `Vec`.
+- **The added public API** is exactly the interface block of the phase 2 plan, Task 5: `FocusSubscription` and
+  `Uia::{subscribe_focus, edits_near, edits_in_window, refresh, set_focus, set_value, value}`, `send_unicode`, `send_key`,
+  `modifiers_down`, `set_foreground`, `show_no_activate`, `Key`, `MAX_UNITS_PER_CALL`, and the errors `TooLong` and
+  `NotOwnWindow`. No `unsafe fn`, no raw pointer, raw handle or `windows` type in a public signature.
+- **Features.** The added `windows =0.62.2` feature is `Win32_UI_Input_KeyboardAndMouse` (new). `Win32_System_Variant` was
+  already enabled in phase 1. The focus handler uses `windows::core::implement` (the `windows-implement` crate is already in
+  the tree); its generated code names `::windows_core`, so `windows-core =0.62.2` (the version `windows` already pulls
+  in) becomes a direct dependency edge of the shim. The only changes to `Cargo.lock` are these edges and `zeroize`
+  (workspace dependency) joining `mosaic-winshim` and `mosaic-program-fill`; no new package.
+- **Input buffers.** `send_unicode` builds its `INPUT` records in a `Zeroizing<Vec<InputRecord>>` of exact capacity that is
+  never grown, at most 16 UTF-16 units (32 records) per call; the typed password therefore never sits in a record that is
+  not wiped. A longer slice is `TooLong`.
+- **Narrow permissions.** `set_value` and `value` refuse password elements (`AccessDenied`); `show_no_activate` accepts only
+  windows of Mosaic's own process (`NotOwnWindow`); `set_foreground` accepts only top-level windows.
+- **Also added** (same rules): `ProcessHandle::start_time` (`GetProcessTimes`, to tell a reused parent process ID from the
+  parent, for the `WebView2` chain of ADR-0164) and `ImageFile::product_name` (`GetFileVersionInfoW`, `VerQueryValueW`, both
+  in the already enabled `Win32_Storage_FileSystem`; read by the final path of the image that is held open without write or
+  delete sharing; display data used only to refuse a renamed browser).
+- **Hardening carried from the phase 1 red team** (open items of ADR-0158): the worker is respawned after a hung call
+  (ADR-0164, timers); renamed browsers are handled by ADR-0164. **Still open:** comparing the file ID of the held image with
+  `GetMappedFileNameW` of the image base (R178). It needs `PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` on the target, which
+  the shim does not take today (`PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE`); widening the rights on every program
+  Mosaic looks at is a security change of its own and needs its own review. R178 stands.
+
+### Alternatives
+- A second UIA client for events: rejected (ADR-0157 D5).
+- `SendInput` through a wrapper crate: rejected, see above.
+
+### Consequences
+`crates/winshim` grows by `sys_input.rs` and additions to `sys_uia.rs`, `sys_window.rs` and `sys_process.rs`. Every new
+`unsafe` block carries a `// SAFETY:` reading, and `tools/check-unsafe-confined.sh` keeps the exception confined.
+
+### Review log
+| Date | Review | Result |
+|---|---|---|
+| (pending) | crypto-reviewer reading of the new `unsafe` blocks; Fable red-team review of the changed shim before merge | to be recorded by the orchestrator |
+
+## ADR-0164: Windows program fill phase 2: picker windows, fill, submit and linking
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: autofill everywhere, part 1 (Windows program fill, phase 2)
+
+### Context
+Phase 1 (ADR-0157, ADR-0158) identifies a program and re-verifies before a write but writes nothing. Phase 2 offers the
+logins bound to the focused program at its login field, fills on the user's pick and presses Enter, and lets a program be
+linked on the spot. Spec `docs/superpowers/specs/2026-11-14-autofill-everywhere-design.md` §2.1 G1 to G4, §2.3 A1, A2, A8,
+§5.1 and §5.2, §7 Q1 to Q4.
+
+### Decision
+- **Picker surface.** Two Tauri webview windows created from Rust only (`program_fill::picker_windows`): `picker-chip`
+  (24 x 24 logical px, `focusable(false)`, shown through the shim's `show_no_activate`) and `picker` (the list, takes
+  focus). Both: no decorations, not resizable, skip taskbar, always on top, `content_protected(true)`, served from the
+  bundled `chip.html` and `picker.html`. Capabilities `chip` and `picker` grant only `CHIP_COMMANDS` and `LIST_COMMANDS`.
+  A native layered window was rejected: it would put a window procedure, text rendering, IME, DPI and accessibility into
+  the `unsafe` shim and lose i18n, design tokens and screen-reader support.
+- **Not spoofable.** A target program cannot draw into Mosaic's windows. Before `picker_choose` and `picker_link_confirm`
+  Rust checks: the generation is current, the item is in Rust's own offer (or the link step Rust opened), the list window
+  is foreground, its outer rectangle equals the last placement, and the five probe points of the list rectangle resolve
+  through UIA to the list's own top-level window. Picks within 300 ms of the list appearing are ignored (a double click on
+  the chip). Link confirmation keeps the 1 s guard of `prompts.rs`, and unsigned programs need the second confirmation of
+  ADR-0158. Synthesised input into the picker is residual R171.
+- **Detection.** One MTA worker owns the UIA client; focus events are debounced 150 ms; events of Mosaic's own process are
+  ignored; an identity cache of 16 entries keyed by PID holds the process handle. The worker runs only while
+  `programFill` is on and (the vault is unlocked, or it was unlocked once in this run so the setting is verified). The
+  field rectangle is polled every 250 ms only while the chip is visible. Container for the user-name search: the ancestor
+  3 levels above the focused Edit; at most 64 Edits scanned. A lone text field is offered only when the program has a
+  matching login and the whole window holds exactly one usable Edit.
+- **Writing.** User name: `ValuePattern.SetValue` with read-back for the frameworks `Win32`, `WinForm`, `WPF`, else typing.
+  Password: always typed in phase 2 (no framework is proven for a password `SetValue`). Typing: modifier wait up to
+  2000 ms (poll 20 ms), batches of at most 8 UTF-16 units that never split a surrogate pair, a full `verify::check` before
+  every batch, a focus event since the last `SetFocus` (after a 50 ms settle) aborts, a short `SendInput` count aborts; on
+  abort, if the same field still verifies, Ctrl+A then Backspace.
+- **Submit.** Enter, after `check(Submit)`, when the global `programFillSubmit` is on and no matched binding has
+  `extra.submit = false`. Never on an empty password. On a lone text field (the first page of a two-step login) Enter follows
+  the user name after `check(SubmitText)`, which needs the same text field of the pick (`WriteKind::SubmitText`).
+- **Two-step.** A pick on a lone text field fills the user name (and presses Enter when submit is on) and arms a
+  continuation: a password field focused in the same root window, window PID and element PID within 60 s of the pick gets
+  the password and Enter, once; the worker keeps the old process handle until the continuation ends. The code step (TOTP)
+  is not in phase 2.
+- **Linking.** Only Rust-captured identities become `winapp://` URLs: `UrlChange` add and update refuse `winapp://`. A
+  link replaces the user's bindings that `binding_change` reports for this identity (no stale duplicates). Display data
+  `extra.program = { name, signer }` (each at most 256 chars); per-binding `extra.submit = false` turns Enter off.
+- **Block list.** "Don't offer for this program" stores `{ key, label }` in `program_fill_blocked.json` next to
+  `settings.json`, outside the MAC (it only ever removes offers, R176), at most 200 entries. Keys: `package:<family>`,
+  `signed:<exe>:<signer b64url>`, `path:<folded path>` (an update of an unsigned program stays blocked).
+- **Settings.** `programFill` (default off, Q1, first-unlock card), `programFillSubmit` (default on), both in the MAC only
+  while `programFill` is on (so existing MACs stay valid, like `breachCheck`); an unverified file reads both as off.
+  `programFillHotkey` (default none, Q4; not a protection, outside the MAC; must differ from `globalShortcut`). D3 of
+  ADR-0157 holds: Chromium and Electron programs follow the global setting.
+- **Hotkey.** Opens the list directly for a detected login field; on an elevated target it shows the administrator
+  notice; on anything else "Mosaic can't see a login field here". "Type into this program" for undetected fields (spec
+  §5.1.4) is not in phase 2.
+- **Locked vault.** Before the first unlock of a run nothing is watched. Later, while locked, the chip shows a lock on
+  password and user-name fields; a click opens the main window's unlock and, within 60 s, Mosaic refocuses the field,
+  captures again and opens the list only if the same element (RuntimeId) is focused.
+- **Exclusions added to ADR-0158.** Package families `microsoft.aad.brokerplugin_cw5n1h2txyewy` and
+  `microsoft.windows.cloudexperiencehost_cw5n1h2txyewy`, exe `microsoft.aad.brokerplugin.exe` are `Broker` (they show
+  federated sign-in pages of any tenant); `wwahost.exe` is `Host`.
+- **Timers** in one table:
+
+  | Timer | Value |
+  |---|---|
+  | focus debounce | 150 ms |
+  | pick guard | 300 ms |
+  | link guard | 1000 ms |
+  | second confirmation gap | 1000 ms |
+  | pick TTL | 30 s |
+  | continuation | 60 s |
+  | UIA timeouts | 2000 ms |
+  | host call timeout (then the worker is abandoned and respawned) | 5000 ms |
+  | fill call timeout (a fill ends by its own 30 s pick expiry) | 35 s |
+  | rect poll | 250 ms |
+  | notice | 6000 ms |
+  | unlock resume | 60 s |
+
+### Amendment to ADR-0158 Q2: WebView2 content of a signed, non-browser host (owner decision 2026-11-15)
+"Also WebView2 apps should work." Content rendered by WebView2 (`msedgewebview2.exe`) for a host program counts as that
+host program's own content, so new Teams and other WebView2 apps get offers. Conditions, all required and all tested:
+1. the focused element's process is `msedgewebview2.exe` and its WebView2 browser process was started by the host program
+   (the parent chain from the renderer to the browser process to the host; the PIDs and process start times are
+   re-verified before each write, like the program itself);
+2. the host program is signed or packaged (an unsigned host is refused, with no two-confirmation path);
+3. the host is not a browser (Edge, Chrome, Firefox and the other excluded classes stay refused; the extension covers them);
+4. the binding stays exe plus signer (or package) of the **host**, never the WebView2 runtime.
+The sign-in broker windows stay `Broker` (above). The rest of ADR-0158 Q2 (foreign process content refused) is unchanged.
+R174 is widened accordingly.
+
+### Amendment to "Two-step": the second step writes alone only where it is certain (red-team F2)
+The first reading let any password field focused in the same root window within 60 s receive the password and Enter with no
+gesture. Conservative reading: the host continues without a new pick only when (1) the focused field is not web content
+(framework `Chrome`, `WebView`, `Edge`, `Gecko` and the like, an element process other than the window's, or a WebView2 host)
+and (2) it is the only usable password edit of its root window, besides the unchanged checks (same root window and processes,
+60 s, unused, unlocked). In every other case the host reports `ContinueOffer`: the desktop spends the continuation, opens the
+list on the field with the first step's login preselected, and one Enter or click (after the 300 ms guard) fills as an
+ordinary pick. Recorded as R207 (the remaining case: a native window whose single password field is not the login's).
+Related hardening (red-team F1, F3, F4, F6): events reach the sink on a dispatcher thread, not the worker's (a sink that calls
+the host would wait for its own worker), and an abandoned worker leaves before running any queued command; an unlock resume
+needs the clicked offer's token and program to be the current offer; modifier keys are checked before every typed batch, the
+clean-up chord and Enter; a lone text field is first judged from its container's edits, and the window is searched by a walk
+that stops at the second usable edit and checks its deadline per element.
+
+### Renamed browsers (open item of the phase 1 red team)
+A browser copied to another file name keeps the vendor's signature, so the name list of ADR-0158 does not exclude it.
+Phase 2 adds an exclusion by the product name of the version resource (`Google Chrome`, `Microsoft Edge`, `Mozilla Firefox`,
+`Brave`, `Opera`, `Vivaldi` and the other browsers of the name list; the whole name or the name followed by a space), whoever
+signed the file and whatever it is called. That is stricter than "signer plus product": a stripped or re-signed copy is excluded
+too. A renamed browser whose version resource cannot be read or carries another name is covered by R206.
+
+### Alternatives considered
+One picker window with `set_focusable` toggling (not verified at runtime in tao 0.37.2); polling focus instead of events
+(idle cost); `SetValue` for passwords (not readable back, unproven).
+
+### Consequences
+THREAT_MODEL §4.10 (phase 2 rows) and R171 to R176, R206. `docs/DESKTOP_IPC.md` and `docs/PROGRAM_FILL.md` follow with the
+desktop tasks.
 
 ## ADR-0165: Onboarding import: detection, deletion and unverified presets
 

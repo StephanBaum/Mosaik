@@ -15,18 +15,23 @@
 #![cfg(windows)]
 
 mod error;
+mod sys_input;
 mod sys_process;
 mod sys_trust;
 mod sys_uia;
+mod sys_version;
 mod sys_window;
 
 pub use error::{Result, ShimError};
+pub use sys_input::{Key, MAX_UNITS_PER_CALL, modifiers_down, send_key, send_unicode};
 pub use sys_process::{
     ImageFile, ProcessHandle, current_integrity_rid, final_path, parent_pid, process_chain,
 };
 pub use sys_trust::Signature;
-pub use sys_uia::{ElementFacts, Uia, UiaElement};
-pub use sys_window::{WindowFacts, foreground_window, window_facts};
+pub use sys_uia::{ElementFacts, FocusSink, FocusSubscription, Uia, UiaElement};
+pub use sys_window::{
+    WindowFacts, foreground_window, set_foreground, show_no_activate, window_facts,
+};
 
 #[cfg(test)]
 mod tests;

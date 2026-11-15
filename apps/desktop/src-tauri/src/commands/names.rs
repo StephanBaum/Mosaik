@@ -55,6 +55,9 @@ pub const COMMANDS: &[&str] = &[
     "agent_grant_revoke",
     "agent_stop_all",
     "agent_log",
+    // Program fill (main window; the picker windows have their own list)
+    "program_fill_status",
+    "program_fill_unblock",
     // Attachments
     "attachment_add",
     "attachment_preview",
@@ -184,4 +187,22 @@ pub const COMMANDS: &[&str] = &[
     "emergency_request",
     "emergency_respond",
     "emergency_claim",
+];
+
+/// The commands of the chip window (`picker-chip`, capability `chip`). Not part of
+/// [`COMMANDS`]: the main window never gets them (ADR-0164).
+pub const CHIP_COMMANDS: &[&str] = &["picker_subscribe", "picker_state", "picker_chip_click"];
+
+/// The commands of the list window (`picker`, capability `picker`): the list, its search box,
+/// the pick, the link step and the notice. No command that reads the vault beyond a login's title
+/// and user name, and none that returns a secret.
+pub const LIST_COMMANDS: &[&str] = &[
+    "picker_subscribe",
+    "picker_state",
+    "picker_search",
+    "picker_choose",
+    "picker_link_begin",
+    "picker_link_confirm",
+    "picker_block",
+    "picker_dismiss",
 ];
