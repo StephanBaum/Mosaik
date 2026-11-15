@@ -9,6 +9,9 @@ use std::fs;
 
 use mosaic_sync::folder::remote::credential::ProviderCredential;
 use mosaic_sync::folder::remote::http::RemoteHttp;
+use mosaic_sync::folder::remote::nextcloud::{
+    login_flow_begin, login_flow_poll, revoke_app_password,
+};
 use mosaic_sync::folder::remote::webdav::WebDavStore;
 use mosaic_sync::folder::{FolderStore, RelPath};
 use mosaic_sync::testutil::{FakeDav, FakeHttp, FakeResponse, Faults};
@@ -179,5 +182,86 @@ fn credentials_and_roots_are_checked() {
         )
         .err(),
         Some(TransportError::InsecureUrl)
+    );
+}
+
+// ---- Nextcloud Login Flow v2 ---------------------------------------------------------------
+
+fn login_server() -> (tempfile::TempDir, FakeDav) {
+    let dir = tempfile::tempdir().unwrap();
+    let server = FakeDav::serve(dir.path().to_path_buf(), "alice", PASSWORD);
+    (dir, server)
+}
+
+#[test]
+fn login_flow_happy_path() {
+    let (_dir, server) = login_server();
+    let http = RemoteHttp::new(true).unwrap();
+    let start = login_flow_begin(&http, server.origin(), "Mosaic (Android)").unwrap();
+    assert!(start.login_url.starts_with(server.origin()));
+    assert!(!format!("{start:?}").contains("poll-token"));
+    assert!(login_flow_poll(&http, &start.poll).unwrap().is_none());
+    server.complete_login();
+    let (credential, base) = login_flow_poll(&http, &start.poll).unwrap().unwrap();
+    assert_eq!(base, server.base_url());
+    let ProviderCredential::WebDav {
+        login,
+        app_password,
+    } = credential
+    else {
+        panic!("not a WebDAV credential");
+    };
+    assert_eq!((login.as_str(), app_password.as_str()), ("alice", PASSWORD));
+    let agent = server.requests()[0].header("user-agent").map(str::to_owned);
+    assert_eq!(agent.as_deref(), Some("Mosaic (Android)"));
+}
+
+#[test]
+fn login_flow_refuses_foreign_poll_endpoint() {
+    let (_dir, server) = login_server();
+    server.set_login_lies(true, false);
+    let http = RemoteHttp::new(true).unwrap();
+    assert_eq!(
+        login_flow_begin(&http, server.origin(), "Mosaic").err(),
+        Some(TransportError::Protocol)
+    );
+}
+
+#[test]
+fn login_flow_refuses_other_server_in_result() {
+    let (_dir, server) = login_server();
+    server.set_login_lies(false, true);
+    let http = RemoteHttp::new(true).unwrap();
+    let start = login_flow_begin(&http, server.origin(), "Mosaic").unwrap();
+    server.complete_login();
+    assert_eq!(
+        login_flow_poll(&http, &start.poll).err(),
+        Some(TransportError::Protocol)
+    );
+}
+
+#[test]
+fn revoke_sends_ocs_header_and_basic_auth() {
+    let (_dir, server) = login_server();
+    let http = RemoteHttp::new(true).unwrap();
+    revoke_app_password(&http, server.origin(), &credential()).unwrap();
+    let request = server.requests().pop().unwrap();
+    assert_eq!(request.method, "DELETE");
+    assert_eq!(request.path_and_query, "/ocs/v2.php/core/apppassword");
+    assert_eq!(request.header("ocs-apirequest"), Some("true"));
+    assert!(
+        request
+            .header("authorization")
+            .unwrap()
+            .starts_with("Basic ")
+    );
+    // A server that no longer knows the password answers 401.
+    let wrong = ProviderCredential::WebDav {
+        login: "alice".to_owned(),
+        app_password: Zeroizing::new("revoked".to_owned()),
+    };
+    assert_eq!(
+        revoke_app_password(&http, server.origin(), &wrong).err(),
+        Some(TransportError::Unauthorized)
     );
 }

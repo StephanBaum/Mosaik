@@ -17,6 +17,7 @@ pub mod credential;
 pub mod davxml;
 pub mod http;
 pub mod location;
+pub mod nextcloud;
 pub mod oauth;
 pub mod time;
 pub mod webdav;
