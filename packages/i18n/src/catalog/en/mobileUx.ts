@@ -32,4 +32,10 @@ export const mobileUx = {
     "{label}: {value}",
   "mobile.autofill.warningWithName":
     "Check the address first | {name}",
+  "mobile.autofill.linkEntry": "Link {login} and fill",
+  "mobile.link.imported": "Imported for this app",
+  "mobile.link.confirmTitle": "Link {login} to {app}?",
+  "mobile.link.confirmSubtitle": "App ID {appId} · Signature {fingerprint}",
+  "mobile.link.confirmFallbackHint": "After linking, tap the field again to fill it.",
+  "mobile.link.importedNotVerified": "Imported login. The website has not confirmed this app.",
 } as const satisfies Record<string, string>;
