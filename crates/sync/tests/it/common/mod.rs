@@ -15,9 +15,7 @@ use std::sync::Arc;
 
 use mosaic_core::{AccountId, Argon2Profile, MasterPassword, SecretKey, VaultId};
 use mosaic_sync::engine::{EngineConfig, SyncEngine, SyncError, SyncReport};
-use mosaic_sync::folder::{
-    self, FolderConfig, FolderParts, FolderStore, FolderTransport, RelPath,
-};
+use mosaic_sync::folder::{self, FolderConfig, FolderParts, FolderStore, FolderTransport, RelPath};
 use mosaic_sync::testutil::{
     CloudSim, FixedJitter, LocalSession, ManualClock, SessionMut, SessionRef, SimConfig, SimRng,
 };
@@ -387,10 +385,16 @@ pub fn store_contract(store: &dyn FolderStore, begin_run: bool) {
             .map(|e| (e.name.to_string_lossy().into_owned(), e.len))
             .collect()
     };
-    assert_eq!(names(store), [("a.bin".to_owned(), 3), ("b.bin".to_owned(), 3)]);
+    assert_eq!(
+        names(store),
+        [("a.bin".to_owned(), 3), ("b.bin".to_owned(), 3)]
+    );
     assert!(store.stat(&dir).unwrap().unwrap().is_dir());
     // Reads: the cap is exact, a longer file is a protocol error.
-    assert_eq!(store.read_capped(&file("a.bin"), 3), Ok(Some(b"one".to_vec())));
+    assert_eq!(
+        store.read_capped(&file("a.bin"), 3),
+        Ok(Some(b"one".to_vec()))
+    );
     assert_eq!(
         store.read_capped(&file("a.bin"), 2),
         Err(TransportError::Protocol)
@@ -400,10 +404,16 @@ pub fn store_contract(store: &dyn FolderStore, begin_run: bool) {
         store.write_atomic(&dir, "a.bin", b"other", false),
         Err(TransportError::Io)
     );
-    assert_eq!(store.read_capped(&file("a.bin"), 10), Ok(Some(b"one".to_vec())));
+    assert_eq!(
+        store.read_capped(&file("a.bin"), 10),
+        Ok(Some(b"one".to_vec()))
+    );
     // Replace.
     store.write_atomic(&dir, "a.bin", b"newer", true).unwrap();
-    assert_eq!(store.read_capped(&file("a.bin"), 10), Ok(Some(b"newer".to_vec())));
+    assert_eq!(
+        store.read_capped(&file("a.bin"), 10),
+        Ok(Some(b"newer".to_vec()))
+    );
     assert_eq!(store.stat(&file("a.bin")).unwrap().unwrap().len, 5);
     // Remove, and removing what is not there.
     store.remove(&file("b.bin")).unwrap();

@@ -91,7 +91,10 @@ mod tests {
                 "{bad}"
             );
         }
-        let long = format!(r#"{{"provider":"webdav","root":"{}"}}"#, "x".repeat(MAX_LEN));
+        let long = format!(
+            r#"{{"provider":"webdav","root":"{}"}}"#,
+            "x".repeat(MAX_LEN)
+        );
         assert_eq!(FolderLocation::decode(&long), Err(TransportError::Protocol));
     }
 }

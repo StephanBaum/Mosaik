@@ -83,7 +83,9 @@ fn href_path(href: &str) -> String {
     let path = href
         .strip_prefix("https://")
         .or_else(|| href.strip_prefix("http://"))
-        .map_or(href, |rest| rest.find('/').map_or("", |i| rest.get(i..).unwrap_or("")));
+        .map_or(href, |rest| {
+            rest.find('/').map_or("", |i| rest.get(i..).unwrap_or(""))
+        });
     let path = path.split(['?', '#']).next().unwrap_or_default();
     percent_decode(path, false).unwrap_or_default()
 }
@@ -266,10 +268,7 @@ fn entry_of(raw: &Raw, name: &str) -> Entry {
 /// [`TransportError::Protocol`] for malformed XML, a document type
 /// declaration, nesting over 16 levels, more than 4096 responses or an
 /// entity that is not predefined.
-pub fn parse_multistatus(
-    body: &[u8],
-    collection_href: &str,
-) -> Result<Vec<Entry>, TransportError> {
+pub fn parse_multistatus(body: &[u8], collection_href: &str) -> Result<Vec<Entry>, TransportError> {
     let prefix = format!("{}/", collection_href.trim_end_matches('/'));
     let mut entries = Vec::new();
     for raw in parse_responses(body)? {
@@ -395,7 +394,10 @@ mod tests {
         assert_eq!(parse_multistatus(&unknown, COLLECTION).err(), proto);
         let doctype = b"<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY a \"b\">]><d:multistatus xmlns:d=\"DAV:\"/>";
         assert_eq!(parse_multistatus(doctype, COLLECTION).err(), proto);
-        assert_eq!(parse_multistatus(b"<d:multistatus", COLLECTION).err(), proto);
+        assert_eq!(
+            parse_multistatus(b"<d:multistatus", COLLECTION).err(),
+            proto
+        );
         // Nesting over 16 levels.
         let deep = format!("{}{}", "<a>".repeat(17), "</a>".repeat(17));
         assert_eq!(parse_multistatus(deep.as_bytes(), COLLECTION).err(), proto);

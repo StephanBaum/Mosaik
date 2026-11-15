@@ -66,10 +66,7 @@ struct Reader<'a>(&'a [u8]);
 
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], TransportError> {
-        let (head, rest) = self
-            .0
-            .split_at_checked(n)
-            .ok_or(TransportError::Protocol)?;
+        let (head, rest) = self.0.split_at_checked(n).ok_or(TransportError::Protocol)?;
         self.0 = rest;
         Ok(head)
     }
@@ -209,7 +206,16 @@ mod tests {
         overlong.extend(std::iter::repeat_n(b'a', MAX_FIELD + 1));
         let truncated = good[..good.len() - 1].to_vec();
         let bad_utf8 = vec![VERSION, 2, 0, 1, 0xff];
-        for bad in [trailing, version2, kind4, overlong, truncated, bad_utf8, vec![], vec![1]] {
+        for bad in [
+            trailing,
+            version2,
+            kind4,
+            overlong,
+            truncated,
+            bad_utf8,
+            vec![],
+            vec![1],
+        ] {
             assert!(
                 matches!(
                     ProviderCredential::decode(&bad),

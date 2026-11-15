@@ -29,9 +29,9 @@ mod init;
 mod layout;
 mod maintain;
 mod reader;
+mod rekey;
 #[cfg(feature = "folder-remote")]
 pub mod remote;
-mod rekey;
 pub mod store;
 mod writer;
 

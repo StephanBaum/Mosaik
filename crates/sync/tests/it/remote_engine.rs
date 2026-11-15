@@ -20,18 +20,20 @@ use mosaic_sync::folder::remote::credential::ProviderCredential;
 use mosaic_sync::folder::remote::http::RemoteHttp;
 use mosaic_sync::folder::remote::webdav::WebDavStore;
 use mosaic_sync::folder::{self, FolderStore, RelPath};
-use mosaic_sync::testutil::{FakeDav, Faults, LocalSession, SimConfig};
+use mosaic_sync::testutil::{FakeDav, FakeDropbox, Faults, LocalSession, SimConfig};
 use mosaic_sync::transport::TransportError;
 use mosaic_vault::session::LockedSession;
 use mosaic_vault::storage::Store;
 use zeroize::Zeroizing;
 
 use crate::common::{
-    Dev, World, is_idle, log_dir, make_engine_over, open_remote_transport, pw, PASSWORD,
+    Dev, PASSWORD, World, is_idle, log_dir, make_engine_over, open_remote_transport, pw,
 };
 use crate::common::{device_dir, segments};
+use crate::remote_dropbox::store_at;
 
 const DAV_PASSWORD: &str = "phone-app-password";
+const DROPBOX_TOKEN: &str = "sl.access-token-1";
 
 fn add_login(w: &mut World, d: usize, vault: VaultId, title: &str) -> ItemId {
     w.devs[d]
@@ -109,6 +111,33 @@ fn join_phone(w: &mut World) -> FakeDav {
     dav
 }
 
+/// Device 1 (the phone) joins replica 1 through a fake Dropbox that serves it.
+fn join_phone_dropbox(w: &mut World) -> FakeDropbox {
+    let server = FakeDropbox::serve(w.replica(1), DROPBOX_TOKEN);
+    let store = Store::open(w.tmp.path().join("device-1.db")).unwrap();
+    let session = folder::join_from_folder_in(
+        &store_at(&server, "", None),
+        w.account,
+        LockedSession::open(store),
+        &pw(PASSWORD),
+        &w.secret_key,
+    )
+    .unwrap_or_else(|f| panic!("join failed: {:?}", f.error));
+    let access = LocalSession::new(session);
+    let transport = open_remote_transport(
+        &access,
+        Box::new(store_at(&server, "", None)),
+        &w.clock,
+        "phone",
+    );
+    w.devs.push(Dev {
+        engine: make_engine_over(transport),
+        access,
+        last: SyncReport::default(),
+    });
+    server
+}
+
 /// Device 1 joins replica 1 as a local directory (the reference).
 fn join_local_phone(w: &mut World) {
     w.join();
@@ -156,6 +185,28 @@ fn phone_joins_and_pulls_desktop_items() {
     assert!(is_idle(&run(&mut w, 1).unwrap()));
 }
 
+#[test]
+fn phone_joins_and_pulls_desktop_items_dropbox() {
+    let (mut w, vault, item) = desktop(31);
+    let _server = join_phone_dropbox(&mut w);
+    let report = run(&mut w, 1).unwrap();
+    assert!(report.pulled >= 1, "{report:?}");
+    assert_eq!(
+        w.devs[1].s().item(vault, item).unwrap().title(),
+        Some("first")
+    );
+    // The phone's own writes reached the folder; the desktop sees them.
+    assert!(device_dir(&w, 1, 1).read_dir().unwrap().next().is_some());
+    set_password(&mut w, 1, vault, item, "from the phone");
+    run(&mut w, 1).unwrap();
+    converge(&mut w);
+    assert_eq!(
+        password_of(&w, 0, vault, item).as_deref(),
+        Some("from the phone")
+    );
+    assert!(is_idle(&run(&mut w, 1).unwrap()));
+}
+
 /// Review focus 1: the desktop's files arrive late and out of order: after a
 /// key rotation, the segments with the new data come before the one that
 /// carries the new key.
@@ -164,7 +215,10 @@ fn phone_waits_for_late_desktop_files_without_halting() {
     let (mut w, vault, item) = desktop(22);
     let _dav = join_phone(&mut w);
     run(&mut w, 1).unwrap();
-    let before = sequences(&log_dir(&w, 0, 0, vault)).into_iter().max().unwrap();
+    let before = sequences(&log_dir(&w, 0, 0, vault))
+        .into_iter()
+        .max()
+        .unwrap();
     {
         let dev = &mut w.devs[0];
         dev.engine
@@ -179,8 +233,7 @@ fn phone_waits_for_late_desktop_files_without_halting() {
     let key_seq = seqs.iter().copied().find(|s| *s > before).unwrap();
     assert!(seqs.iter().any(|s| *s > key_seq), "data follows the key");
     // The segment with the new key arrives three rounds after the rest.
-    w.cloud
-        .withhold(1, &format!("{key_seq:016x}.mseg"), 3);
+    w.cloud.withhold(1, &format!("{key_seq:016x}.mseg"), 3);
     w.cloud.set_config(SimConfig::FLAKY);
     for round in 0..6 {
         w.cloud.round().unwrap();
@@ -349,11 +402,7 @@ fn trace(label: &str, r: &Result<SyncReport, SyncError>) -> String {
 }
 
 /// One run of the victim, noted in `out`.
-fn step(
-    w: &mut World,
-    out: &mut Vec<String>,
-    label: &str,
-) -> Result<SyncReport, SyncError> {
+fn step(w: &mut World, out: &mut Vec<String>, label: &str) -> Result<SyncReport, SyncError> {
     let r = run(w, 1);
     out.push(trace(label, &r));
     r
@@ -401,7 +450,10 @@ fn hostile_scenario(w: &mut World, vault: VaultId, item: ItemId) -> Vec<String> 
     fs::create_dir_all(squat.join("inner")).unwrap();
     fs::write(squat.join("inner").join("x"), b"x").unwrap();
     step(w, &mut out, "collection on a foreign segment name").unwrap();
-    out.push(format!("foreign collection kept {}", squat.join("inner/x").is_file()));
+    out.push(format!(
+        "foreign collection kept {}",
+        squat.join("inner/x").is_file()
+    ));
 
     // Squatters and a conflict copy in the victim's own directories.
     let own = log_dir(w, 1, 1, vault);
@@ -436,7 +488,11 @@ fn malicious_folder_suite_over_dav() {
     assert_eq!(over_dav, on_disk);
     // And the planted names did what the scenario says they should.
     assert!(over_dav.iter().any(|l| l.contains("password Some(\"pw\")")));
-    assert!(over_dav.iter().any(|l| l.contains("password Some(\"edited\")")));
+    assert!(
+        over_dav
+            .iter()
+            .any(|l| l.contains("password Some(\"edited\")"))
+    );
 }
 
 /// A phone and two desktops; the provider restores an old version of the

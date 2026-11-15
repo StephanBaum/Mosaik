@@ -161,15 +161,18 @@ impl RemoteHttp {
     /// here: map it with [`status_error`].
     pub fn send(&self, req: RemoteRequest<'_>) -> Result<RemoteReply, TransportError> {
         self.check(req.url)?;
-        let mut request = self.client.request(req.method, req.url).timeout(req.timeout);
+        let mut request = self
+            .client
+            .request(req.method, req.url)
+            .timeout(req.timeout);
         for (name, value) in req.headers {
             request = request.header(name.clone(), value.clone());
         }
         request = match req.body {
             RemoteBody::None => request,
-            RemoteBody::Bytes(bytes, content_type) => {
-                request.header(CONTENT_TYPE, content_type).body(bytes.to_vec())
-            }
+            RemoteBody::Bytes(bytes, content_type) => request
+                .header(CONTENT_TYPE, content_type)
+                .body(bytes.to_vec()),
             RemoteBody::Form(bytes) => request
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .body(bytes.to_vec()),
@@ -257,9 +260,9 @@ fn is_loopback_authority(authority: &str) -> bool {
         .or_else(|| authority.strip_prefix("[::1]"));
     match rest {
         Some("") => true,
-        Some(port) => port
-            .strip_prefix(':')
-            .is_some_and(|p| !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit())),
+        Some(port) => port.strip_prefix(':').is_some_and(|p| {
+            !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit())
+        }),
         None => false,
     }
 }
@@ -340,7 +343,9 @@ pub(crate) fn classify_tls(err: &(dyn StdError + 'static)) -> bool {
         let Some(e) = current else {
             return false;
         };
-        if e.downcast_ref::<rustls::Error>().is_some_and(is_version_error) {
+        if e.downcast_ref::<rustls::Error>()
+            .is_some_and(is_version_error)
+        {
             return true;
         }
         if let Some(inner) = e
@@ -395,16 +400,31 @@ mod tests {
         }
         for (url, err) in [
             ("http://cloud.example.com/x", TransportError::InsecureUrl),
-            ("http://127.0.0.1.evil.example/x", TransportError::InsecureUrl),
+            (
+                "http://127.0.0.1.evil.example/x",
+                TransportError::InsecureUrl,
+            ),
             ("ftp://cloud.example.com/", TransportError::InsecureUrl),
             ("cloud.example.com", TransportError::InsecureUrl),
-            ("https://user@cloud.example.com/", TransportError::InvalidUrl),
-            ("https://user:pw@cloud.example.com/", TransportError::InvalidUrl),
-            ("https://cloud.example.com/x#frag", TransportError::InvalidUrl),
+            (
+                "https://user@cloud.example.com/",
+                TransportError::InvalidUrl,
+            ),
+            (
+                "https://user:pw@cloud.example.com/",
+                TransportError::InvalidUrl,
+            ),
+            (
+                "https://cloud.example.com/x#frag",
+                TransportError::InvalidUrl,
+            ),
             ("https://cloud.example.com/?q=#", TransportError::InvalidUrl),
             ("https:///x", TransportError::InvalidUrl),
             ("https://cloud.example.com/a b", TransportError::InvalidUrl),
-            ("https://cloud.example.com/a\r\nb", TransportError::InvalidUrl),
+            (
+                "https://cloud.example.com/a\r\nb",
+                TransportError::InvalidUrl,
+            ),
         ] {
             assert_eq!(check_url(url, true), Err(err), "{url}");
         }
@@ -492,7 +512,8 @@ mod tests {
             http.get_following_one_redirect(&url, None, T, 100).err(),
             Some(TransportError::Protocol)
         );
-        let ftp = FakeHttp::start(|_| FakeResponse::new(302, &[("Location", "ftp://x/y")], Vec::new()));
+        let ftp =
+            FakeHttp::start(|_| FakeResponse::new(302, &[("Location", "ftp://x/y")], Vec::new()));
         let url = format!("{}/x", ftp.origin());
         assert_eq!(
             http.get_following_one_redirect(&url, None, T, 100).err(),
@@ -537,12 +558,15 @@ mod tests {
     fn retry_after_is_clamped() {
         let http = RemoteHttp::new_loopback().unwrap();
         for (sent, want) in [("0", 1), ("999999", 86_400), ("17", 17)] {
-            let server =
-                FakeHttp::start(move |_| FakeResponse::new(429, &[("Retry-After", sent)], Vec::new()));
+            let server = FakeHttp::start(move |_| {
+                FakeResponse::new(429, &[("Retry-After", sent)], Vec::new())
+            });
             let reply = get(&http, &format!("{}/x", server.origin()), 100).unwrap();
             assert_eq!(
                 status_error(&reply),
-                TransportError::RateLimited { retry_after_s: want }
+                TransportError::RateLimited {
+                    retry_after_s: want
+                }
             );
         }
     }

@@ -1,9 +1,6 @@
 //! The `WebDAV` store and Nextcloud's Login Flow v2 against the fake server.
 
-#![expect(
-    clippy::unwrap_used,
-    reason = "integration tests"
-)]
+#![expect(clippy::unwrap_used, reason = "integration tests")]
 
 use std::fs;
 

@@ -77,7 +77,11 @@ pub fn parse_rfc3339(s: &str) -> Option<SystemTime> {
             b'-' => -1,
             _ => return None,
         };
-        let (oh, colon, om) = (num(rest.get(1..3)?, 2)?, rest.get(3..4)?, num(rest.get(4..)?, 2)?);
+        let (oh, colon, om) = (
+            num(rest.get(1..3)?, 2)?,
+            rest.get(3..4)?,
+            num(rest.get(4..)?, 2)?,
+        );
         if colon != ":" || oh > 23 || om > 59 {
             return None;
         }
@@ -135,7 +139,10 @@ mod tests {
     fn parse_dates() {
         // 2026-11-15T10:20:30Z
         let expected = 1_794_738_030;
-        assert_eq!(secs(parse_rfc3339("2026-11-15T10:20:30Z").unwrap()), expected);
+        assert_eq!(
+            secs(parse_rfc3339("2026-11-15T10:20:30Z").unwrap()),
+            expected
+        );
         assert_eq!(
             secs(parse_http_date("Sun, 15 Nov 2026 10:20:30 GMT").unwrap()),
             expected

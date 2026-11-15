@@ -275,7 +275,10 @@ mod tests {
     #[test]
     fn pkce_rfc7636_appendix_b() {
         let pkce = Pkce::from_verifier_for_test("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
-        assert_eq!(pkce.challenge(), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+        assert_eq!(
+            pkce.challenge(),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
         let fresh = Pkce::new().unwrap();
         assert_eq!(fresh.verifier().len(), 43);
         assert_ne!(fresh.verifier(), Pkce::new().unwrap().verifier());
@@ -315,7 +318,11 @@ mod tests {
             format!("{r}?code=a&state=b#frag"),
             long,
         ] {
-            assert_eq!(parse_callback(&bad, r).err(), Some(CallbackError::Invalid), "{bad}");
+            assert_eq!(
+                parse_callback(&bad, r).err(),
+                Some(CallbackError::Invalid),
+                "{bad}"
+            );
         }
         for denied in [
             format!("{r}?error=access_denied&state=x"),

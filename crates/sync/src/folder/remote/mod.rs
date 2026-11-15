@@ -7,6 +7,7 @@
 //! - [`time`]: the date formats of the providers;
 //! - [`credential`], [`oauth`], [`location`]: what the phone keeps for a
 //!   provider account, PKCE and callback parsing, and where the folder is;
+//! - [`dropbox`]: the Dropbox API v2 store and its sign-in;
 //! - [`webdav`], [`davxml`], [`nextcloud`]: the `WebDAV` store and Nextcloud's
 //!   Login Flow v2.
 //!
@@ -15,6 +16,7 @@
 
 pub mod credential;
 pub mod davxml;
+pub mod dropbox;
 pub mod http;
 pub mod location;
 pub mod nextcloud;

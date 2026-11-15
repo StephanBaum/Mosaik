@@ -30,14 +30,22 @@ pub struct Faults {
     /// Listings carry one entry outside the folder and one with `%2F` in its
     /// name.
     pub outside_href: bool,
+    /// Dropbox and Graph: listings carry entries outside the folder (another
+    /// folder, a sibling whose name starts like the root, a name that is not
+    /// the last component of its path).
+    pub outside_path: bool,
+    /// Dropbox: a recursive listing carries this many extra entries.
+    pub phantom_entries: usize,
+    /// Graph: a listing's `@odata.nextLink` names another host.
+    pub foreign_next_link: bool,
 }
 
 #[derive(Clone)]
-struct Child {
-    name: String,
-    dir: bool,
-    len: u64,
-    mtime: SystemTime,
+pub(super) struct Child {
+    pub(super) name: String,
+    pub(super) dir: bool,
+    pub(super) len: u64,
+    pub(super) mtime: SystemTime,
 }
 
 #[derive(Default)]
@@ -105,7 +113,11 @@ impl FakeDav {
     /// The account's collection URL, `<origin>/remote.php/dav/files/<login>`.
     #[must_use]
     pub fn base_url(&self) -> String {
-        format!("{}/remote.php/dav/files/{}", self.origin(), self.shared.login)
+        format!(
+            "{}/remote.php/dav/files/{}",
+            self.origin(),
+            self.shared.login
+        )
     }
 
     /// Every request so far.
@@ -157,7 +169,7 @@ impl FakeDav {
 }
 
 /// The direct children of a directory.
-fn children_of(dir: &Path) -> Vec<Child> {
+pub(super) fn children_of(dir: &Path) -> Vec<Child> {
     let mut children = Vec::new();
     if let Ok(read) = fs::read_dir(dir) {
         for item in read.filter_map(Result::ok) {
@@ -182,17 +194,29 @@ fn walk(dir: &Path, tree: &mut HashMap<PathBuf, Vec<Child>>) {
     tree.insert(dir.to_path_buf(), children);
 }
 
-fn etag_of(len: u64, mtime: SystemTime) -> String {
+pub(super) fn etag_of(len: u64, mtime: SystemTime) -> String {
     let nanos = mtime.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let mut hash = Sha256::new();
     hash.update(len.to_be_bytes());
     hash.update(nanos.to_be_bytes());
     let digest = hash.finalize();
-    format!("\"{}\"", crate::wire::hex(digest.as_slice().get(..16).unwrap_or(&[])))
+    format!(
+        "\"{}\"",
+        crate::wire::hex(digest.as_slice().get(..16).unwrap_or(&[]))
+    )
 }
 
 /// `Sun, 15 Nov 2026 10:20:30 GMT`.
 fn http_date(t: SystemTime) -> String {
+    civil(t, true)
+}
+
+/// `2026-11-15T10:20:30Z`.
+pub(super) fn rfc3339(t: SystemTime) -> String {
+    civil(t, false)
+}
+
+fn civil(t: SystemTime, http: bool) -> String {
     const DAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
     const MONTHS: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -209,10 +233,21 @@ fn http_date(t: SystemTime) -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
+    if !http {
+        return format!(
+            "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+            rem / 3600,
+            rem % 3600 / 60,
+            rem % 60
+        );
+    }
     format!(
         "{}, {day:02} {} {year} {:02}:{:02}:{:02} GMT",
-        DAYS.get(usize::try_from(days.rem_euclid(7)).unwrap_or(0)).unwrap_or(&"Thu"),
-        MONTHS.get(usize::try_from(month - 1).unwrap_or(0)).unwrap_or(&"Jan"),
+        DAYS.get(usize::try_from(days.rem_euclid(7)).unwrap_or(0))
+            .unwrap_or(&"Thu"),
+        MONTHS
+            .get(usize::try_from(month - 1).unwrap_or(0))
+            .unwrap_or(&"Jan"),
         rem / 3600,
         rem % 3600 / 60,
         rem % 60
@@ -220,7 +255,9 @@ fn http_date(t: SystemTime) -> String {
 }
 
 fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn response_xml(href: &str, dir: bool, len: u64, mtime: SystemTime) -> String {
@@ -239,11 +276,11 @@ fn response_xml(href: &str, dir: bool, len: u64, mtime: SystemTime) -> String {
     )
 }
 
-fn json(status: u16, body: &str) -> FakeResponse {
+pub(super) fn json(status: u16, body: &str) -> FakeResponse {
     FakeResponse::new(status, &[("Content-Type", "application/json")], body)
 }
 
-fn empty(status: u16) -> FakeResponse {
+pub(super) fn empty(status: u16) -> FakeResponse {
     FakeResponse::new(status, &[], Vec::new())
 }
 
@@ -341,11 +378,16 @@ fn dav(s: &Shared, r: &FakeRequest, rest: &str) -> FakeResponse {
         && nth == n
     {
         let retry = retry.map(|v| v.to_string());
-        let headers: Vec<(&str, &str)> = retry.iter().map(|v| ("Retry-After", v.as_str())).collect();
+        let headers: Vec<(&str, &str)> =
+            retry.iter().map(|v| ("Retry-After", v.as_str())).collect();
         return FakeResponse::new(status, &headers, Vec::new());
     }
     if r.header("authorization") != Some(s.expected_auth.as_str()) {
-        return FakeResponse::new(401, &[("WWW-Authenticate", "Basic realm=\"fake\"")], Vec::new());
+        return FakeResponse::new(
+            401,
+            &[("WWW-Authenticate", "Basic realm=\"fake\"")],
+            Vec::new(),
+        );
     }
     let Some((path, comps)) = fs_path(&s.dir, rest) else {
         return empty(400);
@@ -385,7 +427,13 @@ fn dav(s: &Shared, r: &FakeRequest, rest: &str) -> FakeResponse {
     }
 }
 
-fn propfind(s: &Shared, r: &FakeRequest, path: &Path, comps: &[String], faults: Faults) -> FakeResponse {
+fn propfind(
+    s: &Shared,
+    r: &FakeRequest,
+    path: &Path,
+    comps: &[String],
+    faults: Faults,
+) -> FakeResponse {
     let Ok(meta) = fs::metadata(path) else {
         return empty(404);
     };
@@ -411,7 +459,12 @@ fn propfind(s: &Shared, r: &FakeRequest, path: &Path, comps: &[String], faults: 
         if faults.outside_href {
             let mut elsewhere = vec!["Other".to_owned()];
             elsewhere.push("x.mseg".to_owned());
-            xml.push_str(&response_xml(&href_of(&s.login, &elsewhere, false), false, 1, mtime));
+            xml.push_str(&response_xml(
+                &href_of(&s.login, &elsewhere, false),
+                false,
+                1,
+                mtime,
+            ));
             let mut slash = href_of(&s.login, comps, true);
             slash.push_str("a%2Fb.mseg");
             xml.push_str(&response_xml(&slash, false, 1, mtime));

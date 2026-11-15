@@ -117,7 +117,9 @@ impl WebDavStore {
         };
         let base = base.trim_end_matches('/').to_owned();
         let after_scheme = base.split_once("://").map_or("", |(_, rest)| rest);
-        let path = after_scheme.find('/').map_or("", |i| after_scheme.get(i..).unwrap_or(""));
+        let path = after_scheme
+            .find('/')
+            .map_or("", |i| after_scheme.get(i..).unwrap_or(""));
         let base_path = percent_decode(path, false).ok_or(TransportError::InvalidUrl)?;
         let root: Vec<String> = root
             .split('/')
@@ -414,7 +416,8 @@ impl FolderStore for WebDavStore {
             let _ = self.delete(&temp, None);
             return Err(status_error(&put));
         }
-        let destination = HeaderValue::from_str(&self.url(&target)).map_err(|_| TransportError::Io)?;
+        let destination =
+            HeaderValue::from_str(&self.url(&target)).map_err(|_| TransportError::Io)?;
         let moved = self.call(
             method("MOVE"),
             &self.url(&temp),

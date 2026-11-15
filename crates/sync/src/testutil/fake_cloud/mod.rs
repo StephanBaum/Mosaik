@@ -4,5 +4,7 @@
 //! and lie on demand.
 
 mod dav;
+mod dropbox;
 
 pub use dav::{FakeDav, Faults};
+pub use dropbox::FakeDropbox;
