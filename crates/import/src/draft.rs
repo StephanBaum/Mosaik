@@ -113,6 +113,9 @@ pub enum EntryWarning {
     /// A note did not fit under the item size limit and was left out (or
     /// cut off at a note boundary): the entry's notes are incomplete.
     NotesTruncated,
+    /// A URL that is not a web address or an Android app link was kept as a
+    /// text field; it is not used for filling.
+    UrlKeptAsText,
 }
 
 /// An attachment file of an entry.
@@ -509,11 +512,23 @@ impl Builder {
             return;
         }
         if self.draft.item_type == ItemType::Login {
+            if is_scheme_only(v) {
+                return;
+            }
             if self.draft.urls.iter().any(|u| u.as_str() == v) {
                 return;
             }
-            if self.room() {
-                self.draft.urls.push(Text::new(v));
+            // A login URL is used for matching, so only a web origin or an
+            // Android app link is kept as one (spec 7).
+            if mosaic_origin::saved_origin(v).is_some()
+                || mosaic_origin::app::AndroidAppUrl::parse(v).is_ok()
+            {
+                if self.room() {
+                    self.draft.urls.push(Text::new(v));
+                }
+            } else {
+                self.custom(label, Kind::Text, v);
+                self.warn(EntryWarning::UrlKeptAsText);
             }
         } else {
             self.custom(label, Kind::Url, v);
@@ -804,6 +819,16 @@ impl Builder {
     }
 }
 
+/// `scheme://` and nothing else (for example `http://`).
+fn is_scheme_only(v: &str) -> bool {
+    v.strip_suffix("://").is_some_and(|scheme| {
+        scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && scheme
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+    })
+}
+
 fn label_or<'a>(label: &'a str, default: &'a str) -> &'a str {
     if label.trim().is_empty() {
         default
@@ -991,6 +1016,43 @@ mod tests {
             d.custom_fields[4].value,
             CustomFieldValue::Hidden(_)
         ));
+    }
+
+    #[test]
+    fn login_urls_must_be_web_origins_or_android_apps() {
+        let mut b = Builder::new(ItemType::Login);
+        for u in [
+            "https://a.example/login",
+            "example.org",
+            "androidapp://com.example.app",
+            "http://",
+            "ftp://files.example",
+            "my bank",
+        ] {
+            b.url(u, "URL");
+        }
+        let (d, w) = b.finish().unwrap();
+        let urls: Vec<&str> = d.urls.iter().map(Text::as_str).collect();
+        assert_eq!(
+            urls,
+            [
+                "https://a.example/login",
+                "example.org",
+                "androidapp://com.example.app"
+            ]
+        );
+        let labels: Vec<&str> = d.custom_fields.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["URL", "URL"]);
+        let values: Vec<&str> = d
+            .custom_fields
+            .iter()
+            .map(|c| match &c.value {
+                CustomFieldValue::Text(t) => t.as_str(),
+                _ => "",
+            })
+            .collect();
+        assert_eq!(values, ["ftp://files.example", "my bank"]);
+        assert!(w.contains(&EntryWarning::UrlKeptAsText));
     }
 
     #[test]

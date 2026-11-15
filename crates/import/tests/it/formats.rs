@@ -485,9 +485,17 @@ fn onepassword_check_remaining_entries(import: &Import) {
     assert_eq!(d.attachments[0].data.expose_secret(), b"pngbytes");
 
     let e = entry(import, 9);
-    assert_eq!(urls(&e.draft), ["ssh://server.example.com"]);
+    // A non-web URL is kept as a text field, never used for matching.
+    assert!(urls(&e.draft).is_empty());
+    assert_eq!(labels(&e.draft), ["URL"]);
     assert_eq!(secret(&e.draft, SecretField::Password), "server-pw");
-    assert_eq!(e.warnings, [EntryWarning::PasskeysNotImported]);
+    assert_eq!(
+        e.warnings,
+        [
+            EntryWarning::PasskeysNotImported,
+            EntryWarning::UrlKeptAsText
+        ]
+    );
 
     let e = entry(import, 10);
     assert!(e.warnings.is_empty());
