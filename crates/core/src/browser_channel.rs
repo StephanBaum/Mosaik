@@ -1,4 +1,4 @@
-//! The browser extension channel (CRYPTO_SPEC §15, ADR-0036): a pre-shared
+//! The local app channels (CRYPTO_SPEC §15, ADR-0036, ADR-0160): a pre-shared
 //! key `K_pair`, a mutual HMAC handshake over two fresh nonces, and
 //! per-direction XChaCha20-Poly1305 sessions with strict sequence numbers.
 //!
@@ -28,6 +28,18 @@
 //! `(key, seq)` pair is used once per direction, because the keys are fresh
 //! per connection (they depend on both connection nonces) and the sequence
 //! only moves forward (CRYPTO_SPEC §15).
+//!
+//! # Two channels, one construction
+//!
+//! The browser channel (`browser/*` labels, the formulas above) and the agent
+//! channel (`agent/*` labels, ADR-0160) share every step with a different
+//! label set, chosen with [`Channel`]. The labels enter `K_auth`, the
+//! handshake transcript `T` (and so both proofs), `okm` and the frame AAD, so
+//! a key, a proof or a frame of one channel never validates on the other even
+//! when `K_pair`, the pairing ID and the nonces are equal. The channel is
+//! fixed by the endpoint a connection arrived on, never by a message field.
+//! `proof`, `verify_proof` and `session` are the browser channel; the `_on`
+//! forms take the channel.
 
 use core::fmt;
 
@@ -36,7 +48,7 @@ use sha2::Sha256;
 use subtle::ConstantTimeEq;
 
 use crate::aead;
-use crate::encoding::{Aad, CTX_PREFIX, label};
+use crate::encoding::{Aad, CTX_PREFIX, Label, label};
 use crate::error::{Error, Result};
 use crate::kdf::{hkdf_ctx, hkdf_sha256};
 use crate::rng;
@@ -57,6 +69,43 @@ pub const FRAME_HEADER_LEN: usize = 10;
 const FRAME_VERSION: u8 = 0x01;
 /// Algorithm ID of XChaCha20-Poly1305 in a frame header.
 const FRAME_ALG_XCHACHA20POLY1305: u8 = 0x01;
+
+/// Which local channel a handshake or session belongs to (CRYPTO_SPEC §15,
+/// ADR-0160). Each has its own label set; see the module docs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Channel {
+    /// The browser extension channel: `browser/auth|handshake|session|frame`.
+    Browser,
+    /// The agent channel: `agent/auth|handshake|session|frame`.
+    Agent,
+}
+
+/// The four labels of one channel.
+struct ChannelLabels {
+    auth: Label,
+    handshake: Label,
+    session: Label,
+    frame: Label,
+}
+
+impl Channel {
+    const fn labels(self) -> ChannelLabels {
+        match self {
+            Self::Browser => ChannelLabels {
+                auth: label::BROWSER_AUTH,
+                handshake: label::BROWSER_HANDSHAKE,
+                session: label::BROWSER_SESSION,
+                frame: label::BROWSER_FRAME,
+            },
+            Self::Agent => ChannelLabels {
+                auth: label::AGENT_AUTH,
+                handshake: label::AGENT_HANDSHAKE,
+                session: label::AGENT_SESSION,
+                frame: label::AGENT_FRAME,
+            },
+        }
+    }
+}
 
 /// Which end of the channel a party is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -160,21 +209,26 @@ impl PairingKey {
         self.0.expose_secret()
     }
 
-    /// `K_auth = HKDF(K_pair, salt = pairing_id, ctx("browser/auth"), 32)`.
-    fn auth_key(&self, pairing_id: &[u8; PAIRING_ID_LEN]) -> Result<SecretBytes<32>> {
-        hkdf_ctx(self.0.expose_secret(), pairing_id, label::BROWSER_AUTH)
+    /// `K_auth = HKDF(K_pair, salt = pairing_id, ctx("<channel>/auth"), 32)`.
+    fn auth_key(
+        &self,
+        channel: Channel,
+        pairing_id: &[u8; PAIRING_ID_LEN],
+    ) -> Result<SecretBytes<32>> {
+        hkdf_ctx(self.0.expose_secret(), pairing_id, channel.labels().auth)
     }
 
     /// The HMAC of `T || role` under `K_auth`.
     fn proof_mac(
         &self,
+        channel: Channel,
         role: Role,
         pairing_id: &[u8; PAIRING_ID_LEN],
         nonce_h: &[u8; CHANNEL_NONCE_LEN],
         nonce_d: &[u8; CHANNEL_NONCE_LEN],
     ) -> Result<Hmac<Sha256>> {
-        let k_auth = self.auth_key(pairing_id)?;
-        let transcript = Aad::with_header(&[], label::BROWSER_HANDSHAKE)
+        let k_auth = self.auth_key(channel, pairing_id)?;
+        let transcript = Aad::with_header(&[], channel.labels().handshake)
             .fixed(pairing_id)
             .fixed(nonce_h)
             .fixed(nonce_d);
@@ -185,9 +239,9 @@ impl PairingKey {
         Ok(mac)
     }
 
-    /// The proof of `role` over this connection's transcript: `proof_h`
-    /// for [`Role::Host`], `proof_d` for [`Role::Desktop`]. The desktop
-    /// sends its proof first.
+    /// The proof of `role` over this connection's transcript on the browser
+    /// channel: `proof_h` for [`Role::Host`], `proof_d` for
+    /// [`Role::Desktop`]. The desktop sends its proof first.
     ///
     /// # Errors
     /// [`Error::SizeLimit`] if a derivation fails (it cannot for these sizes).
@@ -198,15 +252,30 @@ impl PairingKey {
         nonce_h: &[u8; CHANNEL_NONCE_LEN],
         nonce_d: &[u8; CHANNEL_NONCE_LEN],
     ) -> Result<[u8; PROOF_LEN]> {
+        self.proof_on(Channel::Browser, role, pairing_id, nonce_h, nonce_d)
+    }
+
+    /// [`PairingKey::proof`] on `channel`.
+    ///
+    /// # Errors
+    /// [`Error::SizeLimit`] if a derivation fails (it cannot for these sizes).
+    pub fn proof_on(
+        &self,
+        channel: Channel,
+        role: Role,
+        pairing_id: &[u8; PAIRING_ID_LEN],
+        nonce_h: &[u8; CHANNEL_NONCE_LEN],
+        nonce_d: &[u8; CHANNEL_NONCE_LEN],
+    ) -> Result<[u8; PROOF_LEN]> {
         Ok(self
-            .proof_mac(role, pairing_id, nonce_h, nonce_d)?
+            .proof_mac(channel, role, pairing_id, nonce_h, nonce_d)?
             .finalize()
             .into_bytes()
             .into())
     }
 
-    /// Checks `proof` as the proof of `role`, in constant time. A proof of
-    /// the wrong length is not valid.
+    /// Checks `proof` as the browser channel proof of `role`, in constant
+    /// time. A proof of the wrong length is not valid.
     ///
     /// # Errors
     /// [`Error::Decryption`] if the proof is not valid.
@@ -218,7 +287,23 @@ impl PairingKey {
         nonce_d: &[u8; CHANNEL_NONCE_LEN],
         proof: &[u8],
     ) -> Result<()> {
-        let expected = self.proof(role, pairing_id, nonce_h, nonce_d)?;
+        self.verify_proof_on(Channel::Browser, role, pairing_id, nonce_h, nonce_d, proof)
+    }
+
+    /// [`PairingKey::verify_proof`] on `channel`.
+    ///
+    /// # Errors
+    /// [`Error::Decryption`] if the proof is not valid.
+    pub fn verify_proof_on(
+        &self,
+        channel: Channel,
+        role: Role,
+        pairing_id: &[u8; PAIRING_ID_LEN],
+        nonce_h: &[u8; CHANNEL_NONCE_LEN],
+        nonce_d: &[u8; CHANNEL_NONCE_LEN],
+        proof: &[u8],
+    ) -> Result<()> {
+        let expected = self.proof_on(channel, role, pairing_id, nonce_h, nonce_d)?;
         if bool::from(expected.as_slice().ct_eq(proof)) {
             Ok(())
         } else {
@@ -226,9 +311,9 @@ impl PairingKey {
         }
     }
 
-    /// The session keys of this connection, as seen by `role` (the caller's
-    /// own role): it sends under its own direction key and opens under the
-    /// peer's. Call it only after both proofs verified.
+    /// The browser channel session keys of this connection, as seen by `role`
+    /// (the caller's own role): it sends under its own direction key and
+    /// opens under the peer's. Call it only after both proofs verified.
     ///
     /// # Errors
     /// [`Error::SizeLimit`] if the derivation fails (it cannot for 64 bytes).
@@ -239,7 +324,23 @@ impl PairingKey {
         nonce_h: &[u8; CHANNEL_NONCE_LEN],
         nonce_d: &[u8; CHANNEL_NONCE_LEN],
     ) -> Result<ChannelSession> {
-        let (k_h2d, k_d2h) = self.session_keys(pairing_id, nonce_h, nonce_d)?;
+        self.session_on(Channel::Browser, role, pairing_id, nonce_h, nonce_d)
+    }
+
+    /// [`PairingKey::session`] on `channel`. The session seals and opens
+    /// frames under the channel's frame label.
+    ///
+    /// # Errors
+    /// [`Error::SizeLimit`] if the derivation fails (it cannot for 64 bytes).
+    pub fn session_on(
+        &self,
+        channel: Channel,
+        role: Role,
+        pairing_id: &[u8; PAIRING_ID_LEN],
+        nonce_h: &[u8; CHANNEL_NONCE_LEN],
+        nonce_d: &[u8; CHANNEL_NONCE_LEN],
+    ) -> Result<ChannelSession> {
+        let (k_h2d, k_d2h) = self.session_keys(channel, pairing_id, nonce_h, nonce_d)?;
         let (send_key, recv_key) = match role {
             Role::Host => (k_h2d, k_d2h),
             Role::Desktop => (k_d2h, k_h2d),
@@ -250,6 +351,7 @@ impl PairingKey {
             send_dir: role.byte(),
             recv_dir: role.peer().byte(),
             pairing_id: *pairing_id,
+            frame_label: channel.labels().frame,
             send_seq: 0,
             recv_seq: 0,
             poisoned: false,
@@ -257,9 +359,10 @@ impl PairingKey {
     }
 
     /// `okm = HKDF(K_pair, pairing_id || nonce_h || nonce_d,
-    /// ctx("browser/session"), 64)` split into `(K_h2d, K_d2h)`.
+    /// ctx("<channel>/session"), 64)` split into `(K_h2d, K_d2h)`.
     fn session_keys(
         &self,
+        channel: Channel,
         pairing_id: &[u8; PAIRING_ID_LEN],
         nonce_h: &[u8; CHANNEL_NONCE_LEN],
         nonce_d: &[u8; CHANNEL_NONCE_LEN],
@@ -274,7 +377,7 @@ impl PairingKey {
         hkdf_sha256(
             self.0.expose_secret(),
             &salt,
-            &[CTX_PREFIX.as_bytes(), label::BROWSER_SESSION.as_bytes()],
+            &[CTX_PREFIX.as_bytes(), channel.labels().session.as_bytes()],
             okm.expose_secret_mut(),
         )?;
         let (left, right) = okm.expose_secret().split_at(32);
@@ -297,6 +400,8 @@ pub struct ChannelSession {
     send_dir: u8,
     recv_dir: u8,
     pairing_id: [u8; PAIRING_ID_LEN],
+    /// The channel's frame label, in every frame's AAD.
+    frame_label: Label,
     send_seq: u64,
     recv_seq: u64,
     /// Set by the first failed `open`; never cleared.
@@ -334,9 +439,9 @@ fn frame_nonce(seq: u64) -> [u8; aead::NONCE_LEN] {
     nonce
 }
 
-/// `header || aad("browser/frame", dir, pairing_id)`.
-fn frame_aad(header: &[u8], dir: u8, pairing_id: &[u8; PAIRING_ID_LEN]) -> Aad {
-    Aad::with_header(header, label::BROWSER_FRAME)
+/// `header || aad("<channel>/frame", dir, pairing_id)`.
+fn frame_aad(header: &[u8], frame_label: Label, dir: u8, pairing_id: &[u8; PAIRING_ID_LEN]) -> Aad {
+    Aad::with_header(header, frame_label)
         .u8(dir)
         .fixed(pairing_id)
 }
@@ -359,7 +464,7 @@ impl ChannelSession {
             return Err(Error::SizeLimit);
         }
         let header = frame_header(seq);
-        let aad = frame_aad(&header, self.send_dir, &self.pairing_id);
+        let aad = frame_aad(&header, self.frame_label, self.send_dir, &self.pairing_id);
         let frame = aead::seal_with_prefix(
             self.send_key.expose_secret(),
             &frame_nonce(seq),
@@ -402,7 +507,7 @@ impl ChannelSession {
         if *header != frame_header(seq) {
             return Err(Error::Decryption);
         }
-        let aad = frame_aad(header, self.recv_dir, &self.pairing_id);
+        let aad = frame_aad(header, self.frame_label, self.recv_dir, &self.pairing_id);
         let plaintext = aead::open(
             self.recv_key.expose_secret(),
             &frame_nonce(seq),
@@ -484,7 +589,7 @@ mod tests {
     #[test]
     fn golden_vector() {
         let (key, id, nh, nd) = fixed();
-        let k_auth = key.auth_key(&id).unwrap();
+        let k_auth = key.auth_key(Channel::Browser, &id).unwrap();
         assert_eq!(
             k_auth.expose_secret(),
             &hex!("481e75215802eaf13ef670c48cf5cb9a49731ce0f125ae9e2b3ed0581c8e9ffe")
@@ -497,7 +602,7 @@ mod tests {
             key.proof(Role::Desktop, &id, &nh, &nd).unwrap(),
             hex!("5dd54627cfd11f284be710ea068c1d50c8cbfdd8d9d4a21c9d9f02f6feb132c6")
         );
-        let (k_h2d, k_d2h) = key.session_keys(&id, &nh, &nd).unwrap();
+        let (k_h2d, k_d2h) = key.session_keys(Channel::Browser, &id, &nh, &nd).unwrap();
         assert_eq!(
             k_h2d.expose_secret(),
             &hex!("6abb259740161f4a368d47d3c0d7af9b4696d46844a43b4b9b52e6d5c3545b03")
@@ -528,6 +633,107 @@ mod tests {
     const GOLDEN_D2H: &[u8] = &hex!(
         "01010000000000000000786d9c1db5655f3d021408f5a90d749fdc4a616a68743070c6e0d1577e218109737bc3c73385"
     );
+
+    /// Agent channel vector: the inputs of [`golden_vector`] with the
+    /// `agent/*` labels. Same Python script with `browser` replaced by
+    /// `agent` in the three labels `agent/auth`, `agent/handshake` and
+    /// `agent/session`.
+    #[test]
+    fn agent_labels_give_a_different_vector() {
+        let (key, id, nh, nd) = fixed();
+        let on = Channel::Agent;
+        assert_eq!(
+            key.auth_key(on, &id).unwrap().expose_secret(),
+            &hex!("25538b1b5cc96a7ff57ecacab49068ac1e47ecbe9ce257afe168561e939385d0")
+        );
+        assert_eq!(
+            key.proof_on(on, Role::Host, &id, &nh, &nd).unwrap(),
+            hex!("36933b26777d0f18c5c9ed37458ac54f3dea13d61726ea3a935b4152524c3ac0")
+        );
+        assert_eq!(
+            key.proof_on(on, Role::Desktop, &id, &nh, &nd).unwrap(),
+            hex!("684a097452becbe55428a5ef52d8149d66f29686c24f9cbc8e54cfd64f70eefe")
+        );
+        let (k_h2d, k_d2h) = key.session_keys(on, &id, &nh, &nd).unwrap();
+        assert_eq!(
+            k_h2d.expose_secret(),
+            &hex!("49a45a500c5114ebc35ac1f6257a99e4ec97af9ef142b4f9e6ae895fc94bb82f")
+        );
+        assert_eq!(
+            k_d2h.expose_secret(),
+            &hex!("336e898e4f4d3ed4d1c1fbc23a1ef383e849b0cbf153508ae31d30034bdb66e8")
+        );
+        assert_ne!(
+            key.proof_on(on, Role::Desktop, &id, &nh, &nd).unwrap(),
+            key.proof_on(Channel::Browser, Role::Desktop, &id, &nh, &nd)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn browser_default_forms_are_the_browser_channel() {
+        let (key, id, nh, nd) = fixed();
+        assert_eq!(
+            key.proof(Role::Host, &id, &nh, &nd).unwrap(),
+            key.proof_on(Channel::Browser, Role::Host, &id, &nh, &nd)
+                .unwrap()
+        );
+        let mut a = key.session(Role::Host, &id, &nh, &nd).unwrap();
+        let mut b = key
+            .session_on(Channel::Browser, Role::Desktop, &id, &nh, &nd)
+            .unwrap();
+        let frame = a.seal(b"x").unwrap();
+        assert_eq!(b.open(&frame).unwrap().expose_secret(), b"x");
+    }
+
+    #[test]
+    fn proofs_do_not_cross_channels_in_either_direction() {
+        let (key, id, nh, nd) = fixed();
+        for role in [Role::Host, Role::Desktop] {
+            let browser = key.proof(role, &id, &nh, &nd).unwrap();
+            let agent = key.proof_on(Channel::Agent, role, &id, &nh, &nd).unwrap();
+            assert_eq!(
+                key.verify_proof_on(Channel::Agent, role, &id, &nh, &nd, &browser),
+                Err(Error::Decryption)
+            );
+            assert_eq!(
+                key.verify_proof_on(Channel::Browser, role, &id, &nh, &nd, &agent),
+                Err(Error::Decryption)
+            );
+            key.verify_proof_on(Channel::Agent, role, &id, &nh, &nd, &agent)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn frames_do_not_cross_channels_in_either_direction() {
+        let (key, id, nh, nd) = fixed();
+        let agent = |role| key.session_on(Channel::Agent, role, &id, &nh, &nd).unwrap();
+        let browser = |role| {
+            key.session_on(Channel::Browser, role, &id, &nh, &nd)
+                .unwrap()
+        };
+        // Same K_pair, pairing ID and nonces: only the labels differ.
+        let frame = agent(Role::Host).seal(b"agent frame").unwrap();
+        assert_eq!(
+            browser(Role::Desktop).open(&frame).err(),
+            Some(Error::Decryption)
+        );
+        let frame = browser(Role::Host).seal(b"browser frame").unwrap();
+        assert_eq!(
+            agent(Role::Desktop).open(&frame).err(),
+            Some(Error::Decryption)
+        );
+        let frame = agent(Role::Host).seal(b"agent frame").unwrap();
+        assert_eq!(
+            agent(Role::Desktop).open(&frame).unwrap().expose_secret(),
+            b"agent frame"
+        );
+        assert_ne!(
+            agent(Role::Host).seal(b"same").unwrap(),
+            browser(Role::Host).seal(b"same").unwrap()
+        );
+    }
 
     #[test]
     fn proofs_verify_and_nothing_else_does() {
@@ -744,7 +950,7 @@ mod tests {
         let nonce = frame_nonce(0x0102_0304_0506_0708);
         assert_eq!(&nonce[..16], &[0u8; 16]);
         assert_eq!(&nonce[16..], &[1, 2, 3, 4, 5, 6, 7, 8]);
-        let aad = frame_aad(&[0xAA], 2, &[7u8; 16]);
+        let aad = frame_aad(&[0xAA], label::BROWSER_FRAME, 2, &[7u8; 16]);
         let mut expected = vec![0xAA];
         expected.extend_from_slice(b"mosaic/v1/browser/frame\x00\x02");
         expected.extend_from_slice(&[7u8; 16]);

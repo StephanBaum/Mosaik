@@ -242,7 +242,7 @@ mod windows {
     };
 
     use super::{Endpoint, connect_error, io_error};
-    use crate::endpoint::is_valid_pipe_name;
+    use crate::endpoint::{ChannelKind, is_valid_pipe_name_for};
     use crate::error::Error;
 
     /// `ERROR_PIPE_BUSY`: every instance is in use; try again shortly.
@@ -258,7 +258,9 @@ mod windows {
             let Endpoint::NamedPipe(name) = endpoint else {
                 return Err(Error::EndpointInvalid);
             };
-            if !is_valid_pipe_name(name) {
+            if !(is_valid_pipe_name_for(ChannelKind::Browser, name)
+                || is_valid_pipe_name_for(ChannelKind::Agent, name))
+            {
                 return Err(Error::EndpointInvalid);
             }
             let next = ServerOptions::new()
@@ -291,7 +293,9 @@ mod windows {
         let Endpoint::NamedPipe(name) = endpoint else {
             return Err(Error::EndpointInvalid);
         };
-        if !is_valid_pipe_name(name) {
+        if !(is_valid_pipe_name_for(ChannelKind::Browser, name)
+            || is_valid_pipe_name_for(ChannelKind::Agent, name))
+        {
             return Err(Error::EndpointInvalid);
         }
         loop {

@@ -23,6 +23,8 @@
 //! [`handshake::read_client_message`] and [`handshake::server_handshake`].
 #![forbid(unsafe_code)]
 
+pub mod agent_handshake;
+pub mod agent_preauth;
 pub mod bodies;
 pub mod endpoint;
 pub mod error;

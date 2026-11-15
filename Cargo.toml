@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/desktop/src-tauri"]
 # The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "crates/origin/fuzz", "crates/passkey/fuzz", "crates/mobile/fuzz", "crates/sync/fuzz", "crates/server/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
+exclude = ["crates/agent/fuzz", "crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "crates/origin/fuzz", "crates/passkey/fuzz", "crates/mobile/fuzz", "crates/sync/fuzz", "crates/server/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
 
 # rqrr 0.11.0 with a bound on QR grouping work (vendor/rqrr/MOSAIC_PATCH.md, ADR-0031).
 [patch.crates-io]
@@ -102,6 +102,8 @@ zip = { version = "=9.5.0", default-features = false, features = ["deflate-flate
 psl = { version = "=2.1.248", default-features = false, features = ["helpers"] }
 # WHATWG URL parsing, identical to the browser's origin rules; already in the tree through Tauri.
 url = { version = "=2.5.8", default-features = false, features = ["std"] }
+# An independent URI parser for the agent request tests (dev-dependency only; already in the tree through reqwest and axum).
+http = { version = "=1.5.0", default-features = false, features = ["std"] }
 # IDNA to-Unicode for the lookalike and IDN warnings; already in the tree through url.
 idna = { version = "=1.1.0", default-features = false, features = ["std", "compiled_data"] }
 # M3 sshagent

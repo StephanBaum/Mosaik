@@ -75,6 +75,7 @@ import {
   type ShortcutState,
   type VaultMetaField,
 } from "./contract/index.ts";
+import { agentHandlers, seedAgent, startAgent as startAgentMock, type AgentVariant } from "./mock/agent.ts";
 import { announceMetaDropped, appHandlers } from "./mock/app.ts";
 import {
   browserHandlers,
@@ -156,6 +157,8 @@ export interface MockOptions extends QuickOptions {
   latencyMs?: number;
   /** Emit an SSH approval request 500 ms after unlock. */
   sshRequest?: boolean;
+  /** Agent access (`?agent=on|pair|access`): on with one client, or also opening a dialog 500 ms after subscribing. */
+  agent?: AgentVariant;
   /** A browser asks for pairing 500 ms after subscribing (`&browserPair=1`). */
   browserPair?: boolean;
   /** A browser offers to save a login 500 ms after subscribing (`&browserSave=new|update`). */
@@ -211,6 +214,7 @@ const handlers: MockHandlers = {
   ...settingsHandlers,
   ...insightHandlers,
   ...sshHandlers,
+  ...agentHandlers,
   ...browserHandlers,
   ...syncHandlers,
   ...rotationHandlers,
@@ -248,11 +252,17 @@ const asyncHandlers: MockAsyncHandlers = {
   ...rotationAsyncHandlers,
 };
 
+function agentOptionFromParams(params: URLSearchParams): MockOptions {
+  const agent = params.get("agent");
+  return agent === "on" || agent === "pair" || agent === "access" ? { agent } : {};
+}
+
 function browserOptionsFromParams(params: URLSearchParams): MockOptions {
   const save = params.get("browserSave");
   const passkey = params.get("browserPasskey");
   return {
     ...(params.get("browserPair") === "1" ? { browserPair: true } : {}),
+    ...agentOptionFromParams(params),
     ...(save === "new" || save === "update" ? { browserSave: save } : {}),
     ...(passkey === "get" || passkey === "create" || passkey === "excluded" || passkey === "uv" || passkey === "uvExpires"
       ? { browserPasskey: passkey }
@@ -477,6 +487,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     unlocked: start === "unlocked",
     kitVerified: start !== "noAccount" && options.kitUnverified !== true,
     sshEnabled: false,
+    agent: seedAgent(options.agent, now()),
     browser: seededBrowser(options, now),
     rotation: seedRotation(options.rotation ?? {}),
     sharing: seedSharing(options.sharing),
@@ -537,6 +548,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     subscribe(listener) {
       listeners.add(listener);
       startBrowser(state);
+      startAgentMock(state);
       announceSync(state);
       announceMetaDropped(state);
       announceSharing(state);
