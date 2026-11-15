@@ -2,6 +2,8 @@
 //! shim's [`Uia`]. Everything here maps shim facts to the pure model of
 //! [`crate::verify`].
 
+use std::time::Instant;
+
 use mosaic_winshim::{ShimError, Uia, UiaElement};
 
 use crate::verify::{FieldFacts, FieldKind, Point, ProbeError, Rect, RuntimeId};
@@ -49,28 +51,45 @@ fn field_facts(element: &UiaElementRef) -> FieldFacts {
 /// non-edit element has focus.
 pub(crate) fn focused_field(
     uia: &Uia,
+    deadline: Instant,
 ) -> Result<Option<(UiaElementRef, FieldFacts, isize)>, ProbeError> {
-    let Some(element) = uia.focused().map_err(probe_error)? else {
+    let Some(element) = uia.focused(deadline).map_err(probe_error)? else {
         return Ok(None);
     };
     if element.facts().control_type != EDIT_CONTROL_TYPE {
         return Ok(None);
     }
-    let window = uia.nearest_window(&element).map_err(probe_error)?;
+    let window = uia
+        .nearest_window(&element, deadline)
+        .map_err(probe_error)?;
     let facts = field_facts(&element);
     Ok(Some((element, facts, window)))
 }
 
 /// Whether two elements are the same UI element.
-pub(crate) fn same(uia: &Uia, a: &UiaElementRef, b: &UiaElementRef) -> Result<bool, ProbeError> {
-    uia.same(a, b).map_err(probe_error)
+pub(crate) fn same(
+    uia: &Uia,
+    a: &UiaElementRef,
+    b: &UiaElementRef,
+    deadline: Instant,
+) -> Result<bool, ProbeError> {
+    uia.same(a, b, deadline).map_err(probe_error)
 }
 
 /// Whether the element at `p` is the target or inside it (nothing covers the
 /// point). An empty point counts as covered.
-pub(crate) fn clear_at(uia: &Uia, target: &UiaElementRef, p: Point) -> Result<bool, ProbeError> {
-    let Some(at_point) = uia.element_from_point(p.x, p.y).map_err(probe_error)? else {
+pub(crate) fn clear_at(
+    uia: &Uia,
+    target: &UiaElementRef,
+    p: Point,
+    deadline: Instant,
+) -> Result<bool, ProbeError> {
+    let Some(at_point) = uia
+        .element_from_point(p.x, p.y, deadline)
+        .map_err(probe_error)?
+    else {
         return Ok(false);
     };
-    uia.is_within(&at_point, target).map_err(probe_error)
+    uia.is_within(&at_point, target, deadline)
+        .map_err(probe_error)
 }

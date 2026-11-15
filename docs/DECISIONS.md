@@ -5986,7 +5986,9 @@ setting can default to on for Chromium and Electron programs.
   `Win32_Security_Cryptography`, `Win32_Security_Cryptography_Catalog`, `Win32_Security_Cryptography_Sip`,
   `Win32_Security_WinTrust`, `Win32_Storage_FileSystem`, `Win32_Storage_Packaging_Appx`, `Win32_System_Threading`,
   `Win32_System_Com`, `Win32_System_Ole`, `Win32_UI_Accessibility`, `Win32_UI_WindowsAndMessaging`,
-  `Win32_Graphics_Dwm`. The rule:
+  `Win32_Graphics_Dwm`. Added after the red team: `Win32_System_Variant` (`SafeArrayGetVartype` returns a
+  `VARENUM`; the runtime ID array is checked to be `VT_I4`). The root-store check, the drive type check and the
+  deadlines need no other feature. The rule:
   - `crates/winshim` is the only crate in the workspace with `unsafe`; every other crate keeps
     `#![forbid(unsafe_code)]` through `[lints] workspace = true`.
   - `unsafe` appears only in modules named `sys*`; every block has a `// SAFETY:` comment and holds one unsafe
@@ -6006,10 +6008,19 @@ setting can default to on for Chromium and Electron programs.
   entry. `Revoked`: `CERT_E_REVOKED`. `Untrusted`: any other failure (bad digest, untrusted root, explicit distrust,
   expired, revocation failure). A revocation check that cannot run offline maps to `Trusted` when Windows itself
   returns `S_OK` (Step 5 found no failure; recorded as a residual and re-tested in the manual checklist). Only
-  `Trusted` and `Unsigned` can be bound.
+  `Trusted` and `Unsigned` can be bound. Amended after the red team (2026-11-15): `WinVerifyTrust` runs with
+  `WTD_CACHE_ONLY_URL_RETRIEVAL` (no network wait; offline revocation stays `Trusted` as above), a chain whose root
+  is not in `LocalMachine\Root` or `LocalMachine\AuthRoot` is `Untrusted` (the per-user `HKCU` root store is
+  writable without a prompt), and a catalog service that fails is an error, never `Unsigned`. The image is opened
+  once through `ImageFile` (read-only, no write or delete sharing); the signature and the hash use that handle.
 - **D5 UIA timeouts.** Connection and transaction timeout 2000 ms each. A hung provider ends the call with
-  `UIA_E_TIMEOUT` after about 2 s (Step 3); `ShimError::Timeout` ends the pick session. If a call ever blocks past
-  its timeout, the worker is abandoned and a new client is created on a new thread (recovery measured at 6 ms).
+  `UIA_E_TIMEOUT` after about 2 s (Step 3); `ShimError::Timeout` ends the pick session. Amended after the red team:
+  every snapshot (2 s) and every capture (10 s, which includes the signature check and the hash of an unsigned
+  image) has one `Instant` deadline passed down to each UI Automation call and parent walk and to the hash loop; a
+  call that overruns returns `Timeout`, and a single call can run to its own 2 s timeout past the deadline. The
+  "abandon the blocked worker and create a new client on a new thread" recovery (6 ms measured) is **not** in phase 1:
+  it lands in phase 2 with the dedicated worker thread. `WindowsProbe::new` must run on a thread in the COM
+  multithreaded apartment (a plain worker thread); on a single-threaded apartment thread it fails.
 - **D6 GO.** None of the NO-GO conditions holds: (1) C-UIA-READ, C-PROC, C-WINDOW and C-TRUST all worked in the
   shim prototype; (2) a hung provider ends in `UIA_E_TIMEOUT` after about 2 s, and worker respawn recovers in
   milliseconds; (3) the client adds no measurable idle CPU and at most 0.3 MB to the WPF and Win32 targets;
@@ -6067,7 +6078,7 @@ and Q3. The rules are pure and live in `crates/origin/src/program.rs`; the captu
   - `winapp://signed/<exe>?signer=<43 base64url>`: `<exe>` is the folded file name, percent-encoded (bytes in
     `[a-z0-9-._~]` stay, every other byte is `%XX` with uppercase hex). The decoded name is 1 to 255 bytes of
     UTF-8, equals its own fold, is not `.` or `..`, and has none of `\ / : * ? " < > |`, no control character and
-    no NUL. `signer` is the SHA-256 of the DER subject of the leaf signing certificate.
+    no NUL. `signer` is the signer id (amended after the red team, see "Signer id" below).
   - `winapp://path/<base64url(UTF-8 path)>?sha256=<43 base64url>`: the decoded path is 1 to 4096 bytes of UTF-8,
     starts with a drive (`X:\`) or UNC (`\server\share\`) prefix, never with `\?\` or `\.\`, and has no `/`,
     NUL or control character. It is stored as captured, not folded. `sha256` is the hash of the image file.
@@ -6087,6 +6098,20 @@ and Q3. The rules are pure and live in `crates/origin/src/program.rs`; the captu
   never matches a `path/` binding, and the other way round. A match is `ExactOrigin`. A non-`winapp://` URL never
   matches a program, and a `winapp://` URL never matches a page or an Android app (an older build keeps it as an
   unknown URL that never matches).
+- **Signer id (amended 2026-11-15).** `signer=` is SHA-256(DER subject of the leaf signing certificate, followed by
+  SHA-256 of the DER of the root certificate the chain ends in), the root taken from the `WinVerifyTrust` provider
+  chain. A subject alone can be copied by anyone who can mint a certificate and add its root to the per-user root
+  store; with the root in the id a copied subject under another root is another signer (`SignerChanged`), and a
+  leaf renewed under the same root keeps the id. A chain whose root is not in the machine's `Root` or `AuthRoot`
+  store is `Untrusted`. No link in this form has been saved yet (phase 2, which saves links, is not shipped), so
+  there is no migration. Re-linking after a signer change takes two confirmations like an unsigned program, and the
+  prompt shows the old and the new signer's CN and O (`LinkAgain`).
+- **Package versus signer (amended 2026-11-15).** A program with a trusted signature binds as `signed/` even when it
+  is packaged (packaged apps are signed); `package/` is only for a packaged app without a trusted signature.
+- **Image handling (amended 2026-11-15).** The image is opened once; an image on a network path (UNC, or a drive
+  `GetDriveTypeW` reports as remote) is refused (`NetworkImage`) because a remote file can change under the handle.
+  A renamed browser (`chrome.exe` copied to `x.exe`, still signed by Google) is `Ordinary` here, since exclusion is
+  by file name; phase 2 must also exclude by signer plus product (open item in `docs/PROGRAM_FILL.md`).
 - **Binding states (ADR-0157 D4).** Only `Trusted` and `Unsigned` images are bindable. `Revoked` and `Untrusted`
   are refused with their own reason.
 - **Q3: unsigned programs bind path plus hash.** The path alone would let a user-writable directory be filled

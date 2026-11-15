@@ -4,6 +4,7 @@
 
 use std::io::Read;
 use std::path::Path;
+use std::time::Instant;
 
 use mosaic_origin::program::{ProgramClass, ProgramIdentity, classify_program, fold_name};
 use sha2::{Digest as _, Sha256};
@@ -36,6 +37,9 @@ pub enum SignatureState {
     Trusted {
         /// The DER subject of the leaf signing certificate.
         subject_der: Vec<u8>,
+        /// The DER of the root certificate the signature chains to (it is in the
+        /// machine's `Root` or `AuthRoot` store).
+        root_der: Vec<u8>,
         /// The signer's name for display.
         display: SignerDisplay,
     },
@@ -89,8 +93,8 @@ pub struct CapturedIdentity {
     pub exe_name: String,
     /// The package family, folded.
     pub package_family: Option<String>,
-    /// SHA-256 of the signer's DER subject; `Some` only for a trusted signature.
-    pub signer_subject_sha256: Option<[u8; 32]>,
+    /// The signer id ([`signer_id`]); `Some` only for a trusted signature.
+    pub signer_id: Option<[u8; 32]>,
     /// The signer's name, for display.
     pub signer_display: Option<SignerDisplay>,
     /// SHA-256 of the image file; only for unsigned images.
@@ -106,7 +110,7 @@ impl CapturedIdentity {
         ProgramIdentity {
             package_family: self.package_family.as_deref(),
             exe_name: &self.exe_name,
-            signer_subject_sha256: self.signer_subject_sha256,
+            signer_id: self.signer_id,
             final_path: &self.final_path,
             file_sha256: self.file_sha256,
             class: self.class,
@@ -140,6 +144,10 @@ pub enum CaptureRefusal {
     /// An unsigned image too large to hash.
     #[error("too large to bind")]
     TooLargeToBind,
+    /// The image is on a network path (UNC or a mapped network drive): a remote
+    /// file can change under the handle, so it is never bound.
+    #[error("image on a network path")]
+    NetworkImage,
     /// The image path has no usable file name.
     #[error("bad path")]
     BadPath,
@@ -154,6 +162,9 @@ pub enum HashError {
     /// The file could not be read.
     #[error("io")]
     Io,
+    /// The deadline passed before the whole file was read.
+    #[error("timeout")]
+    Timeout,
 }
 
 /// The folded file name of a final path (its last component), or `None` when
@@ -218,13 +229,18 @@ pub fn assemble_identity(
     if class != ProgramClass::Ordinary {
         return Err(CaptureRefusal::Excluded(class));
     }
-    let (signer_subject_sha256, signer_display, file_sha256) = match signature {
+    let (signer_id, signer_display, file_sha256) = match signature {
         SignatureState::Revoked => return Err(CaptureRefusal::RevokedSignature),
         SignatureState::Untrusted => return Err(CaptureRefusal::InvalidSignature),
         SignatureState::Trusted {
             subject_der,
+            root_der,
             display,
-        } => (Some(sha256(&subject_der)), Some(display), None),
+        } => (
+            Some(signer_id(&subject_der, &root_der)),
+            Some(display),
+            None,
+        ),
         SignatureState::Unsigned => (
             None,
             None,
@@ -236,29 +252,63 @@ pub fn assemble_identity(
         final_path: process.final_path.clone(),
         exe_name,
         package_family,
-        signer_subject_sha256,
+        signer_id,
         signer_display,
         file_sha256,
         class,
     })
 }
 
+/// The id of a trusted signer: SHA-256 of the DER subject of the leaf signing
+/// certificate followed by the SHA-256 of the DER of the root certificate the
+/// chain ends in. The subject alone is copyable by anyone who can mint a
+/// certificate with it; the root ties it to the authority that vouches for it.
+/// A leaf renewed under the same root keeps the id; another root is another
+/// signer ([`mosaic_origin::program::BindingChange::SignerChanged`]).
+#[must_use]
+pub fn signer_id(subject_der: &[u8], root_der: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(subject_der);
+    hasher.update(sha256(root_der));
+    finish(hasher)
+}
+
 /// SHA-256 of an image file, streamed in 64 KiB pieces.
 ///
 /// # Errors
 /// [`HashError::TooLarge`] if the file is longer than `cap` bytes (by its
-/// metadata, or by what was read), [`HashError::Io`] if it cannot be read.
-pub fn hash_image_capped(path: &Path, cap: u64) -> Result<[u8; 32], HashError> {
+/// metadata, or by what was read), [`HashError::Io`] if it cannot be read,
+/// [`HashError::Timeout`] past `deadline`.
+pub fn hash_image_capped(path: &Path, cap: u64, deadline: Instant) -> Result<[u8; 32], HashError> {
     let file = std::fs::File::open(path).map_err(|_| HashError::Io)?;
+    hash_file_capped(&file, cap, deadline)
+}
+
+/// SHA-256 of an already open file, from its start (the caller holds the one
+/// handle the signature was checked through). The deadline is checked between
+/// 64 KiB reads.
+///
+/// # Errors
+/// As [`hash_image_capped`].
+pub fn hash_file_capped(
+    mut file: &std::fs::File,
+    cap: u64,
+    deadline: Instant,
+) -> Result<[u8; 32], HashError> {
+    use std::io::{Seek as _, SeekFrom};
     if file.metadata().map_err(|_| HashError::Io)?.len() > cap {
         return Err(HashError::TooLarge);
     }
+    file.seek(SeekFrom::Start(0)).map_err(|_| HashError::Io)?;
     // One byte past the cap tells a file that grew while it was read.
-    let mut reader = file.take(cap.saturating_add(1));
+    let mut reader = Read::take(file, cap.saturating_add(1));
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; HASH_BUFFER_BYTES];
     let mut total: u64 = 0;
     loop {
+        if Instant::now() >= deadline {
+            return Err(HashError::Timeout);
+        }
         let read = reader.read(&mut buffer).map_err(|_| HashError::Io)?;
         if read == 0 {
             break;
@@ -300,6 +350,10 @@ mod tests {
         }
     }
 
+    fn soon() -> Instant {
+        Instant::now() + std::time::Duration::from_secs(30)
+    }
+
     const OWN: OwnProcess = OwnProcess {
         pid: 10,
         integrity_rid: 0x2000,
@@ -308,6 +362,7 @@ mod tests {
     fn trusted() -> SignatureState {
         SignatureState::Trusted {
             subject_der: b"subject".to_vec(),
+            root_der: b"root".to_vec(),
             display: SignerDisplay {
                 common_name: Some("Example".into()),
                 organization: Some("Example Inc".into()),
@@ -430,8 +485,8 @@ mod tests {
             0x2000,
         );
         let id = assemble_identity(OWN, &p, trusted(), Some([1; 32])).unwrap();
-        let expected: [u8; 32] = Sha256::digest(b"subject").into();
-        assert_eq!(id.signer_subject_sha256, Some(expected));
+        let expected = signer_id(b"subject", b"root");
+        assert_eq!(id.signer_id, Some(expected));
         assert_eq!(id.file_sha256, None);
         assert_eq!(id.exe_name, "discord.exe");
         assert_eq!(id.package_family.as_deref(), Some("pkg.name_8wekyb3d8bbwe"));
@@ -444,8 +499,41 @@ mod tests {
         );
         // The matcher's view carries no display data and the same facts.
         let view = id.as_identity();
-        assert_eq!(view.signer_subject_sha256, Some(expected));
+        assert_eq!(view.signer_id, Some(expected));
         assert_eq!(view.exe_name, "discord.exe");
+    }
+
+    #[test]
+    fn the_signer_id_binds_the_subject_to_its_root() {
+        let id = signer_id(b"subject", b"root");
+        // Spelled out: SHA-256(subject || SHA-256(root)).
+        let mut inner = Sha256::new();
+        inner.update(b"subject");
+        inner.update(Sha256::digest(b"root"));
+        let expected: [u8; 32] = inner.finalize().into();
+        assert_eq!(id, expected);
+        // A renewed leaf (same subject) under the same root is the same signer.
+        assert_eq!(id, signer_id(b"subject", b"root"));
+        // The same subject under another root (a root the user added) is not.
+        assert_ne!(id, signer_id(b"subject", b"other root"));
+        assert_ne!(id, signer_id(b"other subject", b"root"));
+        // Moving bytes between the two parts changes the id.
+        assert_ne!(signer_id(b"subjectr", b"oot"), id);
+    }
+
+    #[test]
+    fn hashing_stops_at_the_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.exe");
+        std::fs::write(&path, [1u8; 100]).unwrap();
+        let past = Instant::now();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(matches!(
+            hash_image_capped(&path, 1000, past),
+            Err(HashError::Timeout)
+        ));
+        let later = Instant::now() + std::time::Duration::from_secs(30);
+        assert!(hash_image_capped(&path, 1000, later).is_ok());
     }
 
     #[test]
@@ -454,13 +542,13 @@ mod tests {
         let path = dir.path().join("image.exe");
         std::fs::write(&path, [7u8; 10]).unwrap();
         assert!(matches!(
-            hash_image_capped(&path, 9),
+            hash_image_capped(&path, 9, soon()),
             Err(HashError::TooLarge)
         ));
         let expected: [u8; 32] = Sha256::digest([7u8; 10]).into();
-        assert_eq!(hash_image_capped(&path, 10).unwrap(), expected);
+        assert_eq!(hash_image_capped(&path, 10, soon()).unwrap(), expected);
         assert!(matches!(
-            hash_image_capped(&dir.path().join("missing.exe"), 10),
+            hash_image_capped(&dir.path().join("missing.exe"), 10, soon()),
             Err(HashError::Io)
         ));
         let p = raw(11, r"C:\a\x.exe", None, 0x2000);

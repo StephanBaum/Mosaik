@@ -58,10 +58,7 @@ mod harness {
         }
         println!(
             "hash:     signer {} / file {}",
-            identity
-                .signer_subject_sha256
-                .as_ref()
-                .map_or_else(|| "-".into(), hex8),
+            identity.signer_id.as_ref().map_or_else(|| "-".into(), hex8),
             identity
                 .file_sha256
                 .as_ref()
@@ -106,7 +103,7 @@ mod harness {
         if !saved.is_empty() {
             println!(
                 "link again needed: {:?}",
-                link_again_needed(&saved, &captured.identity)
+                link_again_needed(&saved, &captured.identity, None)
             );
         }
 

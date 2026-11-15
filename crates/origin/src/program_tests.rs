@@ -22,7 +22,7 @@ fn id<'a>(
     ProgramIdentity {
         package_family: None,
         exe_name: exe,
-        signer_subject_sha256: signer,
+        signer_id: signer,
         final_path: path,
         file_sha256: hash,
         class: ProgramClass::Ordinary,

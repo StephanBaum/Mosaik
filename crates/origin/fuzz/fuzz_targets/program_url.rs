@@ -33,7 +33,7 @@ fuzz_target!(|data: &[u8]| {
         let observed = ProgramIdentity {
             package_family: family,
             exe_name: exe,
-            signer_subject_sha256: signer,
+            signer_id: signer,
             final_path: path,
             file_sha256: hash,
             class,

@@ -8,7 +8,7 @@ use mosaic_origin::program::{
     program_lookalike_of,
 };
 
-use crate::identity::CapturedIdentity;
+use crate::identity::{CapturedIdentity, SignerDisplay};
 
 /// The least time between the two confirmations of an unsigned program, so a
 /// double click is not a link.
@@ -58,9 +58,10 @@ pub enum BindRefusal {
     BadIdentity,
 }
 
-/// What a login would be bound to for this program: its package when it has
-/// one (one confirmation), else its trusted signer plus exe name (one), else
-/// its path plus file hash (two confirmations, an `Unsigned` warning).
+/// What a login would be bound to for this program: its trusted signer plus exe
+/// name when it has a trusted signature (one confirmation; packaged apps are
+/// signed, so they bind this way too), else its package family (one), else its
+/// path plus file hash (two confirmations, an `Unsigned` warning).
 /// `bound_exes` are the exe names of the user's other `signed/` and `path/`
 /// bindings, never this identity's own; a one-edit look-alike among them is a
 /// warning.
@@ -75,14 +76,16 @@ pub fn propose_binding(
         return Err(BindRefusal::Excluded(identity.class));
     }
     let mut warnings = Vec::new();
-    let (url, confirmations) = if let Some(family) = &identity.package_family {
-        (
-            ProgramUrl::package(family).map_err(|_| BindRefusal::BadIdentity)?,
-            Confirmations::One,
-        )
-    } else if let Some(signer) = identity.signer_subject_sha256 {
+    let (url, confirmations) = if let Some(signer) = identity.signer_id {
+        // The signer and exe name come first: a package family alone says
+        // nothing about who signed the code.
         (
             ProgramUrl::signed(&identity.exe_name, signer).map_err(|_| BindRefusal::BadIdentity)?,
+            Confirmations::One,
+        )
+    } else if let Some(family) = &identity.package_family {
+        (
+            ProgramUrl::package(family).map_err(|_| BindRefusal::BadIdentity)?,
             Confirmations::One,
         )
     } else if let Some(hash) = identity.file_sha256 {
@@ -106,10 +109,33 @@ pub fn propose_binding(
     })
 }
 
+/// The user is asked to link a program again: what changed, how many
+/// confirmations it takes, and the signer names to show.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LinkAgain {
+    /// What changed.
+    pub change: BindingChange,
+    /// Always two (a changed signer or file is the case an attacker wants to
+    /// pass with one click).
+    pub confirmations: Confirmations,
+    /// The signer the saved link was made with, as the caller stored it (a
+    /// `winapp://` URL holds only a hash); `None` if unknown.
+    pub old_signer: Option<SignerDisplay>,
+    /// The signer of the program now (CN and O), `None` for an unsigned one.
+    pub new_signer: Option<SignerDisplay>,
+}
+
 /// Whether none of the saved URLs matches the program but one of them was bound
-/// to it before its signer or file changed: the user is asked to link again.
+/// to it before its signer or file changed: the user is asked to link again,
+/// with two confirmations like an unsigned program, and is shown the old and
+/// the new signer. `saved_signer` is the display name stored with the saved
+/// link, if the caller has one.
 #[must_use]
-pub fn link_again_needed(saved: &[LoginUrl], identity: &CapturedIdentity) -> Option<BindingChange> {
+pub fn link_again_needed(
+    saved: &[LoginUrl],
+    identity: &CapturedIdentity,
+    saved_signer: Option<&SignerDisplay>,
+) -> Option<LinkAgain> {
     let observed = identity.as_identity();
     if saved
         .iter()
@@ -117,7 +143,30 @@ pub fn link_again_needed(saved: &[LoginUrl], identity: &CapturedIdentity) -> Opt
     {
         return None;
     }
-    saved.iter().find_map(|url| binding_change(url, &observed))
+    let change = saved
+        .iter()
+        .find_map(|url| binding_change(url, &observed))?;
+    Some(LinkAgain {
+        change,
+        confirmations: Confirmations::Two,
+        old_signer: saved_signer.cloned(),
+        new_signer: identity.signer_display.clone(),
+    })
+}
+
+/// The binding to offer when linking again: the normal proposal for the
+/// program, with the confirmations of `again`.
+///
+/// # Errors
+/// [`BindRefusal`].
+pub fn propose_relink(
+    identity: &CapturedIdentity,
+    bound_exes: &[&str],
+    again: &LinkAgain,
+) -> Result<ProposedBinding, BindRefusal> {
+    let mut proposed = propose_binding(identity, bound_exes)?;
+    proposed.confirmations = again.confirmations;
+    Ok(proposed)
 }
 
 /// Where a confirmation stands.
@@ -196,7 +245,7 @@ mod tests {
             final_path: format!(r"C:\Apps\{exe}"),
             exe_name: exe.to_owned(),
             package_family: None,
-            signer_subject_sha256: None,
+            signer_id: None,
             signer_display: None,
             file_sha256: None,
             class: ProgramClass::Ordinary,
@@ -205,8 +254,16 @@ mod tests {
 
     fn signed(exe: &str) -> CapturedIdentity {
         CapturedIdentity {
-            signer_subject_sha256: Some(SIGNER),
+            signer_id: Some(SIGNER),
+            signer_display: Some(display("New Corp")),
             ..identity(exe)
+        }
+    }
+
+    fn display(name: &str) -> SignerDisplay {
+        SignerDisplay {
+            common_name: Some(name.to_owned()),
+            organization: Some(format!("{name} Inc")),
         }
     }
 
@@ -220,15 +277,23 @@ mod tests {
 
     #[test]
     fn packaged_and_signed_programs_need_one_confirmation() {
+        // A packaged app is signed: the signer binding wins over the family.
         let mut packaged = signed("notepad.exe");
         packaged.package_family = Some("microsoft.windowsnotepad_8wekyb3d8bbwe".to_owned());
         let p = propose_binding(&packaged, &[]).unwrap();
+        assert_eq!(p.url, ProgramUrl::signed("notepad.exe", SIGNER).unwrap());
+        assert_eq!(p.confirmations, Confirmations::One);
+        assert_eq!(p.warnings, Vec::new());
+        // Only a packaged app without a trusted signature falls back to the
+        // package family.
+        let mut unsigned_package = identity("notepad.exe");
+        unsigned_package.package_family = Some("microsoft.windowsnotepad_8wekyb3d8bbwe".to_owned());
+        let p = propose_binding(&unsigned_package, &[]).unwrap();
         assert_eq!(
             p.url,
             ProgramUrl::package("microsoft.windowsnotepad_8wekyb3d8bbwe").unwrap()
         );
         assert_eq!(p.confirmations, Confirmations::One);
-        assert_eq!(p.warnings, Vec::new());
 
         let p = propose_binding(&signed("discord.exe"), &[]).unwrap();
         assert_eq!(p.url, ProgramUrl::signed("discord.exe", SIGNER).unwrap());
@@ -324,19 +389,28 @@ mod tests {
         let web = LoginUrl::new("https://example.com");
         let path_url = LoginUrl::new(&ProgramUrl::path(PATH, OTHER).unwrap().canonical());
         let saved = [web, stale(), path_url];
-        assert_eq!(
-            link_again_needed(&saved, &signed("tool.exe")),
-            Some(BindingChange::SignerChanged)
-        );
-        assert_eq!(
-            link_again_needed(&saved, &unsigned("tool.exe", PATH)),
-            Some(BindingChange::FileChanged)
-        );
-        assert_eq!(link_again_needed(&saved, &signed("other.exe")), None);
+        let old = display("Old Corp");
+        let again = link_again_needed(&saved, &signed("tool.exe"), Some(&old)).unwrap();
+        assert_eq!(again.change, BindingChange::SignerChanged);
+        // A changed signer needs two confirmations, like an unsigned program,
+        // and the prompt can name both signers.
+        assert_eq!(again.confirmations, Confirmations::Two);
+        assert_eq!(again.old_signer, Some(old));
+        assert_eq!(again.new_signer, Some(display("New Corp")));
+        let relink = propose_relink(&signed("tool.exe"), &[], &again).unwrap();
+        assert_eq!(relink.confirmations, Confirmations::Two);
+        let mut c = LinkConfirmation::new(relink);
+        assert!(matches!(c.confirm(0), ConfirmStep::NeedAnother));
+        assert!(matches!(c.confirm(10), ConfirmStep::TooSoon));
+        assert!(matches!(c.confirm(2_000), ConfirmStep::Done(_)));
+        let file = link_again_needed(&saved, &unsigned("tool.exe", PATH), None).unwrap();
+        assert_eq!(file.change, BindingChange::FileChanged);
+        assert_eq!((file.old_signer, file.new_signer), (None, None));
+        assert_eq!(link_again_needed(&saved, &signed("other.exe"), None), None);
         // A binding that still matches means nothing to link again.
         let good = LoginUrl::new(&ProgramUrl::signed("tool.exe", SIGNER).unwrap().canonical());
         assert_eq!(
-            link_again_needed(&[stale(), good], &signed("tool.exe")),
+            link_again_needed(&[stale(), good], &signed("tool.exe"), None),
             None
         );
     }

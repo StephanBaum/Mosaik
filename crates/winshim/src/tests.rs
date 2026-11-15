@@ -1,10 +1,20 @@
 //! Tests of the shim API. Anything that needs a human at the desktop is
 //! `#[ignore]` and part of the manual checklist in `docs/PROGRAM_FILL.md`.
 
+use std::time::{Duration, Instant};
+
 use crate::{
-    ProcessHandle, ShimError, Signature, Uia, current_integrity_rid, final_path, foreground_window,
-    parent_pid, process_chain, verify_authenticode, window_facts,
+    ImageFile, ProcessHandle, ShimError, Signature, Uia, current_integrity_rid, final_path,
+    foreground_window, parent_pid, process_chain, window_facts,
 };
+
+fn soon() -> Instant {
+    Instant::now() + Duration::from_secs(30)
+}
+
+fn verify(path: &str) -> Result<Signature, ShimError> {
+    ImageFile::open(path)?.verify_authenticode(soon())
+}
 
 const KERNEL32: &str = r"C:\Windows\System32\kernel32.dll";
 
@@ -76,13 +86,15 @@ fn parent_ids_chain_up_and_stop() {
 
 #[test]
 fn a_system_binary_is_trusted_and_names_microsoft() {
-    match verify_authenticode(KERNEL32).unwrap() {
+    match verify(KERNEL32).unwrap() {
         Signature::Trusted {
             subject_der,
+            root_der,
             organization,
             common_name,
         } => {
             assert_ne!(subject_der.len(), 0);
+            assert_eq!(root_der.first(), Some(&0x30), "a DER certificate");
             assert_eq!(subject_der.first(), Some(&0x30), "a DER SEQUENCE");
             assert!(
                 organization
@@ -101,7 +113,7 @@ fn a_catalog_signed_binary_is_trusted() {
     let notepad = r"C:\Windows\System32\notepad.exe";
     if std::path::Path::new(notepad).exists() {
         assert!(matches!(
-            verify_authenticode(notepad).unwrap(),
+            verify(notepad).unwrap(),
             Signature::Trusted { .. }
         ));
     }
@@ -110,10 +122,7 @@ fn a_catalog_signed_binary_is_trusted() {
 #[test]
 fn a_test_binary_is_unsigned() {
     let exe = std::env::current_exe().unwrap();
-    assert_eq!(
-        verify_authenticode(exe.to_str().unwrap()).unwrap(),
-        Signature::Unsigned
-    );
+    assert_eq!(verify(exe.to_str().unwrap()).unwrap(), Signature::Unsigned);
 }
 
 #[test]
@@ -125,7 +134,7 @@ fn a_tampered_signed_file_is_untrusted() {
     bytes[middle] ^= 0xFF;
     std::fs::write(&copy, &bytes).unwrap();
     assert_eq!(
-        verify_authenticode(copy.to_str().unwrap()).unwrap(),
+        verify(copy.to_str().unwrap()).unwrap(),
         Signature::Untrusted
     );
 }
@@ -133,7 +142,7 @@ fn a_tampered_signed_file_is_untrusted() {
 #[test]
 fn verifying_a_missing_file_is_an_error() {
     assert_eq!(
-        verify_authenticode(r"C:\this\does\not\exist.dll"),
+        verify(r"C:\this\does\not\exist.dll"),
         Err(ShimError::NotFound)
     );
 }
@@ -171,19 +180,80 @@ fn a_uia_client_starts_and_stops_on_a_worker_thread() {
 #[ignore = "interactive desktop: docs/PROGRAM_FILL.md checklist"]
 fn uia_reads_the_focused_element() {
     let uia = Uia::new(2000, 2000).unwrap();
-    let element = uia.focused().unwrap().expect("something has focus");
+    let element = uia.focused(soon()).unwrap().expect("something has focus");
     let facts = element.facts();
     assert_ne!(facts.pid, 0);
     assert_ne!(facts.runtime_id.len(), 0);
-    assert!(uia.same(&element, &element).unwrap());
-    assert!(uia.is_within(&element, &element).unwrap());
+    assert!(uia.same(&element, &element, soon()).unwrap());
+    assert!(uia.is_within(&element, &element, soon()).unwrap());
     let [left, top, right, bottom] = facts.rect;
     if right > left && bottom > top {
         let center = uia
-            .element_from_point(i32::midpoint(left, right), i32::midpoint(top, bottom))
+            .element_from_point(
+                i32::midpoint(left, right),
+                i32::midpoint(top, bottom),
+                soon(),
+            )
             .unwrap();
         assert!(center.is_some());
     }
+}
+
+#[test]
+fn an_expired_deadline_stops_every_step() {
+    let past = Instant::now();
+    std::thread::sleep(Duration::from_millis(5));
+    let image = ImageFile::open(KERNEL32).unwrap();
+    assert_eq!(image.verify_authenticode(past), Err(ShimError::Timeout));
+    std::thread::spawn(move || {
+        let uia = Uia::new(2000, 2000).unwrap();
+        assert_eq!(uia.focused(past).unwrap_err(), ShimError::Timeout);
+        assert_eq!(
+            uia.element_from_point(0, 0, past).unwrap_err(),
+            ShimError::Timeout
+        );
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn an_open_image_cannot_be_renamed_or_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("held.exe");
+    std::fs::write(&path, b"MZ").unwrap();
+    let image = ImageFile::open(path.to_str().unwrap()).unwrap();
+    assert!(
+        std::fs::rename(&path, dir.path().join("moved.exe")).is_err(),
+        "rename must fail while the image is held"
+    );
+    assert!(std::fs::remove_file(&path).is_err());
+    assert!(!image.is_network().unwrap());
+    drop(image);
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn a_process_image_opens_once_and_matches_its_path() {
+    let me = ProcessHandle::open(std::process::id()).unwrap();
+    let image = me.open_image().unwrap();
+    let exe = final_path(std::env::current_exe().unwrap().to_str().unwrap()).unwrap();
+    assert!(image.final_path().eq_ignore_ascii_case(&exe));
+}
+
+#[test]
+fn network_paths_are_recognised() {
+    use crate::sys_process::{drive_root, is_unc_path};
+    assert!(is_unc_path(r"\\srv\share\a.exe"));
+    assert!(!is_unc_path(r"C:\a.exe"));
+    assert_eq!(drive_root(r"C:\dir\a.exe").as_deref(), Some(r"C:\"));
+    assert_eq!(drive_root(r"\\srv\share"), None);
+}
+
+#[test]
+fn the_element_cache_includes_the_read_only_property() {
+    use windows::Win32::UI::Accessibility::UIA_ValueIsReadOnlyPropertyId;
+    assert!(crate::sys_uia::CACHED_PROPERTIES.contains(&UIA_ValueIsReadOnlyPropertyId));
 }
 
 #[test]
@@ -237,4 +307,13 @@ fn clients_started_at_the_same_time_all_start() {
     for thread in threads {
         thread.join().unwrap().unwrap();
     }
+}
+
+#[test]
+#[ignore = "needs a file signed under a root only in the per-user store: docs/PROGRAM_FILL.md checklist"]
+fn a_signature_rooted_in_a_user_only_store_is_untrusted() {
+    // `MOSAIC_USER_ROOT_SIGNED` is a file whose signature `WinVerifyTrust`
+    // accepts only because its root is in `HKCU\...\SystemCertificates\Root`.
+    let path = std::env::var("MOSAIC_USER_ROOT_SIGNED").expect("set MOSAIC_USER_ROOT_SIGNED");
+    assert_eq!(verify(&path).unwrap(), Signature::Untrusted);
 }

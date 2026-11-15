@@ -9,8 +9,11 @@ binding). Threats: `docs/THREAT_MODEL.md` §4.10, R177, R178.
 What exists:
 
 - **Identity.** `winapp://` URLs and their matching (`crates/origin/src/program.rs`).
-  A program is its package family, or its trusted Authenticode signer plus exe
-  name, or (unsigned) its exact path plus file hash. Never a window title.
+  A program is its trusted Authenticode signer plus exe name (the signer id is
+  the leaf subject plus the root it chains to, and the root must be in the
+  machine's `Root` or `AuthRoot` store), or, without a trusted signature, its
+  package family, or (unsigned) its exact path plus file hash. Never a window
+  title.
 - **Capture.** The focused edit control, its process (the window owner, or the
   element's process for a packaged app behind `ApplicationFrameHost.exe`), its
   signature, and for an unsigned image a capped file hash
@@ -26,6 +29,18 @@ What exists:
 
 What waits for phase 2: the picker, the chip, the hotkey, typing, submit, the
 `programFill` setting and focus events. Phase 1 writes nothing into any program.
+
+## Open items for phase 2
+
+- **Renamed browsers.** Exclusion is by file name, so `chrome.exe` copied to
+  `x.exe` (still signed by Google) is `Ordinary` and could be linked. Phase 2
+  must exclude by signer plus product name (version resource) as well, and keep
+  the file-name lists.
+- **Worker recovery.** A dedicated MTA worker thread that is abandoned and
+  respawned when a UI Automation call blocks (ADR-0157 D5). Phase 1 only has the
+  deadlines. `WindowsProbe::new` must run on an MTA thread, not a UI (STA) thread.
+- **Saved signer name.** `link_again_needed` takes the signer's display name the
+  caller stored with the link (the URL holds only a hash); phase 2 stores it.
 
 ## Crates
 
@@ -86,6 +101,12 @@ with a text field focused).
       `ElementFacts::pid` differs from the window owner; the capture says
       `ForeignContent` for now, and `process_chain` of the element's process
       reaches the owner.
+- [ ] A file signed under a root that is only in the per-user store
+      (`HKCU\Software\Microsoft\SystemCertificates\Root`, added through the
+      registry store provider): `cargo test -p mosaic-winshim -- --ignored user_only`
+      with `MOSAIC_USER_ROOT_SIGNED` set to the file; the capture says
+      `InvalidSignature`. Remove the certificate afterwards.
+- [ ] A program started from a mapped network drive or a UNC path: `NetworkImage`.
 - [ ] Network off: an Authenticode-signed program still reports `Trusted` (the
       offline revocation case of ADR-0157 D4).
 - [ ] VS Code (one folder open) and a heavy web page: idle CPU and private

@@ -5,8 +5,10 @@
 //!
 //! - `winapp://package/<family>`: a packaged app, by package family name.
 //! - `winapp://signed/<exe>?signer=<b64url(sha256)>`: a program whose image has a
-//!   trusted Authenticode signature, by the SHA-256 of the signer's DER subject
-//!   and the folded exe name.
+//!   trusted Authenticode signature, by the signer id (SHA-256 of the leaf
+//!   certificate's DER subject followed by the SHA-256 of the DER of the root
+//!   certificate it chains to) and the folded exe name. The root is part of
+//!   the id so that a copied subject under another root is another signer.
 //! - `winapp://path/<b64url(path)>?sha256=<b64url(sha256)>`: an unsigned program,
 //!   by its final path and the SHA-256 of its image file.
 //!
@@ -72,7 +74,8 @@ pub enum ProgramUrl {
     Signed {
         /// The folded exe file name.
         exe: String,
-        /// SHA-256 of the DER subject of the leaf signing certificate.
+        /// The signer id: SHA-256 of the leaf certificate's DER subject followed by
+        /// the SHA-256 of the DER of the root certificate it chains to.
         signer: [u8; 32],
     },
     /// An unsigned program.
@@ -101,17 +104,14 @@ impl ProgramUrl {
     ///
     /// # Errors
     /// [`ProgramUrlError::BadExe`].
-    pub fn signed(
-        exe_name: &str,
-        signer_subject_sha256: [u8; 32],
-    ) -> Result<Self, ProgramUrlError> {
+    pub fn signed(exe_name: &str, signer_id: [u8; 32]) -> Result<Self, ProgramUrlError> {
         let exe = fold_name(exe_name);
         if !is_valid_exe(&exe) {
             return Err(ProgramUrlError::BadExe);
         }
         Ok(Self::Signed {
             exe,
-            signer: signer_subject_sha256,
+            signer: signer_id,
         })
     }
 
@@ -235,8 +235,9 @@ pub struct ProgramIdentity<'a> {
     pub package_family: Option<&'a str>,
     /// The exe file name, folded.
     pub exe_name: &'a str,
-    /// SHA-256 of the signer's DER subject; `Some` only for a trusted signature.
-    pub signer_subject_sha256: Option<[u8; 32]>,
+    /// The signer id (see [`ProgramUrl::Signed`]); `Some` only for a trusted
+    /// signature.
+    pub signer_id: Option<[u8; 32]>,
     /// The final path of the image.
     pub final_path: &'a str,
     /// SHA-256 of the image file; only for unsigned images.
@@ -414,10 +415,10 @@ pub fn program_fill_allowed(
     let matches = match &url {
         ProgramUrl::Package { family } => observed.package_family == Some(family.as_str()),
         ProgramUrl::Signed { exe, signer } => {
-            observed.signer_subject_sha256 == Some(*signer) && fold_name(observed.exe_name) == *exe
+            observed.signer_id == Some(*signer) && fold_name(observed.exe_name) == *exe
         }
         ProgramUrl::Path { path, sha256 } => {
-            observed.signer_subject_sha256.is_none()
+            observed.signer_id.is_none()
                 && observed.file_sha256 == Some(*sha256)
                 && paths_equal(observed.final_path, path)
         }
@@ -439,7 +440,7 @@ pub fn binding_change(saved: &LoginUrl, observed: &ProgramIdentity<'_>) -> Optio
     }
     match ProgramUrl::parse(saved.url.as_str()).ok()? {
         ProgramUrl::Signed { exe, signer } => (fold_name(observed.exe_name) == exe
-            && observed.signer_subject_sha256.is_some_and(|s| s != signer))
+            && observed.signer_id.is_some_and(|s| s != signer))
         .then_some(BindingChange::SignerChanged),
         ProgramUrl::Path { path, sha256 } => (paths_equal(observed.final_path, &path)
             && observed.file_sha256.is_some_and(|h| h != sha256))

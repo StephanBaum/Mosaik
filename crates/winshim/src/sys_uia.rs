@@ -6,6 +6,7 @@
 use core::ffi::c_void;
 use core::marker::PhantomData;
 use std::rc::Rc;
+use std::time::Instant;
 
 use windows::Win32::Foundation::{E_POINTER, POINT};
 use windows::Win32::System::Com::{
@@ -13,18 +14,21 @@ use windows::Win32::System::Com::{
     SAFEARRAY,
 };
 use windows::Win32::System::Ole::{
-    SafeArrayDestroy, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound,
+    SafeArrayDestroy, SafeArrayGetDim, SafeArrayGetElement, SafeArrayGetElemsize,
+    SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayGetVartype,
 };
+use windows::Win32::System::Variant::VT_I4;
 use windows::Win32::UI::Accessibility::{
     CUIAutomation8, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
     IUIAutomationTreeWalker, IUIAutomationValuePattern, UIA_BoundingRectanglePropertyId,
     UIA_ControlTypePropertyId, UIA_FrameworkIdPropertyId, UIA_IsEnabledPropertyId,
     UIA_IsKeyboardFocusablePropertyId, UIA_IsOffscreenPropertyId, UIA_IsPasswordPropertyId,
-    UIA_NativeWindowHandlePropertyId, UIA_ProcessIdPropertyId, UIA_ValuePatternId,
+    UIA_NativeWindowHandlePropertyId, UIA_ProcessIdPropertyId, UIA_ValueIsReadOnlyPropertyId,
+    UIA_ValuePatternId,
 };
 use windows::core::BSTR;
 
-use crate::error::{Result, ShimError};
+use crate::error::{Result, ShimError, check_deadline};
 
 /// Serialises client start-up (see [`Uia::new`]).
 static START: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -33,6 +37,24 @@ static START: std::sync::Mutex<()> = std::sync::Mutex::new(());
 const MAX_PARENT_STEPS: usize = 64;
 /// The longest runtime ID accepted (real ones have a handful of entries).
 const MAX_RUNTIME_ID: usize = 64;
+/// The longest provider string (the framework ID) copied, in UTF-16 units; a
+/// longer one is an error, not a truncation.
+const MAX_PROVIDER_STRING_UNITS: usize = 256;
+/// The properties every element read caches (one request, no later calls).
+pub(crate) const CACHED_PROPERTIES: [windows::Win32::UI::Accessibility::UIA_PROPERTY_ID; 10] = [
+    UIA_ControlTypePropertyId,
+    UIA_IsPasswordPropertyId,
+    UIA_IsEnabledPropertyId,
+    UIA_IsOffscreenPropertyId,
+    UIA_IsKeyboardFocusablePropertyId,
+    UIA_BoundingRectanglePropertyId,
+    UIA_ProcessIdPropertyId,
+    UIA_NativeWindowHandlePropertyId,
+    UIA_FrameworkIdPropertyId,
+    // `IUIAutomationValuePattern::CachedIsReadOnly` reads this property; the
+    // pattern request alone does not cache it.
+    UIA_ValueIsReadOnlyPropertyId,
+];
 
 /// What the shim reads of an element, in one cached request.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -147,17 +169,7 @@ impl Uia {
         unsafe { automation.SetTransactionTimeout(transaction_timeout_ms) }?;
         // SAFETY: as above; creates a cache request object.
         let cache = unsafe { automation.CreateCacheRequest() }?;
-        for property in [
-            UIA_ControlTypePropertyId,
-            UIA_IsPasswordPropertyId,
-            UIA_IsEnabledPropertyId,
-            UIA_IsOffscreenPropertyId,
-            UIA_IsKeyboardFocusablePropertyId,
-            UIA_BoundingRectanglePropertyId,
-            UIA_ProcessIdPropertyId,
-            UIA_NativeWindowHandlePropertyId,
-            UIA_FrameworkIdPropertyId,
-        ] {
+        for property in CACHED_PROPERTIES {
             // SAFETY: `cache` is a live cache request; the ID is a UIA constant.
             unsafe { cache.AddProperty(property) }?;
         }
@@ -176,8 +188,10 @@ impl Uia {
     /// The element with keyboard focus, `None` if there is none.
     ///
     /// # Errors
-    /// [`ShimError::Timeout`] if the provider does not answer, or an OS error.
-    pub fn focused(&self) -> Result<Option<UiaElement>> {
+    /// [`ShimError::Timeout`] if the provider does not answer or `deadline`
+    /// has passed, or an OS error.
+    pub fn focused(&self, deadline: Instant) -> Result<Option<UiaElement>> {
+        check_deadline(deadline)?;
         // SAFETY: `automation` and `cache` are live; the call reads focus.
         let found = unsafe { self.automation.GetFocusedElementBuildCache(&self.cache) };
         self.wrap(found)
@@ -186,8 +200,15 @@ impl Uia {
     /// The element at the screen point, `None` if there is none.
     ///
     /// # Errors
-    /// [`ShimError::Timeout`] if the provider does not answer, or an OS error.
-    pub fn element_from_point(&self, x: i32, y: i32) -> Result<Option<UiaElement>> {
+    /// [`ShimError::Timeout`] if the provider does not answer or `deadline`
+    /// has passed, or an OS error.
+    pub fn element_from_point(
+        &self,
+        x: i32,
+        y: i32,
+        deadline: Instant,
+    ) -> Result<Option<UiaElement>> {
+        check_deadline(deadline)?;
         // SAFETY: `automation` and `cache` are live; the point is plain data.
         let found = unsafe {
             self.automation
@@ -199,8 +220,9 @@ impl Uia {
     /// Whether two elements are the same UI element (`CompareElements`).
     ///
     /// # Errors
-    /// An OS error.
-    pub fn same(&self, a: &UiaElement, b: &UiaElement) -> Result<bool> {
+    /// [`ShimError::Timeout`] past `deadline`, or an OS error.
+    pub fn same(&self, a: &UiaElement, b: &UiaElement, deadline: Instant) -> Result<bool> {
+        check_deadline(deadline)?;
         // SAFETY: `automation` is live; both arguments are live elements.
         let same = unsafe { self.automation.CompareElements(&a.element, &b.element) }?;
         Ok(same.as_bool())
@@ -210,10 +232,17 @@ impl Uia {
     /// [`MAX_PARENT_STEPS`] parents up.
     ///
     /// # Errors
-    /// An OS error.
-    pub fn is_within(&self, e: &UiaElement, ancestor: &UiaElement) -> Result<bool> {
+    /// [`ShimError::Timeout`] past `deadline` (checked before every step), or
+    /// an OS error.
+    pub fn is_within(
+        &self,
+        e: &UiaElement,
+        ancestor: &UiaElement,
+        deadline: Instant,
+    ) -> Result<bool> {
         let mut current = e.element.clone();
         for _ in 0..=MAX_PARENT_STEPS {
+            check_deadline(deadline)?;
             // SAFETY: `automation` is live; both arguments are live elements.
             let same = unsafe { self.automation.CompareElements(&current, &ancestor.element) }?;
             if same.as_bool() {
@@ -231,10 +260,12 @@ impl Uia {
     /// one, looking at most [`MAX_PARENT_STEPS`] parents up.
     ///
     /// # Errors
-    /// [`ShimError::NotFound`] if none has a window; an OS error.
-    pub fn nearest_window(&self, e: &UiaElement) -> Result<isize> {
+    /// [`ShimError::NotFound`] if none has a window, [`ShimError::Timeout`]
+    /// past `deadline` (checked before every step); an OS error.
+    pub fn nearest_window(&self, e: &UiaElement, deadline: Instant) -> Result<isize> {
         let mut current = e.element.clone();
         for _ in 0..=MAX_PARENT_STEPS {
+            check_deadline(deadline)?;
             // SAFETY: `current` is a live element read with a cache request
             // that includes the native window handle.
             let hwnd = unsafe { current.CachedNativeWindowHandle() }?;
@@ -308,6 +339,9 @@ fn read_facts(e: &IUIAutomationElement) -> Result<ElementFacts> {
     let hwnd = unsafe { e.CachedNativeWindowHandle() }?;
     // SAFETY: see above.
     let framework: BSTR = unsafe { e.CachedFrameworkId() }?;
+    if framework.len() > MAX_PROVIDER_STRING_UNITS {
+        return Err(ShimError::Os(0));
+    }
     let framework_id = String::from_utf16(&framework).map_err(|_| ShimError::Os(0))?;
     // SAFETY: `e` is live; the pattern was requested in the cache request. An
     // element without the pattern gives an error, which means "no pattern".
@@ -354,7 +388,19 @@ fn runtime_id(e: &IUIAutomationElement) -> Result<Vec<i32>> {
     if array.0.is_null() {
         return Err(ShimError::NotFound);
     }
-    // SAFETY: `array.0` is a valid one-dimensional SAFEARRAY; dimension 1.
+    // SAFETY: `array.0` is a valid, non-null SAFEARRAY; the call reads its
+    // descriptor.
+    let dims = unsafe { SafeArrayGetDim(array.0) };
+    // SAFETY: as above.
+    let vartype = unsafe { SafeArrayGetVartype(array.0) }?;
+    // SAFETY: as above.
+    let element_size = unsafe { SafeArrayGetElemsize(array.0) };
+    // A provider could return any array: only a one-dimensional array of
+    // 32-bit integers is read into `i32`.
+    if dims != 1 || vartype != VT_I4 || element_size != 4 {
+        return Err(ShimError::Os(0));
+    }
+    // SAFETY: `array.0` is a one-dimensional SAFEARRAY (checked above); dimension 1.
     let lower = unsafe { SafeArrayGetLBound(array.0, 1) }?;
     // SAFETY: as above.
     let upper = unsafe { SafeArrayGetUBound(array.0, 1) }?;
@@ -366,8 +412,8 @@ fn runtime_id(e: &IUIAutomationElement) -> Result<Vec<i32>> {
     let mut ids = Vec::with_capacity(count);
     for index in lower..=upper {
         let mut value = 0i32;
-        // SAFETY: `array.0` is a valid SAFEARRAY of `i32` (runtime IDs are
-        // integers); `index` is within its bounds; `value` is a writable
+        // SAFETY: `array.0` is a valid SAFEARRAY of `i32` (checked above: one
+        // dimension, `VT_I4`, element size 4); `index` is within its bounds; `value` is a writable
         // `i32`, the element size.
         unsafe {
             SafeArrayGetElement(array.0, &raw const index, (&raw mut value).cast::<c_void>())

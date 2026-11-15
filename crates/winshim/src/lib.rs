@@ -22,9 +22,9 @@ mod sys_window;
 
 pub use error::{Result, ShimError};
 pub use sys_process::{
-    ProcessHandle, current_integrity_rid, final_path, parent_pid, process_chain,
+    ImageFile, ProcessHandle, current_integrity_rid, final_path, parent_pid, process_chain,
 };
-pub use sys_trust::{Signature, verify_authenticode};
+pub use sys_trust::Signature;
 pub use sys_uia::{ElementFacts, Uia, UiaElement};
 pub use sys_window::{WindowFacts, foreground_window, window_facts};
 

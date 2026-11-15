@@ -355,7 +355,7 @@ mod tests {
             final_path: r"C:\Apps\Tool\tool.exe".to_owned(),
             exe_name: "tool.exe".to_owned(),
             package_family: None,
-            signer_subject_sha256: Some([1; 32]),
+            signer_id: Some([1; 32]),
             signer_display: None,
             file_sha256: None,
             class: ProgramClass::Ordinary,

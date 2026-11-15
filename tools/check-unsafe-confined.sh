@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
 # Keeps `unsafe` confined to crates/winshim (ADR-0157 D2).
-#   1. Every other workspace member inherits the workspace lints (unsafe_code = "forbid").
+#   1. Every other manifest, nested ones included, forbids unsafe_code (workspace lints or its own).
 #   2. No `expect(unsafe_code` / `allow(unsafe_code` outside the winshim `sys_*` modules.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 fail=0
 
-for manifest in crates/*/Cargo.toml apps/desktop/src-tauri/Cargo.toml; do
+# Every tracked package manifest, nested ones (crates/*/fuzz, own workspaces)
+# included (vendored third-party crates excluded): it inherits the workspace lints, or sets unsafe_code = "forbid" itself.
+while IFS= read -r manifest; do
   [ "$manifest" = "crates/winshim/Cargo.toml" ] && continue
-  if ! awk '/^\[lints\]/{in_lints=1; next} /^\[/{in_lints=0} in_lints && /^workspace[[:space:]]*=[[:space:]]*true/{found=1} END{exit !found}' "$manifest"; then
-    echo "missing [lints] workspace = true (forbid unsafe_code): $manifest"
-    fail=1
+  grep -q '^\[package\]' "$manifest" || continue
+  if awk '/^\[lints\]/{in_lints=1; next} /^\[/{in_lints=0} in_lints && /^workspace[[:space:]]*=[[:space:]]*true/{found=1} END{exit !found}' "$manifest"; then
+    continue
   fi
-done
+  if awk '/^\[lints\.rust\]/{in_lints=1; next} /^\[/{in_lints=0} in_lints && /^unsafe_code[[:space:]]*=[[:space:]]*"forbid"/{found=1} END{exit !found}' "$manifest"; then
+    continue
+  fi
+  echo "missing [lints] workspace = true or unsafe_code = \"forbid\": $manifest"
+  fail=1
+done < <(git ls-files -- 'Cargo.toml' '*/Cargo.toml' ':!vendor')
 
 # Overrides of the lint anywhere but the shim's sys_* modules. This script and
 # the docs are not code.

@@ -4,17 +4,17 @@
 
 mod uia;
 
-use std::path::Path;
+use std::time::{Duration, Instant};
 
 use mosaic_winshim::{
-    ProcessHandle, Signature, Uia, UiaElement, current_integrity_rid, final_path,
-    foreground_window, verify_authenticode, window_facts,
+    ImageFile, ProcessHandle, ShimError, Signature, Uia, UiaElement, current_integrity_rid,
+    final_path, foreground_window, window_facts,
 };
 
 use crate::identity::{
     CaptureRefusal, CapturedIdentity, HashError, IdentitySource, MAX_UNSIGNED_IMAGE_BYTES,
     OwnProcess, RawProcess, SignatureState, SignerDisplay, assemble_identity,
-    choose_identity_process, hash_image_capped,
+    choose_identity_process, hash_file_capped,
 };
 use crate::verify::{
     PickSession, ProbeError, ProgramProbe, Rect, Snapshot, WindowFacts, probe_points,
@@ -24,6 +24,16 @@ use uia::{clear_at, focused_field, probe_error, same};
 /// Connection and transaction timeout of the UI Automation client
 /// (ADR-0157 D5).
 const UIA_TIMEOUT_MS: u32 = 2000;
+
+/// The time one snapshot may take in all: one deadline for every UI Automation
+/// call and parent walk of it. A single call can still run to its own
+/// [`UIA_TIMEOUT_MS`] past the deadline before it returns, so a snapshot ends
+/// within the budget plus one call timeout (ADR-0157 D5).
+const SNAPSHOT_BUDGET: Duration = Duration::from_secs(2);
+
+/// The time one capture may take in all: the UI Automation reads, the
+/// signature check and the hash of an unsigned image (up to 512 MiB).
+const CAPTURE_BUDGET: Duration = Duration::from_secs(10);
 
 /// What a pick session keeps: the identity process's open handle, so its ID
 /// cannot be reused while the session lives, and the picked element for
@@ -66,6 +76,9 @@ pub struct WindowsProbe {
 
 impl WindowsProbe {
     /// Starts the UI Automation client and reads Mosaic's own integrity level.
+    /// Call it on a thread in the COM multithreaded apartment (a plain worker
+    /// thread; the client initialises the apartment itself): on a
+    /// single-threaded apartment thread, such as a UI thread, it fails.
     ///
     /// # Errors
     /// [`ProbeError`] if the client cannot start.
@@ -87,11 +100,13 @@ impl WindowsProbe {
     /// # Errors
     /// [`CaptureError`].
     pub fn capture_focused(&self, picked_at_ms: u64) -> Result<Captured, CaptureError> {
-        let (element, field, window) = focused_field(&self.uia)?.ok_or(CaptureError::NotAField)?;
+        let deadline = Instant::now() + CAPTURE_BUDGET;
+        let (element, field, window) =
+            focused_field(&self.uia, deadline)?.ok_or(CaptureError::NotAField)?;
         let window = window_facts(window).map_err(probe_error)?;
         let element_process = ProcessHandle::open(field.pid).map_err(probe_error)?;
         let owner_process = ProcessHandle::open(window.owner_pid).map_err(probe_error)?;
-        let (identity, held) = identify(self.own, element_process, owner_process)?;
+        let (identity, held) = identify(self.own, element_process, owner_process, deadline)?;
         let session = PickSession::new(
             WinHeld {
                 process: held,
@@ -114,9 +129,10 @@ impl ProgramProbe for WindowsProbe {
 
     fn snapshot(&self, session: &PickSession<WinHeld>) -> Result<Snapshot, ProbeError> {
         // Nothing is cached between snapshots: every fact is read now.
-        let focus = focused_field(&self.uia)?;
+        let deadline = Instant::now() + SNAPSHOT_BUDGET;
+        let focus = focused_field(&self.uia, deadline)?;
         let focused_is_target = match &focus {
-            Some((element, _, _)) => same(&self.uia, element, &session.held.element)?,
+            Some((element, _, _)) => same(&self.uia, element, &session.held.element, deadline)?,
             None => false,
         };
         let focused = focus.map(|(_, facts, _)| facts);
@@ -147,7 +163,11 @@ impl ProgramProbe for WindowsProbe {
         // The occlusion probes only matter (and only cost UIA calls) when the
         // target has focus; otherwise the check fails earlier anyway.
         let occlusion_clear = if focused_is_target {
-            self.occlusion(focused.as_ref().map(|f| f.rect), &session.held.element)?
+            self.occlusion(
+                focused.as_ref().map(|f| f.rect),
+                &session.held.element,
+                deadline,
+            )?
         } else {
             [false; 5]
         };
@@ -165,35 +185,46 @@ impl ProgramProbe for WindowsProbe {
 impl WindowsProbe {
     /// For each of the five probe points of `rect`: whether the element there
     /// is the target or inside it. All `false` for a rectangle with no points.
-    fn occlusion(&self, rect: Option<Rect>, target: &UiaElement) -> Result<[bool; 5], ProbeError> {
+    fn occlusion(
+        &self,
+        rect: Option<Rect>,
+        target: &UiaElement,
+        deadline: Instant,
+    ) -> Result<[bool; 5], ProbeError> {
         let Some(points) = rect.and_then(probe_points) else {
             return Ok([false; 5]);
         };
         let mut clear = [false; 5];
         for (slot, point) in clear.iter_mut().zip(points) {
-            *slot = clear_at(&self.uia, target, point)?;
+            *slot = clear_at(&self.uia, target, point, deadline)?;
         }
         Ok(clear)
     }
 }
 
 /// The identity of the program behind a focused element: chooses the process
-/// (window owner or element process), verifies its signature, hashes an
-/// unsigned image (within the cap) and assembles the identity. Returns the
-/// chosen process's handle for the session to keep.
+/// (window owner or element process), opens its image once, verifies the
+/// signature and hashes an unsigned image (within the cap) through that one
+/// handle, and assembles the identity. Returns the chosen process's handle
+/// for the session to keep. An image on a network path is refused.
 fn identify(
     own: OwnProcess,
     element: ProcessHandle,
     owner: ProcessHandle,
+    deadline: Instant,
 ) -> Result<(CapturedIdentity, ProcessHandle), CaptureError> {
     let raw_element = raw_process(&element)?;
     let raw_owner = raw_process(&owner)?;
-    let (chosen, raw) = match choose_identity_process(&raw_element, &raw_owner)? {
+    let (chosen, mut raw) = match choose_identity_process(&raw_element, &raw_owner)? {
         IdentitySource::WindowOwner => (owner, raw_owner),
         IdentitySource::ElementProcess => (element, raw_element),
     };
-    let signature = signature_state(&raw.final_path)?;
-    let file_sha256 = match (&signature, hash_unsigned(&raw.final_path)) {
+    let image = chosen.open_image().map_err(image_error)?;
+    // The open file is the process image (checked by `open_image`); its final
+    // path is the identity's path.
+    image.final_path().clone_into(&mut raw.final_path);
+    let signature = signature_state(&image, deadline)?;
+    let file_sha256 = match (&signature, hash_unsigned(&image, deadline)) {
         (SignatureState::Unsigned, hashed) => hashed?,
         _ => None,
     };
@@ -215,16 +246,27 @@ fn raw_process(handle: &ProcessHandle) -> Result<RawProcess, ProbeError> {
     })
 }
 
-/// The Authenticode state of an image, as the model's.
-fn signature_state(final_path: &str) -> Result<SignatureState, ProbeError> {
+/// A failure to open the image: a network path is a refusal, anything else a
+/// probe failure.
+fn image_error(err: ShimError) -> CaptureError {
+    match err {
+        ShimError::NetworkImage => CaptureError::Refused(CaptureRefusal::NetworkImage),
+        other => CaptureError::Probe(probe_error(other)),
+    }
+}
+
+/// The Authenticode state of the open image, as the model's.
+fn signature_state(image: &ImageFile, deadline: Instant) -> Result<SignatureState, ProbeError> {
     Ok(
-        match verify_authenticode(final_path).map_err(probe_error)? {
+        match image.verify_authenticode(deadline).map_err(probe_error)? {
             Signature::Trusted {
                 subject_der,
+                root_der,
                 common_name,
                 organization,
             } => SignatureState::Trusted {
                 subject_der,
+                root_der,
                 display: SignerDisplay {
                     common_name,
                     organization,
@@ -237,12 +279,14 @@ fn signature_state(final_path: &str) -> Result<SignatureState, ProbeError> {
     )
 }
 
-/// The hash of an unsigned image, `None` when it is over the cap.
-fn hash_unsigned(final_path: &str) -> Result<Option<[u8; 32]>, ProbeError> {
-    match hash_image_capped(Path::new(final_path), MAX_UNSIGNED_IMAGE_BYTES) {
+/// The hash of an unsigned image read through its open handle, `None` when it
+/// is over the cap.
+fn hash_unsigned(image: &ImageFile, deadline: Instant) -> Result<Option<[u8; 32]>, ProbeError> {
+    match hash_file_capped(image.file(), MAX_UNSIGNED_IMAGE_BYTES, deadline) {
         Ok(hash) => Ok(Some(hash)),
         Err(HashError::TooLarge) => Ok(None),
-        Err(_) => Err(ProbeError::Os),
+        Err(HashError::Timeout) => Err(ProbeError::Timeout),
+        Err(HashError::Io) => Err(ProbeError::Os),
     }
 }
 
@@ -261,6 +305,10 @@ mod tests {
             let _ = self.0.kill();
             let _ = self.0.wait();
         }
+    }
+
+    fn soon() -> Instant {
+        Instant::now() + Duration::from_secs(30)
     }
 
     fn own() -> OwnProcess {
@@ -302,6 +350,7 @@ mod tests {
             own(),
             ProcessHandle::open(me).unwrap(),
             ProcessHandle::open(me).unwrap(),
+            soon(),
         );
         assert!(matches!(
             result,
@@ -324,12 +373,13 @@ mod tests {
             own(),
             ProcessHandle::open(pid).unwrap(),
             ProcessHandle::open(pid).unwrap(),
+            soon(),
         )
         .unwrap();
         assert_eq!(held.pid(), pid);
         assert_eq!(identity.pid, pid);
         assert_eq!(identity.exe_name, "ping.exe");
-        assert!(identity.signer_subject_sha256.is_some());
+        assert!(identity.signer_id.is_some());
         assert_eq!(identity.file_sha256, None);
         assert!(
             identity
@@ -345,6 +395,44 @@ mod tests {
                 .canonical()
                 .starts_with("winapp://signed/ping.exe")
         );
+    }
+
+    #[test]
+    fn an_image_on_a_network_path_is_refused_not_a_probe_failure() {
+        assert!(matches!(
+            image_error(ShimError::NetworkImage),
+            CaptureError::Refused(CaptureRefusal::NetworkImage)
+        ));
+        assert!(matches!(
+            image_error(ShimError::ImageChanged),
+            CaptureError::Probe(ProbeError::Os)
+        ));
+        assert!(matches!(
+            image_error(ShimError::Timeout),
+            CaptureError::Probe(ProbeError::Timeout)
+        ));
+    }
+
+    #[test]
+    fn an_unsigned_image_is_hashed_through_its_open_handle() {
+        // This test binary is unsigned: the capture path hashes it. Mosaic's
+        // own pid is made to differ so the test process can be the target.
+        let me = std::process::id();
+        let other_own = OwnProcess {
+            pid: me.wrapping_add(1),
+            integrity_rid: current_integrity_rid().unwrap(),
+        };
+        let (identity, _) = identify(
+            other_own,
+            ProcessHandle::open(me).unwrap(),
+            ProcessHandle::open(me).unwrap(),
+            soon(),
+        )
+        .unwrap();
+        let bytes = std::fs::read(&identity.final_path).unwrap();
+        let expected: [u8; 32] = <sha2::Sha256 as sha2::Digest>::digest(&bytes).into();
+        assert_eq!(identity.file_sha256, Some(expected));
+        assert_eq!(identity.signer_id, None);
     }
 
     #[test]

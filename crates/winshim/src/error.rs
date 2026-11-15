@@ -17,6 +17,14 @@ pub enum ShimError {
     /// answer (such as invalid UTF-16).
     #[error("os error {0:#x}")]
     Os(i32),
+    /// The program image is on a network path (UNC or a mapped network
+    /// drive): a remote file can change under the handle, so it is not bound.
+    #[error("image on a network path")]
+    NetworkImage,
+    /// The process image path changed while the image was being opened, so the
+    /// open file is not known to be the running one.
+    #[error("image path changed")]
+    ImageChanged,
 }
 
 /// The shim's result type.
@@ -55,6 +63,16 @@ impl ShimError {
 impl From<windows::core::Error> for ShimError {
     fn from(err: windows::core::Error) -> Self {
         Self::from_hresult(err.code().0)
+    }
+}
+
+/// `Err(Timeout)` once `deadline` has passed. Every long walk of the shim checks
+/// this between calls; a single OS call is bounded by its own timeout.
+pub(crate) fn check_deadline(deadline: std::time::Instant) -> Result<()> {
+    if std::time::Instant::now() >= deadline {
+        Err(ShimError::Timeout)
+    } else {
+        Ok(())
     }
 }
 

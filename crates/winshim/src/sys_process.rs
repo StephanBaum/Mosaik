@@ -3,6 +3,9 @@
 #![expect(unsafe_code, reason = "Win32 calls, ADR-0157")]
 
 use core::ffi::c_void;
+use std::fs::File;
+use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::io::AsRawHandle;
 
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_INSUFFICIENT_BUFFER, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT,
@@ -14,7 +17,7 @@ use windows::Win32::Security::{
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GETFINALPATHNAMEBYHANDLE_FLAGS,
-    GetFinalPathNameByHandleW, OPEN_EXISTING, VOLUME_NAME_DOS,
+    GetDriveTypeW, GetFinalPathNameByHandleW, OPEN_EXISTING, VOLUME_NAME_DOS,
 };
 use windows::Win32::Storage::Packaging::Appx::GetPackageFamilyName;
 use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -33,6 +36,8 @@ use crate::error::{Result, ShimError, utf16, wide_nul};
 const SHORT_BUFFER: usize = 1024;
 /// The longest path Windows allows, in UTF-16 units.
 const LONG_BUFFER: usize = 32_768;
+/// `GetDriveTypeW` result for a network drive (`DRIVE_REMOTE`).
+const DRIVE_REMOTE: u32 = 4;
 /// `APPMODEL_ERROR_NO_PACKAGE`.
 const NO_PACKAGE: u32 = 15_700;
 /// `ERROR_INSUFFICIENT_BUFFER` as a [`ShimError::Os`] code.
@@ -278,22 +283,131 @@ pub fn final_path(path: &str) -> Result<String> {
         )
     }?;
     let file = OwnedHandle(file);
+    final_path_of_handle(file.0)
+}
+
+/// The final path of the file a handle refers to.
+fn final_path_of_handle(file: HANDLE) -> Result<String> {
     let mut buffer = vec![0u16; SHORT_BUFFER];
-    let mut len = final_path_call(&file, &mut buffer)?;
+    let mut len = final_path_call(file, &mut buffer)?;
     if len > buffer.len() {
         buffer = vec![0u16; len];
-        len = final_path_call(&file, &mut buffer)?;
+        len = final_path_call(file, &mut buffer)?;
     }
     let text = utf16(buffer.get(..len).ok_or(ShimError::Os(0))?)?;
     Ok(strip_device_prefix(&text))
 }
 
-fn final_path_call(file: &OwnedHandle, buffer: &mut [u16]) -> Result<usize> {
-    // SAFETY: the file handle is valid; `buffer` is a writable slice that
-    // outlives the call, and the API receives its length.
+/// A program image held open, once, for every check of it (signature, hash):
+/// opened for reading with sharing for reads only, so while it is held the file
+/// cannot be renamed, deleted or written, and what is verified is what is
+/// hashed. Closed on drop.
+#[derive(Debug)]
+pub struct ImageFile {
+    file: File,
+    final_path: String,
+}
+
+impl ImageFile {
+    /// Opens the file at `path` and reads its final path through the handle.
+    ///
+    /// # Errors
+    /// [`ShimError::NotFound`] if it cannot be opened, or an OS error (a file
+    /// that is open for writing elsewhere cannot be opened without sharing).
+    pub fn open(path: &str) -> Result<Self> {
+        if path.contains('\0') {
+            return Err(ShimError::NotFound);
+        }
+        let file = File::options()
+            .read(true)
+            .share_mode(FILE_SHARE_READ.0)
+            .open(path)
+            .map_err(|err| match err.raw_os_error() {
+                Some(code) => ShimError::from_win32(code.cast_unsigned()),
+                None => ShimError::NotFound,
+            })?;
+        let final_path = final_path_of_handle(HANDLE(file.as_raw_handle()))?;
+        Ok(Self { file, final_path })
+    }
+
+    /// The final path of the open file (no `\\?\` prefix).
+    #[must_use]
+    pub fn final_path(&self) -> &str {
+        &self.final_path
+    }
+
+    /// The open file, for reading (seek to the start before hashing: the
+    /// position is shared with the signature check).
+    #[must_use]
+    pub fn file(&self) -> &File {
+        &self.file
+    }
+
+    /// Whether the file is on a network path: a UNC path, or a drive the OS
+    /// reports as remote.
+    ///
+    /// # Errors
+    /// [`ShimError::Os`] with `0` for a path without a drive.
+    pub fn is_network(&self) -> Result<bool> {
+        if is_unc_path(&self.final_path) {
+            return Ok(true);
+        }
+        let root = drive_root(&self.final_path).ok_or(ShimError::Os(0))?;
+        let wide = wide_nul(&root)?;
+        // SAFETY: `wide` is a NUL-terminated UTF-16 root path that outlives the
+        // call.
+        let kind = unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) };
+        Ok(kind == DRIVE_REMOTE)
+    }
+
+    /// Whether the image is the file the process runs: its path is read again
+    /// from the process now and must resolve to this handle's final path.
+    fn is_image_of(&self, process: &ProcessHandle) -> Result<bool> {
+        let again = final_path(&process.image_path()?)?;
+        Ok(again.eq_ignore_ascii_case(&self.final_path))
+    }
+}
+
+/// `\\server\share\...`, the form [`final_path`] gives for a network path.
+pub(crate) fn is_unc_path(path: &str) -> bool {
+    path.starts_with(r"\\")
+}
+
+/// `C:\` for `C:\dir\x.exe`.
+pub(crate) fn drive_root(path: &str) -> Option<String> {
+    let mut chars = path.chars();
+    let letter = chars.next().filter(char::is_ascii_alphabetic)?;
+    (chars.next() == Some(':') && chars.next() == Some('\\')).then(|| format!(r"{letter}:\"))
+}
+
+impl ProcessHandle {
+    /// Opens the image the process runs, once, for the signature and hash
+    /// checks. The process's image path is read again after the open and must
+    /// resolve to the open file, so a path swapped in between is not accepted.
+    ///
+    /// # Errors
+    /// [`ShimError::NetworkImage`] for an image on a network path,
+    /// [`ShimError::ImageChanged`] if the path no longer resolves to the open
+    /// file, or an OS error.
+    pub fn open_image(&self) -> Result<ImageFile> {
+        let image = ImageFile::open(&self.image_path()?)?;
+        if image.is_network()? {
+            return Err(ShimError::NetworkImage);
+        }
+        if !image.is_image_of(self)? {
+            return Err(ShimError::ImageChanged);
+        }
+        Ok(image)
+    }
+}
+
+fn final_path_call(file: HANDLE, buffer: &mut [u16]) -> Result<usize> {
+    // SAFETY: the file handle is valid (the caller holds the file open for the
+    // call); `buffer` is a writable slice that outlives the call, and the API
+    // receives its length.
     let len = unsafe {
         GetFinalPathNameByHandleW(
-            file.0,
+            file,
             buffer,
             GETFINALPATHNAMEBYHANDLE_FLAGS(FILE_NAME_NORMALIZED.0 | VOLUME_NAME_DOS.0),
         )
