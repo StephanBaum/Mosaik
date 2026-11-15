@@ -79,6 +79,7 @@ fn parse_file(
         mosaic_import::Error::WrongCredentials => CliError::wrong_credentials(),
         _ => import_failed(),
     };
+    let mut preread: Option<Zeroizing<Vec<u8>>> = None;
     let chosen = match format {
         "mosaicx" => {
             let pass = secret_string(app.prompt.secret(Msg::PromptImportPassphrase, &[])?);
@@ -93,8 +94,20 @@ fn parse_file(
         "keepass" => Format::Keepass,
         "1password" => Format::OnePassword,
         "cxf" => Format::Cxf,
+        "dashlane" => Format::Dashlane,
+        "keeper" => Format::Keeper,
+        "keeper-csv" => Format::KeeperCsv,
+        "protonpass" => Format::ProtonPass,
+        "auto" => {
+            // The content decides; a file nothing recognises is a failed import.
+            let bytes = read_file(path)?;
+            let found = mosaic_import::detect(&bytes).ok_or_else(import_failed)?;
+            preread = Some(bytes);
+            found.format
+        }
         _ => Format::Csv,
     };
+    // A KDBX needs its password; `auto` on a `.kdbx` asks the same way.
     let password = if chosen == Format::Keepass {
         if !p.has("file-password-prompt") {
             return Err(
@@ -107,7 +120,10 @@ fn parse_file(
     } else {
         None
     };
-    let bytes = read_file(path)?;
+    let bytes = match preread {
+        Some(bytes) => bytes,
+        None => read_file(path)?,
+    };
     mosaic_import::parse(chosen, &bytes, password.as_ref()).map_err(map)
 }
 
