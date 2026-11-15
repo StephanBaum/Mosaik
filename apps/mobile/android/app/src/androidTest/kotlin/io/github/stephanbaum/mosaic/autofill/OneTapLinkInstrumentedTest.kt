@@ -8,7 +8,6 @@ import io.github.stephanbaum.mosaic.DeviceLock
 import io.github.stephanbaum.mosaic.MosaicApp
 import io.github.stephanbaum.mosaic.ffi.MosaicTestHooks
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
-import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -73,12 +72,26 @@ class OneTapLinkInstrumentedTest {
         runCatching { runBlocking { app.holder.call { kit.resetAccount(it) } } }
     }
 
-    /** The cert-bound URL of the client app: the SHA-256 of its current signer, base64url, behind `?cert=`. */
+    /**
+     * The cert-bound URL of the client app: the SHA-256 of its current signer, base64url, behind `?cert=`.
+     * [CallerReader.signersOf] already gives the SHA-256 digests ([Signers.of]), so they are not hashed again.
+     */
     private fun boundUrl(): String {
-        val signer = checkNotNull(CallerReader.signersOf(context, clientPackage)).single()
-        val digest = MessageDigest.getInstance("SHA-256").digest(signer)
+        val digest = checkNotNull(CallerReader.signersOf(context, clientPackage)).single()
         val cert = Base64.encodeToString(digest, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
         return "androidapp://$clientPackage?cert=$cert"
+    }
+
+    /**
+     * Cancel ends the flow and closes Mosaic's last screen, so the release lock policy locks the session (background
+     * delay 0, ADR-0094) and the next request would get "Unlock Mosaic". The test waits for that background, marks
+     * the app as foreground (as in [setUp]) and unlocks again with the stored Secret Key, the way the unlock screen
+     * would.
+     */
+    private fun unlockAfterTheFlowClosed() {
+        kit.waitFor(10_000) { true.takeIf { !app.foreground.value } }
+        AppForeground.hold(app)
+        runBlocking { app.holder.call { it.unlockPassword(password.toByteArray(), null) } }
     }
 
     /** True when the login of the test holds the cert-bound URL of the client app. */
@@ -127,6 +140,7 @@ class OneTapLinkInstrumentedTest {
         assertNotNull(kit.findText(L10n.linkImportedNotVerified(res)))
         assertFalse("linked before the confirm", boundUrlPresent())
         kit.tap(checkNotNull(kit.findText(L10n.commonCancel(res))))
+        unlockAfterTheFlowClosed()
         assertFalse("linked after Cancel", boundUrlPresent())
         // Again, and confirm this time.
         kit.showClientAndFocusUsername()
@@ -146,10 +160,9 @@ class OneTapLinkInstrumentedTest {
         // The install source is checked again at the tap: now it is untrusted.
         LinkFlow.trustAnyInstallerForTests(context, false)
         kit.tap(entry)
-        assertNull(
-            "the confirmation opened for an untrusted installer; the screen shows: ${kit.screenTexts()}",
-            kit.waitFor(8_000) { kit.findText(L10n.linkConfirm(res, "GitHub")) },
-        )
+        // The probe runs first: a message argument would read the screen before the tap took effect.
+        val confirm = kit.waitFor(8_000) { kit.findText(L10n.linkConfirm(res, "GitHub")) }
+        assertNull("the confirmation opened for an untrusted installer; the screen shows: ${kit.screenTexts()}", confirm)
         assertFalse("linked for an untrusted installer", boundUrlPresent())
     }
 
@@ -167,10 +180,8 @@ class OneTapLinkInstrumentedTest {
             }
         }
         kit.tap(entry)
-        assertNull(
-            "the confirmation opened for an app that matches now; the screen shows: ${kit.screenTexts()}",
-            kit.waitFor(8_000) { kit.findText(L10n.linkConfirm(res, "GitHub")) },
-        )
+        val confirm = kit.waitFor(8_000) { kit.findText(L10n.linkConfirm(res, "GitHub")) }
+        assertNull("the confirmation opened for an app that matches now; the screen shows: ${kit.screenTexts()}", confirm)
         assertFalse("linked although the app matches a login", boundUrlPresent())
     }
 }
