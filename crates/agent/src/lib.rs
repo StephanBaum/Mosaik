@@ -17,12 +17,16 @@
 #![forbid(unsafe_code)]
 
 pub mod binding;
+pub mod engine;
 pub mod error;
+pub mod grants;
 #[cfg(feature = "http")]
 pub mod http;
+pub mod log;
 pub mod mask;
 pub mod request;
 pub mod response;
+pub mod source;
 #[cfg(feature = "test-util")]
 pub mod testing;
 
@@ -33,6 +37,9 @@ compile_error!(
 
 #[cfg(test)]
 mod binding_tests;
+#[cfg(test)]
+#[cfg(feature = "test-util")]
+mod engine_tests;
 #[cfg(test)]
 #[cfg(feature = "test-util")]
 mod http_tests;

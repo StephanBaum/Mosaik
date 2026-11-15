@@ -3206,6 +3206,7 @@ dependencies = [
  "http",
  "mosaic-core",
  "mosaic-origin",
+ "mosaic-vault",
  "proptest",
  "reqwest",
  "rustls",

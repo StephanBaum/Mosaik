@@ -12,7 +12,7 @@ const V: &str = "sk-test-CANARY-0123456789abcdef";
 /// backslash, a control character and non-ASCII.
 const SPECIAL: &str = "sk/te+st=CAN ARY\"q\\r\u{7}-\u{e9}\u{2713}-0123456789";
 
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
 }
 
@@ -63,7 +63,7 @@ fn unicode_escapes(json: &str, upper: bool) -> String {
 
 /// Every encoding the design lists, built with independent encoders
 /// (`base64ct`, `serde_json`, plain formatting).
-fn encodings_of(value: &str) -> Vec<String> {
+pub(crate) fn encodings_of(value: &str) -> Vec<String> {
     let b = value.as_bytes();
     let json = serde_json::to_string(value).unwrap();
     let json = json[1..json.len() - 1].to_owned();

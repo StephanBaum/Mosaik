@@ -23,11 +23,15 @@ test-util = ["http"]
 mosaic-core = { path = "../core" }
 # Exact https destinations for bindings (ADR-0159).
 mosaic-origin = { path = "../origin" }
+# Reference candidates of an ambiguous reference and, from the vault source on, the session (workspace crate).
+mosaic-vault = { path = "../vault" }
 # The binding digest is the SHA-256 of its canonical JSON (already in the tree through mosaic-core).
 sha2.workspace = true
 # The patterns and the stream carry are secrets (already in the tree through mosaic-core).
 zeroize.workspace = true
 thiserror.workspace = true
+# Log entries are sealed as JSON (already in the tree through mosaic-vault).
+serde_json.workspace = true
 # Derive for the error codes and the wire types (the desktop crate enables the same feature).
 serde = { workspace = true, features = ["derive"] }
 # The checked request URL is the URL that is sent: one WHATWG parse (already in the tree through mosaic-origin).
@@ -41,7 +45,6 @@ rustls-platform-verifier = { workspace = true, optional = true }
 base64ct = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
-serde_json.workspace = true
 # Properties of the request path (already in the tree through mosaic-core).
 proptest.workspace = true
 # An independent URI parser: the sent URL has the checked host and port.

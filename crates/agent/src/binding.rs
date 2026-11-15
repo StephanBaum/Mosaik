@@ -118,7 +118,8 @@ pub enum Inject {
 }
 
 /// The kind of an [`Inject`], as shown to agents (no header value).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum InjectKind {
     /// `bearer`.
     Bearer,
