@@ -128,7 +128,9 @@ pub trait Host: Send + Sync {
     /// # Errors
     /// [`ProbeError`].
     fn field_rect(&self, token: Token) -> Result<Option<Rect>, ProbeError>;
-    /// Arms the second step of a two-step login after `token` was filled.
+    /// Arms the second step of a two-step login after `token` was filled. Only
+    /// `continuation.picked_at_ms` is used: the host takes the window and the
+    /// processes from its own capture of `token`.
     fn arm_continuation(&self, token: Token, continuation: Continuation);
     /// Whether the five probe points of `rect` resolve to the window `own_hwnd`.
     ///

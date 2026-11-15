@@ -601,6 +601,7 @@ impl AppState {
         let backend = Arc::new(backend);
         // The sync service reaches the backend through a weak handle.
         backend.sync.attach(Arc::downgrade(&backend));
+        backend.program_fill.attach(Arc::downgrade(&backend));
         Self(backend)
     }
 

@@ -92,6 +92,8 @@ tauri-build.workspace = true
 # The fixture CA and the local TLS server of the agent tests (debug builds only).
 mosaic-agent = { path = "../../../crates/agent", features = ["test-util"] }
 mosaic-qr = { path = "../../../crates/qr", features = ["testing"] }
+# The fake host of program fill (tests only).
+mosaic-program-fill = { path = "../../../crates/program-fill", features = ["fake"] }
 proptest.workspace = true
 tempfile.workspace = true
 # Passkey tests verify the signatures with the same crate that makes them

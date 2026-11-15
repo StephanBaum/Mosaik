@@ -74,10 +74,11 @@ use crate::contract::events::LockReason;
 use crate::dialogs::NativeDialogs;
 use crate::keystore::{LayeredKeystore, OsKeystore};
 use crate::persist::Persistence;
-use crate::program_fill::{BlockList, ProgramFillService};
+use crate::program_fill::{BlockList, NoPickerWindows, ProgramFillService};
 use crate::quick_unlock::QuickUnlockService;
 use crate::screen_capture::NativeScreenCapture;
 use crate::state::{AppState, Backend, Slot, guard};
+use mosaic_program_fill::host::{Host, monotonic_ms};
 
 /// The window title of a preview build (ADR-0153): the English and German word for "preview".
 #[cfg(feature = "preview")]
@@ -142,6 +143,18 @@ pub fn run() -> tauri::Result<()> {
             } else {
                 Persistence::memory()
             };
+            // Windows program fill reads other programs' fields through the Windows host; no
+            // other system has one (ADR-0164).
+            let host: Option<Arc<dyn Host>> = {
+                #[cfg(windows)]
+                {
+                    Some(Arc::new(mosaic_program_fill::windows::WindowsHost::new()))
+                }
+                #[cfg(not(windows))]
+                {
+                    None
+                }
+            };
             let keystore =
                 LayeredKeystore::new(Box::new(OsKeystore::new(&app.config().identifier)));
             // The Secret Key of a rotation in progress: its own entries, so a
@@ -176,7 +189,12 @@ pub fn run() -> tauri::Result<()> {
                     })
                 })
                 .with_persistence(persistence)
-                .with_program_fill(ProgramFillService::new(BlockList::in_dir(&dir)))
+                .with_program_fill(ProgramFillService::new(
+                    host,
+                    Arc::new(NoPickerWindows),
+                    BlockList::in_dir(&dir),
+                    Arc::new(monotonic_ms),
+                ))
                 .with_sync_storage(&app.config().identifier, dir.clone())
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
@@ -223,6 +241,20 @@ pub fn run() -> tauri::Result<()> {
             let weak = state.downgrade();
             state.backend().on_unlock(Box::new(move || {
                 Backend::breach_weekly_after_unlock(weak.clone());
+            }));
+            // Program fill follows the unlock and the lock (ADR-0164): the watcher starts when it
+            // is on, and the pickers close and forget their offer.
+            let weak = state.downgrade();
+            state.backend().on_unlock(Box::new(move || {
+                if let Some(backend) = weak.upgrade() {
+                    backend.program_fill_on_unlock();
+                }
+            }));
+            let weak = state.downgrade();
+            state.backend().on_lock(Box::new(move |_| {
+                if let Some(backend) = weak.upgrade() {
+                    backend.program_fill_on_lock();
+                }
             }));
             // After the state exists: the endpoint reaches the vault through it.
             state.backend().browser.start(&dir, state.downgrade());
@@ -311,6 +343,8 @@ mod handler_tests;
 mod m9_ui_tests;
 #[cfg(test)]
 mod otp_tests;
+#[cfg(test)]
+mod program_fill_tests;
 #[cfg(test)]
 mod quick_unlock_tests;
 #[cfg(test)]

@@ -2753,14 +2753,10 @@ fn program_fill_status_reports_availability_and_the_block_list() {
         Box::new(MemoryKeystore::default()),
         || Ok(Argon2Profile::Baseline),
     );
+    // A backend without a host (this default; the app gives Windows one) cannot run it.
     let status = backend.program_fill_status();
-    if cfg!(windows) {
-        // Available unless this test process itself runs elevated.
-        assert_eq!(status.available, status.reason.is_none());
-    } else {
-        assert!(!status.available);
-        assert_eq!(status.reason, Some(ProgramFillUnavailable::NotWindows));
-    }
+    assert!(!status.available);
+    assert_eq!(status.reason, Some(ProgramFillUnavailable::NotWindows));
     assert!(!status.running);
     assert_eq!(status.blocked.len(), 0);
 

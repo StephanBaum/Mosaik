@@ -513,12 +513,22 @@ impl WorkerState {
 
     /// Keeps the filled capture for the second step. Too late (the capture is
     /// already replaced) arms nothing.
+    ///
+    /// Only `picked_at_ms` is read from `continuation`: the window and the processes
+    /// are the capture's own, so a caller that does not know them cannot arm a wrong one.
     fn arm(&mut self, token: Token, continuation: Continuation) {
         if self.current.as_ref().is_some_and(|c| c.token == token)
             && let Some(current) = self.current.take()
         {
+            let session = &current.captured.session;
             self.armed = Some(Armed {
-                continuation,
+                continuation: Continuation {
+                    root: session.root,
+                    window_pid: session.window_pid,
+                    element_pid: session.element_pid,
+                    picked_at_ms: continuation.picked_at_ms,
+                    used: false,
+                },
                 captured: current.captured,
             });
         }
