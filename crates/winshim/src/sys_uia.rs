@@ -26,6 +26,9 @@ use windows::core::BSTR;
 
 use crate::error::{Result, ShimError};
 
+/// Serialises client start-up (see [`Uia::new`]).
+static START: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The most parent steps any walk takes.
 const MAX_PARENT_STEPS: usize = 64;
 /// The longest runtime ID accepted (real ones have a handful of entries).
@@ -121,6 +124,11 @@ impl Uia {
     /// An OS error; [`ShimError::Os`] if the thread is already in a
     /// single-threaded COM apartment.
     pub fn new(connection_timeout_ms: u32, transaction_timeout_ms: u32) -> Result<Self> {
+        // UI Automation's first use in a process is not safe to run on several
+        // threads at once: `CreateCacheRequest` then fails with E_FAIL.
+        let _serialised = START
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // SAFETY: no reserved argument; joins the multithreaded apartment of
         // this thread. Both S_OK and S_FALSE must be balanced by an uninit.
         let init = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };

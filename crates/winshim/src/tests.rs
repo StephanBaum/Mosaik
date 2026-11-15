@@ -226,3 +226,15 @@ fn unsafe_stays_in_the_sys_modules() {
         assert!(!source.contains(&expectation), "{name}");
     }
 }
+
+#[test]
+fn clients_started_at_the_same_time_all_start() {
+    // UI Automation's first use fails on concurrent threads without the
+    // start-up lock (CreateCacheRequest returns E_FAIL).
+    let threads: Vec<_> = (0..4)
+        .map(|_| std::thread::spawn(|| Uia::new(2000, 2000).map(drop)))
+        .collect();
+    for thread in threads {
+        thread.join().unwrap().unwrap();
+    }
+}
