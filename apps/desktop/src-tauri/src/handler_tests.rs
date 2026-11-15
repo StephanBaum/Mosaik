@@ -1587,6 +1587,78 @@ fn import_delete_only_after_commit() {
 }
 
 #[test]
+fn import_delete_refused_when_entries_were_skipped_or_the_file_changed() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    // The Enpass fixture holds entries that cannot be imported (skipped while
+    // reading) and ones that lose data: a commit of it is not clean.
+    let enpass = dir.path().join("enpass.json");
+    std::fs::write(&enpass, ENPASS).unwrap();
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(enpass.clone()), Arc::default())));
+    let vault = vault_id(&b);
+    let token = chosen(&b);
+    let preview = preview_of(&b, &token, "enpass", Value::Null).unwrap();
+    assert_ne!(preview.skipped.len(), 0);
+    let done = b
+        .import_commit(&req(json!({
+            "previewId": preview.preview_id,
+            "targetVaultId": vault,
+            "skip": [],
+        })))
+        .unwrap();
+    assert_eq!(done.failed, 0);
+    assert!(!done.clean);
+    assert_eq!(
+        code(
+            b.import_delete_file(&req(json!({ "fileToken": token })))
+                .unwrap_err()
+        ),
+        ErrorCode::ImportDeleteNotAllowed
+    );
+    assert!(enpass.exists());
+
+    // A clean import whose file is edited afterwards is not deleted either.
+    let csv = dir.path().join("lastpass.csv");
+    std::fs::write(&csv, LASTPASS_CSV).unwrap();
+    let h = unlocked();
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(csv.clone()), Arc::default())));
+    let vault = vault_id(&b);
+    let token = chosen(&b);
+    let preview = preview_of(&b, &token, "csv", Value::Null).unwrap();
+    let done = b
+        .import_commit(&req(json!({
+            "previewId": preview.preview_id,
+            "targetVaultId": vault,
+            "skip": [],
+        })))
+        .unwrap();
+    assert!(done.clean);
+    std::fs::write(
+        &csv,
+        b"something else entirely
+",
+    )
+    .unwrap();
+    assert_eq!(
+        code(
+            b.import_delete_file(&req(json!({ "fileToken": token })))
+                .unwrap_err()
+        ),
+        ErrorCode::ImportDeleteNotAllowed
+    );
+    assert_eq!(
+        std::fs::read(&csv).unwrap(),
+        b"something else entirely
+"
+    );
+}
+
+#[test]
 fn import_delete_failure_keeps_the_file_and_the_token() {
     let _kdf = crate::test_support::kdf_permit();
     let h = unlocked();

@@ -10,6 +10,7 @@ use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{self, Write as _};
 use std::path::{Component, Path, PathBuf};
+use std::time::SystemTime;
 
 use crate::contract::import::ImportSyncedFolder;
 
@@ -33,9 +34,44 @@ const O_NOFOLLOW: i32 = if cfg!(any(target_os = "linux", target_os = "android"))
 /// `FILE_FLAG_OPEN_REPARSE_POINT`: open a link itself instead of its target.
 #[cfg(windows)]
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-/// `FILE_ATTRIBUTE_REPARSE_POINT`.
-#[cfg(windows)]
-const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+
+/// What a file was when the app read it: the delete refuses a file that is
+/// not that file any more (replaced, swapped for another, or edited after
+/// the import). Holds sizes and times only, never content.
+///
+/// Unix: length, modification time, device and inode. Windows: length,
+/// modification and creation time (the volume serial number and file index
+/// are unstable in std; a replaced file has a new creation time).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FileIdentity {
+    len: u64,
+    modified: Option<SystemTime>,
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+    #[cfg(windows)]
+    created: Option<SystemTime>,
+}
+
+impl FileIdentity {
+    /// The identity of the file `meta` describes (taken from an open handle).
+    #[must_use]
+    pub fn of(meta: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt as _;
+        Self {
+            len: meta.len(),
+            modified: meta.modified().ok(),
+            #[cfg(unix)]
+            dev: meta.dev(),
+            #[cfg(unix)]
+            ino: meta.ino(),
+            #[cfg(windows)]
+            created: meta.created().ok(),
+        }
+    }
+}
 
 /// Opens `path` for writing without truncation and without following a
 /// symlink or reparse point, so the check below runs on what was opened.
@@ -55,15 +91,12 @@ fn open_no_follow(path: &Path) -> io::Result<std::fs::File> {
     options.open(path)
 }
 
-/// Whether the opened handle is a plain file (not a link or reparse point).
+/// Whether the opened handle is a plain file: not a directory and not a
+/// link. On Windows std reads the reparse tag of the handle: a symlink and a
+/// mount point or junction (the name surrogates) are links; a Cloud Files
+/// placeholder (`OneDrive`, Google Drive, Dropbox) is a reparse point that
+/// is a file, and is accepted.
 fn handle_is_regular(meta: &std::fs::Metadata) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt as _;
-        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return false;
-        }
-    }
     meta.file_type().is_file()
 }
 
@@ -74,13 +107,16 @@ fn handle_is_regular(meta: &std::fs::Metadata) -> bool {
 /// can be swapped for a link. The bytes are written through that handle.
 ///
 /// Refuses (and leaves the file as it was) when `path` is not a regular
-/// file (a symlink, a directory), when it cannot be opened for writing
-/// (read-only, in use, a network share that refuses) or when it cannot be
-/// removed afterwards.
+/// file (a symlink, a directory), when the opened file is not the one
+/// `expected` (its identity changed since the import read it), when it
+/// cannot be opened for writing (read-only, in use, a network share that
+/// refuses) or when it cannot be removed afterwards. The identity is checked
+/// on the handle before the first byte is written.
 ///
 /// # Errors
-/// `InvalidInput` for a non-regular file; the underlying I/O error otherwise.
-pub fn overwrite_and_delete(path: &Path) -> io::Result<()> {
+/// `InvalidInput` for a non-regular file or a changed file; the underlying
+/// I/O error otherwise.
+pub fn overwrite_and_delete(path: &Path, expected: &FileIdentity) -> io::Result<()> {
     // A directory cannot be opened for writing on Windows: look first only to
     // report it as the wrong kind. Nothing is trusted from this look.
     if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_dir()) {
@@ -102,6 +138,12 @@ pub fn overwrite_and_delete(path: &Path) -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "not a regular file",
+        ));
+    }
+    if FileIdentity::of(&meta) != *expected {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the file changed since it was imported",
         ));
     }
     let zeros = vec![0_u8; CHUNK].into_boxed_slice();
@@ -130,7 +172,8 @@ fn is_symlink_refusal(error: &io::Error) -> bool {
 }
 
 /// The sync roots to compare a file against: the environment's `OneDrive`
-/// folders (Windows Known Folder Move puts Downloads inside them), and the
+/// folders (Known Folder Move puts Desktop, Documents and Pictures inside
+/// them; Downloads only when the user moved it there), and the
 /// usual folders of Dropbox, Google Drive, Box and `iCloud` under `home`.
 #[must_use]
 pub fn sync_roots(
@@ -242,11 +285,67 @@ mod tests {
         path
     }
 
+    fn identity_of(path: &Path) -> FileIdentity {
+        FileIdentity::of(&std::fs::metadata(path).unwrap())
+    }
+
+    #[test]
+    fn overwrite_and_delete_refuses_a_file_changed_since_the_import() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = file_in(
+            tmp.path(),
+            "export.csv",
+            b"url,username
+",
+        );
+        let seen = identity_of(&path);
+        std::fs::write(
+            &path,
+            b"url,username
+edited,after
+",
+        )
+        .unwrap();
+        let error = overwrite_and_delete(&path, &seen).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        // Nothing was written: the edited content is intact.
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"url,username
+edited,after
+"
+        );
+    }
+
+    #[test]
+    fn overwrite_and_delete_refuses_a_file_of_the_same_size_edited_later() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = file_in(tmp.path(), "export.csv", b"aaaa");
+        let seen = identity_of(&path);
+        // The same size, but written later (the clock tick is coarse, so the
+        // time is set explicitly).
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+        let file = OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_modified(later).unwrap();
+        drop(file);
+        assert!(overwrite_and_delete(&path, &seen).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"aaaa");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_regular_file_on_windows_is_not_taken_for_a_link() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = file_in(tmp.path(), "export.csv", b"x");
+        let file = open_no_follow(&path).unwrap();
+        assert!(handle_is_regular(&file.metadata().unwrap()));
+    }
+
     #[test]
     fn overwrite_and_delete_removes_the_file() {
         let tmp = tempfile::tempdir().unwrap();
         let path = file_in(tmp.path(), "export.csv", &vec![7_u8; 3 * CHUNK + 5]);
-        overwrite_and_delete(&path).unwrap();
+        overwrite_and_delete(&path, &identity_of(&path)).unwrap();
         assert!(!path.exists());
     }
 
@@ -258,7 +357,7 @@ mod tests {
         let mut read_only = original.clone();
         read_only.set_readonly(true);
         std::fs::set_permissions(&path, read_only).unwrap();
-        let result = overwrite_and_delete(&path);
+        let result = overwrite_and_delete(&path, &identity_of(&path));
         assert!(result.is_err());
         assert!(path.exists());
         std::fs::set_permissions(&path, original).unwrap();
@@ -268,7 +367,7 @@ mod tests {
     #[test]
     fn overwrite_and_delete_refuses_a_directory() {
         let tmp = tempfile::tempdir().unwrap();
-        let error = overwrite_and_delete(tmp.path()).unwrap_err();
+        let error = overwrite_and_delete(tmp.path(), &identity_of(tmp.path())).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert!(tmp.path().exists());
     }
@@ -286,7 +385,7 @@ mod tests {
             // Creating symlinks needs a privilege on Windows; nothing to test.
             return;
         }
-        let error = overwrite_and_delete(&link).unwrap_err();
+        let error = overwrite_and_delete(&link, &identity_of(&target)).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert_eq!(std::fs::read(&target).unwrap(), b"keep me");
         assert!(link.symlink_metadata().is_ok());

@@ -480,7 +480,8 @@ export const fixtures = {
       "passkeyUnsupported",
       "passkeysLimit",
       "notesTruncated",
-      "urlKeptAsText"
+      "urlKeptAsText",
+      "idnHost"
     ],
     "importFormat": [
       "enpass",
@@ -4162,6 +4163,7 @@ export const fixtures = {
       {
         "attachments": 1,
         "attachmentsFailed": 0,
+        "clean": true,
         "failed": 0,
         "imported": 1,
         "skipped": 1
@@ -4226,7 +4228,8 @@ export const fixtures = {
               "passkeyUnsupported",
               "passkeysLimit",
               "notesTruncated",
-              "urlKeptAsText"
+              "urlKeptAsText",
+              "idnHost"
             ]
           },
           {

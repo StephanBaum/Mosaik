@@ -70,6 +70,7 @@ export const importMessages = {
     "Dieser Eintrag hat mehr Felder, als Mosaic speichert. Die übrigen Felder werden ausgelassen.",
   "import.entry.notesTruncated":
     "Die Notizen dieses Eintrags sind länger, als ein Eintrag fassen kann. Der Teil, der nicht mehr hineinpasst, wurde ausgelassen.",
+  "import.entry.idnHost": "Diese Adresse verwendet Sonderzeichen im Domainnamen und kann wie eine andere Seite aussehen. Prüfe sie, bevor du dich darauf verlässt.",
   "import.entry.urlKeptAsText": "Diese Adresse ließ sich nicht als Link verwenden. Sie wurde als Text behalten.",
   "import.skip.malformed": "Dieser Eintrag ist beschädigt und lässt sich nicht lesen.",
   "import.skip.empty": "Dieser Eintrag ist leer.",

@@ -23,6 +23,7 @@ use crate::contract::import::{
     ImportSkipped, ImportWarning,
 };
 use crate::contract::items::ItemKind;
+use crate::export_cleanup::FileIdentity;
 use crate::state::guard;
 
 /// The parsed export kept between `import_preview` and `import_commit`.
@@ -30,6 +31,8 @@ struct Held {
     preview_id: String,
     /// The file token the import was read from.
     file_token: String,
+    /// What the file was when it was read.
+    identity: FileIdentity,
     // Dropping the import wipes every value from the file.
     import: mosaic_import::Import,
 }
@@ -53,9 +56,11 @@ impl ImportService {
         file: &Path,
         format: ImportFormat,
         password: Option<&SecretString>,
-    ) -> IpcResult<mosaic_import::Import> {
-        let bytes = read_export(file)?;
-        mosaic_import::parse(format_of(format), &bytes, password).map_err(map_error)
+    ) -> IpcResult<(mosaic_import::Import, FileIdentity)> {
+        let (bytes, identity) = read_export(file)?;
+        let import =
+            mosaic_import::parse(format_of(format), &bytes, password).map_err(map_error)?;
+        Ok((import, identity))
     }
 
     /// Says what `file` is, from its content only. Nothing of the content
@@ -64,7 +69,7 @@ impl ImportService {
     /// # Errors
     /// `importFileUnreadable`, `importTooLarge`.
     pub fn detect(&self, file: &Path) -> IpcResult<ImportDetected> {
-        let bytes = read_export(file)?;
+        let (bytes, _) = read_export(file)?;
         let found = detect(&bytes);
         Ok(ImportDetected {
             source: found.and_then(|d| wire_source(d.source)),
@@ -81,6 +86,7 @@ impl ImportService {
     pub fn hold(
         &self,
         import: mosaic_import::Import,
+        identity: FileIdentity,
         session: &UnlockedSession,
         file_token: &str,
     ) -> IpcResult<ImportPreview> {
@@ -90,14 +96,15 @@ impl ImportService {
         *guard(&self.held)? = Some(Held {
             preview_id: id,
             file_token: file_token.to_owned(),
+            identity,
             import,
         });
         Ok(wire)
     }
 
     /// Writes the held entries (minus `skip`) into the target vault and
-    /// drops the import. Returns the result and the token of the file it was
-    /// read from.
+    /// drops the import. Returns the result, the token of the file it was
+    /// read from and that file's identity when it was read.
     ///
     /// # Errors
     /// `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable`.
@@ -105,7 +112,7 @@ impl ImportService {
         &self,
         request: &ImportCommitRequest,
         session: &mut UnlockedSession,
-    ) -> IpcResult<(ImportResult, String)> {
+    ) -> IpcResult<(ImportResult, String, FileIdentity)> {
         let held = guard(&self.held)?
             .take_if(|h| h.preview_id == request.preview_id)
             .ok_or(IpcError::new(ErrorCode::ImportPreviewExpired))?;
@@ -122,8 +129,10 @@ impl ImportService {
                 failed: report.failed,
                 attachments: report.attachments,
                 attachments_failed: report.attachments_failed,
+                clean: report.clean(),
             },
             held.file_token,
+            held.identity,
         ))
     }
 
@@ -143,25 +152,26 @@ impl ImportService {
 }
 
 /// Reads an export into a zeroizing buffer of exactly its size, so the
-/// buffer never reallocates and leaves a stale copy behind.
-fn read_export(path: &Path) -> IpcResult<Zeroizing<Vec<u8>>> {
+/// buffer never reallocates and leaves a stale copy behind. Also returns
+/// the identity of the file that was opened (the delete checks it).
+fn read_export(path: &Path) -> IpcResult<(Zeroizing<Vec<u8>>, FileIdentity)> {
     let unreadable = || IpcError::new(ErrorCode::ImportFileUnreadable);
-    let len = std::fs::metadata(path).map_err(|_| unreadable())?.len();
+    let file = File::open(path).map_err(|_| unreadable())?;
+    let meta = file.metadata().map_err(|_| unreadable())?;
+    let len = meta.len();
     if len > MAX_FILE_LEN as u64 {
         return Err(IpcError::new(ErrorCode::ImportTooLarge));
     }
     let len = usize::try_from(len).map_err(|_| unreadable())?;
     let mut buf = Zeroizing::new(Vec::with_capacity(len.saturating_add(1)));
-    File::open(path)
-        .map_err(|_| unreadable())?
-        .take(len as u64 + 1)
+    file.take(len as u64 + 1)
         .read_to_end(&mut buf)
         .map_err(|_| unreadable())?;
     if buf.len() > len {
         // The file grew while it was read.
         return Err(unreadable());
     }
-    Ok(buf)
+    Ok((buf, FileIdentity::of(&meta)))
 }
 
 const fn format_of(format: ImportFormat) -> Format {
@@ -250,6 +260,7 @@ fn entry_warning(warning: EntryWarning) -> Option<ImportEntryWarning> {
         EntryWarning::PasskeysLimit => ImportEntryWarning::PasskeysLimit,
         EntryWarning::NotesTruncated => ImportEntryWarning::NotesTruncated,
         EntryWarning::UrlKeptAsText => ImportEntryWarning::UrlKeptAsText,
+        EntryWarning::IdnHost => ImportEntryWarning::IdnHost,
         _ => return None,
     })
 }

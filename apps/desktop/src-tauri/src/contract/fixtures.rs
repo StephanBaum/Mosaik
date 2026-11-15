@@ -547,6 +547,7 @@ fn import_commands(f: &mut Fixtures) {
             failed: 0,
             attachments: 1,
             attachments_failed: 0,
+            clean: true,
         }],
     );
     f.command(

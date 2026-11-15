@@ -106,6 +106,7 @@ export const importHandlers: MockHandlers = {
       failed: 0,
       attachments: 0,
       attachmentsFailed: 0,
+      clean: true,
     };
   },
 

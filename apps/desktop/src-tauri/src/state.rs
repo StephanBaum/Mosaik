@@ -5,7 +5,7 @@
 //! event loop, and they lock the session for the whole operation, so two
 //! commands never see a half-changed session.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -25,6 +25,7 @@ use crate::contract::events::{AppEvent, LockReason};
 use crate::contract::settings::Settings;
 use crate::dialogs::{Dialogs, NoDialogs};
 use crate::events::Events;
+use crate::export_cleanup::FileIdentity;
 use crate::keystore::{
     LayeredSyncTokens, MemorySyncTokens, OsSyncTokens, SecretKeyStore, SyncTokenStore,
 };
@@ -98,8 +99,10 @@ pub type UnlockHook = Box<dyn Fn() + Send + Sync>;
 pub struct FileTokens {
     next: u64,
     paths: BTreeMap<String, PathBuf>,
-    /// Tokens whose file was imported into the vault in this session.
-    committed: BTreeSet<String>,
+    /// Tokens whose file was imported into the vault in this session, with
+    /// the identity the file had when it was read: only that file may be
+    /// deleted (a file replaced or edited since is refused).
+    committed: BTreeMap<String, FileIdentity>,
 }
 
 impl FileTokens {
@@ -117,17 +120,19 @@ impl FileTokens {
         self.paths.get(token)
     }
 
-    /// Records that the file behind `token` was imported successfully.
-    pub fn mark_committed(&mut self, token: &str) {
+    /// Records that the file behind `token` was imported completely;
+    /// `identity` is what it was when it was read.
+    pub fn mark_committed(&mut self, token: &str, identity: FileIdentity) {
         if self.paths.contains_key(token) {
-            self.committed.insert(token.to_owned());
+            self.committed.insert(token.to_owned(), identity);
         }
     }
 
-    /// Whether the file behind `token` was imported successfully.
+    /// The identity of the file behind `token` if it was imported
+    /// completely (so it may be deleted).
     #[must_use]
-    pub fn is_committed(&self, token: &str) -> bool {
-        self.committed.contains(token)
+    pub fn committed_identity(&self, token: &str) -> Option<&FileIdentity> {
+        self.committed.get(token)
     }
 
     /// Forgets `token` and returns its path.

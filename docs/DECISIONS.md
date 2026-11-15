@@ -6248,10 +6248,19 @@ parsers sit on the existing CSV, JSON and bounded ZIP readers of `crates/import`
   source previews it as `keeperCsv`.
 - **Delete only what the shell holds, and only after a clean commit.** `import_delete_file` works on a file token
   the shell created itself (a dialog pick or a drop), never on a path from the webview. The token is deletable only
-  after a commit from the same token with no failed item and no failed attachment; otherwise the UI recommends
-  keeping the file. The file is opened first without following links (`O_NOFOLLOW`, or
-  `FILE_FLAG_OPEN_REPARSE_POINT` on Windows), checked on the handle to be a regular file, overwritten once with
-  zeros through that handle, flushed and removed. A file already gone counts as deleted. The UI never says
+  after a **clean** commit (`CommitReport::clean`): nothing failed, no entry was skipped while reading the file, and
+  no imported entry carries a warning that data did not come across (a skipped or missing or oversized attachment,
+  dropped tags or history, passkeys not imported, unreadable, unsupported or over the limit, dropped fields, cut-off
+  notes). Entries the user unticked on purpose do not count. The commit result carries `clean`, and when it is
+  false the UI recommends keeping the file and says some items did not come across completely. The file is opened
+  first without following links (`O_NOFOLLOW`, or `FILE_FLAG_OPEN_REPARSE_POINT` on Windows) and checked on the
+  handle to be a regular file: on Windows only a symlink or a mount point or junction (the reparse tags that are
+  name surrogates, read by std) is refused, so a cloud placeholder of OneDrive, Google Drive or Dropbox (a Cloud
+  Files reparse point) is deleted like any file. The handle's identity must equal the one recorded when the file was
+  read for the preview (length and modification time; device and inode on Unix; creation time on Windows, where the
+  volume serial number and file index are unstable in std); a file replaced or edited since is refused with
+  `importDeleteNotAllowed` before the first byte is written. Then it is overwritten once with zeros through that
+  handle, flushed and removed. A file already gone counts as deleted. The UI never says
   "securely erased": it says the file was overwritten and deleted, always adds that SSDs, backups, version history
   and the recycle bin can keep older copies, and names the cloud service when the folder is synced (OneDrive Known
   Folder Move, Dropbox, Google Drive, Box, iCloud).
@@ -6269,7 +6278,11 @@ parsers sit on the existing CSV, JSON and bounded ZIP readers of `crates/import`
   password-protected Bitwarden export return `Error::Encrypted`; the guides tell the user which unencrypted
   export to make.
 - **Bounded and fuzzed.** Every parser entry point has limits (file, entries, columns, depth, nodes, fields, ZIP
-  members and ratio) and one fuzz target.
+  members and ratio) and one fuzz target. The ZIP ratio is computed from the bytes actually read from the archive
+  while a member is inflated (a counting reader), never from the `compressed_size` its header declares, and an
+  archive whose entries overlap (`has_overlapping_entries`) is malformed. Once an entry holds the field cap, further
+  URLs and tags are refused before any scan or parse. `try_detect` tells a file over the size limit ("too large")
+  from one nothing recognizes; a login URL with a punycode host gets the entry warning `IdnHost` (imported as it is).
 
 ### Alternatives considered
 - **Trust the picked source:** a wrong pick would run the wrong parser over a file; detection is cheap and safer.

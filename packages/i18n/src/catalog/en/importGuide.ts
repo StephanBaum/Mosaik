@@ -137,7 +137,7 @@ export const importGuide = {
   "import.cleanup.deleted": "{name} was overwritten and deleted.",
   "import.cleanup.deleteFailed": "{name} couldn't be deleted. Delete it yourself.",
   "import.cleanup.keepFile":
-    "Some items weren't imported. Keep {name} until you've checked what is missing, then delete it yourself.",
+    "Some items weren't imported, or didn't come across completely. Keep {name} until you've checked what is missing, then delete it yourself.",
   "import.cleanup.ssdNote":
     "On SSDs and in synced folders, older copies can survive: in version history, backups or the recycle bin. Check those too.",
   "import.cleanup.synced":

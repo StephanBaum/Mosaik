@@ -163,6 +163,9 @@ wire_enum!(
         NotesTruncated,
         /// The URL is not a web address with a host; it stayed as text.
         UrlKeptAsText,
+        /// A login URL's host uses punycode (`xn--`) labels and may imitate
+        /// another site; the entry is imported as it is.
+        IdnHost,
     }
 );
 
@@ -354,6 +357,10 @@ pub struct ImportResult {
     pub attachments: u32,
     /// Attachment files the vault refused.
     pub attachments_failed: u32,
+    /// Everything the file held came across, bar the entries the user left
+    /// out on purpose: no entry skipped while reading, none failed, nothing
+    /// left out of an imported entry. Only then may the file be deleted.
+    pub clean: bool,
 }
 
 #[cfg(test)]

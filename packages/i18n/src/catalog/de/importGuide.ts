@@ -150,7 +150,7 @@ export const importGuide = {
   "import.cleanup.deleted": "{name} wurde überschrieben und gelöscht.",
   "import.cleanup.deleteFailed": "{name} konnte nicht gelöscht werden. Lösche die Datei selbst.",
   "import.cleanup.keepFile":
-    "Manche Einträge wurden nicht importiert. Behalte {name}, bis du geprüft hast, was fehlt, und lösche sie dann selbst.",
+    "Manche Einträge wurden nicht oder nicht vollständig importiert. Behalte {name}, bis du geprüft hast, was fehlt, und lösche sie dann selbst.",
   "import.cleanup.ssdNote":
     "Auf SSDs und in synchronisierten Ordnern können ältere Kopien überleben: im Versionsverlauf, in Backups oder im Papierkorb. Prüfe auch diese.",
   "import.cleanup.synced":

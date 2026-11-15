@@ -66,6 +66,7 @@ export const importMessages = {
     "This item has more fields than Mosaic keeps. The extra fields are left out.",
   "import.entry.notesTruncated":
     "This item's notes are longer than one item can hold. The part that didn't fit was left out.",
+  "import.entry.idnHost": "This address uses special characters in its domain name and may look like another site. Check it before you rely on it.",
   "import.entry.urlKeptAsText": "This web address couldn't be used as a link. It was kept as text.",
   "import.skip.malformed": "This entry is damaged and can't be read.",
   "import.skip.empty": "This entry is empty.",

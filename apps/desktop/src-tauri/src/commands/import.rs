@@ -131,17 +131,17 @@ impl Backend {
         let password = request
             .password
             .map(crate::contract::secret::SecretIn::into_secret);
-        let import = self
-            .adapters
-            .import
-            .parse(&path, request.format, password.as_ref())?;
+        let (import, identity) =
+            self.adapters
+                .import
+                .parse(&path, request.format, password.as_ref())?;
         // If the vault locked meanwhile this is `locked`, and the parsed
         // import is dropped (wiped) here.
         let slot = self.slot()?;
         let session = slot.unlocked()?;
         self.adapters
             .import
-            .hold(import, session, &request.file_token)
+            .hold(import, identity, session, &request.file_token)
     }
 
     /// Commits a preview.
@@ -152,12 +152,13 @@ impl Backend {
         self.touch();
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
-        let (result, file_token) = self.adapters.import.commit(request, session)?;
+        let (result, file_token, identity) = self.adapters.import.commit(request, session)?;
         self.items_changed(session);
         // The file may be deleted only when everything it held that was not
-        // left out on purpose is in the vault.
-        if result.failed == 0 && result.attachments_failed == 0 {
-            guard(&self.import_files)?.mark_committed(&file_token);
+        // left out on purpose came across completely: no entry skipped or
+        // failed, nothing left out of an imported entry (`CommitReport::clean`).
+        if result.clean {
+            guard(&self.import_files)?.mark_committed(&file_token, identity);
         }
         Ok(result)
     }
@@ -168,26 +169,33 @@ impl Backend {
     ///
     /// # Errors
     /// `locked`, `importFileUnreadable` (unknown token),
-    /// `importDeleteNotAllowed` (not imported yet), `importDeleteFailed`
+    /// `importDeleteNotAllowed` (not imported completely, or the file is not
+    /// the one that was imported), `importDeleteFailed`
     /// (the file is still there; the token stays for a retry).
     pub fn import_delete_file(&self, request: &ImportDeleteRequest) -> IpcResult<()> {
         self.touch();
         self.slot()?.unlocked()?;
-        let path = {
+        let (path, identity) = {
             let files = guard(&self.import_files)?;
             let path = files
                 .get(&request.file_token)
                 .cloned()
                 .ok_or(IpcError::new(ErrorCode::ImportFileUnreadable))?;
-            if !files.is_committed(&request.file_token) {
-                return Err(IpcError::new(ErrorCode::ImportDeleteNotAllowed));
-            }
-            path
+            let identity = files
+                .committed_identity(&request.file_token)
+                .cloned()
+                .ok_or(IpcError::new(ErrorCode::ImportDeleteNotAllowed))?;
+            (path, identity)
         };
-        match crate::export_cleanup::overwrite_and_delete(&path) {
+        match crate::export_cleanup::overwrite_and_delete(&path, &identity) {
             Ok(()) => {}
             // Already gone (the user deleted it): nothing is left to delete.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            // Not a regular file, or not the file that was imported (replaced
+            // or edited since): nothing was written.
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
+                return Err(IpcError::new(ErrorCode::ImportDeleteNotAllowed));
+            }
             Err(_) => return Err(IpcError::new(ErrorCode::ImportDeleteFailed)),
         }
         guard(&self.import_files)?.remove(&request.file_token);

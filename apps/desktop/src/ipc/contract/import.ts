@@ -70,6 +70,7 @@ export const importEntryWarnings = [
   "passkeysLimit",
   "notesTruncated",
   "urlKeptAsText",
+  "idnHost",
 ] as const;
 export type ImportEntryWarning = (typeof importEntryWarnings)[number];
 
@@ -160,4 +161,6 @@ export interface ImportResult {
   failed: number;
   attachments: number;
   attachmentsFailed: number;
+  /** Everything came across (bar what was left out on purpose): the file may be deleted. */
+  clean: boolean;
 }

@@ -14,9 +14,13 @@ import type { ImportSourceInfo } from "./sources.ts";
 
 type Deletion = "idle" | "busy" | "deleted" | "failed";
 
-/** True when everything came across: only then is the file safe to remove. */
+/**
+ * True when everything came across: only then is the file safe to remove. `clean` is the
+ * shell's verdict (nothing skipped, failed or left out of an entry); it is the authority, the
+ * counts are kept as a second guard.
+ */
 export function importComplete(result: ImportResult): boolean {
-  return result.failed === 0 && result.attachmentsFailed === 0;
+  return result.clean && result.failed === 0 && result.attachmentsFailed === 0;
 }
 
 function DeleteFile({ token, fileName, complete }: { token: string; fileName: string; complete: boolean }) {
