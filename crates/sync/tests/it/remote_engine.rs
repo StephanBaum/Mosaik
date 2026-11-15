@@ -64,7 +64,7 @@ fn password_of(w: &World, d: usize, vault: VaultId, item: ItemId) -> Option<Stri
 
 fn webdav(dav: &FakeDav) -> WebDavStore {
     WebDavStore::new(
-        RemoteHttp::new(true).unwrap(),
+        RemoteHttp::new_loopback().unwrap(),
         &dav.base_url(),
         "",
         ProviderCredential::WebDav {

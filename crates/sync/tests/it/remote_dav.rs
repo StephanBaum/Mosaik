@@ -35,7 +35,7 @@ fn dav() -> (tempfile::TempDir, FakeDav, WebDavStore) {
     fs::create_dir(dir.path().join("Mosaic")).unwrap();
     let server = FakeDav::serve(dir.path().to_path_buf(), "alice", PASSWORD);
     let store = WebDavStore::new(
-        RemoteHttp::new(true).unwrap(),
+        RemoteHttp::new_loopback().unwrap(),
         &server.base_url(),
         "Mosaic",
         credential(),
@@ -116,7 +116,7 @@ fn write_once_conflict_is_io_and_leaves_no_temp() {
 fn propfind_over_cap_is_protocol() {
     let big = FakeHttp::start(|_| FakeResponse::new(207, &[], vec![b' '; 5 * 1024 * 1024]));
     let store = WebDavStore::new(
-        RemoteHttp::new(true).unwrap(),
+        RemoteHttp::new_loopback().unwrap(),
         &format!("{}/dav", big.origin()),
         "",
         credential(),
@@ -138,7 +138,7 @@ fn password_never_in_debug() {
     let dir = tempfile::tempdir().unwrap();
     let server = FakeDav::serve(dir.path().to_path_buf(), "alice", PASSWORD);
     let wrong = WebDavStore::new(
-        RemoteHttp::new(true).unwrap(),
+        RemoteHttp::new_loopback().unwrap(),
         &server.base_url(),
         "",
         ProviderCredential::WebDav {
@@ -161,7 +161,7 @@ fn password_never_in_debug() {
 
 #[test]
 fn credentials_and_roots_are_checked() {
-    let http = || RemoteHttp::new(true).unwrap();
+    let http = || RemoteHttp::new_loopback().unwrap();
     let other = ProviderCredential::Dropbox {
         refresh_token: Zeroizing::new("t".to_owned()),
     };
@@ -175,7 +175,7 @@ fn credentials_and_roots_are_checked() {
     );
     assert_eq!(
         WebDavStore::new(
-            RemoteHttp::new(false).unwrap(),
+            RemoteHttp::new().unwrap(),
             "http://127.0.0.1:1/dav",
             "",
             credential()
@@ -196,7 +196,7 @@ fn login_server() -> (tempfile::TempDir, FakeDav) {
 #[test]
 fn login_flow_happy_path() {
     let (_dir, server) = login_server();
-    let http = RemoteHttp::new(true).unwrap();
+    let http = RemoteHttp::new_loopback().unwrap();
     let start = login_flow_begin(&http, server.origin(), "Mosaic (Android)").unwrap();
     assert!(start.login_url.starts_with(server.origin()));
     assert!(!format!("{start:?}").contains("poll-token"));
@@ -220,7 +220,7 @@ fn login_flow_happy_path() {
 fn login_flow_refuses_foreign_poll_endpoint() {
     let (_dir, server) = login_server();
     server.set_login_lies(true, false);
-    let http = RemoteHttp::new(true).unwrap();
+    let http = RemoteHttp::new_loopback().unwrap();
     assert_eq!(
         login_flow_begin(&http, server.origin(), "Mosaic").err(),
         Some(TransportError::Protocol)
@@ -231,7 +231,7 @@ fn login_flow_refuses_foreign_poll_endpoint() {
 fn login_flow_refuses_other_server_in_result() {
     let (_dir, server) = login_server();
     server.set_login_lies(false, true);
-    let http = RemoteHttp::new(true).unwrap();
+    let http = RemoteHttp::new_loopback().unwrap();
     let start = login_flow_begin(&http, server.origin(), "Mosaic").unwrap();
     server.complete_login();
     assert_eq!(
@@ -243,7 +243,7 @@ fn login_flow_refuses_other_server_in_result() {
 #[test]
 fn revoke_sends_ocs_header_and_basic_auth() {
     let (_dir, server) = login_server();
-    let http = RemoteHttp::new(true).unwrap();
+    let http = RemoteHttp::new_loopback().unwrap();
     revoke_app_password(&http, server.origin(), &credential()).unwrap();
     let request = server.requests().pop().unwrap();
     assert_eq!(request.method, "DELETE");

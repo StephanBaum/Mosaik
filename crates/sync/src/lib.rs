@@ -43,5 +43,10 @@ pub mod testutil;
 pub mod transport;
 pub mod wire;
 
+#[cfg(all(feature = "test-util", not(debug_assertions)))]
+compile_error!(
+    "the `test-util` feature of mosaic-sync adds test hooks (loopback http for the provider client) and must never be in a release build"
+);
+
 pub use transport::{Transport, TransportError};
 pub use wire::{SyncCrypto, WireError};

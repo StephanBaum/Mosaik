@@ -101,13 +101,26 @@ pub struct RemoteHttp {
 }
 
 impl RemoteHttp {
-    /// A client: redirects off, TLS 1.3 only, `https` only unless
-    /// `allow_loopback` (tests; then `http://127.0.0.1` and `http://[::1]`
-    /// are accepted as well and no proxy is used).
+    /// The production client: redirects off, TLS 1.3 only, `https` only.
     ///
     /// # Errors
     /// [`TransportError::Io`] if the TLS configuration or the client cannot be built.
-    pub fn new(allow_loopback: bool) -> Result<Self, TransportError> {
+    pub fn new() -> Result<Self, TransportError> {
+        Self::build(false)
+    }
+
+    /// A client that also accepts `http://127.0.0.1` and `http://[::1]` and
+    /// uses no proxy. Tests only: it exists in test builds and with the
+    /// debug-only `test-util` feature, never in a release build.
+    ///
+    /// # Errors
+    /// [`TransportError::Io`] if the TLS configuration or the client cannot be built.
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn new_loopback() -> Result<Self, TransportError> {
+        Self::build(true)
+    }
+
+    fn build(allow_loopback: bool) -> Result<Self, TransportError> {
         let mut builder = Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .redirect(Policy::none())
@@ -405,8 +418,22 @@ mod tests {
     }
 
     #[test]
+    fn production_client_refuses_loopback_http() {
+        let http = RemoteHttp::new().unwrap();
+        assert!(!http.allow_loopback());
+        assert_eq!(
+            http.check("http://127.0.0.1:1/"),
+            Err(TransportError::InsecureUrl)
+        );
+        assert_eq!(
+            http.check("http://[::1]:1/"),
+            Err(TransportError::InsecureUrl)
+        );
+    }
+
+    #[test]
     fn success_body_over_cap_is_protocol() {
-        let http = RemoteHttp::new(true).unwrap();
+        let http = RemoteHttp::new_loopback().unwrap();
         let body = vec![7u8; 1000];
         let announced = {
             let body = body.clone();
@@ -427,7 +454,7 @@ mod tests {
 
     #[test]
     fn redirect_is_followed_once_without_authorization() {
-        let http = RemoteHttp::new(true).unwrap();
+        let http = RemoteHttp::new_loopback().unwrap();
         let target = FakeHttp::start(|r| {
             if r.path_and_query == "/dl" {
                 FakeResponse::new(200, &[], b"payload".to_vec())
@@ -508,7 +535,7 @@ mod tests {
 
     #[test]
     fn retry_after_is_clamped() {
-        let http = RemoteHttp::new(true).unwrap();
+        let http = RemoteHttp::new_loopback().unwrap();
         for (sent, want) in [("0", 1), ("999999", 86_400), ("17", 17)] {
             let server =
                 FakeHttp::start(move |_| FakeResponse::new(429, &[("Retry-After", sent)], Vec::new()));
@@ -540,7 +567,7 @@ mod tests {
 
     #[test]
     fn error_bodies_are_cut_and_headers_are_kept() {
-        let http = RemoteHttp::new(true).unwrap();
+        let http = RemoteHttp::new_loopback().unwrap();
         let server = FakeHttp::start(|_| {
             FakeResponse::new(500, &[("X-Thing", "one")], vec![b'x'; MAX_ERROR_BODY * 2])
         });
