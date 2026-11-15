@@ -67,10 +67,23 @@ class AutofillTestKit(private val instrumentation: Instrumentation) {
         for (index in 0 until node.childCount) node.getChild(index)?.let { texts(it, out) }
     }
 
+    /**
+     * The first node showing [text]. Compose screens (Mosaic's own, such as the link confirmation) do not answer
+     * findAccessibilityNodeInfosByText for their virtual nodes, so the tree is also walked by hand.
+     */
     fun findText(text: String): AccessibilityNodeInfo? {
         for (root in windowNodes()) {
             val found = root.findAccessibilityNodeInfosByText(text)
             if (found.isNotEmpty()) return found[0]
+            walk(root, text)?.let { return it }
+        }
+        return null
+    }
+
+    private fun walk(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
+        if (node.text?.toString()?.contains(text) == true) return node
+        for (index in 0 until node.childCount) {
+            node.getChild(index)?.let { child -> walk(child, text)?.let { return it } }
         }
         return null
     }
