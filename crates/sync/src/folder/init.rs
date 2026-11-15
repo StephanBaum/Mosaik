@@ -4,8 +4,10 @@ use std::path::Path;
 
 use mosaic_core::AccountId;
 
-use super::fsutil;
-use super::layout::{Layout, MARKER_BYTES, MARKER_NAME, README_BYTES, README_NAME};
+use super::layout::{
+    Layout, MARKER_BYTES, MARKER_NAME, README_BYTES, README_NAME, accounts_dir, marker_path,
+};
+use super::store::{Entry, FolderStore, LocalStore, RelPath};
 use crate::transport::TransportError;
 use crate::wire::folder_names::{self, FolderName};
 
@@ -75,15 +77,22 @@ fn is_os_metadata(name: &str) -> bool {
 /// Looks into `root` without writing anything.
 #[must_use]
 pub fn inspect(root: &Path) -> FolderContents {
-    if !root.is_dir() {
+    inspect_in(&LocalStore::new(root))
+}
+
+/// As [`inspect`], over any [`FolderStore`].
+#[must_use]
+pub fn inspect_in(store: &dyn FolderStore) -> FolderContents {
+    let root = RelPath::root();
+    if !store.is_real_dir(&root) {
         return FolderContents::Missing;
     }
-    let Ok(entries) = fsutil::list(root) else {
+    let Ok(entries) = store.list(&root) else {
         return FolderContents::Foreign;
     };
-    match fsutil::read_capped(&root.join(MARKER_NAME), 256) {
+    match store.read_capped(&marker_path(), 256) {
         Ok(Some(bytes)) if bytes == MARKER_BYTES => {
-            let mut accounts = list_accounts_capped(root, MAX_LISTED_ACCOUNTS + 1);
+            let mut accounts = list_accounts_capped(store, MAX_LISTED_ACCOUNTS + 1);
             let truncated = accounts.len() > MAX_LISTED_ACCOUNTS;
             accounts.truncate(MAX_LISTED_ACCOUNTS);
             FolderContents::Mosaic {
@@ -119,15 +128,26 @@ pub fn inspect(root: &Path) -> FolderContents {
 /// [`FolderError::Unavailable`], [`FolderError::NotEmpty`],
 /// [`FolderError::Unsupported`], [`FolderError::Io`].
 pub fn init(root: &Path) -> Result<(), FolderError> {
-    match inspect(root) {
+    init_in(&LocalStore::new(root))
+}
+
+/// As [`init`], over any [`FolderStore`].
+///
+/// # Errors
+/// As [`init`].
+pub fn init_in(store: &dyn FolderStore) -> Result<(), FolderError> {
+    match inspect_in(store) {
         FolderContents::Missing => Err(FolderError::Unavailable),
         FolderContents::Foreign => Err(FolderError::NotEmpty),
         FolderContents::OtherVersion => Err(FolderError::Unsupported),
         FolderContents::Mosaic { .. } => Ok(()),
         FolderContents::Empty => {
-            fsutil::write_atomic(root, MARKER_NAME, MARKER_BYTES, false)
+            let root = RelPath::root();
+            store
+                .write_atomic(&root, MARKER_NAME, MARKER_BYTES, false)
                 .map_err(|_| FolderError::Io)?;
-            fsutil::write_atomic(root, README_NAME, README_BYTES, false)
+            store
+                .write_atomic(&root, README_NAME, README_BYTES, false)
                 .map_err(|_| FolderError::Io)
         }
     }
@@ -138,15 +158,21 @@ pub fn init(root: &Path) -> Result<(), FolderError> {
 /// [`inspect`] lists with [`list_accounts_capped`] instead.
 #[must_use]
 pub fn list_accounts(root: &Path) -> Vec<AccountId> {
-    let Ok(entries) = fsutil::list(&root.join("a")) else {
+    list_accounts_in(&LocalStore::new(root))
+}
+
+/// As [`list_accounts`], over any [`FolderStore`].
+#[must_use]
+pub fn list_accounts_in(store: &dyn FolderStore) -> Vec<AccountId> {
+    let Ok(entries) = store.list(&accounts_dir()) else {
         return Vec::new();
     };
     entries.iter().filter_map(account_of).collect()
 }
 
 /// The account of a directory entry, if it is an account directory.
-fn account_of(e: &fsutil::Entry) -> Option<AccountId> {
-    if !e.is_dir {
+fn account_of(e: &Entry) -> Option<AccountId> {
+    if !e.is_dir() {
         return None;
     }
     match folder_names::parse(&e.name) {
@@ -159,8 +185,9 @@ fn account_of(e: &fsutil::Entry) -> Option<AccountId> {
 /// stops once `limit` are found (or after a bounded number of directory items),
 /// so a hostile folder cannot make this read or sort them all. With more than
 /// `limit` accounts present, which of them are listed is up to the file system.
-fn list_accounts_capped(root: &Path, limit: usize) -> Vec<AccountId> {
-    fsutil::list_capped(&root.join("a"), limit, |e| account_of(e).is_some())
+fn list_accounts_capped(store: &dyn FolderStore, limit: usize) -> Vec<AccountId> {
+    store
+        .list_capped(&accounts_dir(), limit, &|e| account_of(e).is_some())
         .map(|entries| entries.iter().filter_map(account_of).collect())
         .unwrap_or_default()
 }
@@ -169,12 +196,25 @@ fn list_accounts_capped(root: &Path, limit: usize) -> Vec<AccountId> {
 /// one `stat`, no listing, so it holds however many accounts the folder has.
 #[must_use]
 pub fn has_account(root: &Path, account: &AccountId) -> bool {
-    fsutil::is_real_dir(&Layout::new(root, account).dir())
+    has_account_in(&LocalStore::new(root), account)
+}
+
+/// As [`has_account`], over any [`FolderStore`].
+#[must_use]
+pub fn has_account_in(store: &dyn FolderStore, account: &AccountId) -> bool {
+    store.is_real_dir(&Layout::new(account).dir())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The account directory on disk.
+    fn account_path(root: &Path, account: &AccountId) -> std::path::PathBuf {
+        let mut path = root.to_path_buf();
+        path.extend(Layout::new(account).dir().components());
+        path
+    }
 
     fn account(n: u8) -> AccountId {
         let mut bytes = [7u8; 16];
@@ -193,7 +233,7 @@ mod tests {
         let dir = mosaic_folder();
         let count = u8::try_from(MAX_LISTED_ACCOUNTS + 6).unwrap();
         for n in 0..count {
-            std::fs::create_dir_all(Layout::new(dir.path(), &account(n)).dir()).unwrap();
+            std::fs::create_dir_all(account_path(dir.path(), &account(n))).unwrap();
         }
         let FolderContents::Mosaic {
             accounts,
@@ -212,7 +252,7 @@ mod tests {
         // Exactly the cap is not truncated.
         let dir = mosaic_folder();
         for n in 0..u8::try_from(MAX_LISTED_ACCOUNTS).unwrap() {
-            std::fs::create_dir_all(Layout::new(dir.path(), &account(n)).dir()).unwrap();
+            std::fs::create_dir_all(account_path(dir.path(), &account(n))).unwrap();
         }
         assert!(matches!(
             inspect(dir.path()),
@@ -224,13 +264,13 @@ mod tests {
     fn has_account_is_a_direct_check_beyond_the_cap() {
         let dir = mosaic_folder();
         for n in 0..=u8::try_from(MAX_LISTED_ACCOUNTS + 6).unwrap() {
-            std::fs::create_dir_all(Layout::new(dir.path(), &account(n)).dir()).unwrap();
+            std::fs::create_dir_all(account_path(dir.path(), &account(n))).unwrap();
         }
         let last = account(u8::try_from(MAX_LISTED_ACCOUNTS + 6).unwrap());
         assert!(has_account(dir.path(), &last));
         assert!(!has_account(dir.path(), &account(200)));
         // A plain file under the account's name is not an account.
-        std::fs::write(Layout::new(dir.path(), &account(201)).dir(), b"x").unwrap();
+        std::fs::write(account_path(dir.path(), &account(201)), b"x").unwrap();
         assert!(!has_account(dir.path(), &account(201)));
     }
 }

@@ -27,7 +27,7 @@ pub fn parse(bytes: &[u8]) -> Result<SetupCode> {
 }
 
 /// Parses a setup code of either form strictly (CRYPTO_SPEC §6.9.7, ADR-0161):
-/// v1 as [`parse`]; for v2 the WebDAV server must be a canonical `https`
+/// v1 as [`parse`]; for v2 the `WebDAV` server must be a canonical `https`
 /// origin.
 ///
 /// # Errors

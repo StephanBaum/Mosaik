@@ -153,9 +153,9 @@ pub fn parse(
 pub enum FolderProviderHint {
     /// Dropbox.
     Dropbox,
-    /// OneDrive (personal or work/school).
+    /// `OneDrive` (personal or work/school).
     OneDrive,
-    /// Nextcloud or another WebDAV server.
+    /// Nextcloud or another `WebDAV` server.
     WebDav,
     /// Unknown: the phone asks the user.
     Other,
@@ -234,11 +234,10 @@ pub fn valid_path_hint(path: &str) -> bool {
 }
 
 fn hex_lower(bytes: &[u8; 16]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(32);
     for b in bytes {
-        out.push(char::from(DIGITS[usize::from(b >> 4)]));
-        out.push(char::from(DIGITS[usize::from(b & 15)]));
+        out.push(char::from_digit(u32::from(b >> 4), 16).unwrap_or('0'));
+        out.push(char::from_digit(u32::from(b & 15), 16).unwrap_or('0'));
     }
     out
 }
@@ -247,9 +246,12 @@ fn parse_hex32(s: &str) -> Option<[u8; 16]> {
     if s.len() != 32 {
         return None;
     }
+    let bytes = s.as_bytes();
     let mut out = [0u8; 16];
-    for (slot, pair) in out.iter_mut().zip(s.as_bytes().chunks_exact(2)) {
-        *slot = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+    for (i, slot) in out.iter_mut().enumerate() {
+        let hi = nibble(*bytes.get(2 * i)?)?;
+        let lo = nibble(*bytes.get(2 * i + 1)?)?;
+        *slot = (hi << 4) | lo;
     }
     Some(out)
 }
@@ -315,7 +317,7 @@ pub fn build_folder(code: &FolderSetupCode) -> Result<Zeroizing<String>> {
 /// Parses a setup code of either form, strictly.
 ///
 /// `canonical` is the v1 rule of [`parse`]. `canonical_server` returns the
-/// canonical `https` origin of a WebDAV server for the v2 form, or `None`.
+/// canonical `https` origin of a `WebDAV` server for the v2 form, or `None`.
 ///
 /// # Errors
 /// As [`parse`] for v1. For v2, [`Error::Malformed`] for anything that is not

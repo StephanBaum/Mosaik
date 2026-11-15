@@ -71,10 +71,11 @@ fn below<'a>(folder: &[&'a str], root: &[&str]) -> Option<Vec<&'a str>> {
     if root.is_empty() || root.len() > folder.len() {
         return None;
     }
+    let (head, rest) = folder.split_at_checked(root.len())?;
     root.iter()
-        .zip(folder)
+        .zip(head)
         .all(|(r, f)| same(r, f))
-        .then(|| folder[root.len()..].to_vec())
+        .then(|| rest.to_vec())
 }
 
 /// `prefix` (empty or `/a/b`) followed by the relative components.
@@ -182,6 +183,9 @@ fn dropbox_roots(bytes: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// The `localPath` and `targetPath` of one folder entry.
+type FolderFields<'a> = (Option<&'a str>, Option<&'a str>);
+
 /// One synced folder of the Nextcloud client.
 struct NextcloudFolder {
     server: String,
@@ -201,7 +205,7 @@ fn nextcloud_folders(bytes: &[u8]) -> Vec<NextcloudFolder> {
     };
     let mut urls: BTreeMap<&str, &str> = BTreeMap::new();
     // (account, folder) -> (local, target)
-    let mut folders: BTreeMap<(&str, &str), (Option<&str>, Option<&str>)> = BTreeMap::new();
+    let mut folders: BTreeMap<(&str, &str), FolderFields<'_>> = BTreeMap::new();
     let mut in_accounts = true;
     for line in text.lines() {
         let line = line.trim();
@@ -372,10 +376,7 @@ mod tests {
             onedrive_roots: vec![PathBuf::from("/home/a")],
             ..HintSources::default()
         };
-        assert_eq!(
-            detect_hint(Path::new("/home/a/we\"ird"), &quote),
-            other()
-        );
+        assert_eq!(detect_hint(Path::new("/home/a/we\"ird"), &quote), other());
         // A control character is refused.
         assert_eq!(
             detect_hint(Path::new("/home/a/bad\u{7}name"), &quote),

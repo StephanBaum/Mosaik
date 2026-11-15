@@ -126,7 +126,8 @@ fn setup_code_for_folder_account_carries_account_and_hint() {
     let frame = frame_of(&shown);
     let text = scan_setup_frames(&[frame.frame()]).unwrap();
     assert!(text.starts_with("mosaic-setup:2:"));
-    let ParsedSetupCode::Folder(code) = mosaic_sync::setup_code::parse_any(text.as_bytes()).unwrap()
+    let ParsedSetupCode::Folder(code) =
+        mosaic_sync::setup_code::parse_any(text.as_bytes()).unwrap()
     else {
         panic!("expected a folder code");
     };

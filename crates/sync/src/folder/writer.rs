@@ -2,11 +2,12 @@
 //! this install's own log; compaction writes a snapshot as contiguous parts
 //! and only then deletes the older segments (`maintain`).
 
-use mosaic_core::{KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey};
+use mosaic_core::{InstallId, KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey};
 use mosaic_vault::storage::RecordBody;
 
 use super::reader::SegmentFile;
-use super::{FolderCrypto, FolderTransport, fsutil, lock_or};
+use super::store::EntryKind;
+use super::{FolderCrypto, FolderTransport, lock_or};
 use crate::transport::{KeyPushResult, PushRecord, PushResult, TransportError, VaultCreateResult};
 use crate::wire::folder_names::{self, FolderName};
 use crate::wire::segment::{
@@ -116,7 +117,10 @@ impl<C: FolderCrypto> FolderTransport<C> {
         let mut seq = floor.checked_add(1).ok_or(TransportError::Io)?;
         let dir = self.layout.log_dir(&vault, &self.install);
         for attempt in 0..MAX_NAME_ATTEMPTS {
-            if !fsutil::exists(&dir.join(folder_names::segment_name(seq))) {
+            if !self
+                .store
+                .exists(&dir.known(&folder_names::segment_name(seq)))
+            {
                 if attempt > 0 {
                     self.force_compact.insert(vault);
                 }
@@ -140,33 +144,29 @@ impl<C: FolderCrypto> FolderTransport<C> {
     ) -> Result<(), TransportError> {
         let install = self.install;
         let dir = self.layout.log_dir(&vault, &install);
-        let Ok(read) = std::fs::read_dir(&dir) else {
-            return Ok(());
-        };
-        for item in read.flatten() {
-            let Some(FolderName::Segment { seq }) = folder_names::parse(&item.file_name()) else {
+        for item in self.store.list_with_links(&dir)? {
+            let Some(FolderName::Segment { seq }) = folder_names::parse(&item.name) else {
                 continue;
             };
             if seq <= reserved {
                 continue;
             }
-            let path = item.path();
-            let Ok(meta) = std::fs::symlink_metadata(&path) else {
-                continue;
-            };
-            if !meta.is_file() {
-                fsutil::remove_squatter(&path);
+            let path = dir.known(&folder_names::segment_name(seq));
+            if item.kind != EntryKind::File {
+                // A directory, a link or another object on a segment name.
+                self.store.remove_squatter(&path);
                 continue;
             }
             let file = SegmentFile {
                 seq,
-                len: meta.len(),
-                modified: meta.modified().ok(),
+                len: item.len,
+                modified: item.modified,
+                version: item.version.clone(),
             };
             // Read first: a file that cannot be read now is not a bad one.
             let _ = self.probe(vault, install, &file)?;
             if self.known_bad(vault, install, &file) {
-                fsutil::remove_squatter(&path);
+                self.store.remove_squatter(&path);
                 self.scan.remove(&(vault, install, seq));
             }
         }
@@ -196,14 +196,42 @@ impl<C: FolderCrypto> FolderTransport<C> {
         let install = self.install;
         let files = self.segment_files(&vault, &install)?;
         for file in files.iter().rev().take_while(|f| f.seq >= written).take(32) {
-            let outcome = self.probe(vault, install, file)?;
-            if matches!(outcome, super::Outcome::Good { .. })
-                || !self.known_bad(vault, install, file)
-            {
+            if self.counts_as_present(vault, install, file)? {
                 return Ok(true);
             }
         }
-        Ok(false)
+        // No listed file counts. A listing can lag behind the writes (a
+        // provider API), so only an authoritative `stat` of the newest name
+        // this device wrote can say that it is missing.
+        let path = self
+            .layout
+            .log_dir(&vault, &install)
+            .known(&folder_names::segment_name(written));
+        let Some(entry) = self.store.stat(&path)? else {
+            return Ok(false);
+        };
+        if entry.kind != EntryKind::File {
+            return Ok(false);
+        }
+        let file = SegmentFile {
+            seq: written,
+            len: entry.len,
+            modified: entry.modified,
+            version: entry.version,
+        };
+        self.counts_as_present(vault, install, &file)
+    }
+
+    /// A segment file counts as present when it verifies or cannot be read
+    /// right now; one that was read in full and fails its MAC does not.
+    fn counts_as_present(
+        &mut self,
+        vault: VaultId,
+        install: InstallId,
+        file: &SegmentFile,
+    ) -> Result<bool, TransportError> {
+        let outcome = self.probe(vault, install, file)?;
+        Ok(matches!(outcome, super::Outcome::Good { .. }) || !self.known_bad(vault, install, file))
     }
 
     /// Whether the own log of any of `vaults` lost its newest segments: the
@@ -249,7 +277,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
         let bytes = segment
             .encode(&self.crypto)
             .map_err(|e| lock_or(e, TransportError::Protocol))?;
-        fsutil::write_atomic(
+        self.store.write_atomic(
             &self.layout.log_dir(&vault, &self.install),
             &folder_names::segment_name(seq),
             &bytes,
@@ -294,8 +322,10 @@ impl<C: FolderCrypto> FolderTransport<C> {
             let last = base
                 .checked_add(u64::from(parts.saturating_sub(1)))
                 .ok_or(TransportError::Io)?;
-            let taken =
-                (base..=last).find(|s| fsutil::exists(&dir.join(folder_names::segment_name(*s))));
+            let taken = (base..=last).find(|s| {
+                self.store
+                    .exists(&dir.known(&folder_names::segment_name(*s)))
+            });
             let Some(taken) = taken else { break last };
             attempts += 1;
             if attempts > MAX_NAME_ATTEMPTS {
