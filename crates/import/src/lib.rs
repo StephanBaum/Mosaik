@@ -77,6 +77,7 @@ pub mod kdbx;
 pub mod keeper;
 pub mod mosaic_export;
 pub mod onepux;
+pub mod proton_pass;
 
 use mosaic_core::SecretString;
 
@@ -112,6 +113,9 @@ pub enum Format {
     /// Keeper CSV export (no header row; never detected from content,
     /// chosen by the user's source).
     KeeperCsv,
+    /// Proton Pass export: a zip with `Proton Pass/data.json`, or that
+    /// `data.json` itself; unencrypted only.
+    ProtonPass,
     /// CSV with a header row; columns are mapped automatically
     /// ([`csv::CsvMapping::detect`]).
     Csv,
@@ -136,6 +140,7 @@ pub fn parse(format: Format, input: &[u8], password: Option<&SecretString>) -> R
         Format::Dashlane => dashlane::parse(input),
         Format::Keeper => keeper::parse_json(input),
         Format::KeeperCsv => keeper::parse_csv(input),
+        Format::ProtonPass => proton_pass::parse(input),
         Format::Csv => csv::parse(input, None),
     }
 }

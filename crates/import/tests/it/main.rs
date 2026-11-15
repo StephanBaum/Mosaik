@@ -10,5 +10,6 @@ mod mosaic_export;
 mod nordpass;
 mod passkeys;
 mod properties;
+mod proton_pass;
 mod redteam;
 mod support;
