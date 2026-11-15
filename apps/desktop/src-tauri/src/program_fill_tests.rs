@@ -257,7 +257,10 @@ impl Env {
                     Arc::new(move || clock.load(Ordering::SeqCst))
                 },
             )
-            .without_timers(),
+            .without_timers()
+            // CI runners run tests as administrator: the real check would turn program fill
+            // off. Tests of an elevated Mosaic set it to true themselves.
+            .with_elevation_check(Arc::new(|| false)),
         );
         let backend = Backend::new(
             crate::state::Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),

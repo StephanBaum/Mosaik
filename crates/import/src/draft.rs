@@ -1146,7 +1146,8 @@ mod tests {
             b.url(u, "URL");
         }
         let (d, w) = b.finish().unwrap();
-        assert!(d.urls.is_empty());
+        let urls: Vec<&str> = d.urls.iter().map(Text::as_str).collect();
+        assert_eq!(urls, Vec::<&str>::new());
         assert_eq!(d.custom_fields.len(), 3);
         assert!(w.contains(&EntryWarning::UrlKeptAsText));
     }
