@@ -10,7 +10,7 @@
       },
       "wix": {
         "fragmentPaths": ["wix/native-messaging.wxs"],
-        "componentRefs": ["MosaicNativeMessaging"]
+        "componentGroupRefs": ["MosaicNativeMessaging"]
       }
     },
     "macOS": {
