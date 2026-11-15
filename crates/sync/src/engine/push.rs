@@ -257,7 +257,7 @@ impl<T: Transport> SyncEngine<T> {
                 Err(TransportError::Forbidden | TransportError::NotFound)
                     if access.with(|s| s.vault_shared(vault))?? =>
                 {
-                    access.with(|s| s.mark_access_lost(vault))??;
+                    Self::refused_vault(access, vault)?;
                     conflicts.refused.insert(vault);
                     return Ok(sent);
                 }
@@ -308,7 +308,7 @@ impl<T: Transport> SyncEngine<T> {
                     Err(TransportError::Forbidden | TransportError::NotFound)
                         if access.with(|s| s.vault_shared(vault))?? =>
                     {
-                        access.with(|s| s.mark_access_lost(vault))??;
+                        Self::refused_vault(access, vault)?;
                     }
                     Err(e) => return Err(e.into()),
                 }

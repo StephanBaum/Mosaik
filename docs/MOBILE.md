@@ -129,6 +129,12 @@ The binding surface is `crates/mobile-ffi/src/lib.rs`; its rustdoc is the refere
 | Identity store | — | passkey identities with the passkey setting; password identities only with OD-M10-7 (default off) | ADR-0092, R132 |
 | Setup code | scanned with CameraX and decoded in Rust (no ML Kit) | scanned with `AVCaptureMetadataOutput` | CRYPTO_SPEC §6.9.7, ADR-0096 |
 
+**Store-lock invariant of the iOS extension (MOBILE-1).** In `ProviderSession`, `password(for:)` and `oneTimeCode(for:)` check only that a fill
+session is open; `assertPasskey` and `registerPasskey` also check `flags.isVerified`. That is safe because an open fill session implies a biometric
+unlock in the same request: `begin()` locks an already unlocked store, the extension always opens a fresh core with `RefusingSecureStorage`, and
+`core.fillCandidates` refuses unless the phase is unlocked. Nothing else asserts it. A change that reuses an app-unlocked store, adds an unlock that
+is not biometric, or opens a fill session before `unlockQuick` must add the per-request check to those two paths first (THREAT_MODEL R163).
+
 Limits that users notice:
 - **Large vaults in the iOS extension.** `UnlockedSession::load` decrypts every item, and a vault above about
   5 000 items may exceed the ~120 MiB limit. A lazy-load mode for the vault would be a later API change.

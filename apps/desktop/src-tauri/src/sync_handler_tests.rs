@@ -144,7 +144,12 @@ pub(crate) struct Env {
 
 impl Env {
     pub(crate) fn new() -> Self {
-        Self::with_store(Store::open_in_memory().unwrap(), None)
+        Self::with_store(Store::open_in_memory().unwrap(), None, None)
+    }
+
+    /// [`Self::new`] with a quick-unlock service (fake platforms).
+    pub(crate) fn with_quick_unlock(service: crate::quick_unlock::QuickUnlockService) -> Self {
+        Self::with_store(Store::open_in_memory().unwrap(), None, Some(service))
     }
 
     /// An environment over a store file in `dir` (attachments need one).
@@ -152,10 +157,15 @@ impl Env {
         Self::with_store(
             Store::open(dir.join("vault.sqlite3")).unwrap(),
             Some(dir.to_path_buf()),
+            None,
         )
     }
 
-    fn with_store(store: Store, dir: Option<PathBuf>) -> Self {
+    fn with_store(
+        store: Store,
+        dir: Option<PathBuf>,
+        quick: Option<crate::quick_unlock::QuickUnlockService>,
+    ) -> Self {
         let tokens = Arc::new(MemorySyncTokens::default());
         let picked = Arc::new(Mutex::new(None));
         let confirm = Arc::new(AtomicBool::new(true));
@@ -180,6 +190,9 @@ impl Env {
         .with_opener(Box::new(RecordingOpener(Arc::clone(&opened))));
         if let Some(dir) = dir {
             backend = backend.with_store_dir(dir);
+        }
+        if let Some(quick) = quick {
+            backend = backend.with_quick_unlock(quick);
         }
         let state = AppState::new(backend);
         let (channel, events) = recording_channel();
@@ -1181,36 +1194,29 @@ fn hosted_sign_in(server: &LoopbackServer, password: &str) -> HostedConnectReque
     }
 }
 
-/// C-M1: a lock request (manual, idle, sleep, screen lock) waits for a master
-/// password change in flight, and goes ahead after the cap.
+/// KEY-2 (ADR-0155): a lock request (manual, idle, sleep, screen lock) never
+/// waits for a master password change in flight; one change at a time stays.
 #[test]
-fn a_lock_during_a_password_change_is_deferred_until_it_ends() {
+fn a_lock_during_a_password_change_goes_ahead_at_once() {
     let _kdf = kdf_permit();
     let e = Env::new();
     e.create();
-    let change = e.b().sync.begin_change().unwrap();
+    let _change = e.b().sync.begin_change().unwrap();
     assert_eq!(
         code(e.b().sync.begin_change().err().unwrap()),
         ErrorCode::Busy,
         "one change at a time"
     );
-    let state = e.state.clone();
-    let locker = std::thread::spawn(move || state.backend().lock(LockReason::Idle));
-    std::thread::sleep(Duration::from_millis(400));
-    assert!(e.b().is_unlocked(), "the lock waits for the change");
-    assert!(!locker.is_finished());
-    drop(change);
-    locker.join().unwrap().unwrap();
-    assert!(!e.b().is_unlocked());
-
-    // After the cap the lock goes ahead even if the change is still running.
-    e.unlock().unwrap();
-    e.b().sync.set_defer_cap(Duration::from_millis(300));
-    let _stuck = e.b().sync.begin_change().unwrap();
-    let started = Instant::now();
-    e.b().lock(LockReason::Manual).unwrap();
-    assert!(started.elapsed() >= Duration::from_millis(250));
-    assert!(!e.b().is_unlocked());
+    for reason in [LockReason::Manual, LockReason::Idle, LockReason::ScreenLock] {
+        let started = Instant::now();
+        e.b().lock(reason).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{reason:?} is not deferred"
+        );
+        assert!(!e.b().is_unlocked(), "{reason:?}");
+        e.unlock().unwrap();
+    }
 }
 
 /// C-M1: the server took the change, the device never committed it (killed,
@@ -1802,19 +1808,6 @@ fn a_folder_account_file_at_or_below_the_last_version_is_a_rollback() {
         code: None,
     });
     assert_eq!(code(result.unwrap_err()), ErrorCode::SyncPasswordRollback);
-}
-
-/// Verify 3: a sleep locks at once; any other reason waits for a change.
-#[test]
-fn a_sleep_lock_is_not_deferred() {
-    let _kdf = kdf_permit();
-    let e = Env::new();
-    e.create();
-    let _change = e.b().sync.begin_change().unwrap();
-    let started = Instant::now();
-    e.b().lock(LockReason::Sleep).unwrap();
-    assert!(started.elapsed() < Duration::from_secs(2));
-    assert!(!e.b().is_unlocked());
 }
 
 /// Verify 5: every lock reason ends a pending login or join, also in the

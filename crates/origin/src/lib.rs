@@ -25,6 +25,9 @@
 //! is for), [`fields`] (which fields of a view tree to fill, never those of a
 //! cross-origin frame) and [`assetlinks`] (Digital Asset Links parsing).
 //!
+//! Windows (ADR-0158): [`program`] (`winapp://` program URLs bound to a package,
+//! a trusted signer or an unsigned file, and the exclusion classes).
+//!
 //! The public suffix list is a build-time snapshot of the `psl` crate.
 #![forbid(unsafe_code)]
 
@@ -32,6 +35,7 @@ pub mod android_browsers;
 pub mod app;
 pub mod assetlinks;
 pub mod fields;
+pub mod program;
 pub mod target;
 
 use mosaic_core::model::{LoginUrl, UrlMatch};
@@ -507,6 +511,8 @@ fn is_one_deletion(long: &[char], short: &[char]) -> bool {
 
 #[cfg(test)]
 mod mobile_tests;
+#[cfg(test)]
+mod program_tests;
 #[cfg(test)]
 mod redteam_android_tests;
 #[cfg(test)]

@@ -23,6 +23,8 @@ mod maintain;
 mod owned;
 mod pull;
 mod push;
+#[cfg(all(test, feature = "test-util"))]
+mod refusal_tests;
 mod rekey;
 mod rotation;
 mod served;
