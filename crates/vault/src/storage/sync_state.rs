@@ -269,6 +269,10 @@ impl Store {
             }
         }
         let tx = self.write()?;
+        // The device-local remote folder location belongs to a folder account.
+        if config.is_none_or(|c| c.kind != SyncKind::Folder) {
+            tx.execute("DELETE FROM folder_remote WHERE id = 1", [])?;
+        }
         match config {
             None => {
                 tx.execute("DELETE FROM sync_config WHERE id = 1", [])?;
@@ -291,6 +295,55 @@ impl Store {
                         c.device_name,
                         now_ms()
                     ],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Where the folder of a provider-backed folder account is (schema v14): the JSON text the
+    /// caller stored, device-local and never synced.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn folder_remote(&self) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT location FROM folder_remote WHERE id = 1", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()?)
+    }
+
+    /// Stores where the folder is (2 to 4096 characters, at most 4096 bytes), or forgets it with
+    /// `None`. Setting it needs a folder backend in [`SyncConfig`]. The location is cleartext
+    /// local metadata (CRYPTO_SPEC §11); it holds no secret.
+    ///
+    /// # Errors
+    /// [`Error::SyncDataInvalid`] for text of the wrong length or without a folder backend;
+    /// [`Error::Database`].
+    pub fn set_folder_remote(&mut self, location: Option<&str>) -> Result<()> {
+        if let Some(text) = location {
+            let chars = text.chars().count();
+            if !(2..=4096).contains(&chars)
+                || text.len() > 4096
+                || !matches!(self.sync_config()?, Some(c) if c.kind == SyncKind::Folder)
+            {
+                return Err(Error::SyncDataInvalid);
+            }
+        }
+        let tx = self.write()?;
+        match location {
+            None => {
+                tx.execute("DELETE FROM folder_remote WHERE id = 1", [])?;
+            }
+            Some(text) => {
+                tx.execute(
+                    "INSERT INTO folder_remote (id, location, updated_at) VALUES (1, ?1, ?2)
+                     ON CONFLICT (id) DO UPDATE SET
+                         location = excluded.location, updated_at = excluded.updated_at",
+                    params![text, now_ms()],
                 )?;
             }
         }
@@ -805,6 +858,73 @@ mod tests {
             Err(Error::SyncDataInvalid)
         ));
         assert_eq!(s.sync_config().unwrap(), None, "nothing was stored");
+    }
+
+    fn folder_config() -> SyncConfig {
+        SyncConfig {
+            kind: SyncKind::Folder,
+            server_url: None,
+            email: None,
+            folder_path: Some(PathBuf::from("/Mosaic")),
+            device_name: "Phone".to_owned(),
+        }
+    }
+
+    #[test]
+    fn folder_remote_round_trip_and_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.db");
+        let mut s = Store::open(&path).unwrap();
+        assert_eq!(s.folder_remote().unwrap(), None);
+        s.set_sync_config(Some(&folder_config())).unwrap();
+        let text = r#"{"provider":"dropbox","root":"/Mosaic"}"#;
+        s.set_folder_remote(Some(text)).unwrap();
+        assert_eq!(s.folder_remote().unwrap().as_deref(), Some(text));
+        // A second value replaces the first; it survives a reopen.
+        let other = r#"{"provider":"onedrive","root":"/Ü","driveId":"b!x","itemId":"01"}"#;
+        s.set_folder_remote(Some(other)).unwrap();
+        s.close().unwrap();
+        let mut s = Store::open(&path).unwrap();
+        assert_eq!(s.folder_remote().unwrap().as_deref(), Some(other));
+        // The sync config is untouched by it, and `None` deletes the row.
+        assert_eq!(s.sync_config().unwrap(), Some(folder_config()));
+        s.set_folder_remote(None).unwrap();
+        assert_eq!(s.folder_remote().unwrap(), None);
+        s.set_folder_remote(None).unwrap();
+        // Length limits: 2 to 4096 characters and at most 4096 bytes.
+        for bad in ["", "x", &"x".repeat(4097), &"ü".repeat(2049)] {
+            assert!(
+                matches!(s.set_folder_remote(Some(bad)), Err(Error::SyncDataInvalid)),
+                "{}",
+                bad.len()
+            );
+        }
+        s.set_folder_remote(Some(&"x".repeat(4096))).unwrap();
+        // Dropping the folder backend forgets the location.
+        s.set_sync_config(None).unwrap();
+        assert_eq!(s.folder_remote().unwrap(), None);
+    }
+
+    #[test]
+    fn folder_remote_requires_folder_kind() {
+        let mut s = Store::open_in_memory().unwrap();
+        // No backend at all, and a hosted one: refused, nothing stored.
+        assert!(matches!(
+            s.set_folder_remote(Some("{}")),
+            Err(Error::SyncDataInvalid)
+        ));
+        s.set_sync_config(Some(&hosted())).unwrap();
+        assert!(matches!(
+            s.set_folder_remote(Some("{}")),
+            Err(Error::SyncDataInvalid)
+        ));
+        assert_eq!(s.folder_remote().unwrap(), None);
+        // Changing from a folder to a hosted backend clears the location.
+        s.set_sync_config(None).unwrap();
+        s.set_sync_config(Some(&folder_config())).unwrap();
+        s.set_folder_remote(Some("{}")).unwrap();
+        s.set_sync_config(Some(&hosted())).unwrap();
+        assert_eq!(s.folder_remote().unwrap(), None);
     }
 
     #[test]

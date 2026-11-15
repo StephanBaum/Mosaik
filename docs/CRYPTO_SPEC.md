@@ -2680,7 +2680,10 @@ and the join rules of this section do not change.
   local store (ADR-0010).
 - The sync configuration (server URL, email, folder path, device name), the
   per-install `InstallId`, sync cursors and the checkpoint counter are
-  cleartext local metadata. None of it is derived from item plaintext.
+  cleartext local metadata. None of it is derived from item plaintext. Store v14 adds
+  `folder_remote`, the device-local location of a provider-backed folder (provider, display path,
+  drive and item ids or a team namespace; ADR-0162): cleartext local metadata that holds no secret
+  and is never synced.
 - The persisted state of the sync engine (schema v4, v5) is cleartext local
   sync metadata of the same kind (v5 adds the served view `sync_served`:
   per hosted record the `server_seq` and the SHA-256 of the ciphertext the
