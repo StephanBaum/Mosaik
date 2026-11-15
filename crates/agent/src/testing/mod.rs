@@ -2,6 +2,7 @@
 //! server for the HTTPS sender and the policy engine. Nothing here is trusted by any build:
 //! the CA exists only in `testdata/` and is passed to [`crate::http::HttpsSender::for_test`].
 
+mod host;
 mod tls_server;
 
 use std::path::Path;
@@ -23,6 +24,7 @@ pub fn local_endpoint(dir: &Path) -> Result<Endpoint, mosaic_native_messaging::E
     }
 }
 
+pub use host::{FakeSource, TestHost};
 pub use tls_server::{
     API_HOST, CA_DER, EVIL_HOST, OTHER_CA_DER, RecordedRequest, TestResponse, TestRoute,
     TlsTestServer,

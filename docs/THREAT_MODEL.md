@@ -445,6 +445,8 @@ Phase 1 covers the request tool only; the rows for `run` and the proxy come with
 | R183 | A user with an open CLI session (ADR-0072) whose agent has a shell can still run `mosaic get --reveal` or `mosaic inject`. The `agentContext` refusal for `CLAUDECODE` stops accidents only, and an injected agent can unset the variable | accepted. Docs advice: do not keep a CLI session open while an agent has a shell (ADR-0159 Q10) |
 | R184 | The injected value may leave copies inside `reqwest`, `hyper` and `rustls` buffers that the agent code cannot zeroize while the request is in flight or the buffers are freed (same class as serde, ADR-0009); same-user memory readers are P5 (R1) | accepted |
 | R185 | A destination may resolve to a private address (company APIs, ADR-0159 Q15) and DNS answers are not checked; the binding is TLS with the platform verifier, so a rebound address cannot present a valid certificate for the saved host. A private CA that the user's machine trusts can | accepted |
+| R186 | A connection to the agent endpoint that was accepted but not yet served when the server stops (the setting is turned off, the app quits) can wait for its own client-side timeouts before it sees the close; the relay's step timeouts (5 s) bound it | accepted. Nothing is authenticated on such a connection |
+| R187 | `mosaic agent mcp` runs for hours under the MCP client and keeps its authenticated connection between calls. It never holds a value, but a process of the same user that kills the relay or the desktop changes availability only | accepted. The relay reconnects through a fresh endpoint read; an `unpaired` event deletes its keystore entry |
 
 ## 6. Review log
 
