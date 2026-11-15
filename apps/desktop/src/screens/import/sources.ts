@@ -57,8 +57,15 @@ const manager = (
   steps: number,
   detects: readonly ImportDetectedSource[],
   lost: readonly LostKey[],
-  checklist: readonly ChecklistKey[] = ["oldExtension", "deleteOld"],
-): ImportSourceInfo => ({ id, group: "manager", steps, internalUrl: null, detects, lost, checklist });
+): ImportSourceInfo => ({
+  id,
+  group: "manager",
+  steps,
+  internalUrl: null,
+  detects,
+  lost,
+  checklist: ["oldExtension", "deleteOld"],
+});
 
 // The menu paths in the guides are unverified against the current product (launch gate).
 export const importSources: readonly ImportSourceInfo[] = [
@@ -97,8 +104,8 @@ export const importSources: readonly ImportSourceInfo[] = [
   },
   manager("onePassword", 3, ["onePassword"], ["passkeys"]),
   manager("bitwarden", 3, ["bitwarden", "bitwardenCsv"], ["attachments"]),
-  manager("keepass", 2, ["keepass"], [], ["deleteOld"]),
-  manager("keepassxcCsv", 2, ["keepassxcCsv"], ["attachments", "history"], ["deleteOld"]),
+  { ...manager("keepass", 2, ["keepass"], []), checklist: ["deleteOld"] },
+  { ...manager("keepassxcCsv", 2, ["keepassxcCsv"], ["attachments", "history"]), checklist: ["deleteOld"] },
   manager("enpass", 3, ["enpass"], []),
   manager("lastpass", 3, ["lastpass"], ["attachments", "passkeys", "history"]),
   manager("dashlane", 3, ["dashlane"], ["attachments", "passkeys", "history"]),

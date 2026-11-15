@@ -1,271 +1,76 @@
 /**
- * Import (D05): choose the format and the file (Rust opens the dialog and reads the file),
- * preview with duplicate hints, pick the target vault, commit. The export's contents never
- * reach this component: only titles, counts and warnings.
+ * Import (D05): pick where the passwords are now, follow that product's export steps, choose the
+ * file (Rust opens the dialog and reads it), preview with duplicate hints and what will not come
+ * across, pick the target vault, commit, then clean up the plaintext export. The export's
+ * contents never reach this component: only titles, counts and warnings.
  */
-import { useEffect, useState } from "react";
 import { Button } from "../../components/Button.tsx";
-import { Callout } from "../../components/Callout.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
-import { HoloButton } from "../../components/HoloButton.tsx";
-import { Icon } from "../../components/icons.tsx";
-import { Select } from "../../components/Select.tsx";
-import { TextField } from "../../components/TextField.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
-import type { MosaicIpc } from "../../ipc/client.ts";
-import { useIpc } from "../../ipc/IpcProvider.tsx";
-import {
-  importFormats,
-  type ImportFormat,
-  type ImportPreview,
-  type ImportResult,
-  type IpcError,
-  type VaultSummary,
-} from "../../ipc/contract/index.ts";
 import { OnboardingShell } from "../onboarding/OnboardingShell.tsx";
-import { PreviewList } from "./PreviewList.tsx";
-
-type Step =
-  | { name: "format" }
-  | { name: "file"; token: string; fileName: string }
-  | { name: "preview"; preview: ImportPreview }
-  | { name: "result"; result: ImportResult };
-
-function FormatStep({
-  format,
-  onFormat,
-  onChoose,
-}: {
-  format: ImportFormat;
-  onFormat: (format: ImportFormat) => void;
-  onChoose: () => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <>
-      <Select
-        label={t("import.flow.formatStep")}
-        value={format}
-        options={importFormats.map((each) => ({ value: each, label: t(`import.format.${each}`) }))}
-        onChange={(event) => {
-          onFormat(importFormats.find((each) => each === event.target.value) ?? "enpass");
-        }}
-      />
-      <div className="dropzone">
-        <Icon name="upload" size="lg" className="muted" />
-        <p className="dropzone__text">{t("import.flow.dropHint")}</p>
-        <HoloButton onClick={onChoose}>{t("import.flow.chooseFile")}</HoloButton>
-      </div>
-    </>
-  );
-}
-
-function FileStep({
-  fileName,
-  keepass,
-  busy,
-  onPreview,
-}: {
-  fileName: string;
-  keepass: boolean;
-  busy: boolean;
-  onPreview: (password: string) => void;
-}) {
-  const { t } = useI18n();
-  const [password, setPassword] = useState("");
-  return (
-    <>
-      <ul className="rows rows--closed">
-        <li className="row">
-          <span className="row__status">
-            <Icon name="check" />
-            {t("import.flow.fileChosen", { name: fileName })}
-          </span>
-        </li>
-      </ul>
-      {keepass && (
-        <TextField
-          label={t("import.flow.password")}
-          type="password"
-          autoComplete="off"
-          value={password}
-          onChange={(event) => {
-            setPassword(event.target.value);
-          }}
-        />
-      )}
-      <p className="status" role="status">
-        {busy ? t("import.flow.previewBusy") : ""}
-      </p>
-      <HoloButton
-        disabled={busy}
-        onClick={() => {
-          onPreview(password);
-          setPassword("");
-        }}
-      >
-        {t("import.flow.preview")}
-      </HoloButton>
-    </>
-  );
-}
-
-function PreviewStep({
-  preview,
-  vaults,
-  onCommit,
-}: {
-  preview: ImportPreview;
-  vaults: readonly VaultSummary[];
-  onCommit: (targetVaultId: string, skip: number[]) => void;
-}) {
-  const { t } = useI18n();
-  // Entries that look like an existing item, or repeat one in the file, start unticked.
-  const [selected, setSelected] = useState<ReadonlySet<number>>(
-    () =>
-      new Set(
-        preview.entries
-          .filter((entry) => entry.duplicateOf === null && entry.duplicateInFile === null)
-          .map((entry) => entry.index),
-      ),
-  );
-  const [target, setTarget] = useState(vaults[0]?.vaultId ?? "");
-  return (
-    <>
-      <PreviewList preview={preview} selected={selected} onChange={setSelected} />
-      <Select
-        label={t("import.flow.target")}
-        value={target}
-        options={vaults.map((vault) => ({ value: vault.vaultId, label: vault.name ?? t("vault.unnamed") }))}
-        onChange={(event) => {
-          setTarget(event.target.value);
-        }}
-      />
-      {selected.size === 0 && <p className="field__hint">{t("import.flow.noneSelected")}</p>}
-      <HoloButton
-        disabled={selected.size === 0 || target === ""}
-        onClick={() => {
-          onCommit(
-            target,
-            preview.entries.filter((e) => !selected.has(e.index)).map((e) => e.index),
-          );
-        }}
-      >
-        {t("import.flow.commit", { count: selected.size })}
-      </HoloButton>
-    </>
-  );
-}
-
-function ResultStep({ result, onDone }: { result: ImportResult; onDone: () => void }) {
-  const { t } = useI18n();
-  return (
-    <>
-      <p className="body" role="status">
-        {t("import.result", { imported: result.imported, skipped: result.skipped })}{" "}
-        {t("import.flow.resultFailed", { failed: result.failed })}
-      </p>
-      <Callout tone="warning">{t("import.flow.deleteReminder")}</Callout>
-      <HoloButton onClick={onDone}>{t("action.done")}</HoloButton>
-    </>
-  );
-}
-
-function useVaults(): VaultSummary[] {
-  const ipc = useIpc();
-  const [vaults, setVaults] = useState<VaultSummary[]>([]);
-  useEffect(() => {
-    void ipc.call("list_vaults", null).then((result) => {
-      if (result.ok) {
-        setVaults(result.value);
-      }
-    });
-  }, [ipc]);
-  return vaults;
-}
-
-/** The format the file's content says it is; `null` (nothing Mosaic reads) keeps the user's pick. */
-async function detectedFormat(ipc: MosaicIpc, fileToken: string): Promise<ImportFormat | null> {
-  const detected = await ipc.call("import_detect", { fileToken });
-  return detected.ok ? detected.value.format : null;
-}
+import { CleanupStep } from "./CleanupStep.tsx";
+import { FileStep, PreviewStep } from "./ImportSteps.tsx";
+import { SourceGrid } from "./SourceGrid.tsx";
+import { SourceSteps } from "./SourceSteps.tsx";
+import { sourceById } from "./sources.ts";
+import { useImportFlow } from "./useImportFlow.ts";
 
 export function ImportFlow({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
   const { t } = useI18n();
-  const ipc = useIpc();
-  const [format, setFormat] = useState<ImportFormat>("enpass");
-  const [step, setStep] = useState<Step>({ name: "format" });
-  const vaults = useVaults();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<IpcError | null>(null);
-  async function choose() {
-    setError(null);
-    const result = await ipc.call("import_choose_file", null);
-    if (!result.ok) {
-      setError(result.error);
-    } else if (result.value.kind === "chosen") {
-      setFormat((await detectedFormat(ipc, result.value.fileToken)) ?? format);
-      setStep({ name: "file", token: result.value.fileToken, fileName: result.value.fileName });
-    }
-  }
-  async function preview(token: string, password: string) {
-    setError(null);
-    setBusy(true);
-    const result = await ipc.call("import_preview", {
-      fileToken: token,
-      format,
-      password: format === "keepass" ? password : null,
-    });
-    setBusy(false);
-    if (result.ok) {
-      setStep({ name: "preview", preview: result.value });
-    } else {
-      setError(result.error);
-    }
-  }
-
-  async function commit(previewId: string, targetVaultId: string, skip: number[]) {
-    setError(null);
-    const result = await ipc.call("import_commit", { previewId, targetVaultId, skip });
-    if (result.ok) {
-      setStep({ name: "result", result: result.value });
-    } else {
-      setError(result.error);
-    }
-  }
-
-  async function cancel() {
-    if (step.name === "preview") {
-      await ipc.call("import_cancel", { previewId: step.preview.previewId });
-    }
-    onClose();
-  }
-
+  const flow = useImportFlow(onClose);
+  const { step, setStep, setError } = flow;
   const body = (
     <div className="stack">
       <h1 className="display">{t("import.flow.title")}</h1>
-      {step.name === "format" && (
-        <FormatStep format={format} onFormat={setFormat} onChoose={() => void choose()} />
+      {step.name === "source" && (
+        <SourceGrid
+          onPick={(source) => {
+            setError(null);
+            setStep({ name: "steps", source });
+          }}
+        />
+      )}
+      {step.name === "steps" && (
+        <SourceSteps
+          source={sourceById(step.source)}
+          busy={flow.busy}
+          onChoose={() => void flow.choose(step.source)}
+          onBack={() => {
+            setError(null);
+            setStep({ name: "source" });
+          }}
+        />
       )}
       {step.name === "file" && (
         <FileStep
+          source={sourceById(step.source)}
           fileName={step.fileName}
-          keepass={format === "keepass"}
-          busy={busy}
-          onPreview={(password) => void preview(step.token, password)}
+          detected={step.detected}
+          busy={flow.busy}
+          onPreview={(password) => void flow.preview(step, password)}
         />
       )}
       {step.name === "preview" && (
         <PreviewStep
+          source={sourceById(step.source)}
           preview={step.preview}
-          vaults={vaults}
-          onCommit={(target, skip) => void commit(step.preview.previewId, target, skip)}
+          vaults={flow.vaults}
+          onCommit={(target, skip) => void flow.commit(step, step.preview.previewId, target, skip)}
         />
       )}
-      {step.name === "result" && <ResultStep result={step.result} onDone={onClose} />}
-      <ErrorAlert error={error} />
-      {step.name !== "result" && (
-        <Button variant="ghost" onClick={() => void cancel()}>
+      {step.name === "cleanup" && (
+        <CleanupStep
+          source={sourceById(step.source)}
+          token={step.token}
+          fileName={step.fileName}
+          synced={step.detected.syncedFolder}
+          result={step.result}
+          onDone={onClose}
+        />
+      )}
+      <ErrorAlert error={flow.error} />
+      {step.name !== "cleanup" && (
+        <Button variant="ghost" onClick={() => void flow.cancel()}>
           {t("import.flow.cancel")}
         </Button>
       )}

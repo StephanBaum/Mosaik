@@ -18,7 +18,7 @@ describe("import sources", () => {
         const catalog: Record<string, string> = catalogs[locale];
         expect(catalog[`import.source.${source.id}`], `${locale} name ${source.id}`).toBeTruthy();
         for (let n = 1; n <= source.steps; n += 1) {
-          expect(catalog[`import.guide.${source.id}.${n}`], `${locale} ${source.id}.${n}`).toBeTruthy();
+          expect(catalog[`import.guide.${source.id}.${String(n)}`], `${locale} ${source.id}.${String(n)}`).toBeTruthy();
         }
       }
     }
