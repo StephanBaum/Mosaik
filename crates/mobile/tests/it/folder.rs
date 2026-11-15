@@ -329,7 +329,7 @@ fn dropbox_link_begin_finish_stores_nothing_before_join() {
 }
 
 #[test]
-fn forged_callback_state_is_refused_and_drops_the_link() {
+fn forged_callback_state_is_refused_and_keeps_the_link_for_a_few_tries() {
     let desktop = DesktopFolder::new();
     let cloud = Cloud::dropbox(&desktop.cloud);
     let phone = Phone::android();
@@ -351,25 +351,34 @@ fn forged_callback_state_is_refused_and_drops_the_link() {
             .err(),
         Some(MobileError::FolderLinkInvalid)
     );
-    // The link is gone: the right answer comes too late.
+    // A forged answer does not destroy the pending sign-in: the real one still works.
+    phone
+        .core
+        .folder_link_finish(format!(
+            "{REDIRECT_URI}?code={AUTHORIZATION_CODE}&state={state}"
+        ))
+        .unwrap();
+    // After five answers that are not the flow's, the link is gone.
+    let info = phone
+        .core
+        .folder_link_begin(FolderProvider::Dropbox, None)
+        .unwrap();
+    let state = state_of(&info.url);
+    for _ in 0..5 {
+        assert_eq!(
+            phone
+                .core
+                .folder_link_finish(format!("{REDIRECT_URI}?error=access_denied&state=x"))
+                .err(),
+            Some(MobileError::FolderLinkInvalid)
+        );
+    }
     assert_eq!(
         phone
             .core
             .folder_link_finish(format!(
                 "{REDIRECT_URI}?code={AUTHORIZATION_CODE}&state={state}"
             ))
-            .err(),
-        Some(MobileError::FolderLinkInvalid)
-    );
-    // A denied sign-in ends the link too.
-    phone
-        .core
-        .folder_link_begin(FolderProvider::Dropbox, None)
-        .unwrap();
-    assert_eq!(
-        phone
-            .core
-            .folder_link_finish(format!("{REDIRECT_URI}?error=access_denied&state=x"))
             .err(),
         Some(MobileError::FolderLinkInvalid)
     );
@@ -874,6 +883,43 @@ fn signed_out_provider_reports_and_relink_restores() {
 }
 
 #[test]
+fn webdav_single_401_keeps_the_credential_and_a_persistent_one_signs_out_and_revokes() {
+    let (desktop, cloud, phone) = joined(Cloud::dav);
+    let Cloud::Dav(server) = &cloud else {
+        unreachable!()
+    };
+    phone.core.sync_now().unwrap();
+    // One transient 401: the second PROPFIND succeeds, the credential stays.
+    server.set_faults(Faults {
+        fail_nth: Some((1, 401, None)),
+        ..Faults::default()
+    });
+    assert!(phone.core.sync_now().is_err());
+    assert!(phone.storage.names().contains(&credential_name(&desktop)));
+    assert!(phone.core.sync_overview().signed_in);
+    server.set_faults(Faults::default());
+    phone.core.sync_now().unwrap();
+    // A persistent 401: signed out, and the app password is revoked at the server first.
+    server.set_faults(Faults {
+        reject_auth: true,
+        ..Faults::default()
+    });
+    assert_eq!(
+        phone.core.sync_now().err(),
+        Some(MobileError::FolderProviderSignedOut)
+    );
+    assert!(!phone.storage.names().contains(&credential_name(&desktop)));
+    assert!(!phone.core.sync_overview().signed_in);
+    assert!(
+        server
+            .requests()
+            .iter()
+            .any(|r| r.method == "DELETE" && r.path_and_query.ends_with("/core/apppassword")),
+        "the app password was revoked"
+    );
+}
+
+#[test]
 fn relink_to_folder_without_account_stores_nothing() {
     let (desktop, cloud, phone) = joined(Cloud::dav);
     let Cloud::Dav(server) = &cloud else {
@@ -968,6 +1014,62 @@ fn folder_password_recovery_adopts_newer_file_and_refuses_rollback() {
     phone.core.sync_now().unwrap();
 }
 
+/// Every file under `dir` whose parent directory is named `account`.
+fn account_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            account_files(&path, out);
+        } else if path
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|n| n == "account")
+        {
+            out.push(path);
+        }
+    }
+}
+
+#[test]
+fn folder_join_records_account_version_and_refuses_planted_older_file() {
+    let mut desktop = DesktopFolder::new();
+    desktop.add_login("Desk login");
+    let mut v1 = Vec::new();
+    account_files(&desktop.cloud, &mut v1);
+    let v1: Vec<(PathBuf, Vec<u8>)> = v1
+        .into_iter()
+        .map(|p| {
+            let bytes = std::fs::read(&p).unwrap();
+            (p, bytes)
+        })
+        .collect();
+    assert_eq!(v1.len(), 1);
+    desktop.change_password();
+    let cloud = Cloud::dav(&desktop.cloud);
+    let phone = Phone::android();
+    cloud.link(&phone);
+    let mut request = join_request(&desktop, "Mosaic");
+    request.password = NEW_PASSWORD.as_bytes().to_vec();
+    let state = phone.core.join_folder(request).unwrap();
+    assert!(matches!(state, SessionState::Unlocked { .. }), "{state:?}");
+    // A planted older file (version 1) replaces the current one.
+    let mut now = Vec::new();
+    account_files(&desktop.cloud, &mut now);
+    for path in now {
+        std::fs::remove_file(path).unwrap();
+    }
+    for (path, bytes) in &v1 {
+        std::fs::write(path, bytes).unwrap();
+    }
+    assert_eq!(
+        phone
+            .core
+            .recover_password(PASSWORD.as_bytes().to_vec())
+            .err(),
+        Some(MobileError::SyncPasswordRollback)
+    );
+}
+
 #[test]
 fn folder_reset_uses_short_id_phrase_and_revokes_dropbox() {
     let (desktop, cloud, phone) = joined(Cloud::dropbox);
@@ -997,12 +1099,27 @@ fn folder_reset_uses_short_id_phrase_and_revokes_dropbox() {
         .unwrap();
     assert_eq!(outcome.state, SessionState::NoAccount);
     assert!(server.revoked(), "the grant was revoked at Dropbox");
+    assert!(!outcome.revoke_failed);
     assert!(
         phone.storage.names().is_empty(),
         "{:?}",
         phone.storage.names()
     );
     assert_eq!(phone.core.sync_overview().folder, None);
+}
+
+#[test]
+fn folder_reset_reports_a_revocation_that_did_not_happen() {
+    // OneDrive has no revocation call: the app points to the account page.
+    let (desktop, _cloud, phone) = joined(Cloud::graph);
+    let outcome = phone
+        .core
+        .reset_device(ResetConfirm {
+            typed_email: desktop.account_hex()[..8].to_owned(),
+        })
+        .unwrap();
+    assert_eq!(outcome.state, SessionState::NoAccount);
+    assert!(outcome.revoke_failed);
 }
 
 #[test]

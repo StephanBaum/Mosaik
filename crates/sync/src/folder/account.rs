@@ -212,6 +212,22 @@ pub fn join_from_folder_in(
     password: &MasterPassword,
     secret_key: &SecretKey,
 ) -> Result<UnlockedSession, Box<JoinFailure>> {
+    join_from_folder_versioned_in(store, account, session, password, secret_key)
+        .map(|(unlocked, _)| unlocked)
+}
+
+/// As [`join_from_folder_in`], and also the `account_version` of the account file the join
+/// opened (the caller records it as the floor against a planted older file).
+///
+/// # Errors
+/// [`JoinFailure`] with a [`JoinError`].
+pub fn join_from_folder_versioned_in(
+    store: &dyn FolderStore,
+    account: AccountId,
+    session: LockedSession,
+    password: &MasterPassword,
+    secret_key: &SecretKey,
+) -> Result<(UnlockedSession, u64), Box<JoinFailure>> {
     match inspect_in(store) {
         // A direct check, not `inspect`'s capped list: the account may be the 65th.
         FolderContents::Mosaic { .. } if has_account_in(store, &account) => {}
@@ -288,7 +304,7 @@ pub fn join_from_folder_in(
             };
         // The same check once more on the unlocked session.
         return match AccountFile::verify_mac(bytes, &unlocked) {
-            Ok(true) => Ok(unlocked),
+            Ok(true) => Ok((unlocked, file.account_version)),
             Ok(false) | Err(_) => Err(fail(JoinError::FolderDamaged, None)),
         };
     }

@@ -6479,7 +6479,8 @@ them inside the chosen folder, and the provider client has a loopback `http` swi
   `Authorization`; a download link is fetched once without it.
 - **Deletes.** A delete carries the listed `rev` (Dropbox `parent_rev`) or `eTag` (`If-Match`) and never removes a
   folder on the name of a file. `remove_squatter` removes whatever sits on one of the writer's own segment names
-  and `remove_empty_dir` an empty folder; both are recursive on the provider (R198). The chosen folder itself is
+  and `remove_empty_dir` an empty folder; both are recursive on the provider (R198; this includes WebDAV, whose
+  `DELETE` of a collection removes it with everything in it). The chosen folder itself is
   never deleted.
 - **Tokens.** Refresh tokens and access tokens are zeroizing and never in an error or a log. The access token is
   fetched when missing and once after a 401; a refused grant ends the run as signed out. A rotated Graph refresh
@@ -6489,6 +6490,13 @@ them inside the chosen folder, and the provider client has a loopback `http` swi
   only in test builds or with the `test-util` feature, and `mosaic-sync` refuses to compile with `test-util` in a
   release build (R200).
 - **Store schema v14** adds the device-local `folder_remote` table (CRYPTO_SPEC section 11).
+- **Open items resolved after the red team.** Graph write-once now goes through `createUploadSession` with
+  `conflictBehavior: fail` (documented) for every size; a simple `PUT` is used only for replacing. A WebDAV 401 is
+  confirmed by a second `PROPFIND` before the credential is deleted, and the app password is revoked first (R201).
+  A forged sign-in callback no longer destroys the pending link (five failures, then it expires; R202). A join
+  records the account file's version (R203). Phones register as `android` and `ios` in `info.mdev` (R204). A
+  reset reports a revocation that did not happen (R205). A read error of the own segment fails the run, with no
+  24 h timer (CRYPTO_SPEC section 10.1).
 
 ### Alternatives considered
 - **A flag on the production constructor.** Rejected: a caller could enable it.

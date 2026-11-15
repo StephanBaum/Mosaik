@@ -6312,6 +6312,40 @@
         }
       }
     },
+    "mobile.reset.revokeDropbox" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Konto wurde entfernt. Mosaics Zugriff bei Dropbox konnten wir nicht beenden: Entferne ihn in Dropbox unter Einstellungen, Verbundene Apps."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The account was removed. We could not end Mosaic's access at Dropbox: remove it in Dropbox under Settings, Connected apps."
+          }
+        }
+      }
+    },
+    "mobile.reset.revokeWebdav" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Konto wurde entfernt. Das App-Passwort auf deinem Server konnten wir nicht löschen: Entferne es dort unter Einstellungen, Sicherheit, Geräte und Sitzungen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The account was removed. We could not delete the app password on your server: remove it there under Settings, Security, Devices and sessions."
+          }
+        }
+      }
+    },
     "mobile.reset.title" : {
       "extractionState" : "manual",
       "localizations" : {

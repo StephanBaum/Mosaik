@@ -427,6 +427,7 @@ record!(ResetConfirm <=> m::ResetConfirm { typed_email: String });
 record_out!(ResetOutcome <=> m::ResetOutcome {
     state: SessionState,
     key_aliases: Vec<String>,
+    revoke_failed: bool,
 });
 
 // ---- autofill ---------------------------------------------------------------------------------------------

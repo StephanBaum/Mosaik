@@ -1011,7 +1011,9 @@ impl FolderStore for GraphStore {
         let target = dir.child(name).ok_or(TransportError::Protocol)?;
         self.ensure_dir(dir)?;
         let behavior = if replace { "replace" } else { "fail" };
-        let reply = if bytes.len() <= SIMPLE_UPLOAD_MAX {
+        // Write-once goes through an upload session, whose `conflictBehavior: fail` is
+        // documented; a simple `PUT` is for replacing only (ADR-0166).
+        let reply = if replace && bytes.len() <= SIMPLE_UPLOAD_MAX {
             self.put_simple(&target, bytes, behavior)?
         } else {
             self.put_session(&target, bytes, behavior)?

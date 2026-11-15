@@ -379,6 +379,8 @@
   <string name="mobile_reset_body">Das löscht die Tresor-Kopie, den Secret Key und die Cloud-Anmeldung auf diesem Handy. Deine Daten im Cloud-Ordner oder auf dem Server bleiben erhalten. Du kannst später mit deinem Secret Key und Master-Passwort wieder beitreten.</string>
   <string name="mobile_reset_confirm">Konto entfernen</string>
   <string name="mobile_reset_phraseLabel">Bestätigung</string>
+  <string name="mobile_reset_revokeDropbox">Das Konto wurde entfernt. Mosaics Zugriff bei Dropbox konnten wir nicht beenden: Entferne ihn in Dropbox unter Einstellungen, Verbundene Apps.</string>
+  <string name="mobile_reset_revokeWebdav">Das Konto wurde entfernt. Das App-Passwort auf deinem Server konnten wir nicht löschen: Entferne es dort unter Einstellungen, Sicherheit, Geräte und Sitzungen.</string>
   <string name="mobile_reset_title">Dieses Konto von diesem Handy entfernen</string>
   <string name="mobile_reset_typePhrase">Gib %1$s ein, um zu bestätigen</string>
   <string name="mobile_scan_allow">Kamera erlauben</string>

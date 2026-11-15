@@ -170,9 +170,17 @@ fn large_blob_uses_upload_session_with_320k_multiple_chunks() {
     assert_eq!(sessions.len(), 3);
     assert!(sessions[0].contains("\"fail\""), "{}", sessions[0]);
     assert!(sessions[2].contains("\"replace\""), "{}", sessions[2]);
-    // A small blob is one simple `PUT`.
+    // Write-once is always an upload session (`conflictBehavior: fail` is documented there),
+    // even for a small blob; a small replace is one simple `PUT`.
     let chunks = server.upload_chunks().len();
     store.write_atomic(&d, "small.bin", b"x", false).unwrap();
+    assert_eq!(server.upload_chunks().len(), chunks + 1);
+    assert_eq!(
+        store.write_atomic(&d, "small.bin", b"y", false),
+        Err(TransportError::Io)
+    );
+    let chunks = server.upload_chunks().len();
+    store.write_atomic(&d, "small.bin", b"z", true).unwrap();
     assert_eq!(server.upload_chunks().len(), chunks);
 }
 

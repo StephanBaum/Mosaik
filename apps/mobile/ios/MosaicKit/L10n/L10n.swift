@@ -1532,6 +1532,14 @@ public enum L10n {
         NSLocalizedString("mobile.reset.phraseLabel", bundle: .main, comment: "")
     }
 
+    public static func resetRevokeDropbox() -> String {
+        NSLocalizedString("mobile.reset.revokeDropbox", bundle: .main, comment: "")
+    }
+
+    public static func resetRevokeWebdav() -> String {
+        NSLocalizedString("mobile.reset.revokeWebdav", bundle: .main, comment: "")
+    }
+
     public static func resetTitle() -> String {
         NSLocalizedString("mobile.reset.title", bundle: .main, comment: "")
     }

@@ -42,6 +42,8 @@ pub struct Faults {
     pub phantom_entries: usize,
     /// Graph: a listing's `@odata.nextLink` names another host.
     pub foreign_next_link: bool,
+    /// `WebDAV`: every file request is refused with 401 (the app password was revoked).
+    pub reject_auth: bool,
 }
 
 #[derive(Clone)]
@@ -386,7 +388,7 @@ fn dav(s: &Shared, r: &FakeRequest, rest: &str) -> FakeResponse {
             retry.iter().map(|v| ("Retry-After", v.as_str())).collect();
         return FakeResponse::new(status, &headers, Vec::new());
     }
-    if r.header("authorization") != Some(s.expected_auth.as_str()) {
+    if faults.reject_auth || r.header("authorization") != Some(s.expected_auth.as_str()) {
         return FakeResponse::new(
             401,
             &[("WWW-Authenticate", "Basic realm=\"fake\"")],

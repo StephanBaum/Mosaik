@@ -1096,9 +1096,11 @@ mod tests {
         let reset: f::ResetOutcome = m::ResetOutcome {
             state: m::SessionState::NoAccount,
             key_aliases: vec![s("a")],
+            revoke_failed: true,
         }
         .conv();
         assert_eq!(reset.state, f::SessionState::NoAccount);
+        assert!(reset.revoke_failed);
         let outcome: f::JoinOutcome = m::JoinOutcome::SecondFactor {
             methods: m::SecondFactorMethods {
                 totp: true,

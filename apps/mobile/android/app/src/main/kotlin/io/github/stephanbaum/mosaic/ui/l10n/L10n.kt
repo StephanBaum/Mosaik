@@ -1170,6 +1170,12 @@ object L10n {
     fun resetPhraseLabel(r: Resources): String =
         r.getString(R.string.mobile_reset_phraseLabel)
 
+    fun resetRevokeDropbox(r: Resources): String =
+        r.getString(R.string.mobile_reset_revokeDropbox)
+
+    fun resetRevokeWebdav(r: Resources): String =
+        r.getString(R.string.mobile_reset_revokeWebdav)
+
     fun resetTitle(r: Resources): String =
         r.getString(R.string.mobile_reset_title)
 

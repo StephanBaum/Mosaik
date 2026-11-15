@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::config::Platform;
 use mosaic_core::{AccountId, InstallId, MasterPassword, PasswordParams, SecretKey};
 use mosaic_sync::clock::SystemClock;
 use mosaic_sync::engine::{
@@ -226,6 +227,9 @@ pub struct ResetOutcome {
     pub state: SessionState,
     /// The platform keys to delete (the quick-unlock key).
     pub key_aliases: Vec<String>,
+    /// A folder account's grant could not be revoked at its provider (or the provider has no
+    /// call for it): the app points the person to the provider's connected-apps page.
+    pub revoke_failed: bool,
 }
 
 /// The files of a store: the database, its lock, WAL and journal files, and
@@ -258,6 +262,12 @@ fn token_ended(e: &TransportError) -> bool {
             | TransportError::Rejected(Rejection::DeviceRevoked)
     )
 }
+
+/// What a reset reads before the secrets go: the stored location and the credential.
+type Revocation = (Option<String>, Option<Zeroizing<Vec<u8>>>);
+
+/// The pause before a `WebDAV` 401 is asked again.
+const WEBDAV_RECHECK_MS: u64 = 750;
 
 impl Core {
     /// Removes the store files and the settings file of this install, after
@@ -514,8 +524,10 @@ impl Core {
                 device: DeviceInfo {
                     created_at_ms: self.now_ms(),
                     name: config.device_name.clone(),
-                    // The folder format knows desktop platforms only; Android is Linux.
-                    platform: DevicePlatform::Linux,
+                    platform: match self.config.platform {
+                        Platform::Android => DevicePlatform::Android,
+                        Platform::Ios => DevicePlatform::Ios,
+                    },
                 },
             },
         )
@@ -523,13 +535,59 @@ impl Core {
     }
 
     /// A provider that ended the grant: the credential is deleted and the phone reports signed
-    /// out until the person signs in again.
-    fn folder_signed_out(&self, account: &AccountId) {
-        let _ = self.storage.delete(&folder_credential_name(account));
+    /// out until the person signs in again. `WebDAV` first asks once more (a second `PROPFIND`
+    /// of the root after a short pause): one 401 from a proxy or a restarting server must not
+    /// delete the app password. Its revocation is tried before the deletion. `false` means the
+    /// 401 did not hold: the credential stays and the run is only a failed run.
+    fn folder_signed_out(&self, owned: &OwnedSession, account: &AccountId) -> bool {
+        use mosaic_sync::wire::SessionHandle as _;
+        let name = folder_credential_name(account);
+        let location = owned
+            .with_session(UnlockedSession::folder_remote)
+            .and_then(std::result::Result::ok)
+            .flatten();
+        let stored = read(self.storage.as_ref(), &name).ok().flatten();
+        let webdav = location
+            .as_deref()
+            .and_then(|text| FolderLocation::decode(text).ok())
+            .is_some_and(|l| l.provider == Provider::WebDav);
+        if webdav && let (Some(location), Some(stored)) = (location.as_deref(), stored.as_ref()) {
+            if !self.webdav_401_holds(location, stored) {
+                if let Ok(mut guard) = self.guard() {
+                    guard.folder_engine = None;
+                }
+                return false;
+            }
+            self.revoke_folder_grant(location, stored);
+        }
+        let _ = self.storage.delete(&name);
         self.note_stored(None, Some(false));
         if let Ok(mut guard) = self.guard() {
             guard.folder_engine = None;
         }
+        true
+    }
+
+    /// Whether a `WebDAV` server still refuses the credential after a short pause.
+    fn webdav_401_holds(&self, location: &str, credential: &[u8]) -> bool {
+        let (Ok(location), Ok(credential), Ok(env)) = (
+            FolderLocation::decode(location),
+            ProviderCredential::decode(credential),
+            self.folder_env(),
+        ) else {
+            return true;
+        };
+        let Ok(http) = env.http() else {
+            return true;
+        };
+        std::thread::sleep(std::time::Duration::from_millis(WEBDAV_RECHECK_MS));
+        let Ok(store) = open_store(&env, http, &location, credential, Arc::new(NoSink)) else {
+            return true;
+        };
+        matches!(
+            store.stat(&RelPath::root()),
+            Err(TransportError::Unauthorized)
+        )
     }
 
     /// One run over a folder account. The engine is kept between runs of one unlock.
@@ -547,11 +605,7 @@ impl Core {
             _ => {
                 let transport = self
                     .open_folder_transport(owned, config, install, account)
-                    .inspect_err(|e| {
-                        if *e == MobileError::FolderProviderSignedOut {
-                            self.folder_signed_out(&account);
-                        }
-                    })?;
+                    .map_err(|e| self.after_signed_out(owned, &account, e))?;
                 SyncEngine::new(transport, EngineConfig::for_kind(TransportKind::Folder))
             }
         };
@@ -580,13 +634,21 @@ impl Core {
                     .filter_map(SyncWarning::from_engine)
                     .collect())
             }
-            Err(e) => {
-                if e == MobileError::FolderProviderSignedOut {
-                    self.folder_signed_out(&account);
-                }
-                Err(e)
-            }
+            Err(e) => Err(self.after_signed_out(owned, &account, e)),
         }
+    }
+
+    /// The error of a folder run; a signed-out answer is confirmed before it ends the grant.
+    fn after_signed_out(
+        &self,
+        owned: &OwnedSession,
+        account: &AccountId,
+        e: MobileError,
+    ) -> MobileError {
+        if e == MobileError::FolderProviderSignedOut && !self.folder_signed_out(owned, account) {
+            return MobileError::SyncServerUnreachable;
+        }
+        e
     }
 
     /// Recovers a master password changed on another device of a folder account: the folder's
@@ -640,35 +702,48 @@ impl Core {
         Ok(self.sync_overview())
     }
 
+    /// Revokes what a reset read before the secrets went; `true` when a folder account's grant
+    /// is still alive at its provider (a hosted account has none).
+    fn revocation_failed(&self, revocation: Option<Revocation>) -> bool {
+        match revocation {
+            Some((Some(location), Some(credential))) => {
+                !self.revoke_folder_grant(&location, &credential)
+            }
+            Some(_) => true,
+            None => false,
+        }
+    }
+
     /// Revokes the grant of a folder account at its provider, best effort: the secrets are
-    /// deleted already, and no failure is reported (Dropbox: `auth/token/revoke`; Nextcloud:
-    /// the app password; `OneDrive` has no call for it and is left to the account page).
-    fn revoke_folder_grant(&self, location: &str, credential: &[u8]) {
+    /// deleted already, and no failure stops the caller (Dropbox: `auth/token/revoke`; Nextcloud:
+    /// the app password; `OneDrive` has no call for it and is left to the account page). Returns
+    /// whether the provider confirmed the revocation.
+    fn revoke_folder_grant(&self, location: &str, credential: &[u8]) -> bool {
         let (Ok(location), Ok(credential), Ok(env)) = (
             FolderLocation::decode(location),
             ProviderCredential::decode(credential),
             self.folder_env(),
         ) else {
-            return;
+            return false;
         };
         let Ok(http) = env.http() else {
-            return;
+            return false;
         };
         match location.provider {
             Provider::Dropbox => {
                 let Ok(key) = env.dropbox_key() else {
-                    return;
+                    return false;
                 };
                 let auth = DropboxAuth::new(key.to_owned(), credential, Arc::new(NoSink));
                 auth.bind(&http, &env.endpoints);
-                let _ = dropbox_revoke(&http, &env.endpoints, &auth);
+                dropbox_revoke(&http, &env.endpoints, &auth).is_ok()
             }
-            Provider::WebDav => {
-                if let Some(origin) = location.server.as_deref().and_then(nextcloud_origin) {
-                    let _ = revoke_app_password(&http, &origin, &credential);
-                }
-            }
-            Provider::OneDrive => {}
+            Provider::WebDav => location
+                .server
+                .as_deref()
+                .and_then(nextcloud_origin)
+                .is_some_and(|origin| revoke_app_password(&http, &origin, &credential).is_ok()),
+            Provider::OneDrive => false,
         }
     }
 
@@ -796,6 +871,7 @@ impl Core {
             return Ok(ResetOutcome {
                 state: self.state(),
                 key_aliases: Vec::new(),
+                revoke_failed: false,
             });
         };
         let account = locked.account_id();
@@ -879,13 +955,12 @@ impl Core {
         }
         // The secrets are gone: the provider grant is revoked best effort (a failure does
         // not stop the reset).
-        if let Some((Some(location), Some(credential))) = revocation {
-            self.revoke_folder_grant(&location, &credential);
-        }
+        let revoke_failed = self.revocation_failed(revocation);
         wiped?;
         Ok(ResetOutcome {
             state: self.state(),
             key_aliases: aliases,
+            revoke_failed,
         })
     }
 }

@@ -45,7 +45,7 @@ use mosaic_core::{AccountId, InstallId, KeyGeneration, VaultId};
 
 pub use account::{
     JoinError, JoinFailure, current_account_file, current_account_file_in, join_from_folder,
-    join_from_folder_in,
+    join_from_folder_in, join_from_folder_versioned_in,
 };
 pub use init::{
     FolderContents, FolderError, MAX_LISTED_ACCOUNTS, has_account, has_account_in, init, init_in,

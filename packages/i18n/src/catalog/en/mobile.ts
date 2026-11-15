@@ -449,6 +449,10 @@ export const mobile = {
   "mobile.folder.relink": "Sign in again",
   "mobile.folder.msRevokeHint":
     "To remove Mosaic's access completely, remove it on your Microsoft account page under Apps.",
+  "mobile.reset.revokeDropbox":
+    "The account was removed. We could not end Mosaic's access at Dropbox: remove it in Dropbox under Settings, Connected apps.",
+  "mobile.reset.revokeWebdav":
+    "The account was removed. We could not delete the app password on your server: remove it there under Settings, Security, Devices and sessions.",
   "mobile.reset.title": "Remove this account from this phone",
   "mobile.reset.body":
     "This deletes the vault copy, the Secret Key and the cloud sign-in stored on this phone. Your data in the cloud folder or on the server stays. You can join again later with your Secret Key and master password.",

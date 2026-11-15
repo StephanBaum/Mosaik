@@ -457,6 +457,10 @@ export const mobile = {
   "mobile.folder.relink": "Neu anmelden",
   "mobile.folder.msRevokeHint":
     "Um Mosaics Zugriff ganz zu entfernen, entferne die App auf der Seite deines Microsoft-Kontos unter Apps.",
+  "mobile.reset.revokeDropbox":
+    "Das Konto wurde entfernt. Mosaics Zugriff bei Dropbox konnten wir nicht beenden: Entferne ihn in Dropbox unter Einstellungen, Verbundene Apps.",
+  "mobile.reset.revokeWebdav":
+    "Das Konto wurde entfernt. Das App-Passwort auf deinem Server konnten wir nicht löschen: Entferne es dort unter Einstellungen, Sicherheit, Geräte und Sitzungen.",
   "mobile.reset.title": "Dieses Konto von diesem Handy entfernen",
   "mobile.reset.body":
     "Das löscht die Tresor-Kopie, den Secret Key und die Cloud-Anmeldung auf diesem Handy. Deine Daten im Cloud-Ordner oder auf dem Server bleiben erhalten. Du kannst später mit deinem Secret Key und Master-Passwort wieder beitreten.",

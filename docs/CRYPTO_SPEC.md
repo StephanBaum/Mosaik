@@ -2589,14 +2589,22 @@ and the join rules of this section do not change.
   the folder, bound by the single-writer rule: it writes only its own `d/<device>/`, `log/<device>/`, `.macct`
   and `.mdel` files and write-once blobs.
 - Write-once names use the provider's conflict mode (Dropbox `add` with `strict_conflict`, Graph
-  `conflictBehavior=fail`, WebDAV `MOVE` with `Overwrite: F`; the temp names are own-device names that `folder_names::parse` rejects), never a check-then-write. A conflict has the same
+  `conflictBehavior=fail` on an upload session (a simple `PUT` is used for replacing only), WebDAV `MOVE` with `Overwrite: F`; the temp names are own-device names that `folder_names::parse` rejects), never a check-then-write. A conflict has the same
   result as an existing name on disk.
+- A WebDAV 401 is confirmed before it ends the grant: a second authenticated `PROPFIND` of the root after a short
+  pause must also be refused, and the app password is then revoked at the server (best effort) before the credential
+  is deleted. OAuth stores refresh once and then report signed out.
+- A device that joins a folder records the `account_version` of the account file it joined with as its stored
+  folder account version, so an older file planted afterwards is refused as a rollback.
+- `info.mdev` names the platform as `windows`, `macos`, `linux`, `android` or `ios`. A reader that knows the
+  format but not the name (1 to 16 lower-case ASCII letters) reads it as unknown; the padding is unchanged.
 - `head.mck` and `info.mdev` are replaced in one provider call, so a reader sees the old file or the new one.
 - The own-log rollback check counts a name as missing only when an authoritative `stat` (a direct metadata
   request) says it is missing. A missing entry in a listing never counts: provider listings lag behind writes.
   A `stat` that says "present" is not presence by itself: the file must then be read in full and verify. A read
-  that fails with a transport or provider error counts as present for at most 24 h from the first such run; after
-  that the run halts as a rollback. A provider that shows this device its own files while it withholds them from
+  that fails with a transport or provider error fails the run: the device writes nothing until the read of its own
+  segment succeeds (there is no timer, and a persistent failure is never read as a rollback or as presence). A run
+  that keeps failing is shown through the sync overview's last error, as any failed run is. A provider that shows this device its own files while it withholds them from
   other devices is detected only by those devices' lag warning (THREAT_MODEL R56).
   A directory that a remote store cannot remove from an own segment name is stepped past, within the writer's
   limit of 16 name attempts; beyond it the run fails closed.

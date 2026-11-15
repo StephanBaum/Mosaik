@@ -29,7 +29,7 @@ use mosaic_sync::folder::remote::oauth::{
 use mosaic_sync::folder::remote::webdav::WebDavStore;
 use mosaic_sync::folder::{
     FolderContents, FolderStore, FolderTransport, JoinError, RelPath, has_account_in, inspect_in,
-    join_from_folder_in,
+    join_from_folder_versioned_in,
 };
 use mosaic_sync::transport::TransportError;
 use mosaic_sync::wire::SessionCrypto;
@@ -293,6 +293,9 @@ impl CredentialSink for NoSink {
     }
 }
 
+/// How many answers that are not the flow's a pending sign-in survives.
+const MAX_FAILED_CALLBACKS: u8 = 5;
+
 /// A sign-in in progress, or done and waiting for the account to join.
 pub(crate) struct PendingLink {
     provider: Provider,
@@ -309,6 +312,8 @@ pub(crate) struct PendingLink {
     expires_at_ms: u64,
     /// Signing in again to the folder of the existing account.
     relink: bool,
+    /// Callbacks that did not belong to this sign-in.
+    failed_callbacks: u8,
 }
 
 impl PendingLink {
@@ -324,6 +329,7 @@ impl PendingLink {
             path_root: None,
             expires_at_ms: now_ms.saturating_add(LINK_TTL_MS),
             relink,
+            failed_callbacks: 0,
         }
     }
 
@@ -666,21 +672,36 @@ impl Core {
     /// Finishes a sign-in of kind `Redirect` with the URL the browser ended on.
     ///
     /// # Errors
-    /// `folderLinkInvalid` (no link, a denied or forged answer, a code the provider refuses; the
-    /// link is gone), `folderLinkExpired`, `syncFolderNoAccount` (a sign in again to a folder
+    /// `folderLinkInvalid` (no link, a denied or forged answer, a code the provider refuses; a
+    /// forged answer leaves the link, up to five times), `folderLinkExpired`, `syncFolderNoAccount` (a sign in again to a folder
     /// without the account), `syncServerUnreachable` and the other network codes (the link
     /// stays).
     pub fn folder_link_finish(&self, callback_url: String) -> Result<()> {
         self.require_app()?;
         let (mut link, generation) = self.take_link()?;
-        let callback = parse_callback(&callback_url, REDIRECT_URI)
-            .map_err(|_| MobileError::FolderLinkInvalid)?;
-        let (Some(state), Some(pkce)) = (link.state.as_ref(), link.pkce.as_ref()) else {
+        // A forged or foreign answer must not destroy the real pending sign-in: the link is
+        // put back (up to `MAX_FAILED_CALLBACKS` such answers, then it is gone).
+        let callback = match parse_callback(&callback_url, REDIRECT_URI) {
+            Ok(callback)
+                if link
+                    .state
+                    .as_ref()
+                    .is_some_and(|state| state.matches(&callback.state)) =>
+            {
+                callback
+            }
+            _ => {
+                link.failed_callbacks = link.failed_callbacks.saturating_add(1);
+                if link.failed_callbacks < MAX_FAILED_CALLBACKS {
+                    self.keep_link(link, generation);
+                }
+                return Err(MobileError::FolderLinkInvalid);
+            }
+        };
+        let Some(pkce) = link.pkce.as_ref() else {
+            self.keep_link(link, generation);
             return Err(MobileError::FolderLinkInvalid);
         };
-        if !state.matches(&callback.state) {
-            return Err(MobileError::FolderLinkInvalid);
-        }
         let env = self.folder_env()?;
         let http = env.http()?;
         let exchanged = match link.provider {
@@ -1028,11 +1049,12 @@ impl Core {
         };
         let flight = JoinFlight::start(self);
         let master = MasterPassword::new(std::mem::take(&mut *password));
-        let joined = join_from_folder_in(store.as_ref(), account, locked, &master, &secret_key);
+        let joined =
+            join_from_folder_versioned_in(store.as_ref(), account, locked, &master, &secret_key);
         self.work_pause();
         drop(store);
-        let mut session = match joined {
-            Ok(session) => session,
+        let (mut session, account_version) = match joined {
+            Ok(joined) => joined,
             Err(failure) => {
                 let failure = *failure;
                 match failure.session {
@@ -1054,6 +1076,8 @@ impl Core {
         let stored = session
             .set_sync_config(Some(&config))
             .and_then(|()| session.set_folder_remote(Some(&location.encode())))
+            // The floor against a planted older account file (a rolled-back password).
+            .and_then(|()| session.raise_folder_account_version(account_version))
             .map_err(MobileError::from)
             .and_then(|()| {
                 self.storage

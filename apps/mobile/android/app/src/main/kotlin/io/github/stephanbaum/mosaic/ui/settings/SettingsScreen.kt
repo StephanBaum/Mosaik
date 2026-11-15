@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import android.view.autofill.AutofillManager
 import androidx.credentials.CredentialManager
 import kotlinx.coroutines.delay
@@ -172,9 +173,21 @@ fun SettingsScreen(app: MosaicApp, quickEnrolled: Boolean, onLicences: () -> Uni
         resetPhrase = overview?.resetPhrase.orEmpty(),
         onReset = { typed ->
             scope.launch {
+                val provider = folder?.provider
                 when (val result = app.session.resetDevice(typed)) {
-                    // The session state changes to "no account": the app shows the onboarding.
-                    is Outcome.Ok -> Unit
+                    // The session state changes to "no account": the app shows the onboarding. A grant that
+                    // could not be revoked is shown as a message that outlives this screen.
+                    is Outcome.Ok ->
+                        if (result.value) {
+                            val hint =
+                                when (provider) {
+                                    FolderProvider.DROPBOX -> L10n.resetRevokeDropbox(resources)
+                                    FolderProvider.WEB_DAV -> L10n.resetRevokeWebdav(resources)
+                                    FolderProvider.ONE_DRIVE -> L10n.folderMsRevokeHint(resources)
+                                    else -> null
+                                }
+                            if (hint != null) Toast.makeText(context, hint, Toast.LENGTH_LONG).show()
+                        }
                     is Outcome.Failed -> errorCode = result.code
                     Outcome.Cancelled -> Unit
                 }

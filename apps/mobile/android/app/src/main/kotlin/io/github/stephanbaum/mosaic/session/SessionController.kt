@@ -404,12 +404,15 @@ class SessionController(
     /**
      * Removes the account from this phone. [typed] must be the reset phrase of the sync overview (the first 8
      * characters of a folder account's ID, the email of a hosted one). The Keystore keys the core names go too.
+     * The result is true when the provider grant could not be revoked.
      */
-    suspend fun resetDevice(typed: String): Outcome<Unit> =
+    suspend fun resetDevice(typed: String): Outcome<Boolean> =
         guarded {
             val outcome = holder.call { it.resetDevice(ResetConfirm(typedEmail = typed)) }
             for (alias in outcome.keyAliases) keys.delete(alias)
             onSessionChanged()
+            // True when the provider could not be told to end the grant: the app points to its page.
+            outcome.revokeFailed
         }
 
     /** A sign in again (unlocked) stores its credential at once: nothing is left pending for the lock policy. */

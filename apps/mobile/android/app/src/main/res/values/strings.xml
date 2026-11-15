@@ -379,6 +379,8 @@
   <string name="mobile_reset_body">This deletes the vault copy, the Secret Key and the cloud sign-in stored on this phone. Your data in the cloud folder or on the server stays. You can join again later with your Secret Key and master password.</string>
   <string name="mobile_reset_confirm">Remove account</string>
   <string name="mobile_reset_phraseLabel">Confirmation</string>
+  <string name="mobile_reset_revokeDropbox">The account was removed. We could not end Mosaic\'s access at Dropbox: remove it in Dropbox under Settings, Connected apps.</string>
+  <string name="mobile_reset_revokeWebdav">The account was removed. We could not delete the app password on your server: remove it there under Settings, Security, Devices and sessions.</string>
   <string name="mobile_reset_title">Remove this account from this phone</string>
   <string name="mobile_reset_typePhrase">Type %1$s to confirm</string>
   <string name="mobile_scan_allow">Allow the camera</string>
