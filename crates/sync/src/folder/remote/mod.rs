@@ -14,10 +14,12 @@
 //! secrets live in zeroizing types that are never `Clone`.
 
 pub mod credential;
+pub mod davxml;
 pub mod http;
 pub mod location;
 pub mod oauth;
 pub mod time;
+pub mod webdav;
 
 /// The largest listing response that is read.
 pub const MAX_LISTING_BYTES: u64 = 4 * 1024 * 1024;

@@ -343,7 +343,7 @@ fn open_regular(path: &Path) -> std::io::Result<fs::File> {
     options.open(path)
 }
 
-fn random_hex() -> Result<String, TransportError> {
+pub(crate) fn random_hex() -> Result<String, TransportError> {
     let mut b = [0u8; 8];
     getrandom::fill(&mut b).map_err(|_| TransportError::Io)?;
     Ok(crate::wire::hex(&b))

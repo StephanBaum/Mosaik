@@ -714,3 +714,11 @@ fn own_log_rollback_check_asks_stat_before_halting() {
     fs::remove_file(&newest).unwrap();
     assert_eq!(transport.own_logs_rolled_back(&[vault]), Ok(true));
 }
+
+#[test]
+fn local_store_passes_the_store_contract() {
+    let dir = tempfile::tempdir().unwrap();
+    crate::common::store_contract(&LocalStore::new(dir.path()), false);
+    let dir = tempfile::tempdir().unwrap();
+    crate::common::store_contract(&LocalStore::new(dir.path()), true);
+}
