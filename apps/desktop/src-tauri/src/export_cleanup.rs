@@ -15,7 +15,63 @@ use crate::contract::import::ImportSyncedFolder;
 
 const CHUNK: usize = 64 * 1024;
 
+/// `O_NOFOLLOW` (std has no portable constant and `libc` is not a dependency
+/// of this crate). Values from the platform headers: 0x100 on macOS and the
+/// BSDs, 0o100000 on Linux arm and aarch64, 0o400000 on the other Linux
+/// architectures.
+#[cfg(unix)]
+const O_NOFOLLOW: i32 = if cfg!(any(target_os = "linux", target_os = "android")) {
+    if cfg!(any(target_arch = "arm", target_arch = "aarch64")) {
+        0o100_000
+    } else {
+        0o400_000
+    }
+} else {
+    0x100
+};
+
+/// `FILE_FLAG_OPEN_REPARSE_POINT`: open a link itself instead of its target.
+#[cfg(windows)]
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+/// `FILE_ATTRIBUTE_REPARSE_POINT`.
+#[cfg(windows)]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+
+/// Opens `path` for writing without truncation and without following a
+/// symlink or reparse point, so the check below runs on what was opened.
+fn open_no_follow(path: &Path) -> io::Result<std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    options.open(path)
+}
+
+/// Whether the opened handle is a plain file (not a link or reparse point).
+fn handle_is_regular(meta: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return false;
+        }
+    }
+    meta.file_type().is_file()
+}
+
 /// Overwrites the file once with zeros, flushes it to disk and deletes it.
+///
+/// The file is opened first, without following links, and checked on the
+/// handle: there is no window between a check and the open in which the path
+/// can be swapped for a link. The bytes are written through that handle.
 ///
 /// Refuses (and leaves the file as it was) when `path` is not a regular
 /// file (a symlink, a directory), when it cannot be opened for writing
@@ -25,16 +81,32 @@ const CHUNK: usize = 64 * 1024;
 /// # Errors
 /// `InvalidInput` for a non-regular file; the underlying I/O error otherwise.
 pub fn overwrite_and_delete(path: &Path) -> io::Result<()> {
-    let meta = std::fs::symlink_metadata(path)?;
-    if !meta.file_type().is_file() {
+    // A directory cannot be opened for writing on Windows: look first only to
+    // report it as the wrong kind. Nothing is trusted from this look.
+    if std::fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_dir())
+        .unwrap_or(false)
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "not a regular file",
         ));
     }
-    // Opened for writing without truncation: a read-only file fails here,
-    // before anything is changed.
-    let mut file = OpenOptions::new().write(true).open(path)?;
+    let mut file = open_no_follow(path).map_err(|e| {
+        // A symlink under O_NOFOLLOW fails with ELOOP (Unix): a refusal.
+        if is_symlink_refusal(&e) {
+            io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")
+        } else {
+            e
+        }
+    })?;
+    let meta = file.metadata()?;
+    if !handle_is_regular(&meta) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
     let zeros = vec![0_u8; CHUNK].into_boxed_slice();
     let mut left = meta.len();
     while left > 0 {
@@ -45,6 +117,19 @@ pub fn overwrite_and_delete(path: &Path) -> io::Result<()> {
     file.sync_all()?;
     drop(file);
     std::fs::remove_file(path)
+}
+
+/// `ELOOP` (40 on Linux, 62 on macOS and the BSDs): what `O_NOFOLLOW` reports
+/// for a symlink.
+fn is_symlink_refusal(error: &io::Error) -> bool {
+    cfg!(unix)
+        && error.raw_os_error().is_some_and(|code| {
+            code == if cfg!(any(target_os = "linux", target_os = "android")) {
+                40
+            } else {
+                62
+            }
+        })
 }
 
 /// The sync roots to compare a file against: the environment's `OneDrive`
@@ -191,16 +276,23 @@ mod tests {
         assert!(tmp.path().exists());
     }
 
-    #[cfg(unix)]
     #[test]
     fn overwrite_and_delete_refuses_a_symlink() {
         let tmp = tempfile::tempdir().unwrap();
         let target = file_in(tmp.path(), "target.csv", b"keep me");
         let link = tmp.path().join("link.csv");
-        std::os::unix::fs::symlink(&target, &link).unwrap();
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&target, &link);
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&target, &link);
+        if made.is_err() {
+            // Creating symlinks needs a privilege on Windows; nothing to test.
+            return;
+        }
         let error = overwrite_and_delete(&link).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert_eq!(std::fs::read(&target).unwrap(), b"keep me");
+        assert!(link.symlink_metadata().is_ok());
     }
 
     #[test]
