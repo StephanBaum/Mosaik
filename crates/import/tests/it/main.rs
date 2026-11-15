@@ -3,6 +3,7 @@
 mod commit;
 mod dashlane;
 mod csv_presets;
+mod detect;
 mod formats;
 mod keeper;
 mod lastpass;

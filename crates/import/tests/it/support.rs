@@ -7,6 +7,14 @@ use std::io::Write;
 use mosaic_core::model::{ItemType, SecretField, Text};
 use mosaic_import::{Import, ImportEntry, ItemDraft};
 
+pub fn fixture(name: &str) -> Vec<u8> {
+    std::fs::read(format!(
+        "{}/tests/fixtures/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap()
+}
+
 pub fn entry(import: &Import, index: u32) -> &ImportEntry {
     import.entries.iter().find(|e| e.index == index).unwrap()
 }

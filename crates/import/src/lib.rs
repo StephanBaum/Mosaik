@@ -1,6 +1,12 @@
 //! Importers for Enpass JSON, Bitwarden JSON, KeePass KDBX 4, 1Password 1PUX,
 //! Mosaic's own encrypted export ([`mosaic_export`]),
-//! FIDO CXF v1.0 JSON and CSV (brief §5 "Import/export").
+//! FIDO CXF v1.0 JSON and CSV (brief §5 "Import/export"), plus the
+//! exports of Dashlane (zip of CSV), Keeper (JSON and CSV), Proton Pass
+//! (unencrypted), and the CSV presets of `LastPass`, `NordPass`, RoboForm,
+//! `KeePassXC` and the browsers. [`detect`] tells the format from the file's
+//! content. The presets and formats added for onboarding were written from
+//! public format descriptions and are unverified against a current export
+//! (launch gate).
 //!
 //! Each importer reads an export file into an [`Import`]: one
 //! [`ImportEntry`] per item, each an [`ItemDraft`] that becomes a
@@ -57,6 +63,7 @@
 mod archive;
 mod buf;
 mod commit;
+mod detect;
 mod draft;
 mod entries;
 mod error;
@@ -82,6 +89,7 @@ pub mod proton_pass;
 use mosaic_core::SecretString;
 
 pub use commit::{CommitReport, commit};
+pub use detect::{Detected, Source, detect};
 pub use draft::{
     Attachment, EntryWarning, ItemDraft, MAX_ATTACHMENTS_PER_ENTRY, MAX_FIELDS_PER_ENTRY,
     MAX_IMPORT_ATTACHMENT_BYTES, MAX_IMPORT_PASSKEYS, MAX_PASSKEYS_PER_ENTRY, PasskeyDraft,

@@ -15,19 +15,11 @@ use std::io::Write;
 use mosaic_core::SecretString;
 use mosaic_core::model::{CustomFieldValue, ItemType, OtpKind, SecretField, TextField};
 use mosaic_import::csv::{CsvColumn, CsvMapping};
-use crate::support::{draft, entry, labels, secret, tags, urls};
+use crate::support::{draft, entry, fixture, labels, secret, tags, urls};
 use mosaic_import::{
     EntryWarning, Error, Format, Import, ImportWarning, ItemDraft, SkipReason,
     SkippedEntry, parse,
 };
-
-fn fixture(name: &str) -> Vec<u8> {
-    std::fs::read(format!(
-        "{}/tests/fixtures/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .unwrap()
-}
 
 fn history(d: &ItemDraft) -> Vec<&str> {
     d.password_history
