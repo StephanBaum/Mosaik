@@ -3449,6 +3449,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaic-program-fill"
+version = "0.0.0"
+dependencies = [
+ "mosaic-core",
+ "mosaic-origin",
+ "mosaic-winshim",
+ "proptest",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "mosaic-qr"
 version = "0.1.0"
 dependencies = [
@@ -3581,6 +3594,15 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "zeroize",
+]
+
+[[package]]
+name = "mosaic-winshim"
+version = "0.0.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+ "windows",
 ]
 
 [[package]]

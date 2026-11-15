@@ -5891,3 +5891,339 @@ release install did not remove the per-user browser entries of the Windows previ
 Tests: `the_pending_kit_needs_the_password_outside_the_prepare_window`, `only_turning_a_protection_off_weakens`,
 `foreign_user_entries_are_removed_once_the_machine_entry_is_the_fallback`. THREAT_MODEL R157, R159, R160. The NSIS uninstall hook of the preview
 bundle that the finding also suggests is not added: the release desktop clears the residue itself.
+
+## ADR-0157: Windows program fill: wrapper vetting and the `mosaic-winshim` exception
+
+- Status: accepted
+- Date: 2026-11-14
+- Milestone: autofill everywhere, part 1 (Windows program fill, phase 1)
+
+### Context
+Program fill on Windows reads the focused control through UI Automation (UIA), identifies the program behind it
+(process image, package, Authenticode signer, integrity level) and checks the foreground window before every
+write (spec `docs/superpowers/specs/2026-11-14-autofill-everywhere-design.md` §5.1.1 to §5.1.3). Every one of
+those Win32 and COM calls is `unsafe` in the `windows` crate, and the workspace forbids `unsafe` (CLAUDE.md). The
+owner's answer to O2 (spec §8, 2026-11-14):
+
+> **O2, resolved: the exception is accepted.** All Windows calls that need `unsafe` live in one small, isolated
+> shim crate. The rest of the workspace keeps `#![forbid(unsafe_code)]`. Every `unsafe` block has a `// SAFETY:`
+> comment. The crate's API is safe and minimal. A Fable red-team review runs before the first merge, and tests
+> cover the API. The vetting spike (§5.1.1) still runs first. A vetted wrapper crate is preferred where one
+> passes; the shim covers only what no vetted crate offers. Record this as an ADR that names the crate and the rule.
+
+The spike ran on the owner's Windows 10 Pro 22H2 (build 19045) machine, 6 logical CPUs, 7.4 GB RAM, toolchain
+1.99.1 from `rust-toolchain.toml`. Capabilities to source (phase 2 ones are recorded, they do not gate phase 1):
+
+| ID | Capability |
+|---|---|
+| C-UIA-READ | focused element and element at a point with one `CacheRequest`; `CompareElements`; parent walk; connection and transaction timeouts (`IUIAutomation2`) |
+| C-UIA-EVENTS (phase 2) | focus-changed and property-changed handlers on an MTA worker |
+| C-UIA-WRITE (phase 2) | `ValuePattern.SetValue`, `SetFocus` |
+| C-PROC | held process handle; image path; final path; package family name; token integrity level; still running |
+| C-WINDOW | foreground window, root window, owner PID, cloaked, minimised |
+| C-TRUST | `WinVerifyTrust` verdict (embedded and catalog), leaf signer subject DER, CN and O for display, revocation state |
+| C-INPUT (phase 2) | `SendInput` with `KEYEVENTF_UNICODE` and its return count; modifier state |
+
+Criteria (a crate passes only if all hold): V1 `unsafe` confined (Mosaic calls only safe functions, no open
+soundness issue); V2 a release in the last 12 months and an active maintainer; V3 licence in the `deny.toml`
+allow list without a new exception; V4 `cargo deny check` and `cargo audit --deny warnings` clean; V5 reuses
+`windows =0.62.2` or a `windows-sys` already in `Cargo.lock`; V6 exposes every API of the capability it is
+proposed for; V7 no side effects (no global hook, no undocumented thread, COM apartment under Mosaic's control).
+
+### Vetting (2026-11-14)
+Each candidate was resolved alone, with an exact `=` pin, in its own scratch cargo project in the system temp
+directory with the repo's `rust-toolchain.toml`, `deny.toml` and `.cargo/audit.toml` copied in. Release dates,
+licences and dependency requirements are from the crates.io API on 2026-11-14; `unsafe` counts are `grep` counts
+over the crate's `src/` in the cargo registry at the pinned version; issue counts from the GitHub API the same day.
+`cargo deny check` (`advisories ok, bans ok, licenses ok, sources ok`) and `cargo audit --deny warnings` (exit 0)
+passed in all eight projects, so V3 and V4 hold for every candidate and are not repeated in the table.
+
+| Crate (pin) | For | Last release, maintainer | `windows` in its tree (V5) | `unsafe` (V1) | V6 | V7 | Result |
+|---|---|---|---|---|---|---|---|
+| `uiautomation` =0.25.1 (Apache-2.0; features `pattern`, `event`) | C-UIA-* | 2026-09-04; one maintainer (`leexgone`), 0 open issues | `windows` 0.62.2, `windows-core` 0.62.2; 21 crates (adds `chrono`, `uiautomation_derive` on `syn` 3) | 516 `unsafe` blocks in 11 856 lines, no `unsafe impl`, no `pub unsafe fn` | **fails** for C-UIA-READ: no `IUIAutomation2` connection or transaction timeout; reaching them needs the inner `IUIAutomation` (`AsRef`) and an `unsafe` call in Mosaic. Has focus/property handlers, `ValuePattern::set_value`, `set_focus` (phase 2) | `UIAutomation::new()` calls `CoInitializeEx(MTA)` on every call and never `CoUninitialize`; `new_direct()` leaves COM to the caller, which is `unsafe` | **fails** V6 (C-UIA-READ); phase 2 candidate, see D1 |
+| `winsafe` =0.0.29 (MIT; features `kernel`, `user`, `advapi`, `dwm`) | C-PROC, C-WINDOW, C-INPUT | 2026-09-01; one maintainer (`rodrigocfd`), commits 2026-11-11, 4 open issues, none about soundness | none: its own `extern` declarations, no dependencies at all | 2 487 `unsafe` blocks in 104 694 lines, 15 `unsafe impl` (`Send` for every handle type), 867 `unsafe fn` | **fails**: no `GetPackageFamilyName`, no `GetFinalPathNameByHandleW`; an `HWND` from a raw value (the UIA element's `NativeWindowHandle`) only through `unsafe fn from_ptr` | no hook or thread in the parts used | **fails** V1, V6 |
+| `sysinfo` =0.40.3 (MIT; feature `system`) | C-PROC path | 2026-11-11 | `windows` 0.62.2, plus `ntapi` and `winapi` 0.3.9 | not counted (fails V6) | **fails**: the path comes from `GetModuleFileNameExW` on a handle it opens itself from a PID found in an `NtQuerySystemInformation` snapshot; no way to use Mosaic's held handle | — | **fails** V6 |
+| `windows-permissions` =0.2.4 (MIT) | token integrity | 2021-06-29 | `winapi` 0.3 | not counted | — | — | **fails** V2 |
+| `codesign-verify` =0.2.0 (BSD-3-Clause) | C-TRUST | 2025-03-18 | `winapi` 0.3 | not counted | **fails**: `WTD_REVOKE_NONE` (no revocation), file choice only (no catalog), subject only as parsed strings, not DER | — | **fails** V2, V6 |
+| `authenticode` =0.6.0 (MIT OR Apache-2.0) | C-TRUST (complement) | 2026-05-26 (Google) | none | `#![forbid(unsafe_code)]` | **fails** for C-TRUST: a PE signature parser, no chain, trust store or revocation; and not needed, since the OS state data already gives the leaf subject DER (Step 5) | — | not used |
+| `enigo` =0.6.1 (MIT) | C-INPUT | 2025-08-28 (over 12 months) | `windows` 0.61.3 (a second minor) | not counted | — | — | **fails** V2, V5 |
+| `rdev` =0.5.3 (MIT) | C-INPUT | 2023-06-26 | `winapi` 0.3 | not counted | — | its purpose is global keyboard and mouse hooks | **fails** V2, V7 |
+
+No crate passes for C-UIA-READ, C-PROC, C-WINDOW or C-TRUST.
+
+### Prototype (Step 2)
+A scratch binary against `windows =0.62.2` called each API once.
+
+- **C-PROC:** `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE)`, `QueryFullProcessImageNameW`,
+  `WaitForSingleObject(h, 0)`, `GetPackageFamilyName`, `OpenProcessToken(TOKEN_QUERY)` +
+  `GetTokenInformation(TokenIntegrityLevel)` worked on its own process (medium, RID `0x2000`, no package), Notepad
+  (medium, no package) and the Store Calculator (`Microsoft.WindowsCalculator_8wekyb3d8bbwe`, RID `0x1000`, the
+  AppContainer level). PID 0 and `u32::MAX` give `E_INVALIDARG`, PID 4 (System) `E_ACCESSDENIED`.
+  `CreateFileW(FILE_READ_ATTRIBUTES, share all, FILE_FLAG_BACKUP_SEMANTICS)` + `GetFinalPathNameByHandleW`
+  turned `C:\Windows\System32\..\System32\notepad.exe` into `C:\Windows\System32\notepad.exe` and `C:\PROGRA~1`
+  into `C:\Program Files` (after removing the `\\?\` prefix).
+- **C-WINDOW:** `GetForegroundWindow`, `GetAncestor(GA_ROOT)`, `GetWindowThreadProcessId`,
+  `DwmGetWindowAttribute(DWMWA_CLOAKED)`, `IsIconic` worked. With Calculator in front, the foreground window
+  belongs to `ApplicationFrameHost.exe` while the focused element's PID is `CalculatorApp.exe`, the UWP case of
+  spec §5.1.3. A null window gives no error from these calls (all zero), so the shim must refuse it itself.
+- **C-TRUST:** `WinVerifyTrust(WINTRUST_ACTION_GENERIC_VERIFY_V2, WTD_REVOKE_WHOLECHAIN,
+  WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT, WTD_STATEACTION_VERIFY/CLOSE)`, then on `TRUST_E_NOSIGNATURE` the
+  catalog path (`CryptCATAdminAcquireContext2(DRIVER_ACTION_VERIFY, "SHA256")`, then `"SHA1"`,
+  `CryptCATAdminCalcHashFromFileHandle2`, `CryptCATAdminEnumCatalogFromHash`, `CryptCATCatalogInfoFromContext`,
+  `WTD_CHOICE_CATALOG`). `WTHelperProvDataFromStateData` + `WTHelperGetProvSignerFromChain` gave the leaf
+  `CERT_CONTEXT`, whose `pCertInfo->Subject` is the subject DER, and `CertGetNameStringW(CERT_NAME_ATTR_TYPE)` with
+  `2.5.4.3` / `2.5.4.10` gave CN and O. Results: `kernel32.dll` trusted, embedded ("Microsoft Windows" /
+  "Microsoft Corporation", 114-byte subject); `notepad.exe` trusted through a SHA-256 catalog (same signer);
+  Edge, VS Code, Chrome, Slack, Git and Node trusted, embedded; the prototype itself and `rustup.exe`
+  `TRUST_E_NOSIGNATURE` (`0x800B0100`); a copy of `kernel32.dll` with one byte flipped at half its length
+  `TRUST_E_BAD_DIGEST` (`0x80096010`), the unmodified copy trusted.
+- **C-UIA-READ:** `CoInitializeEx(COINIT_MULTITHREADED)`, `CoCreateInstance(CUIAutomation8)` as `IUIAutomation2`
+  (`CUIAutomation` gives only `IUIAutomation`), `SetConnectionTimeout` / `SetTransactionTimeout`,
+  `CreateCacheRequest` with the twelve properties of spec §5.1.1 and `AddPattern(UIA_ValuePatternId)`,
+  `GetFocusedElementBuildCache`, `ElementFromPointBuildCache`, `ElementFromHandleBuildCache`, `CompareElements`,
+  `ControlViewWalker` + `GetParentElement`, the typed `Cached*` getters, `GetRuntimeId` (a `SAFEARRAY`, read with
+  `SafeArrayGetLBound/UBound/GetElement` and freed with `SafeArrayDestroy`) and `GetCachedPatternAs::<IUIAutomationValuePattern>`
+  + `CachedIsReadOnly` worked. `GetFocusedElementBuildCache` read the focused element of Calculator (XAML); Notepad
+  (Win32) and PowerShell ISE (WPF, 266 elements) were read through `ElementFromHandleBuildCache` and a full walk
+  (Step 4). The element at the centre of the focused element compared equal to it. The spike did not move focus on
+  the owner's desktop, so reading the focused **edit** of Notepad and ISE is left to the Task 7 checklist.
+- **Size:** 59 `unsafe` blocks for the four capabilities in the prototype (C-PROC 14, C-WINDOW 4, C-TRUST 17,
+  C-UIA-READ 24), several of them with more than one operation; the production shim, one operation per block,
+  will have more. `cargo deny check` and `cargo audit --deny warnings` pass with the feature list of D2.
+
+### Hung provider (Step 3)
+A scratch Win32 window with an `ES_PASSWORD` edit took the foreground and focus, pumped messages for 1.5 s, then
+blocked its UI thread for 60 s. With connection and transaction timeouts of 2000 ms:
+
+- `ElementFromHandleBuildCache` on the hung top-level window and on its edit returned `UIA_E_TIMEOUT`
+  (`0x80131505`) after 2020 ms and 2013 ms.
+- `GetFocusedElementBuildCache` returned at once (11 ms) with an element owned by **`dwm.exe`**: Windows had
+  replaced the hung window with its ghost window. The focused element's PID is then not the target's, so the
+  re-verification (spec §5.1.2 item 2) refuses it.
+- A client created **without** timeouts on a worker thread was still blocked after 2500 ms; a new client on a new
+  MTA thread answered the next `GetFocusedElementBuildCache` 6 ms later (2509 ms after the start). The abandoned
+  thread stays blocked until the target recovers.
+
+Both paths recover well within 5 s.
+
+### Idle cost (Step 4, C2)
+Method: the C2 client is the prototype on its own MTA thread with `CUIAutomation8`, 2000 ms timeouts, a focus-changed
+handler registered with the cache request of spec §5.1.1, and one `ElementFromHandleBuildCache` of each target's
+top-level window when it starts (the read a focus change would cause); then it idles. A PowerShell sampler read,
+every 5 s, the target's whole process tree (`Win32_Process` parent links from the started process):
+`TotalProcessorTime` delta / (5 s × 6 logical CPUs), and the sum of `PrivateMemorySize64`. Each target was started
+by the spike (its own profile directory for Edge and Slack), left 60 s to settle, measured 5 minutes without the
+client (60 samples) and 5 minutes with it (60 samples), then stopped. Pass A used only the top-level read; pass C
+and pass D also ran one `FindAll(TreeScope_Descendants)` over each window (worst case: the whole tree built once;
+Notepad 26 elements, ISE 266, Edge 37, Slack 13). The owner's desktop was in use during the runs (pass D's
+handler saw 87 focus changes), so the numbers are "idle target, normal desktop", not a lab baseline.
+
+| Target | Pass | CPU % without → with (mean of all 6 CPUs) | Private MB without → with (mean) | Delta |
+|---|---|---|---|---|
+| Win32: Notepad | A | 0.000 → 0.000 | 2.7 → 2.8 | +0.0 pp, +0.1 MB |
+| Win32: Notepad | C (walk) | 0.000 → 0.000 | 2.7 → 2.8 | +0.0 pp, +0.1 MB |
+| WPF: PowerShell ISE | A | 0.004 → 0.001 | 143.4 → 143.6 | −0.003 pp, +0.2 MB |
+| WPF: PowerShell ISE | C (walk) | 0.004 → 0.003 | 142.1 → 142.4 | −0.001 pp, +0.3 MB |
+| Chromium: Edge, `https://example.com`, 8 to 9 processes | A | 0.092 → 0.018 | 206.4 → 198.7 | −0.07 pp, −7.7 MB |
+| Chromium: Edge, same | C (walk) | 0.181 → 0.050 | 193.5 → 183.3 | −0.13 pp, −10.2 MB |
+| Electron: Slack 4.50.136, sign-in page, 5 processes | D (walk) | 0.028 → 0.110 (max 4.6) | 337.6 → 351.2 | +0.08 pp, +13.6 MB |
+| The client itself | A / C / D | 0.010 / 0.032 / 0.031 | 2.6 / 2.7 / 2.4 | — |
+
+Not measured: **Chrome** (the owner's own Chrome was running with 22 processes; the spike did not touch it, and Edge
+stands in as the Chromium target) and **VS Code**: a pending VS Code update held the `vscode-updating` mutex, and a
+second instance with its own profile refused to start ("Code is currently being updated"); the spike did not stop
+the owner's VS Code. Slack stands in as the Electron target. The Edge page and the Slack sign-in page are small, so
+these numbers bound the cost of the client's presence, not of a large accessibility tree. **Open:** VS Code (one
+folder open) and a heavy page are re-measured with the same method in the Task 7 checklist, before the program-fill
+setting can default to on for Chromium and Electron programs.
+
+### Items the spike could reach (Step 5)
+- **UIA timeouts exposed:** not by `uiautomation` 0.25.1; yes through the shim (`IUIAutomation2` from `CUIAutomation8`).
+- **Signer subject DER from the `WinVerifyTrust` state data:** yes (`CRYPT_PROVIDER_SGNR.pasCertChain[0].pCert->pCertInfo->Subject`),
+  for embedded and catalog signatures.
+- **`WinVerifyTrust` offline:** with URL retrieval restricted to the local cache (`WTD_CACHE_ONLY_URL_RETRIEVAL`),
+  all nine signed binaries above still returned `S_OK`. This does not separate "revocation data was cached" from
+  "the Authenticode policy accepts an offline revocation check", and the network was not cut on the owner's
+  machine. **Open:** the network-off case goes into the manual checklist (Task 7). Until it shows a failure,
+  D4 maps an offline revocation check to `Trusted`.
+- **Tauri non-activating window (phase 2, not a gate):** Tauri 2.12.5 (the locked version) has
+  `WebviewWindowBuilder::focusable(bool)`; its runtime `tao` 0.37.2 turns `focusable(false)` into
+  `WS_EX_NOACTIVATE` on Windows (`window_state.rs`). Read in the source, not run.
+
+### Decision
+- **D1 Sources.**
+  - C-UIA-READ: `mosaic-winshim`.
+  - C-PROC: `mosaic-winshim`.
+  - C-WINDOW: `mosaic-winshim`.
+  - C-TRUST: `mosaic-winshim`.
+  - C-UIA-EVENTS, C-UIA-WRITE: not built in phase 1. The phase 2 plan chooses between the shim (one UIA client with
+    timeouts for read, events and write) and `uiautomation` =0.25.1 (passes V1 to V5 for these and has the APIs, but
+    its client has no timeouts); a mixed setup with two UIA clients is not allowed.
+  - C-INPUT: not built in phase 1. `enigo` and `rdev` fail; `winsafe`'s `SendInput` is safe and returns the count,
+    but copies the `INPUT` array into a non-zeroized `Vec`, and `winsafe` fails V1 as a whole. The phase 2 plan
+    decides (likely the shim, with the `INPUT` buffer zeroized).
+  - No wrapper crate is admitted. `docs/DEPENDENCIES.md` gains no crate row.
+- **D2 Shim scope.** `crates/winshim` (`mosaic-winshim`) is built with the public API "Proposed shim API" of the
+  phase 1 plan (Task 6), unchanged: `ShimError`, `ProcessHandle` (`open`, `pid`, `is_running`, `image_path`,
+  `package_family_name`, `integrity_rid`), `current_integrity_rid`, `final_path`, `Signature` and
+  `verify_authenticode`, `WindowFacts`, `foreground_window`, `window_facts`, and `Uia` / `UiaElement` /
+  `ElementFacts` (`new`, `focused`, `element_from_point`, `same`, `is_within`, `nearest_window`, `facts`).
+  Notes from the prototype: `Uia::new` creates `CUIAutomation8` as `IUIAutomation2`; `UIA_E_TIMEOUT` is
+  `0x80131505`; `window_facts` refuses a null or non-window handle itself (`IsWindow`), because the Win32 calls
+  return zeros instead of an error; `verify_authenticode` tries the SHA-256 catalog, then SHA-1.
+  `windows` features (on top of the workspace's): `Win32_Foundation`, `Win32_Security`,
+  `Win32_Security_Cryptography`, `Win32_Security_Cryptography_Catalog`, `Win32_Security_Cryptography_Sip`,
+  `Win32_Security_WinTrust`, `Win32_Storage_FileSystem`, `Win32_Storage_Packaging_Appx`, `Win32_System_Threading`,
+  `Win32_System_Com`, `Win32_System_Ole`, `Win32_UI_Accessibility`, `Win32_UI_WindowsAndMessaging`,
+  `Win32_Graphics_Dwm`. Added after the red team: `Win32_System_Variant` (`SafeArrayGetVartype` returns a
+  `VARENUM`; the runtime ID array is checked to be `VT_I4`). The root-store check, the drive type check and the
+  deadlines need no other feature. The rule:
+  - `crates/winshim` is the only crate in the workspace with `unsafe`; every other crate keeps
+    `#![forbid(unsafe_code)]` through `[lints] workspace = true`.
+  - `unsafe` appears only in modules named `sys*`; every block has a `// SAFETY:` comment and holds one unsafe
+    operation (`clippy::undocumented_unsafe_blocks` and `clippy::multiple_unsafe_ops_per_block` deny).
+  - The public API is safe and minimal: no `unsafe fn`, no raw pointer, no `windows` crate type, no raw handle.
+  - Every public function has a test.
+  - A Fable red-team review of the whole crate runs before its first merge and on every change; the
+    crypto-reviewer's reading of each `unsafe` block is recorded in the review log below.
+  - `scripts/check-unsafe-confined.sh` in CI keeps the exception confined.
+- **D3 C2 policy.** Measured cost is far below both thresholds (5 % idle CPU, 150 MB) for every target, the
+  Chromium and Electron ones included (largest: Slack, +0.08 points and +13.6 MB). So Chromium- and Electron-based
+  programs follow the global setting in phase 2, like Win32, WPF and UWP programs. If the open VS Code / heavy-page
+  re-measurement adds more than 5 % idle CPU or more than 150 MB to a Chromium or Electron program, those programs
+  become opt-in per program instead.
+- **D4 Signature states.** `Trusted`: `WinVerifyTrust` returns `S_OK` for the embedded or catalog signature (chain
+  to a root in the Windows store, code-signing EKU). `Unsigned`: `TRUST_E_NOSIGNATURE` for the file and no catalog
+  entry. `Revoked`: `CERT_E_REVOKED`. `Untrusted`: any other failure (bad digest, untrusted root, explicit distrust,
+  expired, revocation failure). A revocation check that cannot run offline maps to `Trusted` when Windows itself
+  returns `S_OK` (Step 5 found no failure; recorded as a residual and re-tested in the manual checklist). Only
+  `Trusted` and `Unsigned` can be bound. Amended after the red team (2026-11-15): `WinVerifyTrust` runs with
+  `WTD_CACHE_ONLY_URL_RETRIEVAL` (no network wait; offline revocation stays `Trusted` as above), a chain whose root
+  is not in `LocalMachine\Root` or `LocalMachine\AuthRoot` is `Untrusted` (the per-user `HKCU` root store is
+  writable without a prompt), and a catalog service that fails is an error, never `Unsigned`. The image is opened
+  once through `ImageFile` (read-only, no write or delete sharing); the signature and the hash use that handle.
+- **D5 UIA timeouts.** Connection and transaction timeout 2000 ms each. A hung provider ends the call with
+  `UIA_E_TIMEOUT` after about 2 s (Step 3); `ShimError::Timeout` ends the pick session. Amended after the red team:
+  every snapshot (2 s) and every capture (10 s, which includes the signature check and the hash of an unsigned
+  image) has one `Instant` deadline passed down to each UI Automation call and parent walk and to the hash loop; a
+  call that overruns returns `Timeout`, and a single call can run to its own 2 s timeout past the deadline. The
+  "abandon the blocked worker and create a new client on a new thread" recovery (6 ms measured) is **not** in phase 1:
+  it lands in phase 2 with the dedicated worker thread. `WindowsProbe::new` must run on a thread in the COM
+  multithreaded apartment (a plain worker thread); on a single-threaded apartment thread it fails.
+- **D6 GO.** None of the NO-GO conditions holds: (1) C-UIA-READ, C-PROC, C-WINDOW and C-TRUST all worked in the
+  shim prototype; (2) a hung provider ends in `UIA_E_TIMEOUT` after about 2 s, and worker respawn recovers in
+  milliseconds; (3) the client adds no measurable idle CPU and at most 0.3 MB to the WPF and Win32 targets;
+  (4) `cargo deny check` and `cargo audit --deny warnings` pass with the D2 features. Tasks 2 to 7 of the phase 1
+  plan go ahead, with Task 6 building exactly D2.
+
+### Amendment (Task 6, 2026-11-15): parent process chain
+WebView2 and other embedded-web programs must work in phase 2 (owner decision), and for them the focused
+element's process is a child of the program that owns the window. D2's API already returns the element's process
+id (`ElementFacts::pid`) and the window owner (`WindowFacts::owner_pid`); it had no parent lookup. The shim adds two
+safe functions, `parent_pid(pid) -> Result<Option<u32>>` and `process_chain(pid, max_depth) -> Result<Vec<u32>>`
+(Toolhelp process snapshot; the `windows` feature `Win32_System_Diagnostics_ToolHelp` is added to the D2 list; one
+more `unsafe` use per snapshot call, in `sys_process`). A parent id is a hint: the parent may have exited and its
+id been reused, so the phase 2 caller must open the parent with `ProcessHandle` and verify its image and signer
+before trusting it. The chain stops at a repeated id, a missing parent, or `max_depth`.
+
+### Alternatives considered
+- **`uiautomation` for all UIA work:** no `IUIAutomation2` timeouts, so a hung program could hang the pick, and
+  reaching the timeouts would put `unsafe` into Mosaic's code anyway. Revisit if upstream adds them.
+- **`winsafe` for process and window calls:** 105 000 lines with 2 487 `unsafe` blocks to replace about ten calls,
+  without the two the identity needs (`GetPackageFamilyName`, `GetFinalPathNameByHandleW`), and handles from UIA
+  only through `unsafe fn`.
+- **Program fill stops (no shim):** the owner chose the shim (O2).
+
+### Consequences
+`crates/winshim` is added in Task 6 of the phase 1 plan, with exactly the D2 API and features. The `windows`
+pin stays `=0.62.2`; the shim only adds features. A `windows` version bump re-runs this vetting for the shim
+(the `unsafe` blocks are read again). THREAT_MODEL §4.9 (supply chain) records the exception.
+
+### Review log
+| Date | Reviewer | Scope | Result |
+|---|---|---|---|
+| — | crypto-reviewer | every `unsafe` block of `crates/winshim` | pending (Task 6 hand-off) |
+| — | Fable red team | the whole of `crates/winshim` | pending (before the first merge) |
+
+## ADR-0158: Windows program identity and binding
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: autofill everywhere, part 1 (Windows program fill, phase 1)
+
+### Context
+ADR-0157 is GO. A login item can be linked to a Windows program the way it can be linked to an Android app
+(ADR-0092): the program has an identity the user cannot spoof with a window title, and only the right program
+matches. Spec `docs/superpowers/specs/2026-11-14-autofill-everywhere-design.md` §5.1.2, §5.1.3, §6.2 Part 1, §7 Q2
+and Q3. The rules are pure and live in `crates/origin/src/program.rs`; the capture and the policy live in
+`crates/program-fill`.
+
+### Decision
+- **Three canonical URL forms.** Only the canonical text is accepted; `parse` decodes and re-encodes and refuses
+  what does not round-trip. The scheme is `winapp://` in lowercase; there is no fragment; a form that has a query
+  has exactly one member.
+  - `winapp://package/<family>`: a package family name `<Name>_<PublisherId>`, ASCII lowercase. Name 3 to 50 of
+    `[a-z0-9.-]`; PublisherId exactly 13 of the lowercase Crockford base32 alphabet `0-9a-hjkmnp-tv-z`.
+  - `winapp://signed/<exe>?signer=<43 base64url>`: `<exe>` is the folded file name, percent-encoded (bytes in
+    `[a-z0-9-._~]` stay, every other byte is `%XX` with uppercase hex). The decoded name is 1 to 255 bytes of
+    UTF-8, equals its own fold, is not `.` or `..`, and has none of `\ / : * ? " < > |`, no control character and
+    no NUL. `signer` is the signer id (amended after the red team, see "Signer id" below).
+  - `winapp://path/<base64url(UTF-8 path)>?sha256=<43 base64url>`: the decoded path is 1 to 4096 bytes of UTF-8,
+    starts with a drive (`X:\`) or UNC (`\server\share\`) prefix, never with `\?\` or `\.\`, and has no `/`,
+    NUL or control character. It is stored as captured, not folded. `sha256` is the hash of the image file.
+  - `signer` and `sha256` are 43 base64url characters without padding that decode to 32 bytes and re-encode to the
+    same text.
+- **Fold rule.** `fold_name` lowercases per `char` when the simple lowercase mapping is exactly one `char`, else
+  keeps the `char`. It is deterministic on every OS. It folds case, never script: a Cyrillic `о` in `discоrd.exe`
+  stays a different name and never matches. `paths_equal` is equality after `fold_name`.
+- **Exclusion classes, by file name for any signer.** `Browser`, `Host` (script and interpreter hosts, terminals,
+  `rundll32`, `dllhost`, WSL), `Mosaic` (its own executables), `Broker` (credential, consent, logon and lock
+  screens, `applicationframehost.exe`) and `Remote` (remote-desktop, VM and remote-control clients) never match
+  and are never bindable. Package families of Windows Terminal and Remote Desktop are excluded the same way. This
+  is stricter than "by signer and name": a stolen or genuine signature never turns a browser or a script host into
+  a bindable program. The lists are constants in `program.rs`; a program missing from them stays `Ordinary`.
+- **Matching.** `package/` matches an equal family. `signed/` matches an equal signer **and** an equal exe name.
+  `path/` matches only an image with no trusted signature, an equal path and an equal file hash. A signed image
+  never matches a `path/` binding, and the other way round. A match is `ExactOrigin`. A non-`winapp://` URL never
+  matches a program, and a `winapp://` URL never matches a page or an Android app (an older build keeps it as an
+  unknown URL that never matches).
+- **Signer id (amended 2026-11-15).** `signer=` is SHA-256(DER subject of the leaf signing certificate, followed by
+  SHA-256 of the DER of the root certificate the chain ends in), the root taken from the `WinVerifyTrust` provider
+  chain. A subject alone can be copied by anyone who can mint a certificate and add its root to the per-user root
+  store; with the root in the id a copied subject under another root is another signer (`SignerChanged`), and a
+  leaf renewed under the same root keeps the id. A chain whose root is not in the machine's `Root` or `AuthRoot`
+  store is `Untrusted`. No link in this form has been saved yet (phase 2, which saves links, is not shipped), so
+  there is no migration. Re-linking after a signer change takes two confirmations like an unsigned program, and the
+  prompt shows the old and the new signer's CN and O (`LinkAgain`).
+- **Package versus signer (amended 2026-11-15).** A program with a trusted signature binds as `signed/` even when it
+  is packaged (packaged apps are signed); `package/` is only for a packaged app without a trusted signature.
+- **Image handling (amended 2026-11-15).** The image is opened once; an image on a network path (UNC, or a drive
+  `GetDriveTypeW` reports as remote) is refused (`NetworkImage`) because a remote file can change under the handle.
+  A renamed browser (`chrome.exe` copied to `x.exe`, still signed by Google) is `Ordinary` here, since exclusion is
+  by file name; phase 2 must also exclude by signer plus product (open item in `docs/PROGRAM_FILL.md`).
+- **Binding states (ADR-0157 D4).** Only `Trusted` and `Unsigned` images are bindable. `Revoked` and `Untrusted`
+  are refused with their own reason.
+- **Q3: unsigned programs bind path plus hash.** The path alone would let a user-writable directory be filled
+  with a replacement; the hash alone would follow a copy anywhere. Linking such a program needs two separate
+  confirmations at least one second apart, with an "unsigned" warning (a double click is not a link).
+- **Q2: foreign process content is refused in phase 1.** If the focused element's process is not the window
+  owner's process, the target is refused (`ForeignContent`), WebView2 included. The one exception is a UWP window:
+  its owner is `ApplicationFrameHost.exe` and the element's process has a package family, so the package of the
+  element process is the identity.
+- **Display data is never matched.** The signer's common name and organization, the window title and the version
+  resource are for display only. They are not part of the URL and the matcher never reads them (the URL
+  element's `extra.program` may hold them for the picker).
+- **Look-alikes are a warning.** `program_lookalike_of` (one substitution, swap, insertion or deletion between the
+  stems of two exe names, both of at least 4 characters) produces a link-time warning, never a match.
+- **Integrity.** A target whose integrity level is above Mosaic's is refused (`Elevated`). Mosaic never asks for
+  `uiAccess` or elevation.
+
+### Alternatives considered
+- **Folding with full Unicode case folding or a per-OS rule:** not deterministic across OSes; the simple lowercase
+  mapping is.
+- **Bind unsigned programs by path only:** a replaced file would keep matching.
+- **Exclude browsers and hosts only when signed by their vendor:** an attacker's copy with a stolen or own
+  signature would pass, the name check is stricter.
+
+### Consequences
+THREAT_MODEL §4.10. `crates/program-fill` (identity, policy, re-verification) builds on these rules.
