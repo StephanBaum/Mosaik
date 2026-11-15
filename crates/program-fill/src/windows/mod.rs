@@ -1,0 +1,369 @@
+//! The Windows probe: reads the real operating system through `mosaic-winshim`
+//! for the pure model of this crate (ADR-0157, ADR-0158). Phase 1 only
+//! captures and verifies; nothing is written into any program.
+
+mod uia;
+
+use std::path::Path;
+
+use mosaic_winshim::{
+    ProcessHandle, Signature, Uia, UiaElement, current_integrity_rid, final_path,
+    foreground_window, verify_authenticode, window_facts,
+};
+
+use crate::identity::{
+    CaptureRefusal, CapturedIdentity, HashError, IdentitySource, MAX_UNSIGNED_IMAGE_BYTES,
+    OwnProcess, RawProcess, SignatureState, SignerDisplay, assemble_identity,
+    choose_identity_process, hash_image_capped,
+};
+use crate::verify::{
+    PickSession, ProbeError, ProgramProbe, Rect, Snapshot, WindowFacts, probe_points,
+};
+use uia::{clear_at, focused_field, probe_error, same};
+
+/// Connection and transaction timeout of the UI Automation client
+/// (ADR-0157 D5).
+const UIA_TIMEOUT_MS: u32 = 2000;
+
+/// What a pick session keeps: the identity process's open handle, so its ID
+/// cannot be reused while the session lives, and the picked element for
+/// `CompareElements`.
+#[derive(Debug)]
+pub struct WinHeld {
+    process: ProcessHandle,
+    element: UiaElement,
+}
+
+/// A captured program and the session that picked its field.
+pub struct Captured {
+    /// The program identity.
+    pub identity: CapturedIdentity,
+    /// The pick, for [`ProgramProbe::snapshot`] and `check`.
+    pub session: PickSession<WinHeld>,
+}
+
+/// Why a capture failed.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum CaptureError {
+    /// Nothing, or something that is not an edit control, has focus.
+    #[error("the focused element is not a text field")]
+    NotAField,
+    /// The program cannot be captured (excluded, elevated, own process, ...).
+    #[error("capture refused: {0}")]
+    Refused(#[from] CaptureRefusal),
+    /// The operating system could not be read.
+    #[error("probe failed: {0}")]
+    Probe(#[from] ProbeError),
+}
+
+/// Reads the focused field and its program, and re-reads them before every
+/// write. Not `Send`: it owns a UI Automation client of its thread.
+pub struct WindowsProbe {
+    uia: Uia,
+    own: OwnProcess,
+}
+
+impl WindowsProbe {
+    /// Starts the UI Automation client and reads Mosaic's own integrity level.
+    ///
+    /// # Errors
+    /// [`ProbeError`] if the client cannot start.
+    pub fn new() -> Result<Self, ProbeError> {
+        let uia = Uia::new(UIA_TIMEOUT_MS, UIA_TIMEOUT_MS).map_err(probe_error)?;
+        let integrity_rid = current_integrity_rid().map_err(probe_error)?;
+        Ok(Self {
+            uia,
+            own: OwnProcess {
+                pid: std::process::id(),
+                integrity_rid,
+            },
+        })
+    }
+
+    /// Reads the focused edit and its program now. `picked_at_ms` is the
+    /// caller's monotonic clock.
+    ///
+    /// # Errors
+    /// [`CaptureError`].
+    pub fn capture_focused(&self, picked_at_ms: u64) -> Result<Captured, CaptureError> {
+        let (element, field, window) = focused_field(&self.uia)?.ok_or(CaptureError::NotAField)?;
+        let window = window_facts(window).map_err(probe_error)?;
+        let element_process = ProcessHandle::open(field.pid).map_err(probe_error)?;
+        let owner_process = ProcessHandle::open(window.owner_pid).map_err(probe_error)?;
+        let (identity, held) = identify(self.own, element_process, owner_process)?;
+        let session = PickSession::new(
+            WinHeld {
+                process: held,
+                element,
+            },
+            &identity,
+            field.pid,
+            window.owner_pid,
+            window.root,
+            field.runtime_id,
+            field.kind,
+            picked_at_ms,
+        );
+        Ok(Captured { identity, session })
+    }
+}
+
+impl ProgramProbe for WindowsProbe {
+    type Held = WinHeld;
+
+    fn snapshot(&self, session: &PickSession<WinHeld>) -> Result<Snapshot, ProbeError> {
+        // Nothing is cached between snapshots: every fact is read now.
+        let focus = focused_field(&self.uia)?;
+        let focused_is_target = match &focus {
+            Some((element, _, _)) => same(&self.uia, element, &session.held.element)?,
+            None => false,
+        };
+        let focused = focus.map(|(_, facts, _)| facts);
+
+        let held = &session.held.process;
+        let process_running = held.is_running().map_err(probe_error)?;
+        let image = held
+            .image_path()
+            .and_then(|path| final_path(&path))
+            .map_err(probe_error);
+        // A process that ended cannot report its image; the verdict is then
+        // `ProcessGone`, decided before the path is looked at.
+        let image_final_path = match image {
+            Ok(path) => path,
+            Err(_) if !process_running => String::new(),
+            Err(err) => return Err(err),
+        };
+
+        let foreground = foreground_window()
+            .and_then(|hwnd| window_facts(hwnd).ok())
+            .map(|w| WindowFacts {
+                root: w.root,
+                pid: w.owner_pid,
+                cloaked: w.cloaked,
+                minimized: w.minimized,
+            });
+
+        // The occlusion probes only matter (and only cost UIA calls) when the
+        // target has focus; otherwise the check fails earlier anyway.
+        let occlusion_clear = if focused_is_target {
+            self.occlusion(focused.as_ref().map(|f| f.rect), &session.held.element)?
+        } else {
+            [false; 5]
+        };
+        Ok(Snapshot {
+            focused,
+            focused_is_target,
+            process_running,
+            image_final_path,
+            foreground,
+            occlusion_clear,
+        })
+    }
+}
+
+impl WindowsProbe {
+    /// For each of the five probe points of `rect`: whether the element there
+    /// is the target or inside it. All `false` for a rectangle with no points.
+    fn occlusion(&self, rect: Option<Rect>, target: &UiaElement) -> Result<[bool; 5], ProbeError> {
+        let Some(points) = rect.and_then(probe_points) else {
+            return Ok([false; 5]);
+        };
+        let mut clear = [false; 5];
+        for (slot, point) in clear.iter_mut().zip(points) {
+            *slot = clear_at(&self.uia, target, point)?;
+        }
+        Ok(clear)
+    }
+}
+
+/// The identity of the program behind a focused element: chooses the process
+/// (window owner or element process), verifies its signature, hashes an
+/// unsigned image (within the cap) and assembles the identity. Returns the
+/// chosen process's handle for the session to keep.
+fn identify(
+    own: OwnProcess,
+    element: ProcessHandle,
+    owner: ProcessHandle,
+) -> Result<(CapturedIdentity, ProcessHandle), CaptureError> {
+    let raw_element = raw_process(&element)?;
+    let raw_owner = raw_process(&owner)?;
+    let (chosen, raw) = match choose_identity_process(&raw_element, &raw_owner)? {
+        IdentitySource::WindowOwner => (owner, raw_owner),
+        IdentitySource::ElementProcess => (element, raw_element),
+    };
+    let signature = signature_state(&raw.final_path)?;
+    let file_sha256 = match (&signature, hash_unsigned(&raw.final_path)) {
+        (SignatureState::Unsigned, hashed) => hashed?,
+        _ => None,
+    };
+    let identity = assemble_identity(own, &raw, signature, file_sha256)?;
+    Ok((identity, chosen))
+}
+
+/// The OS's view of one process, read through its held handle.
+fn raw_process(handle: &ProcessHandle) -> Result<RawProcess, ProbeError> {
+    let final_path = handle
+        .image_path()
+        .and_then(|path| final_path(&path))
+        .map_err(probe_error)?;
+    Ok(RawProcess {
+        pid: handle.pid(),
+        final_path,
+        package_family: handle.package_family_name().map_err(probe_error)?,
+        integrity_rid: handle.integrity_rid().map_err(probe_error)?,
+    })
+}
+
+/// The Authenticode state of an image, as the model's.
+fn signature_state(final_path: &str) -> Result<SignatureState, ProbeError> {
+    Ok(
+        match verify_authenticode(final_path).map_err(probe_error)? {
+            Signature::Trusted {
+                subject_der,
+                common_name,
+                organization,
+            } => SignatureState::Trusted {
+                subject_der,
+                display: SignerDisplay {
+                    common_name,
+                    organization,
+                },
+            },
+            Signature::Unsigned => SignatureState::Unsigned,
+            Signature::Revoked => SignatureState::Revoked,
+            Signature::Untrusted => SignatureState::Untrusted,
+        },
+    )
+}
+
+/// The hash of an unsigned image, `None` when it is over the cap.
+fn hash_unsigned(final_path: &str) -> Result<Option<[u8; 32]>, ProbeError> {
+    match hash_image_capped(Path::new(final_path), MAX_UNSIGNED_IMAGE_BYTES) {
+        Ok(hash) => Ok(Some(hash)),
+        Err(HashError::TooLarge) => Ok(None),
+        Err(_) => Err(ProbeError::Os),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::verify::{FieldKind, WriteKind, check};
+    use mosaic_winshim::ShimError;
+
+    /// A child process that is killed and reaped on drop.
+    struct Child(std::process::Child);
+
+    impl Drop for Child {
+        fn drop(&mut self) {
+            // Nothing more to do if the child is already gone.
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    fn own() -> OwnProcess {
+        OwnProcess {
+            pid: std::process::id(),
+            integrity_rid: current_integrity_rid().unwrap(),
+        }
+    }
+
+    #[test]
+    fn the_probe_starts() {
+        std::thread::spawn(|| {
+            WindowsProbe::new().unwrap();
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn capturing_without_a_focused_edit_never_panics() {
+        std::thread::spawn(|| {
+            let probe = WindowsProbe::new().unwrap();
+            // Whatever has focus on this desktop, the answer is a value.
+            match probe.capture_focused(0) {
+                Ok(_)
+                | Err(
+                    CaptureError::NotAField | CaptureError::Refused(_) | CaptureError::Probe(_),
+                ) => {}
+            }
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn mosaics_own_process_cannot_be_captured() {
+        let me = std::process::id();
+        let result = identify(
+            own(),
+            ProcessHandle::open(me).unwrap(),
+            ProcessHandle::open(me).unwrap(),
+        );
+        assert!(matches!(
+            result,
+            Err(CaptureError::Refused(CaptureRefusal::OwnProcess))
+        ));
+    }
+
+    #[test]
+    fn a_signed_system_program_is_captured_with_its_signer() {
+        // ping.exe is a Microsoft-signed system binary that waits for a while.
+        let child = Child(
+            std::process::Command::new("ping")
+                .args(["-n", "30", "127.0.0.1"])
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let pid = child.0.id();
+        let (identity, held) = identify(
+            own(),
+            ProcessHandle::open(pid).unwrap(),
+            ProcessHandle::open(pid).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(held.pid(), pid);
+        assert_eq!(identity.pid, pid);
+        assert_eq!(identity.exe_name, "ping.exe");
+        assert!(identity.signer_subject_sha256.is_some());
+        assert_eq!(identity.file_sha256, None);
+        assert!(
+            identity
+                .signer_display
+                .as_ref()
+                .and_then(|d| d.organization.as_deref())
+                .is_some_and(|o| o.contains("Microsoft"))
+        );
+        let proposed = crate::policy::propose_binding(&identity, &[]).unwrap();
+        assert!(
+            proposed
+                .url
+                .canonical()
+                .starts_with("winapp://signed/ping.exe")
+        );
+    }
+
+    #[test]
+    fn shim_errors_map_to_probe_errors() {
+        assert_eq!(probe_error(ShimError::Timeout), ProbeError::Timeout);
+        assert_eq!(probe_error(ShimError::NotFound), ProbeError::Gone);
+        assert_eq!(probe_error(ShimError::AccessDenied), ProbeError::Os);
+        assert_eq!(probe_error(ShimError::Os(5)), ProbeError::Os);
+    }
+
+    #[test]
+    #[ignore = "interactive desktop: docs/PROGRAM_FILL.md checklist"]
+    fn the_focused_field_is_captured_and_verified() {
+        let probe = WindowsProbe::new().unwrap();
+        let captured = probe.capture_focused(0).unwrap();
+        let write = match captured.session.target_kind {
+            FieldKind::Password => WriteKind::Password,
+            FieldKind::Text => WriteKind::Username,
+        };
+        check(&probe, &captured.session, write, 1).unwrap();
+    }
+}

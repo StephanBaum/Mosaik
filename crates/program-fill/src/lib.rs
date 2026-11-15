@@ -12,6 +12,8 @@
 //!   confirmations an unsigned program needs.
 //! - [`verify`]: the re-verification before every write (focus, window,
 //!   process, image path, field, occlusion, time).
+//! - `windows` (Windows only): the probe that reads the real operating system
+//!   through `mosaic-winshim`, and the capture of the focused field's program.
 #![forbid(unsafe_code)]
 
 pub mod identity;
@@ -20,6 +22,9 @@ pub mod verify;
 
 #[cfg(any(test, feature = "fake"))]
 pub mod fake;
+
+#[cfg(windows)]
+pub mod windows;
 
 pub use identity::{
     CaptureRefusal, CapturedIdentity, HashError, IdentitySource, MAX_UNSIGNED_IMAGE_BYTES,
