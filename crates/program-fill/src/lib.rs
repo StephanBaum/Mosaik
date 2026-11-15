@@ -17,7 +17,9 @@
 #![forbid(unsafe_code)]
 
 pub mod binding;
+pub mod detect;
 pub mod identity;
+pub mod placement;
 pub mod policy;
 pub mod suggest;
 pub mod verify;
