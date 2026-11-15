@@ -12,14 +12,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use mosaic_core::SecretString;
 use mosaic_core::model::ItemType;
-use mosaic_import::{EntryWarning, Format, MAX_FILE_LEN, SkipReason};
+use mosaic_import::{EntryWarning, Format, MAX_FILE_LEN, SkipReason, Source, detect};
 use mosaic_vault::session::{ItemFilter, UnlockedSession};
 use zeroize::Zeroizing;
 
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::import::{
-    ImportCommitRequest, ImportCount, ImportDuplicate, ImportEntry, ImportEntryWarning,
-    ImportFormat, ImportPreview, ImportResult, ImportSkipReason, ImportSkipped, ImportWarning,
+    ImportCommitRequest, ImportCount, ImportDetected, ImportDetectedSource, ImportDuplicate,
+    ImportEntry, ImportEntryWarning, ImportFormat, ImportPreview, ImportResult, ImportSkipReason,
+    ImportSkipped, ImportWarning,
 };
 use crate::contract::items::ItemKind;
 use crate::state::guard;
@@ -53,6 +54,20 @@ impl ImportService {
     ) -> IpcResult<mosaic_import::Import> {
         let bytes = read_export(file)?;
         mosaic_import::parse(format_of(format), &bytes, password).map_err(map_error)
+    }
+
+    /// Says what `file` is, from its content only. Nothing of the content
+    /// is returned: the product and the format.
+    ///
+    /// # Errors
+    /// `importFileUnreadable`, `importTooLarge`.
+    pub fn detect(&self, file: &Path) -> IpcResult<ImportDetected> {
+        let bytes = read_export(file)?;
+        let found = detect(&bytes);
+        Ok(ImportDetected {
+            source: found.and_then(|d| wire_source(d.source)),
+            format: found.map(|d| wire_format(d.format)),
+        })
     }
 
     /// Runs the duplicate pass against the session and keeps the import,
@@ -147,6 +162,10 @@ const fn format_of(format: ImportFormat) -> Format {
         ImportFormat::Keepass => Format::Keepass,
         ImportFormat::OnePassword => Format::OnePassword,
         ImportFormat::Cxf => Format::Cxf,
+        ImportFormat::Dashlane => Format::Dashlane,
+        ImportFormat::Keeper => Format::Keeper,
+        ImportFormat::KeeperCsv => Format::KeeperCsv,
+        ImportFormat::ProtonPass => Format::ProtonPass,
         ImportFormat::Csv => Format::Csv,
     }
 }
@@ -158,8 +177,37 @@ const fn wire_format(format: Format) -> ImportFormat {
         Format::Keepass => ImportFormat::Keepass,
         Format::OnePassword => ImportFormat::OnePassword,
         Format::Cxf => ImportFormat::Cxf,
-        Format::Csv => ImportFormat::Csv,
+        Format::Dashlane => ImportFormat::Dashlane,
+        Format::Keeper => ImportFormat::Keeper,
+        Format::KeeperCsv => ImportFormat::KeeperCsv,
+        Format::ProtonPass => ImportFormat::ProtonPass,
+        // `Format` is non-exhaustive: a later format reads as generic CSV.
+        _ => ImportFormat::Csv,
     }
+}
+
+fn wire_source(source: Source) -> Option<ImportDetectedSource> {
+    use ImportDetectedSource as W;
+    Some(match source {
+        Source::Chromium => W::Chromium,
+        Source::Firefox => W::Firefox,
+        Source::Safari => W::Safari,
+        Source::BitwardenCsv => W::BitwardenCsv,
+        Source::Bitwarden => W::Bitwarden,
+        Source::Enpass => W::Enpass,
+        Source::KeePass => W::Keepass,
+        Source::KeePassXcCsv => W::KeepassxcCsv,
+        Source::OnePassword => W::OnePassword,
+        Source::Cxf => W::Cxf,
+        Source::LastPass => W::Lastpass,
+        Source::Dashlane => W::Dashlane,
+        Source::Keeper => W::Keeper,
+        Source::NordPass => W::Nordpass,
+        Source::ProtonPass => W::ProtonPass,
+        Source::RoboForm => W::Roboform,
+        Source::Csv => W::Csv,
+        _ => return None,
+    })
 }
 
 fn map_error(error: mosaic_import::Error) -> IpcError {
@@ -193,6 +241,7 @@ fn entry_warning(warning: EntryWarning) -> Option<ImportEntryWarning> {
         EntryWarning::PasskeyUnsupported => ImportEntryWarning::PasskeyUnsupported,
         EntryWarning::PasskeysLimit => ImportEntryWarning::PasskeysLimit,
         EntryWarning::NotesTruncated => ImportEntryWarning::NotesTruncated,
+        EntryWarning::UrlKeptAsText => ImportEntryWarning::UrlKeptAsText,
         _ => return None,
     })
 }

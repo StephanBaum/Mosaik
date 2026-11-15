@@ -169,6 +169,10 @@ Error codes reuse the desktop's names where they mean the same (`wrongCredential
 - `totp` on an HOTP item advances and stores the counter first.
 - `import` prints a preview (counts, duplicates, warnings) and, without `--dry-run`, asks
   "Import N items into V? [y/N]" on the terminal (`--no-input` refuses). File passwords (KDBX) by prompt only.
+  FORMAT is `enpass`, `bitwarden`, `keepass`, `1password`, `cxf`, `csv`, `dashlane`, `keeper`, `keeper-csv`,
+  `protonpass`, `auto` or `mosaicx`. `auto` reads the file's content to pick the format (a file nothing recognises
+  fails like any bad import; a `.kdbx` still needs `--file-password-prompt`). LastPass, NordPass, RoboForm and KeePassXC CSV files
+  are read by `csv`.
 - `sync` runs one `sync_once` with the store's backend. A halt or a finding is exit 6 with the finding list.
   `--acknowledge` shows the findings and needs the word `acknowledge` typed on the terminal (no `--yes`).
 - `setup own-store` refuses if the own store exists; it joins the account as a separate device (folder: the

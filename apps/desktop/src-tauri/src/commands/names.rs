@@ -68,6 +68,7 @@ pub const COMMANDS: &[&str] = &[
     "security_report",
     // Import
     "import_choose_file",
+    "import_detect",
     "import_preview",
     "import_commit",
     "import_cancel",

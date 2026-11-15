@@ -57,6 +57,7 @@
     "allow-update-settings",
     "allow-security-report",
     "allow-import-choose-file",
+    "allow-import-detect",
     "allow-import-preview",
     "allow-import-commit",
     "allow-import-cancel",

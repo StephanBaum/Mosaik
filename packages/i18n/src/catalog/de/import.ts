@@ -7,6 +7,10 @@ export const importMessages = {
   "import.format.keepass": "KeePass (.kdbx)",
   "import.format.onePassword": "1Password (.1pux)",
   "import.format.cxf": "FIDO Credential Exchange (.json): Passkeys und Passwörter",
+  "import.format.dashlane": "Dashlane (.zip)",
+  "import.format.keeper": "Keeper (.json)",
+  "import.format.keeperCsv": "Keeper (.csv)",
+  "import.format.protonPass": "Proton Pass (.zip oder .json, unverschlüsselt)",
   "import.format.csv": "CSV-Datei (.csv)",
   "import.keepassPassword": "Passwort der KeePass-Datenbank",
   "import.preview.ready":
@@ -66,6 +70,7 @@ export const importMessages = {
     "Dieser Eintrag hat mehr Felder, als Mosaic speichert. Die übrigen Felder werden ausgelassen.",
   "import.entry.notesTruncated":
     "Die Notizen dieses Eintrags sind länger, als ein Eintrag fassen kann. Der Teil, der nicht mehr hineinpasst, wurde ausgelassen.",
+  "import.entry.urlKeptAsText": "Diese Adresse ließ sich nicht als Link verwenden. Sie wurde als Text behalten.",
   "import.skip.malformed": "Dieser Eintrag ist beschädigt und lässt sich nicht lesen.",
   "import.skip.empty": "Dieser Eintrag ist leer.",
   "import.skip.tooLarge": "Dieser Eintrag ist größer als 1 MiB, das Maximum für einen Eintrag.",

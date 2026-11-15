@@ -44,6 +44,14 @@ export const importHandlers: MockHandlers = {
     return { kind: "chosen", fileToken: "file-1", fileName: "enpass-export.json" };
   },
 
+  import_detect: (state, request) => {
+    requireUnlocked(state);
+    if (request.fileToken !== "file-1") {
+      fail("importFileUnreadable");
+    }
+    return state.options.importDetected ?? { source: "enpass", format: "enpass" };
+  },
+
   import_preview: (state, request) => {
     requireUnlocked(state);
     if (request.fileToken !== "file-1") {

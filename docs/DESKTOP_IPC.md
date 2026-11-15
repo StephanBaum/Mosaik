@@ -136,7 +136,8 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | **Security insights** | | | |
 | `security_report` | `null` → `{ generatedAt, itemsChecked, counts: { weak, reused, reusedGroups, old, missingTotp, insecureUrl, breached, high, medium, low }, findings: { vaultId, itemId, issues: { kind, severity, action }[], reusedWith: { vaultId, itemId }[], totpSite: { name, documentation \| null } \| null, insecureHost \| null }[] }` | | live (mosaic-insights, ADR-0022 to ADR-0024) |
 | **Import** | | | |
-| `import_choose_file` | `{ format }` → `{ kind: "chosen", fileToken, fileName } \| { kind: "cancelled" }` | | live |
+| `import_choose_file` | `null` → `{ kind: "chosen", fileToken, fileName } \| { kind: "cancelled" }` (one "Export files" filter, opens in the Downloads folder when it exists) | | live |
+| `import_detect` | `{ fileToken }` → `{ source: ImportDetectedSource \| null, format: ImportFormat \| null }` (from the file's content; no content crosses) | `importFileUnreadable`, `importTooLarge` | live |
 | `import_preview` | `{ fileToken, format, password \| null }` → `{ previewId, format, entries: { index, kind, title \| null, subtitle \| null, duplicateOf: { vaultId, itemId } \| null, duplicateInFile \| null, attachments, warnings: ImportEntryWarning[] }[], skipped: { index, reason: "malformed" \| "empty" \| "tooLarge" }[], counts: { kind, count }[], attachments, attachmentBytes, warnings: ImportWarning[] }` | `importFileUnreadable`, `importFormatInvalid`, `importTooLarge`, `importUnsupported`, `importEncrypted`, `wrongCredentials` | live (mosaic-import, ADR-0021) |
 | `import_commit` | `{ previewId, targetVaultId, skip }` → `{ imported, skipped, failed, attachments, attachmentsFailed }` (`imported` counts every item added, passkeys included) | `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable` | live |
 | `import_cancel` | `{ previewId }` → `null` | | live |
@@ -510,7 +511,11 @@ Notes per area:
   `ImportWarning` is
   `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`, `otpUnreadable`, `passkeysNotImported`,
   `passkeyUnreadable`, `passkeyUnsupported` or `passkeysSkipped`. `ImportFormat` is `enpass`, `bitwarden`, `keepass`,
-  `onePassword`, `cxf` or `csv`.
+  `onePassword`, `cxf`, `dashlane`, `keeper`, `keeperCsv`, `protonPass` or `csv`. `ImportDetectedSource` is `chromium`, `firefox`,
+  `safari`, `bitwardenCsv`, `bitwarden`, `enpass`, `keepass` (a KDBX, which needs its password), `keepassxcCsv`, `onePassword`,
+  `cxf`, `lastpass`, `dashlane`, `keeper`, `nordpass`, `protonPass`, `roboform` or `csv`. `ImportEntryWarning` also has
+  `urlKeptAsText` (a URL that is not a web address stayed as text). `keeperCsv` is never detected: it has no header, so the
+  user's source picks it.
   Passkeys (M5, ADR-0041): Bitwarden, KeePassXC and CXF passkeys become `passkey` items of their own,
   one per credential, written right after their entry; `counts` has a `passkey` entry and
   `import_commit`'s `imported` counts them. An entry of passkeys only is listed with kind `passkey`

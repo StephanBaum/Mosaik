@@ -36,8 +36,9 @@ use super::export;
 use super::generator::{self, Strength};
 use super::ids::samples as ids;
 use super::import::{
-    self, ImportCancelRequest, ImportChooseRequest, ImportCommitRequest, ImportEntryWarning,
-    ImportFormat, ImportPreviewRequest, ImportResult, ImportSkipReason, ImportWarning,
+    self, ImportCancelRequest, ImportCommitRequest, ImportDetectRequest, ImportDetectedSource,
+    ImportEntryWarning, ImportFormat, ImportPreviewRequest, ImportResult, ImportSkipReason,
+    ImportWarning,
 };
 use super::insights::{self, InsightAction, InsightKind, InsightSeverity};
 use super::items::{
@@ -502,13 +503,13 @@ fn otp_commands(f: &mut Fixtures) {
 
 /// The import commands.
 fn import_commands(f: &mut Fixtures) {
+    f.command("import_choose_file", vec![()], import::samples::choices());
     f.command(
-        "import_choose_file",
-        ImportFormat::ALL
-            .iter()
-            .map(|&format| ImportChooseRequest { format })
-            .collect(),
-        import::samples::choices(),
+        "import_detect",
+        vec![ImportDetectRequest {
+            file_token: "f-1".into(),
+        }],
+        import::samples::detected(),
     );
     f.command(
         "import_preview",
@@ -1391,6 +1392,7 @@ fn enums() -> Map<String, Value> {
         ("historyReasonKey", values(HistoryReasonKey::ALL)),
         ("breachScanError", values(BreachScanError::ALL)),
         ("importFormat", values(ImportFormat::ALL)),
+        ("importDetectedSource", values(ImportDetectedSource::ALL)),
         ("importWarning", values(ImportWarning::ALL)),
         ("importEntryWarning", values(ImportEntryWarning::ALL)),
         ("importSkipReason", values(ImportSkipReason::ALL)),

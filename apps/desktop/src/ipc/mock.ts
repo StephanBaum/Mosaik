@@ -69,6 +69,7 @@ import {
   type BiometricPlatformKind,
   type CommandName,
   type ErrorCode,
+  type ImportDetected,
   type IpcResult,
   type RequestOf,
   type ResponseOf,
@@ -176,6 +177,8 @@ export interface MockOptions extends QuickOptions {
   metaDropped?: VaultMetaField[];
   /** The connector audit finds a foreign host (`&connector=foreign`). */
   connector?: "foreign";
+  /** What `import_detect` reports for the chosen file (default: Enpass). */
+  importDetected?: ImportDetected;
   /** Fail `attachment_add` with this code, or cancel the file dialog (`?attachAdd=cancel`). */
   attachAdd?: ErrorCode | "cancel";
   /** Fail `attachment_save` with this code, or cancel the save dialog (`?attachSave=cancel`). */
@@ -433,6 +436,7 @@ function setupOptions(options: MockOptions): MockSetupOptions {
     metaDropped: options.metaDropped ?? [],
     attachAdd: options.attachAdd ?? null,
     attachSave: options.attachSave ?? null,
+    importDetected: options.importDetected ?? null,
   };
 }
 

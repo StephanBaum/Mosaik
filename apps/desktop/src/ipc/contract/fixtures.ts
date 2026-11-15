@@ -39,6 +39,7 @@ export interface EnumFixtures {
   historyReasonKey: string[];
   breachScanError: string[];
   importFormat: string[];
+  importDetectedSource: string[];
   importWarning: string[];
   importEntryWarning: string[];
   importSkipReason: string[];

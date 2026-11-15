@@ -194,11 +194,17 @@ export function ImportFlow({ onClose, embedded = false }: { onClose: () => void;
 
   async function choose() {
     setError(null);
-    const result = await ipc.call("import_choose_file", { format });
+    const result = await ipc.call("import_choose_file", null);
     if (!result.ok) {
       setError(result.error);
     } else if (result.value.kind === "chosen") {
-      setStep({ name: "file", token: result.value.fileToken, fileName: result.value.fileName });
+      const { fileToken, fileName } = result.value;
+      // The content decides the format; the user's pick stays for a file nothing recognises.
+      const detected = await ipc.call("import_detect", { fileToken });
+      if (detected.ok && detected.value.format !== null) {
+        setFormat(detected.value.format);
+      }
+      setStep({ name: "file", token: fileToken, fileName });
     }
   }
 
