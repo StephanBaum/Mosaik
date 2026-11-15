@@ -165,7 +165,16 @@ export const fixtures = {
     "emergency_revoke",
     "emergency_request",
     "emergency_respond",
-    "emergency_claim"
+    "emergency_claim",
+    "picker_subscribe",
+    "picker_state",
+    "picker_chip_click",
+    "picker_search",
+    "picker_choose",
+    "picker_link_begin",
+    "picker_link_confirm",
+    "picker_block",
+    "picker_dismiss"
   ],
   "enums": {
     "agentAccessDecision": [
@@ -611,6 +620,10 @@ export const fixtures = {
       "en",
       "de"
     ],
+    "linkAgainReason": [
+      "signerChanged",
+      "fileChanged"
+    ],
     "lockReason": [
       "manual",
       "idle",
@@ -662,10 +675,29 @@ export const fixtures = {
       "preferred",
       "discouraged"
     ],
+    "pickerMode": [
+      "hidden",
+      "chip",
+      "list",
+      "notice"
+    ],
+    "pickerNotice": [
+      "elevated",
+      "noField",
+      "aborted",
+      "abortedCleared",
+      "modifiersHeld",
+      "notResponding"
+    ],
     "programFillUnavailable": [
       "notWindows",
       "mosaicElevated",
       "hostFailed"
+    ],
+    "programKind": [
+      "package",
+      "signed",
+      "unsigned"
     ],
     "queueKind": [
       "guided",
@@ -2524,6 +2556,49 @@ export const fixtures = {
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
+    ],
+    "picker_block": [
+      {
+        "generation": 7
+      }
+    ],
+    "picker_chip_click": [
+      {
+        "generation": 7
+      }
+    ],
+    "picker_choose": [
+      {
+        "generation": 7,
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "picker_dismiss": [
+      {
+        "generation": 7
+      }
+    ],
+    "picker_link_begin": [
+      {
+        "generation": 7,
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "picker_link_confirm": [
+      {
+        "generation": 7
+      }
+    ],
+    "picker_search": [
+      {
+        "generation": 7,
+        "query": "sla"
+      }
+    ],
+    "picker_state": [
+      null
     ],
     "profile_upgrade": [
       {
@@ -5906,6 +5981,195 @@ export const fixtures = {
     ],
     "password_history_restore": [
       null
+    ],
+    "picker_block": [
+      null
+    ],
+    "picker_chip_click": [
+      null
+    ],
+    "picker_choose": [
+      null
+    ],
+    "picker_dismiss": [
+      null
+    ],
+    "picker_link_begin": [
+      {
+        "confirmations": 2,
+        "confirmed": 1,
+        "hashChange": {
+          "newPrefix": "8899aabbccddeeff",
+          "oldPrefix": "0011223344556677"
+        },
+        "login": {
+          "host": "slack.com",
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+          "title": "Slack",
+          "username": "alex@example.com",
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+          "vaultName": "Personal"
+        },
+        "lookalikeOf": "tools.exe",
+        "program": {
+          "exe": "tool.exe",
+          "kind": "unsigned",
+          "name": "tool.exe",
+          "path": "C:/Tools/tool.exe",
+          "signer": null
+        },
+        "submit": false
+      }
+    ],
+    "picker_link_confirm": [
+      {
+        "kind": "needAnother"
+      },
+      {
+        "kind": "tooSoon"
+      },
+      {
+        "kind": "linked"
+      }
+    ],
+    "picker_search": [
+      [
+        {
+          "host": "slack.com",
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+          "title": "Slack",
+          "username": "alex@example.com",
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+          "vaultName": "Personal"
+        },
+        {
+          "host": "slack.com",
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+          "title": "Slack",
+          "username": "alex@example.com",
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+          "vaultName": "Personal"
+        }
+      ],
+      []
+    ],
+    "picker_state": [
+      {
+        "generation": 7,
+        "language": "en",
+        "link": null,
+        "linkAgain": null,
+        "locked": false,
+        "matches": [
+          {
+            "host": "slack.com",
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+            "title": "Slack",
+            "username": "alex@example.com",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Personal"
+          }
+        ],
+        "mode": "list",
+        "notice": null,
+        "preselected": 0,
+        "program": {
+          "exe": "slack.exe",
+          "kind": "signed",
+          "name": "Slack",
+          "path": null,
+          "signer": "Slack Technologies"
+        },
+        "suggestions": [],
+        "theme": "dark"
+      },
+      {
+        "generation": 7,
+        "language": "en",
+        "link": null,
+        "linkAgain": null,
+        "locked": true,
+        "matches": [],
+        "mode": "chip",
+        "notice": null,
+        "preselected": null,
+        "program": {
+          "exe": "slack.exe",
+          "kind": "signed",
+          "name": "Slack",
+          "path": null,
+          "signer": "Slack Technologies"
+        },
+        "suggestions": [],
+        "theme": "dark"
+      },
+      {
+        "generation": 7,
+        "language": "en",
+        "link": {
+          "confirmations": 2,
+          "confirmed": 1,
+          "hashChange": {
+            "newPrefix": "8899aabbccddeeff",
+            "oldPrefix": "0011223344556677"
+          },
+          "login": {
+            "host": "slack.com",
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+            "title": "Slack",
+            "username": "alex@example.com",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Personal"
+          },
+          "lookalikeOf": "tools.exe",
+          "program": {
+            "exe": "tool.exe",
+            "kind": "unsigned",
+            "name": "tool.exe",
+            "path": "C:/Tools/tool.exe",
+            "signer": null
+          },
+          "submit": false
+        },
+        "linkAgain": "fileChanged",
+        "locked": false,
+        "matches": [],
+        "mode": "list",
+        "notice": null,
+        "preselected": null,
+        "program": {
+          "exe": "slack.exe",
+          "kind": "signed",
+          "name": "Slack",
+          "path": null,
+          "signer": "Slack Technologies"
+        },
+        "suggestions": [
+          {
+            "host": "slack.com",
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+            "title": "Slack",
+            "username": "alex@example.com",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Personal"
+          }
+        ],
+        "theme": "dark"
+      },
+      {
+        "generation": 7,
+        "language": "en",
+        "link": null,
+        "linkAgain": null,
+        "locked": false,
+        "matches": [],
+        "mode": "notice",
+        "notice": "modifiersHeld",
+        "preselected": null,
+        "program": null,
+        "suggestions": [],
+        "theme": "dark"
+      }
     ],
     "profile_upgrade": [
       {

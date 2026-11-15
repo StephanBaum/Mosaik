@@ -318,6 +318,10 @@ pub(crate) mod samples {
         }]
     }
 
+    pub(crate) fn link_steps() -> Vec<LinkStep> {
+        states().into_iter().filter_map(|s| s.link).collect()
+    }
+
     pub(crate) fn confirm_results() -> Vec<LinkConfirmResult> {
         vec![
             LinkConfirmResult::NeedAnother,

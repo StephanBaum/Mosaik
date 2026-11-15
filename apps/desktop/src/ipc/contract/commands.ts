@@ -144,6 +144,15 @@ import type {
   TotpSetupInfo,
 } from "./sync.ts";
 import { type SyncWebauthnCommandName, type SyncWebauthnCommands, syncWebauthnCommandNames } from "./sync.ts";
+import type {
+  LinkConfirmResult,
+  LinkStep,
+  PickerGenerationRequest,
+  PickerItemRequest,
+  PickerLogin,
+  PickerSearchRequest,
+  PickerState,
+} from "./picker.ts";
 import type { ProgramFillStatus, ProgramFillUnblockRequest } from "./programFill.ts";
 import type { TotpCode } from "./totp.ts";
 import type {
@@ -209,6 +218,15 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   // Program fill
   program_fill_status: Command<null, ProgramFillStatus>;
   program_fill_unblock: Command<ProgramFillUnblockRequest, ProgramFillStatus>;
+  // The picker windows (chip and list; the main window cannot call these, ADR-0164)
+  picker_state: Command<null, PickerState>;
+  picker_chip_click: Command<PickerGenerationRequest, null>;
+  picker_search: Command<PickerSearchRequest, PickerLogin[]>;
+  picker_choose: Command<PickerItemRequest, null>;
+  picker_link_begin: Command<PickerItemRequest, LinkStep>;
+  picker_link_confirm: Command<PickerGenerationRequest, LinkConfirmResult>;
+  picker_block: Command<PickerGenerationRequest, null>;
+  picker_dismiss: Command<PickerGenerationRequest, null>;
   // Attachments
   attachment_add: Command<ItemRequest, AttachmentAdded>;
   /** Binary response: `[width u32 LE][height u32 LE][width * height * 4 RGBA bytes]`. */
@@ -326,7 +344,7 @@ export const binaryCommands = ["attachment_preview"] as const satisfies readonly
 export type BinaryCommandName = (typeof binaryCommands)[number];
 
 /** Commands whose argument is a Channel rather than a request. */
-export const channelCommands = ["subscribe_events"] as const;
+export const channelCommands = ["subscribe_events", "picker_subscribe"] as const;
 
 /** Every command at runtime; `satisfies` keeps it equal to `Commands`. */
 const commandSet = {
@@ -375,6 +393,14 @@ const commandSet = {
   agent_log: true,
   program_fill_status: true,
   program_fill_unblock: true,
+  picker_state: true,
+  picker_chip_click: true,
+  picker_search: true,
+  picker_choose: true,
+  picker_link_begin: true,
+  picker_link_confirm: true,
+  picker_block: true,
+  picker_dismiss: true,
   attachment_add: true,
   attachment_preview: true,
   attachment_save: true,

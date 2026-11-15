@@ -272,6 +272,35 @@ that took `code: SecretIn` (`sync_totp_disable`, `sync_device_remove`) accept `c
   `&connector=foreign`). Repair goes to `browser_connector_repair`; on success the banner goes away and focus moves to
   the page.
 
+### Picker windows (Windows program fill, ADR-0164)
+
+Rust builds two more windows, never the webview: `picker-chip` (the small button at a login field in another
+program; it never takes the focus) and `picker` (the list, the link step and the notices). Each has a capability
+of its own (`capabilities/chip.json`, `capabilities/picker.json`) that grants only its own commands; the main
+window grants none of them, and every command checks the label of the calling window in Rust again
+(`commands::picker::check_window`, `invalidInput` for any other). The windows load `chip.html` and `picker.html`
+from the bundle, are built on first use, hidden, without decorations, shadow or taskbar entry, always on top and
+excluded from screen capture, and are destroyed on lock and when program fill stops. `WebviewWindowBuilder`
+appears in one file (`program_fill/picker_windows.rs`).
+
+| Command | Window | Request → response | Errors |
+|---|---|---|---|
+| `picker_subscribe` | both | a `Channel<PickerEvent>` → `null` | none (one channel per window; the latest `picker_subscribe` of a window wins) |
+| `picker_state` | both | `null` → `PickerState` (`generation`, `mode: "hidden" \| "chip" \| "list" \| "notice"`, `locked`, `language`, `theme`, `program`, `matches`, `preselected`, `suggestions`, `linkAgain`, `link`, `notice`) | none |
+| `picker_chip_click` | chip | `{ generation }` → `null` | `pickerStale` (the chip changed). Locked: brings the unlock screen forward; unlocking reopens the list for the same field within 60 s. Unlocked: opens the list |
+| `picker_search` | list | `{ generation, query }` → `PickerLogin[]` (at most 20) | `pickerStale`, `invalidInput` (over 128 characters), `locked` |
+| `picker_choose` | list | `{ generation, vaultId, itemId }` → `null` after the fill | `pickerStale` (generation, list not in front, not where it was put, or covered), `pickerTooSoon` (within 300 ms of the list appearing), `invalidInput` (not on the list), `itemNotFound`, `locked` |
+| `picker_link_begin` | list | `{ generation, vaultId, itemId }` → `LinkStep` | `pickerStale`, `invalidInput` (not a live login in a vault this account may change, or a program that cannot be linked), `locked` |
+| `picker_link_confirm` | list | `{ generation }` → `{ kind: "needAnother" \| "tooSoon" \| "linked" }` | `pickerStale`, `pickerTooSoon` (within 1 s of the step appearing), `invalidInput` (no link step), `sharingRoleForbidden` |
+| `picker_block` | list | `{ generation }` → `null` ("Don't offer for this program") | `pickerStale`, `invalidInput`, `storeUnavailable` |
+| `picker_dismiss` | list | `{ generation }` → `null` (Escape or Close; the focus goes back into the field) | `pickerStale` |
+
+`PickerEvent` (`{ "type": "changed", generation }`) says only that the state changed; the window reads `picker_state`
+again. A request that carries another generation than the current one is `pickerStale`, so a click on a list that
+was replaced does nothing. Nothing fills without a pick: a focus event only shows the chip, and a fill starts from
+`picker_choose` or the last `picker_link_confirm` only. `PickerLogin` holds ID, title, user name, vault name and host;
+`ProgramView` kind, exe, name, signer and (unsigned) path. The password goes from the vault to the host inside Rust.
+
 ### Account keys (M7, CRYPTO_SPEC §5.3, §6.4 to §6.7, ADR-0057 to ADR-0062)
 
 The master password change is `change_master_password` above. The Secret Key rotation, the KDF profile upgrade
@@ -706,6 +735,8 @@ without its own code becomes `internal`, which leaks nothing.
 |---|---|---|
 | webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, the `password` of `export_passkeys_cxf`, `lastGroup`, secret field values, custom-field values and the SSH private key in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the `password` of `browser_passkey_respond`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key`, and (M6) the master password, Secret Key, second-factor codes and invite code of the sync and join commands and of `change_master_password`, and (M7) the passwords, the retyped last Secret Key group, the Secret Key typed from the newest kit and the codes of the account-key commands, and (M9) the `password` and `code` of `sync_webauthn_add_begin`, the `password` of `sync_webauthn_confirm_begin` and the `code` of `sync_webauthn_remove`, and (M10) the `password` of `setup_code_show` |
 | Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code`, `otp_pending_code`, `sync_totp_begin` (the sync account's second-factor setup key and link: the fifth), `rotation_reveal` (the new password of an open change attempt, M7b; `rotation_begin` takes it as a `SecretIn`) |
+
+The picker windows receive no secret: `PickerState`, `PickerLogin`, `LinkStep` and `PickerEvent` hold titles, user names, host names, program names and counters only (a test serializes a whole scripted session and looks for the passwords). The password of a program fill goes from the vault into the host's zeroizing buffers and is never a contract type.
 
 Preview pixels are a second Rust → webview flow of decrypted content. They are not a
 `SecretOut` (they are binary, not JSON, and are not a string the UI can hide by clearing

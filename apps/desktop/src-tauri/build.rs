@@ -11,8 +11,16 @@
 include!("src/commands/names.rs");
 
 fn main() {
+    // The app manifest knows every command (the main window's and the two picker windows');
+    // which window may call which is in `capabilities/`.
+    let mut all: Vec<&str> = COMMANDS.to_vec();
+    for command in CHIP_COMMANDS.iter().chain(LIST_COMMANDS) {
+        if !all.contains(command) {
+            all.push(command);
+        }
+    }
     let attributes = tauri_build::Attributes::new()
-        .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
+        .app_manifest(tauri_build::AppManifest::new().commands(all.leak()));
     if let Err(error) = tauri_build::try_build(attributes) {
         // A build script reports failure through cargo's protocol; there is
         // no secret anywhere near this code.

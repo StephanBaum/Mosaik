@@ -53,6 +53,7 @@ use super::items::{
     SecretFieldKey, SetFavoriteRequest, TextFieldKey, TrashFilter, UpdateItemRequest, UrlMatchMode,
 };
 use super::otp::{self, OtpAlgorithm, OtpScanSource, OtpSecretStrength};
+use super::picker;
 use super::program_fill;
 use super::quick_unlock::{self, BiometricPlatformKind};
 use super::rotation::{
@@ -87,10 +88,10 @@ use super::sync::{
 };
 use super::totp;
 use super::vaults::{self, CreateVaultRequest, RenameVaultRequest};
-use crate::commands::names::COMMANDS;
+use crate::commands::names::{CHIP_COMMANDS, COMMANDS, LIST_COMMANDS};
 
 /// Commands whose argument is not a JSON request (a `Channel`).
-const CHANNEL_COMMANDS: &[&str] = &["subscribe_events"];
+const CHANNEL_COMMANDS: &[&str] = &["subscribe_events", "picker_subscribe"];
 
 /// Commands whose response is binary (an `ArrayBuffer` in the webview), so it
 /// has no JSON sample. `attachment_preview` returns
@@ -704,6 +705,57 @@ fn program_fill_commands(f: &mut Fixtures) {
         program_fill::samples::unblock_requests(),
         program_fill::samples::statuses(),
     );
+}
+
+/// The commands of the two picker windows (ADR-0164).
+fn picker_commands(f: &mut Fixtures) {
+    f.command("picker_state", vec![()], picker::samples::states());
+    f.command(
+        "picker_chip_click",
+        picker::samples::generation_requests(),
+        vec![()],
+    );
+    f.command(
+        "picker_search",
+        picker::samples::search_requests(),
+        vec![
+            vec![picker::samples::login(1), picker::samples::login(2)],
+            vec![],
+        ],
+    );
+    f.command("picker_choose", picker::samples::item_requests(), vec![()]);
+    f.command(
+        "picker_link_begin",
+        picker::samples::item_requests(),
+        picker::samples::link_steps(),
+    );
+    f.command(
+        "picker_link_confirm",
+        picker::samples::generation_requests(),
+        picker::samples::confirm_results(),
+    );
+    f.command(
+        "picker_block",
+        picker::samples::generation_requests(),
+        vec![()],
+    );
+    f.command(
+        "picker_dismiss",
+        picker::samples::generation_requests(),
+        vec![()],
+    );
+}
+
+/// Every command a window may call: the main window's, then the picker windows' (the two
+/// picker lists overlap in `picker_subscribe` and `picker_state`).
+fn all_commands() -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = COMMANDS.to_vec();
+    for command in CHIP_COMMANDS.iter().chain(LIST_COMMANDS) {
+        if !all.contains(command) {
+            all.push(command);
+        }
+    }
+    all
 }
 
 /// The browser extension commands.
@@ -1474,6 +1526,10 @@ fn credential_rotation_commands(f: &mut Fixtures, item_request: ItemRequest) {
 }
 
 /// Every string enum of the contract, by name.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one line per string enum of the contract"
+)]
 fn enums() -> Map<String, Value> {
     let mut enums = Map::new();
     for (name, all) in [
@@ -1527,6 +1583,10 @@ fn enums() -> Map<String, Value> {
         ("agentLogKind", values(AgentLogKind::ALL)),
         ("agentRefusalCode", values(AgentRefusalCode::ALL)),
         ("agentBasicUserKind", values(agent::AgentBasicUserKind::ALL)),
+        ("pickerMode", values(picker::PickerMode::ALL)),
+        ("programKind", values(picker::ProgramKind::ALL)),
+        ("linkAgainReason", values(picker::LinkAgainReason::ALL)),
+        ("pickerNotice", values(picker::PickerNotice::ALL)),
         (
             "programFillUnavailable",
             values(program_fill::ProgramFillUnavailable::ALL),
@@ -1589,6 +1649,7 @@ pub(crate) fn build() -> Value {
     browser_commands(&mut f);
     agent_commands(&mut f);
     program_fill_commands(&mut f);
+    picker_commands(&mut f);
     sync_commands(&mut f);
     rotation_commands(&mut f);
     vault_rotate_commands(&mut f);
@@ -1603,12 +1664,18 @@ pub(crate) fn build() -> Value {
         .map(String::as_str)
         .chain(CHANNEL_COMMANDS.iter().copied())
         .collect();
-    let commands: BTreeSet<&str> = COMMANDS.iter().copied().collect();
-    assert_eq!(commands.len(), COMMANDS.len(), "COMMANDS has duplicates");
+    let all = all_commands();
+    let commands: BTreeSet<&str> = all.iter().copied().collect();
+    assert_eq!(commands.len(), all.len(), "COMMANDS has duplicates");
+    assert_eq!(
+        COMMANDS.iter().copied().collect::<BTreeSet<_>>().len(),
+        COMMANDS.len(),
+        "COMMANDS has duplicates"
+    );
     assert_eq!(listed, commands, "fixtures and COMMANDS differ");
 
     json!({
-        "commands": COMMANDS,
+        "commands": all,
         "enums": enums,
         "errors": ErrorCode::ALL
             .iter()

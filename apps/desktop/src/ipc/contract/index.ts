@@ -13,6 +13,7 @@ export * from "./import.ts";
 export * from "./insights.ts";
 export * from "./items.ts";
 export * from "./otp.ts";
+export * from "./picker.ts";
 export * from "./programFill.ts";
 export * from "./session.ts";
 export * from "./setupCode.ts";

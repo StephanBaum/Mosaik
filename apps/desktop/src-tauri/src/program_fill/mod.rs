@@ -21,6 +21,7 @@ mod offer;
 mod picker_windows;
 mod picks;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
@@ -34,11 +35,12 @@ use mosaic_program_fill::identity::{CaptureRefusal, CapturedIdentity};
 use mosaic_program_fill::placement::{chip_rect, list_rect};
 use mosaic_program_fill::policy::LinkConfirmation;
 use mosaic_program_fill::verify::{Point, Rect, RuntimeId};
+use tauri::ipc::Channel;
 
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::picker::{
-    LinkStep, PickerGenerationRequest, PickerMode, PickerNotice, PickerState, ProgramKind,
-    ProgramView,
+    LinkStep, PickerEvent, PickerGenerationRequest, PickerMode, PickerNotice, PickerState,
+    ProgramKind, ProgramView,
 };
 use crate::contract::program_fill::{
     ProgramFillStatus, ProgramFillUnavailable, ProgramFillUnblockRequest,
@@ -48,6 +50,8 @@ use crate::state::{Backend, Slot};
 
 pub use blocklist::{BLOCKLIST_FILE, BlockList, MAX_BLOCKED};
 pub use offer::{MAX_MATCHES, MAX_QUERY_CHARS, MAX_SEARCH};
+#[cfg(windows)]
+pub use picker_windows::TauriPickerWindows;
 pub use picker_windows::{NoPickerWindows, PickerLabel, PickerWindows};
 
 /// A pick earlier than this after the list appeared is refused (milliseconds).
@@ -187,6 +191,8 @@ pub(crate) enum Effect {
     Hide(PickerLabel),
     Changed(PickerLabel, u64),
     FocusMain,
+    /// Destroy both windows (a lock, or program fill stopped).
+    CloseAll,
 }
 
 /// The program fill service.
@@ -204,6 +210,8 @@ pub struct ProgramFillService {
     /// Whether the background timers (rectangle poll, notice expiry, unlock settle) run.
     timers: bool,
     poller_live: AtomicBool,
+    /// The channel of each picker window's `changed` events (the latest subscription wins).
+    channels: Mutex<HashMap<PickerLabel, Channel<PickerEvent>>>,
 }
 
 impl ProgramFillService {
@@ -228,6 +236,7 @@ impl ProgramFillService {
             backend: Mutex::new(Weak::new()),
             timers: true,
             poller_live: AtomicBool::new(false),
+            channels: Mutex::new(HashMap::new()),
         }
     }
 
@@ -260,6 +269,27 @@ impl ProgramFillService {
     /// Lets the host's events reach the backend.
     pub(crate) fn attach(&self, backend: Weak<Backend>) {
         *self.backend.lock().unwrap_or_else(PoisonError::into_inner) = backend;
+    }
+
+    /// A picker window's channel for `changed` events (the latest of a window wins).
+    pub fn subscribe(&self, which: PickerLabel, channel: Channel<PickerEvent>) {
+        self.channels
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(which, channel);
+    }
+
+    /// Tells a window its state has a new generation. A failed send is a window that is gone.
+    fn notify(&self, which: PickerLabel, generation: u64) {
+        let channel = self
+            .channels
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&which)
+            .cloned();
+        if let Some(channel) = channel {
+            let _ = channel.send(PickerEvent::Changed { generation });
+        }
     }
 
     pub(crate) fn now(&self) -> u64 {
@@ -329,8 +359,18 @@ impl ProgramFillService {
                     self.windows.show_list(at, focus);
                 }
                 Effect::Hide(which) => self.windows.hide(which),
-                Effect::Changed(which, generation) => self.windows.changed(which, generation),
+                Effect::Changed(which, generation) => {
+                    self.windows.changed(which, generation);
+                    self.notify(which, generation);
+                }
                 Effect::FocusMain => self.windows.focus_main(),
+                Effect::CloseAll => {
+                    self.windows.close_all();
+                    self.channels
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .clear();
+                }
             }
         }
     }
@@ -445,7 +485,9 @@ impl Backend {
                 let mut m = svc.model();
                 m.cont = None;
                 m.resume = None;
-                m.clear_view()
+                let mut effects = m.clear_view();
+                effects.push(Effect::CloseAll);
+                effects
             };
             svc.apply(&effects);
         }
@@ -459,7 +501,9 @@ impl Backend {
             let mut m = svc.model();
             m.cont = None;
             m.resume = None;
-            m.clear_view()
+            let mut effects = m.clear_view();
+            effects.push(Effect::CloseAll);
+            effects
         };
         svc.apply(&effects);
     }

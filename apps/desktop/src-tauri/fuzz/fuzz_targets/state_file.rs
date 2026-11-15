@@ -16,14 +16,22 @@ mod contract;
 #[path = "../../src/persist.rs"]
 mod persist;
 /// `persist.rs` checks a stored shortcut with `crate::shortcut`, which needs
-/// Tauri. The harness stands in a check that accepts any non-empty text; the
-/// real parser has its own unit tests.
+/// Tauri. The harness stands in a check that accepts any non-empty text and
+/// compares the folded text; the real parser has its own unit tests.
 mod shortcut {
-    pub fn parse_accelerator(text: &str) -> Result<(), ()> {
+    pub struct Accelerator(String);
+
+    impl Accelerator {
+        pub fn shortcut(&self) -> &str {
+            &self.0
+        }
+    }
+
+    pub fn parse_accelerator(text: &str) -> Result<Accelerator, ()> {
         if text.is_empty() {
             Err(())
         } else {
-            Ok(())
+            Ok(Accelerator(text.to_lowercase()))
         }
     }
 }

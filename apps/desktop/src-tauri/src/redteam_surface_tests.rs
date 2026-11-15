@@ -123,6 +123,152 @@ fn remote_origins_and_other_webviews_get_no_ipc() {
             invoke(&popup, cmd, LOCAL, json!({}), INVOKE_KEY),
         );
     }
+    // The picker commands are not for a remote page in a picker window or for `popup`.
+    let picker = window(&app, "picker");
+    for cmd in [
+        "picker_state",
+        "picker_choose",
+        "picker_link_confirm",
+        "picker_search",
+    ] {
+        assert_refused(
+            &format!("{cmd} from https://evil.example in the picker"),
+            invoke(&picker, cmd, "https://evil.example/", json!({}), INVOKE_KEY),
+        );
+        assert_refused(
+            &format!("{cmd} from the webview `popup`"),
+            invoke(&popup, cmd, LOCAL, json!({}), INVOKE_KEY),
+        );
+    }
+}
+
+#[test]
+fn picker_window_gets_only_picker_commands() {
+    // Attempt: script in a picker window (or in the main window) calls commands that read the
+    // vault or settings, reveal a secret, copy to the clipboard, or fill: the chip may only
+    // click itself, the list only choose, search and link what it was offered, and the main
+    // window none of the picker commands.
+    let _kdf = crate::test_support::kdf_permit();
+    let app = mock_app();
+    let picker = window(&app, "picker");
+    let chip = window(&app, "picker-chip");
+    let main = window(&app, "main");
+    let popup = window(&app, "popup");
+    for (name, webview) in [("picker", &picker), ("picker-chip", &chip)] {
+        assert!(
+            invoke(webview, "picker_state", LOCAL, json!({}), INVOKE_KEY).is_ok(),
+            "{name}: its own control call must work"
+        );
+        for cmd in [
+            "app_status",
+            "session_state",
+            "list_items",
+            "get_item",
+            "reveal_secret",
+            "copy_to_clipboard",
+            "subscribe_events",
+            "update_settings",
+            "get_settings",
+            "unlock",
+            "program_fill_status",
+            "program_fill_unblock",
+            "agent_access_status",
+        ] {
+            assert_refused(
+                &format!("{cmd} from the {name} window"),
+                invoke(webview, cmd, LOCAL, json!({}), INVOKE_KEY),
+            );
+        }
+    }
+    for cmd in [
+        "picker_choose",
+        "picker_link_begin",
+        "picker_link_confirm",
+        "picker_search",
+        "picker_block",
+        "picker_dismiss",
+    ] {
+        assert_refused(
+            &format!("{cmd} from the chip window"),
+            invoke(&chip, cmd, LOCAL, json!({}), INVOKE_KEY),
+        );
+    }
+    assert_refused(
+        "picker_chip_click from the list window",
+        invoke(&picker, "picker_chip_click", LOCAL, json!({}), INVOKE_KEY),
+    );
+    for cmd in crate::commands::names::LIST_COMMANDS
+        .iter()
+        .chain(crate::commands::names::CHIP_COMMANDS)
+    {
+        assert_refused(
+            &format!("{cmd} from the main window"),
+            invoke(&main, cmd, LOCAL, json!({}), INVOKE_KEY),
+        );
+        assert_refused(
+            &format!("{cmd} from the webview `popup`"),
+            invoke(&popup, cmd, LOCAL, json!({}), INVOKE_KEY),
+        );
+    }
+}
+
+#[test]
+fn picker_commands_check_the_window_label_in_rust_too() {
+    // Attempt: a capability mistake hands a picker command to another window. Rust checks the
+    // label of the calling webview again, command by command.
+    use crate::commands::names::{CHIP_COMMANDS, LIST_COMMANDS};
+    use crate::commands::picker::{CHIP_LABEL, LIST_LABEL, check_window};
+    use crate::contract::errors::ErrorCode;
+    for cmd in LIST_COMMANDS {
+        assert!(check_window(LIST_LABEL, cmd).is_ok(), "{cmd}");
+    }
+    for cmd in CHIP_COMMANDS {
+        assert!(check_window(CHIP_LABEL, cmd).is_ok(), "{cmd}");
+    }
+    for label in ["main", "popup", "", "Picker", "picker-chip2"] {
+        for cmd in LIST_COMMANDS.iter().chain(CHIP_COMMANDS) {
+            assert_eq!(
+                check_window(label, cmd).unwrap_err().code,
+                ErrorCode::InvalidInput,
+                "{label:?} {cmd}"
+            );
+        }
+    }
+    // The chip has no list command, and the list has no chip click.
+    for cmd in [
+        "picker_choose",
+        "picker_search",
+        "picker_link_begin",
+        "picker_link_confirm",
+        "picker_block",
+        "picker_dismiss",
+    ] {
+        assert!(check_window(CHIP_LABEL, cmd).is_err(), "{cmd}");
+    }
+    assert!(check_window(LIST_LABEL, "picker_chip_click").is_err());
+    assert!(check_window(LIST_LABEL, "app_status").is_err());
+}
+
+#[test]
+fn picker_windows_are_built_only_in_picker_windows_rs() {
+    // Attempt: a second place that builds a window (a command that opens one for the webview, a
+    // URL taken from a request). The two picker windows are the app's only dynamic windows, and
+    // they are built in one place with a fixed page.
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    sources(&src, &mut files);
+    let needle = ["WebviewWindow", "Builder"].concat();
+    let builders: Vec<String> = files
+        .iter()
+        .filter(|(path, _)| !path.to_string_lossy().ends_with("tests.rs"))
+        .filter(|(_, text)| {
+            text.lines()
+                .any(|l| !l.trim_start().starts_with("//") && l.contains(&needle))
+        })
+        .map(|(path, _)| path.display().to_string())
+        .collect();
+    assert_eq!(builders.len(), 1, "{builders:?}");
+    assert!(builders[0].ends_with("picker_windows.rs"), "{builders:?}");
 }
 
 #[test]
@@ -248,6 +394,16 @@ fn no_webview_navigates_away_from_the_app() {
     for url in app_pages {
         assert!(allows(url), "{url} must load");
     }
+    // The two picker pages are the app's own; a query cannot send them elsewhere.
+    let origin = app_pages[0].trim_end_matches('/');
+    for page in [
+        "chip.html",
+        "picker.html",
+        "picker.html?x=https://evil.example",
+    ] {
+        assert!(allows(&format!("{origin}/{page}")), "{page} must load");
+    }
+    assert!(!allows("https://evil.example/picker.html"));
     // `tauri dev` loads the Vite server; a release build never does.
     assert_eq!(
         allows("http://localhost:1420/"),

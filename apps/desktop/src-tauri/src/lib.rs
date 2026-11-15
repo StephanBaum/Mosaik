@@ -74,7 +74,11 @@ use crate::contract::events::LockReason;
 use crate::dialogs::NativeDialogs;
 use crate::keystore::{LayeredKeystore, OsKeystore};
 use crate::persist::Persistence;
-use crate::program_fill::{BlockList, NoPickerWindows, ProgramFillService};
+#[cfg(not(windows))]
+use crate::program_fill::NoPickerWindows;
+#[cfg(windows)]
+use crate::program_fill::TauriPickerWindows;
+use crate::program_fill::{BlockList, PickerWindows, ProgramFillService};
 use crate::quick_unlock::QuickUnlockService;
 use crate::screen_capture::NativeScreenCapture;
 use crate::state::{AppState, Backend, Slot, guard};
@@ -155,6 +159,17 @@ pub fn run() -> tauri::Result<()> {
                     None
                 }
             };
+            // The chip and the list: Tauri windows on Windows, none elsewhere (ADR-0164).
+            let picker_windows: Arc<dyn PickerWindows> = {
+                #[cfg(windows)]
+                {
+                    Arc::new(TauriPickerWindows::new(app.handle().clone()))
+                }
+                #[cfg(not(windows))]
+                {
+                    Arc::new(NoPickerWindows)
+                }
+            };
             let keystore =
                 LayeredKeystore::new(Box::new(OsKeystore::new(&app.config().identifier)));
             // The Secret Key of a rotation in progress: its own entries, so a
@@ -191,7 +206,7 @@ pub fn run() -> tauri::Result<()> {
                 .with_persistence(persistence)
                 .with_program_fill(ProgramFillService::new(
                     host,
-                    Arc::new(NoPickerWindows),
+                    picker_windows,
                     BlockList::in_dir(&dir),
                     Arc::new(monotonic_ms),
                 ))
@@ -295,10 +310,18 @@ pub fn run() -> tauri::Result<()> {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Focused(true) = event
-                && let Some(state) = window.app_handle().try_state::<AppState>()
-            {
-                state.backend().touch();
+            let Some(state) = window.app_handle().try_state::<AppState>() else {
+                return;
+            };
+            match event {
+                tauri::WindowEvent::Focused(true) => state.backend().touch(),
+                // The list closes when it loses the focus (ADR-0164).
+                tauri::WindowEvent::Focused(false)
+                    if window.label() == commands::picker::LIST_LABEL =>
+                {
+                    state.backend().picker_list_blurred();
+                }
+                _ => {}
             }
         })
         .invoke_handler(commands::handler())
