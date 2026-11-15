@@ -873,10 +873,13 @@ CREATE TABLE agent_marks (
 CREATE TABLE agent_log (
     entry_id  BLOB    NOT NULL PRIMARY KEY CHECK (length(entry_id) = 16),
     at_ms     INTEGER NOT NULL CHECK (at_ms >= 0),
-    sealed    BLOB    NOT NULL CHECK (length(sealed) BETWEEN 42 AND 65536)
+    sealed    BLOB    NOT NULL CHECK (length(sealed) BETWEEN 42 AND 65536),
+    -- 1 for a refusal row: those keep their own, smaller cap (ADR-0159).
+    noisy     INTEGER NOT NULL DEFAULT 0 CHECK (noisy IN (0, 1))
 ) STRICT;
 
 CREATE INDEX agent_log_at_ms ON agent_log (at_ms);
+CREATE INDEX agent_log_noisy_at_ms ON agent_log (noisy, at_ms);
 
 CREATE TRIGGER records_agent_marks_delete
 AFTER DELETE ON records
@@ -897,14 +900,6 @@ WHEN NEW.kind = 2
 BEGIN
     DELETE FROM agent_marks WHERE vault_id = NEW.vault_id AND item_id = NEW.record_id;
 END;
-";
-
-/// Version 14: refusal rows of the agent log get their own retention (ADR-0159). `noisy` is 1 for a
-/// refusal row; those keep their own, smaller cap and can never push other rows out. Rows that
-/// exist stay 0 (a plain row), so the first prune after the upgrade cannot lose more than before.
-const V14: &str = r"
-ALTER TABLE agent_log ADD COLUMN noisy INTEGER NOT NULL DEFAULT 0 CHECK (noisy IN (0, 1));
-CREATE INDEX agent_log_noisy_at_ms ON agent_log (noisy, at_ms);
 ";
 
 /// All migrations, in order. Version `n` is at index `n - 1`.
@@ -961,14 +956,10 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 13,
         sql: V13,
     },
-    Migration {
-        version: 14,
-        sql: V14,
-    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 14;
+pub const LATEST_VERSION: u32 = 13;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -1134,14 +1125,10 @@ mod tests {
             },
             Migration {
                 version: 14,
-                sql: V14,
-            },
-            Migration {
-                version: 15,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 15);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 14);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -1155,11 +1142,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 15,
-                supported: 14
+                found: 14,
+                supported: 13
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 15);
+        assert_eq!(user_version(&c).unwrap(), 14);
     }
 
     #[test]
@@ -1221,15 +1208,11 @@ mod tests {
             },
             Migration {
                 version: 14,
-                sql: V14,
-            },
-            Migration {
-                version: 15,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 14);
+        assert_eq!(user_version(&c).unwrap(), 13);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -2006,7 +1989,7 @@ mod tests {
     fn v13_migrates_from_v12_and_checks_lengths() {
         let mut c = conn();
         assert_eq!(migrate(&mut c, &MIGRATIONS[..12]).unwrap(), 12);
-        assert_eq!(migrate(&mut c, &MIGRATIONS[..13]).unwrap(), 13);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 13);
         for table in ["agent_marks", "agent_log"] {
             let n: i64 = c
                 .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
@@ -2021,36 +2004,35 @@ mod tests {
             format!("INSERT INTO agent_marks VALUES (x'02', {item}, zeroblob(32))"),
             format!("INSERT INTO agent_marks VALUES ({vault}, {item}, zeroblob(31))"),
             format!("INSERT INTO agent_marks VALUES ({vault}, {item}, zeroblob(33))"),
-            "INSERT INTO agent_log VALUES (zeroblob(15), 0, zeroblob(60))".to_owned(),
-            "INSERT INTO agent_log VALUES (zeroblob(16), -1, zeroblob(60))".to_owned(),
-            "INSERT INTO agent_log VALUES (zeroblob(16), 0, zeroblob(41))".to_owned(),
-            "INSERT INTO agent_log VALUES (zeroblob(16), 0, zeroblob(65537))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(15), 0, zeroblob(60))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), -1, zeroblob(60))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(41))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(65537))".to_owned(),
         ] {
             assert!(c.execute(&sql, []).is_err(), "{sql}");
         }
         c.execute(
-            "INSERT INTO agent_log VALUES (zeroblob(16), 0, zeroblob(42))",
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(42))",
             [],
         )
         .unwrap();
         c.execute(
-            "INSERT INTO agent_log VALUES (x'01010101010101010101010101010101', 0, zeroblob(65536))",
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (x'01010101010101010101010101010101', 0, zeroblob(65536))",
             [],
         )
         .unwrap();
     }
 
-    /// v13 to v14: existing log rows become plain rows; `noisy` takes only 0 or 1.
+    /// v13: `agent_log.noisy` exists, defaults to 0 and takes only 0 or 1.
     #[test]
-    fn v14_adds_the_noisy_flag_to_the_agent_log() {
+    fn v13_agent_log_has_the_noisy_flag() {
         let mut c = conn();
-        assert_eq!(migrate(&mut c, &MIGRATIONS[..13]).unwrap(), 13);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 13);
         c.execute(
-            "INSERT INTO agent_log VALUES (zeroblob(16), 0, zeroblob(42))",
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(42))",
             [],
         )
         .unwrap();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 14);
         let noisy: i64 = c
             .query_row("SELECT noisy FROM agent_log", [], |r| r.get(0))
             .unwrap();

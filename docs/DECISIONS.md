@@ -6007,7 +6007,7 @@ Decisions made on top of the spec (D = spec decision, Q = spec open question, B 
 ### Red-team follow-ups and accepted residuals
 - **The log under flood.** A request whose `url` fails the agent URL checks (or whose origin is over 256 characters) logs the fixed marker `invalid` as its
   origin and no path. More than 60 refusals a minute from one pairing are answered `rateLimited` and logged as one `rateLimited` summary row a minute (they
-  count in the pairing's limits). Refusal rows have their own cap of 2,000 (schema v14, a `noisy` flag in the clear) and never evict other rows, which keep
+  count in the pairing's limits). Refusal rows have their own cap of 2,000 (schema v13, a `noisy` flag in the clear) and never evict other rows, which keep
   the 10,000 cap. A flood of bad references therefore leaves earlier grant and pairing entries in place.
 - **`reason` rendering.** Besides controls and bidirectional characters, Unicode format characters (`Cf`), the line and paragraph separators and every combining
   mark beyond the second of a run are written out as backslash-u text; the text sits in a scroll box with a token-based maximum height.
