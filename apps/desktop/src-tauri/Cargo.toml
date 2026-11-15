@@ -40,6 +40,8 @@ mosaic-insights = { path = "../../../crates/insights" }
 mosaic-native-messaging = { path = "../../../crates/native-messaging" }
 mosaic-origin = { path = "../../../crates/origin" }
 mosaic-passkey = { path = "../../../crates/passkey" }
+# Windows program fill: the rules, the host and the fill sequence (ADR-0164). Workspace crate.
+mosaic-program-fill = { path = "../../../crates/program-fill" }
 # The OS keystore, the clipboard backend and the data paths, shared with the CLI (M8).
 mosaic-platform = { path = "../../../crates/platform" }
 mosaic-qr = { path = "../../../crates/qr" }
@@ -70,6 +72,8 @@ tokio.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+# The only crate with unsafe: the integrity level of Mosaic itself and the picker windows' no-activate show (ADR-0163).
+mosaic-winshim = { path = "../../../crates/winshim" }
 windows.workspace = true
 win-screenshot.workspace = true
 

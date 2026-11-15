@@ -146,6 +146,9 @@ export const errors = {
     "Your sync backend shows older account keys than this device has. Nothing was changed.",
   "error.syncRekeyRefused":
     "The keys your sync backend offers are not the next ones after this device's. Nothing was changed. Check your other devices.",
+  "error.pickerStale": "This list is out of date. Click the field again.",
+  "error.pickerTooSoon": "Wait a moment, then confirm again.",
+  "error.programFillUnavailable": "Filling in programs isn't available on this device.",
   "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
   "error.internal":
     "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",

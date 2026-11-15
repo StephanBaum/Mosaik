@@ -165,6 +165,8 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `agent_grant_revoke` | `{ grantId }` → `AgentAccessStatus` | none (an unknown grant ended already) | live (a request that already began loses its answer, the client gets `grantRevoked`, `Revoked` is logged) |
 | `agent_stop_all` | `null` → `AgentAccessStatus` | none | live ("Stop all agent access now": every grant ends, every connection closes, the pairings stay, `StoppedAll` is logged; the endpoint comes back up at once) |
 | `agent_log` | `{ pairingId \| null, itemId \| null, beforeMs \| null, limit (1 to 200) }` → `{ entries: AgentLogView[], skipped }` | `locked`, `invalidInput` (a pairing ID that is not 32 hex digits) | live (newest first; `AgentLogView` holds facts only: `atMs`, `kind`, client, item title, field label, `method`, `origin`, URL `path` without query, `status`, `bytes`, `masked`, the refusal `code`, the grant, the destinations and the inject kind of a binding. Never a value, a header, a body or a query string. Entries that cannot be opened are counted in `skipped`) |
+| `program_fill_status` | `null` → `{ available, reason: "notWindows" \| "mosaicElevated" \| "hostFailed" \| null, running, blocked: { key, label }[] }` | none | live (ADR-0164. `available` is false off Windows and while Mosaic itself runs above the normal integrity level; `running` is true while the watcher runs, which is only while unlocked, switched on and verified in this run. `blocked` is the block list; `key` is opaque) |
+| `program_fill_unblock` | `{ key }` → `ProgramFillStatus` | `storeUnavailable` (the list file could not be written; the entry is off the list for this run) | live (the program is offered logins again; an unknown key is no error) |
 
 | `sync_status` | `null` → `SyncOverview` | `locked` | live |
 | `sync_check_server` | `{ serverUrl }` → `{ serverUrl, registration: "open" \| "invite" \| "closed" }` (`serverUrl` is the canonical origin) | `syncServerInvalid`, `syncServerInsecure` (`http` to anything but this computer), `syncServerUnreachable`, `syncServerMismatch`, `syncServerIncompatible`, `invalidInput` (an address over 2048 bytes), `locked` (the app is locked and has an account: the probe is closed). Works while unlocked, and in the onboarding while the app has no account | live |
@@ -240,6 +242,15 @@ that took `code: SecretIn` (`sync_totp_disable`, `sync_device_remove`) accept `c
   fields: ("name" | "icon" | "description")[] }`; the UI shows a notice the user can dismiss that names
   those fields (live, M9 T6: `MetaDroppedNotice` in the vault; mock `&metaDropped=name,description`). The event
   carries field names, never the dropped values.
+- Program fill settings (ADR-0164, Windows only): `programFill` (default off; reads `false` everywhere but Windows),
+  `programFillSubmit` (default on: Enter after filling), `programFillHotkey` (an accelerator opening the program list, default
+  none; `invalidInput` when it does not parse or equals `globalShortcut`; `shortcutUnavailable` and `shortcutUnsupported` as
+  for `globalShortcut`) and `programFillCardDismissed` (the first-unlock card was answered). `programFill` and, while it is
+  on, `programFillSubmit` are under the settings MAC: the canonical bytes hold `"programFill":true,"programFillSubmit":<bool>,`
+  between `lockOnSleep` and `quickUnlockMaxAgeDays` only while `programFill` is on, so earlier MACs still verify. A file that
+  turns it on without a valid MAC reads as off after the first unlock and sends `settingsReset`; changing it while locked is
+  `locked`. Turning it on needs no master password. The hotkey and the card flag are not under the MAC. Mock: `&programFill=
+  blocked|notWindows|mosaicElevated|hostFailed`.
 - `settings.globalShortcut` (an accelerator string, validated in Rust by `shortcut::parse_accelerator`) is
   re-registered when it changes; a registration failure is `shortcutUnavailable`, on Wayland `shortcutUnsupported`
   and the field is disabled (live, M9 T6: Settings > Quick search shortcut). `parse_accelerator` takes modifiers plus
@@ -672,7 +683,7 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `attachmentPreviewTooLarge`, `clipboardUnavailable`, `importFileUnreadable`,
 `importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
 `importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `unlockDelayed`, `tooManyAttempts`, `sshAllowTooSoon`,
-`browserRequestExpired`, `browserAllowTooSoon`, `browserPairingNotFound`, `browserHostMissing`, `agentOriginInvalid`, `agentBindingInvalid`, `agentValueUnusable`, `agentVaultShared`, `agentAccessOff`, `agentRequestExpired`, `agentAllowTooSoon`, `agentPairingNotFound`, `agentEndpointUnavailable`, `busy`,
+`browserRequestExpired`, `browserAllowTooSoon`, `browserPairingNotFound`, `browserHostMissing`, `agentOriginInvalid`, `agentBindingInvalid`, `agentValueUnusable`, `agentVaultShared`, `agentAccessOff`, `agentRequestExpired`, `agentAllowTooSoon`, `agentPairingNotFound`, `agentEndpointUnavailable`, `pickerStale` (a picker generation, place or foreground check failed, ADR-0164), `pickerTooSoon` (a pick or confirmation inside the guard time), `programFillUnavailable`, `busy`,
 `internal`, `cancelled`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`,
 `hardwareKeyUnsupported`, `hardwareKeyNotFound`, `hardwareKeyTimeout`,
 `hardwareKeyPinRequired`, `hardwareKeyPinInvalid`, `hardwareKeyPinBlocked`,

@@ -53,6 +53,7 @@ use super::items::{
     SecretFieldKey, SetFavoriteRequest, TextFieldKey, TrashFilter, UpdateItemRequest, UrlMatchMode,
 };
 use super::otp::{self, OtpAlgorithm, OtpScanSource, OtpSecretStrength};
+use super::program_fill;
 use super::quick_unlock::{self, BiometricPlatformKind};
 use super::rotation::{
     self, DismissFileRequest, ProfileUpgradeRequest, RekeyBackend, RekeyCommitRequest,
@@ -688,6 +689,20 @@ fn agent_commands(f: &mut Fixtures) {
             },
         ],
         agent_access::samples::log_pages(),
+    );
+}
+
+/// The program fill commands of the main window.
+fn program_fill_commands(f: &mut Fixtures) {
+    f.command(
+        "program_fill_status",
+        vec![()],
+        program_fill::samples::statuses(),
+    );
+    f.command(
+        "program_fill_unblock",
+        program_fill::samples::unblock_requests(),
+        program_fill::samples::statuses(),
     );
 }
 
@@ -1512,6 +1527,10 @@ fn enums() -> Map<String, Value> {
         ("agentLogKind", values(AgentLogKind::ALL)),
         ("agentRefusalCode", values(AgentRefusalCode::ALL)),
         ("agentBasicUserKind", values(agent::AgentBasicUserKind::ALL)),
+        (
+            "programFillUnavailable",
+            values(program_fill::ProgramFillUnavailable::ALL),
+        ),
         ("browserEndpointState", values(BrowserEndpointState::ALL)),
         ("browserRegistryState", values(BrowserRegistryState::ALL)),
         ("browserFamily", values(BrowserFamily::ALL)),
@@ -1569,6 +1588,7 @@ pub(crate) fn build() -> Value {
     ssh_commands(&mut f);
     browser_commands(&mut f);
     agent_commands(&mut f);
+    program_fill_commands(&mut f);
     sync_commands(&mut f);
     rotation_commands(&mut f);
     vault_rotate_commands(&mut f);

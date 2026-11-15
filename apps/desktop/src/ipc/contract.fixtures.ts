@@ -52,6 +52,8 @@ export const fixtures = {
     "agent_grant_revoke",
     "agent_stop_all",
     "agent_log",
+    "program_fill_status",
+    "program_fill_unblock",
     "attachment_add",
     "attachment_preview",
     "attachment_save",
@@ -500,6 +502,9 @@ export const fixtures = {
       "originNotRelated",
       "breachConsentRequired",
       "breachRunning",
+      "pickerStale",
+      "pickerTooSoon",
+      "programFillUnavailable",
       "busy",
       "internal"
     ],
@@ -656,6 +661,11 @@ export const fixtures = {
       "required",
       "preferred",
       "discouraged"
+    ],
+    "programFillUnavailable": [
+      "notWindows",
+      "mosaicElevated",
+      "hostFailed"
     ],
     "queueKind": [
       "guided",
@@ -1337,6 +1347,15 @@ export const fixtures = {
     },
     {
       "code": "breachRunning"
+    },
+    {
+      "code": "pickerStale"
+    },
+    {
+      "code": "pickerTooSoon"
+    },
+    {
+      "code": "programFillUnavailable"
     },
     {
       "code": "busy"
@@ -2520,6 +2539,14 @@ export const fixtures = {
         "profile": "max"
       }
     ],
+    "program_fill_status": [
+      null
+    ],
+    "program_fill_unblock": [
+      {
+        "key": "signed:notepad.exe:AAAA"
+      }
+    ],
     "purge_item": [
       {
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
@@ -3533,6 +3560,10 @@ export const fixtures = {
           "language": "system",
           "lockOnScreenLock": true,
           "lockOnSleep": true,
+          "programFill": false,
+          "programFillCardDismissed": false,
+          "programFillHotkey": null,
+          "programFillSubmit": true,
           "quickUnlockMaxAgeDays": 14,
           "rotationReminders": true,
           "theme": "system"
@@ -3549,6 +3580,10 @@ export const fixtures = {
           "language": "de",
           "lockOnScreenLock": false,
           "lockOnSleep": false,
+          "programFill": true,
+          "programFillCardDismissed": true,
+          "programFillHotkey": "Ctrl+Alt+L",
+          "programFillSubmit": false,
           "quickUnlockMaxAgeDays": 30,
           "rotationReminders": false,
           "theme": "dark"
@@ -5432,6 +5467,10 @@ export const fixtures = {
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
+        "programFill": false,
+        "programFillCardDismissed": false,
+        "programFillHotkey": null,
+        "programFillSubmit": true,
         "quickUnlockMaxAgeDays": 14,
         "rotationReminders": true,
         "theme": "system"
@@ -5445,6 +5484,10 @@ export const fixtures = {
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
+        "programFill": true,
+        "programFillCardDismissed": true,
+        "programFillHotkey": "Ctrl+Alt+L",
+        "programFillSubmit": false,
         "quickUnlockMaxAgeDays": 30,
         "rotationReminders": false,
         "theme": "dark"
@@ -5887,6 +5930,44 @@ export const fixtures = {
         "quickUnlockRemoved": false,
         "unreachable": [],
         "unreachableAttachments": 0
+      }
+    ],
+    "program_fill_status": [
+      {
+        "available": true,
+        "blocked": [
+          {
+            "key": "signed:notepad.exe:AAAA",
+            "label": "Notepad"
+          }
+        ],
+        "reason": null,
+        "running": true
+      },
+      {
+        "available": false,
+        "blocked": [],
+        "reason": "notWindows",
+        "running": false
+      }
+    ],
+    "program_fill_unblock": [
+      {
+        "available": true,
+        "blocked": [
+          {
+            "key": "signed:notepad.exe:AAAA",
+            "label": "Notepad"
+          }
+        ],
+        "reason": null,
+        "running": true
+      },
+      {
+        "available": false,
+        "blocked": [],
+        "reason": "notWindows",
+        "running": false
       }
     ],
     "purge_item": [
@@ -8970,6 +9051,10 @@ export const fixtures = {
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
+        "programFill": false,
+        "programFillCardDismissed": false,
+        "programFillHotkey": null,
+        "programFillSubmit": true,
         "quickUnlockMaxAgeDays": 14,
         "rotationReminders": true,
         "theme": "system"
@@ -8983,6 +9068,10 @@ export const fixtures = {
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
+        "programFill": true,
+        "programFillCardDismissed": true,
+        "programFillHotkey": "Ctrl+Alt+L",
+        "programFillSubmit": false,
         "quickUnlockMaxAgeDays": 30,
         "rotationReminders": false,
         "theme": "dark"

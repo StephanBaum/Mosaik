@@ -129,3 +129,48 @@ fn the_revocation_reason_reaches_the_overview_until_the_next_sign_in() {
     b.sync_force_signed_out();
     assert_eq!(e.status().revoked, None);
 }
+
+#[test]
+fn the_program_fill_hotkey_is_validated_registered_and_removable() {
+    use crate::shortcut::HotkeyRegistrar;
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    let b = e.b();
+    let seen: Arc<Mutex<Vec<Option<Accelerator>>>> = Arc::new(Mutex::new(Vec::new()));
+    let registrar: HotkeyRegistrar = {
+        let seen = Arc::clone(&seen);
+        Arc::new(move |accelerator| {
+            seen.lock().unwrap().push(accelerator);
+            ShortcutStatus::Registered
+        })
+    };
+    b.program_fill.set_hotkey_registrar(Some(registrar));
+    let with = |hotkey: Option<&str>| UpdateSettingsRequest {
+        settings: Settings {
+            program_fill_hotkey: hotkey.map(str::to_owned),
+            ..b.settings_snapshot()
+        },
+        password: None,
+    };
+    // Not an accelerator, or the palette's own: refused before the registrar.
+    for bad in [
+        "",
+        "Ctrl+",
+        "Shift+K",
+        "Ctrl+Shift+Space",
+        "ctrl+shift+space",
+    ] {
+        let error = b.update_settings(with(Some(bad))).unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{bad:?}");
+    }
+    assert!(seen.lock().unwrap().is_empty());
+    let stored = b.update_settings(with(Some("Ctrl+Alt+L"))).unwrap();
+    assert_eq!(stored.program_fill_hotkey.as_deref(), Some("Ctrl+Alt+L"));
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    // The same value registers nothing again; none removes it.
+    b.update_settings(with(Some("Ctrl+Alt+L"))).unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    let stored = b.update_settings(with(None)).unwrap();
+    assert_eq!(stored.program_fill_hotkey, None);
+    assert_eq!(seen.lock().unwrap().last(), Some(&None));
+}

@@ -55,6 +55,9 @@ pub const COMMANDS: &[&str] = &[
     "agent_grant_revoke",
     "agent_stop_all",
     "agent_log",
+    // Program fill (main window; the picker windows have their own list)
+    "program_fill_status",
+    "program_fill_unblock",
     // Attachments
     "attachment_add",
     "attachment_preview",

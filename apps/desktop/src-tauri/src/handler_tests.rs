@@ -2742,3 +2742,48 @@ fn passkey_export_refuses_empty_and_unknown_vaults() {
         .unwrap_err();
     assert_eq!(code(error), ErrorCode::Locked);
 }
+
+#[test]
+fn program_fill_status_reports_availability_and_the_block_list() {
+    use crate::contract::program_fill::{
+        BlockedProgram, ProgramFillUnavailable, ProgramFillUnblockRequest,
+    };
+    let backend = Backend::new(
+        Slot::Unavailable(ErrorCode::StoreUnavailable),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    );
+    let status = backend.program_fill_status();
+    if cfg!(windows) {
+        // Available unless this test process itself runs elevated.
+        assert_eq!(status.available, status.reason.is_none());
+    } else {
+        assert!(!status.available);
+        assert_eq!(status.reason, Some(ProgramFillUnavailable::NotWindows));
+    }
+    assert!(!status.running);
+    assert_eq!(status.blocked.len(), 0);
+
+    for (key, label) in [("package:x", "X"), ("path:c:/a.exe", "A")] {
+        backend
+            .program_fill
+            .blocklist()
+            .add(BlockedProgram {
+                key: key.into(),
+                label: label.into(),
+            })
+            .unwrap();
+    }
+    assert_eq!(backend.program_fill_status().blocked.len(), 2);
+    let after = backend
+        .program_fill_unblock(&ProgramFillUnblockRequest {
+            key: "package:x".into(),
+        })
+        .unwrap();
+    assert_eq!(after.blocked.len(), 1);
+    assert_eq!(after.blocked[0].label, "A");
+    // An unknown key is not an error.
+    backend
+        .program_fill_unblock(&ProgramFillUnblockRequest { key: "nope".into() })
+        .unwrap();
+}

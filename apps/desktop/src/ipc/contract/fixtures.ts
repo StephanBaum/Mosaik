@@ -17,6 +17,7 @@ export interface EnumFixtures {
   agentCloseReason: string[];
   agentLogKind: string[];
   agentRefusalCode: string[];
+  programFillUnavailable: string[];
   biometricPlatformKind: string[];
   errorCode: string[];
   quickUnlockKind: string[];

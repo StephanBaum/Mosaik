@@ -26,6 +26,7 @@ pub mod items;
 /// The command list, shared with `build.rs` (which `include!`s it).
 pub mod names;
 pub mod otp;
+pub mod program_fill;
 pub mod quick_unlock;
 pub mod rotation;
 pub mod session;
@@ -99,6 +100,8 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         agent::agent_grant_revoke,
         agent::agent_stop_all,
         agent::agent_log,
+        program_fill::program_fill_status,
+        program_fill::program_fill_unblock,
         attachments::attachment_add,
         attachments::attachment_preview,
         attachments::attachment_save,

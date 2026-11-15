@@ -569,3 +569,59 @@ fn an_existing_mac_still_verifies() {
     assert_eq!(resets(&log), 0);
     assert!(!b.stored().agent_access_enabled);
 }
+
+/// Program fill and its submit switch are under the MAC (ADR-0164): a file that turns them on
+/// without a valid MAC reads as off, and the user is told once. Elsewhere than Windows the
+/// feature is off whatever the file says, so the notice is Windows only.
+#[test]
+fn settings_without_a_valid_mac_turn_program_fill_and_submit_off() {
+    let _kdf = crate::test_support::kdf_permit();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let on = Settings {
+        program_fill: true,
+        program_fill_submit: true,
+        program_fill_hotkey: Some("Ctrl+Alt+L".into()),
+        program_fill_card_dismissed: true,
+        ..Settings::default()
+    };
+    let secret_key = {
+        let (b, _) = start(d);
+        let created = b
+            .create_account(CreateAccountRequest {
+                email: "alex@example.com".into(),
+                password: SecretIn::test(PASSWORD),
+                default_vault_name: "Personal".into(),
+            })
+            .unwrap();
+        update(&b, on.clone());
+        serde_json::to_value(&created).unwrap()["emergencyKit"]["secretKey"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    // A valid MAC: the file's values apply after the first unlock.
+    {
+        let (b, log) = start(d);
+        let locked = b.settings_snapshot();
+        assert!(!locked.program_fill, "locked: strict");
+        assert_eq!(locked.program_fill_hotkey.as_deref(), Some("Ctrl+Alt+L"));
+        assert!(locked.program_fill_card_dismissed);
+        unlock(&b, &secret_key);
+        assert_eq!(b.settings_snapshot().program_fill, cfg!(windows));
+        assert_eq!(resets(&log), 0);
+    }
+    // The MAC is gone: both read as off after the unlock; Windows tells the user.
+    let mut file = read_file(d);
+    assert_eq!(file["settings"]["programFill"], json!(cfg!(windows)));
+    file["settings"]["programFill"] = json!(true);
+    file["settings"]["programFillSubmit"] = json!(true);
+    file.as_object_mut().unwrap().remove("mac");
+    write_file(d, &file);
+    let (b, log) = start(d);
+    unlock(&b, &secret_key);
+    let after = b.settings_snapshot();
+    assert!(!after.program_fill, "reset to off");
+    assert_eq!(resets(&log), usize::from(cfg!(windows)));
+    assert_eq!(read_file(d)["settings"]["programFill"], json!(false));
+}

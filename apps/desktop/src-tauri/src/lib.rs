@@ -51,6 +51,7 @@ pub mod navigation;
 pub mod otp_pending;
 pub mod passkey_export;
 pub mod persist;
+pub mod program_fill;
 pub mod quick_unlock;
 pub mod screen_capture;
 pub mod settings_integrity;
@@ -73,6 +74,7 @@ use crate::contract::events::LockReason;
 use crate::dialogs::NativeDialogs;
 use crate::keystore::{LayeredKeystore, OsKeystore};
 use crate::persist::Persistence;
+use crate::program_fill::{BlockList, ProgramFillService};
 use crate::quick_unlock::QuickUnlockService;
 use crate::screen_capture::NativeScreenCapture;
 use crate::state::{AppState, Backend, Slot, guard};
@@ -174,6 +176,7 @@ pub fn run() -> tauri::Result<()> {
                     })
                 })
                 .with_persistence(persistence)
+                .with_program_fill(ProgramFillService::new(BlockList::in_dir(&dir)))
                 .with_sync_storage(&app.config().identifier, dir.clone())
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
@@ -240,6 +243,22 @@ pub fn run() -> tauri::Result<()> {
             }
             if let Ok(mut slot) = guard(&state.backend().shortcut_registrar) {
                 *slot = registrar;
+            }
+            // The program fill hotkey: a second registration on the same plugin, none by default.
+            state
+                .backend()
+                .program_fill
+                .set_hotkey_registrar(shortcut::install_action(
+                    app.handle(),
+                    program_fill::on_program_fill_hotkey,
+                ));
+            if let Some(text) = state.backend().settings_snapshot().program_fill_hotkey
+                && let Ok(accelerator) = shortcut::parse_accelerator(&text)
+                && let Some(register) = state.backend().program_fill.hotkey_registrar()
+            {
+                // A conflict leaves the hotkey unregistered; the settings screen shows the
+                // error when the user sets it again.
+                let _ = register(Some(accelerator));
             }
             Ok(())
         })

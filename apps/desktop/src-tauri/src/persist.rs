@@ -80,6 +80,10 @@ pub struct AccountInfo {
 /// type keeps every key required).
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "mirrors the wire type `Settings`, one switch per setting"
+)]
 struct PersistedSettings {
     auto_lock_minutes: Option<u32>,
     lock_on_sleep: bool,
@@ -99,6 +103,19 @@ struct PersistedSettings {
     /// A file from before M9 has no shortcut: the default of this OS.
     #[serde(default = "default_global_shortcut")]
     global_shortcut: String,
+    /// Files from before program fill have none of these: off, submit on, no hotkey, card open.
+    #[serde(default)]
+    program_fill: bool,
+    #[serde(default = "default_true")]
+    program_fill_submit: bool,
+    #[serde(default)]
+    program_fill_hotkey: Option<String>,
+    #[serde(default)]
+    program_fill_card_dismissed: bool,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 fn default_quick_unlock_days() -> u32 {
@@ -136,6 +153,10 @@ impl From<PersistedSettings> for Settings {
             breach_consent_at: p.breach_consent_at,
             rotation_reminders: p.rotation_reminders,
             global_shortcut: checked_shortcut(p.global_shortcut),
+            program_fill: p.program_fill,
+            program_fill_submit: p.program_fill_submit,
+            program_fill_hotkey: p.program_fill_hotkey,
+            program_fill_card_dismissed: p.program_fill_card_dismissed,
         }
     }
 }
@@ -154,6 +175,10 @@ impl From<&Settings> for PersistedSettings {
             breach_consent_at: s.breach_consent_at,
             rotation_reminders: s.rotation_reminders,
             global_shortcut: s.global_shortcut.clone(),
+            program_fill: s.program_fill,
+            program_fill_submit: s.program_fill_submit,
+            program_fill_hotkey: s.program_fill_hotkey.clone(),
+            program_fill_card_dismissed: s.program_fill_card_dismissed,
         }
     }
 }
@@ -230,6 +255,21 @@ pub fn normalize(mut settings: Settings) -> Settings {
         settings.breach_check = BreachMode::Off;
         settings.breach_consent_at = None;
     }
+    // Program fill reads Windows programs: off everywhere else (ADR-0164).
+    if !cfg!(windows) {
+        settings.program_fill = false;
+    }
+    // A hotkey that does not parse, or is the palette's own, is none.
+    settings.program_fill_hotkey = settings.program_fill_hotkey.take().filter(|text| {
+        match (
+            crate::shortcut::parse_accelerator(text),
+            crate::shortcut::parse_accelerator(&settings.global_shortcut),
+        ) {
+            (Ok(hotkey), Ok(palette)) => hotkey.shortcut() != palette.shortcut(),
+            (Ok(_), Err(_)) => true,
+            (Err(_), _) => false,
+        }
+    });
     settings
 }
 
@@ -256,6 +296,9 @@ pub fn same_protection(a: &Settings, b: &Settings) -> bool {
         && a.quick_unlock_max_age_days == b.quick_unlock_max_age_days
         && a.breach_check == b.breach_check
         && a.breach_consent_at == b.breach_consent_at
+        && a.program_fill == b.program_fill
+        // The submit switch is under the MAC only while program fill is on.
+        && (!a.program_fill || a.program_fill_submit == b.program_fill_submit)
 }
 
 /// Per protection field, the stricter of `settings` and the defaults: the
@@ -288,6 +331,12 @@ pub fn stricter_than_default(settings: &Settings) -> Settings {
         breach_consent_at: None,
         rotation_reminders: settings.rotation_reminders,
         global_shortcut: settings.global_shortcut.clone(),
+        // Reading other programs is opt-in: only a verified file may switch it on (ADR-0164).
+        // The submit switch is moot while it is off (and not under the MAC then): the default.
+        program_fill: false,
+        program_fill_submit: default.program_fill_submit,
+        program_fill_hotkey: settings.program_fill_hotkey.clone(),
+        program_fill_card_dismissed: settings.program_fill_card_dismissed,
     })
 }
 
@@ -335,8 +384,18 @@ pub fn canonical_settings(state: &StoredState) -> Vec<u8> {
     } else {
         ""
     };
+    // Program fill is in the MAC only while it is on (with its submit flag), between `lockOnSleep`
+    // and `quickUnlockMaxAgeDays` in key order, so earlier MACs still verify (ADR-0164).
+    let program_fill = if settings.program_fill {
+        format!(
+            "\"programFill\":true,\"programFillSubmit\":{},",
+            settings.program_fill_submit
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "{{{}\"autoLockMinutes\":{},{}{}\"clipboardClearSeconds\":{},\"email\":{},\"kitVerified\":{},\"language\":{},\"lockOnScreenLock\":{},\"lockOnSleep\":{},\"quickUnlockMaxAgeDays\":{},\"sshAgentEnabled\":{},\"theme\":{}}}",
+        "{{{}\"autoLockMinutes\":{},{}{}\"clipboardClearSeconds\":{},\"email\":{},\"kitVerified\":{},\"language\":{},\"lockOnScreenLock\":{},\"lockOnSleep\":{},{}\"quickUnlockMaxAgeDays\":{},\"sshAgentEnabled\":{},\"theme\":{}}}",
         agent,
         number(settings.auto_lock_minutes),
         breach.0,
@@ -347,6 +406,7 @@ pub fn canonical_settings(state: &StoredState) -> Vec<u8> {
         word(&settings.language),
         settings.lock_on_screen_lock,
         settings.lock_on_sleep,
+        program_fill,
         settings.quick_unlock_max_age_days,
         state.ssh_agent_enabled,
         word(&settings.theme),
@@ -847,7 +907,7 @@ mod tests {
     #[test]
     fn every_field_changes_the_canonical_bytes() {
         let base = sample();
-        let edits: [fn(&mut StoredState); 10] = [
+        let edits: [fn(&mut StoredState); 11] = [
             |s| s.settings.auto_lock_minutes = Some(11),
             |s| s.settings.lock_on_sleep = false,
             |s| s.settings.lock_on_screen_lock = false,
@@ -855,6 +915,7 @@ mod tests {
             |s| s.settings.theme = Theme::Light,
             |s| s.settings.language = Language::En,
             |s| s.settings.quick_unlock_max_age_days = 15,
+            |s| s.settings.program_fill = true,
             |s| s.ssh_agent_enabled = false,
             |s| s.account.as_mut().unwrap().email = None,
             |s| s.account.as_mut().unwrap().kit_verified = false,
@@ -864,6 +925,95 @@ mod tests {
             change(&mut changed);
             assert_ne!(canonical_settings(&changed), canonical_settings(&base));
         }
+    }
+
+    #[test]
+    fn program_fill_and_submit_are_in_the_mac_bytes_only_while_on() {
+        let off = with_settings(Settings::default());
+        let on = |submit: bool| {
+            with_settings(Settings {
+                program_fill: true,
+                program_fill_submit: submit,
+                ..Settings::default()
+            })
+        };
+        let off_bytes = String::from_utf8(canonical_settings(&off)).unwrap();
+        assert!(!off_bytes.contains("programFill"), "unchanged bytes");
+        let on_bytes = String::from_utf8(canonical_settings(&on(true))).unwrap();
+        assert!(
+            on_bytes.contains(r#""lockOnSleep":true,"programFill":true,"programFillSubmit":true,"quickUnlockMaxAgeDays":14"#),
+            "{on_bytes}"
+        );
+        assert_eq!(
+            on_bytes.replace(r#""programFill":true,"programFillSubmit":true,"#, ""),
+            off_bytes
+        );
+        assert_ne!(
+            canonical_settings(&on(true)),
+            canonical_settings(&on(false))
+        );
+    }
+
+    #[test]
+    fn a_hotkey_equal_to_the_global_shortcut_or_unparsable_is_dropped() {
+        let with = |hotkey: &str| {
+            normalize(Settings {
+                program_fill_hotkey: Some(hotkey.to_owned()),
+                ..Settings::default()
+            })
+            .program_fill_hotkey
+        };
+        assert_eq!(with("Ctrl+Alt+L"), Some("Ctrl+Alt+L".to_owned()));
+        assert_eq!(with("Ctrl+Shift+Space"), None, "the palette's own");
+        assert_eq!(
+            with("ctrl+shift+space"),
+            None,
+            "the palette's own, other spelling"
+        );
+        assert_eq!(with("Banana"), None);
+        assert_eq!(with("K"), None, "no modifier");
+    }
+
+    #[test]
+    fn program_fill_is_off_on_other_systems() {
+        let on = normalize(Settings {
+            program_fill: true,
+            ..Settings::default()
+        });
+        assert_eq!(on.program_fill, cfg!(windows));
+    }
+
+    #[test]
+    fn the_strict_settings_switch_program_fill_off_and_keep_hotkey_and_card() {
+        let strict = stricter_than_default(&Settings {
+            program_fill: true,
+            program_fill_submit: true,
+            program_fill_hotkey: Some("Ctrl+Alt+L".into()),
+            program_fill_card_dismissed: true,
+            ..Settings::default()
+        });
+        assert!(!strict.program_fill);
+        assert_eq!(strict.program_fill_hotkey.as_deref(), Some("Ctrl+Alt+L"));
+        assert!(strict.program_fill_card_dismissed);
+    }
+
+    #[test]
+    fn a_file_from_before_program_fill_reads_the_defaults() {
+        let mut file: serde_json::Value =
+            serde_json::from_slice(&render(&sample(), None).unwrap()).unwrap();
+        let settings = file["settings"].as_object_mut().unwrap();
+        for key in [
+            "programFill",
+            "programFillSubmit",
+            "programFillHotkey",
+            "programFillCardDismissed",
+        ] {
+            settings.remove(key);
+        }
+        let parsed = parse(&serde_json::to_vec(&file).unwrap()).unwrap();
+        assert!(!parsed.settings.program_fill);
+        assert!(parsed.settings.program_fill_hotkey.is_none());
+        assert!(!parsed.settings.program_fill_card_dismissed);
     }
 
     #[test]

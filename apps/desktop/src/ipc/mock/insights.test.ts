@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createMockIpc } from "../mock.ts";
 import { defaultAgent } from "./agent.ts";
+import { defaultProgramFill } from "./programFill.ts";
 import { defaultBrowser } from "./browser.ts";
 import { sampleItems, sampleVaults } from "./data.ts";
 import { defaultQuick } from "./quickUnlock.ts";
@@ -23,6 +24,7 @@ function state(items: MockItem[]): MockState {
     sshEnabled: false,
     sshRequest: false,
     agent: defaultAgent(),
+    programFill: defaultProgramFill(),
     browser: defaultBrowser(() => NOW),
     rotation: seedRotation({}),
     credRotation: seedCredRotation(undefined),

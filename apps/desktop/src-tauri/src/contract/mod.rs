@@ -34,6 +34,7 @@ pub mod import;
 pub mod insights;
 pub mod items;
 pub mod otp;
+pub mod program_fill;
 pub mod quick_unlock;
 pub mod rotation;
 pub mod secret;

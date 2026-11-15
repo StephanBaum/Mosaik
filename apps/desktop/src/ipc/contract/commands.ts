@@ -144,6 +144,7 @@ import type {
   TotpSetupInfo,
 } from "./sync.ts";
 import { type SyncWebauthnCommandName, type SyncWebauthnCommands, syncWebauthnCommandNames } from "./sync.ts";
+import type { ProgramFillStatus, ProgramFillUnblockRequest } from "./programFill.ts";
 import type { TotpCode } from "./totp.ts";
 import type {
   CreateHardwareVaultRequest,
@@ -205,6 +206,9 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   agent_grant_revoke: Command<AgentGrantRevokeRequest, AgentAccessStatus>;
   agent_stop_all: Command<null, AgentAccessStatus>;
   agent_log: Command<AgentLogRequest, AgentLogPage>;
+  // Program fill
+  program_fill_status: Command<null, ProgramFillStatus>;
+  program_fill_unblock: Command<ProgramFillUnblockRequest, ProgramFillStatus>;
   // Attachments
   attachment_add: Command<ItemRequest, AttachmentAdded>;
   /** Binary response: `[width u32 LE][height u32 LE][width * height * 4 RGBA bytes]`. */
@@ -369,6 +373,8 @@ const commandSet = {
   agent_grant_revoke: true,
   agent_stop_all: true,
   agent_log: true,
+  program_fill_status: true,
+  program_fill_unblock: true,
   attachment_add: true,
   attachment_preview: true,
   attachment_save: true,
