@@ -1436,11 +1436,6 @@ export const fixtures = {
       "type": "settingsReset"
     },
     {
-      "fileName": "export.csv",
-      "fileToken": "file-9",
-      "type": "importFileDropped"
-    },
-    {
       "request": {
         "code": "K7M2QX",
         "expiresAt": 1761480120000,
@@ -1484,6 +1479,11 @@ export const fixtures = {
     },
     {
       "type": "agentStateChanged"
+    },
+    {
+      "fileName": "export.csv",
+      "fileToken": "file-9",
+      "type": "importFileDropped"
     },
     {
       "request": {
