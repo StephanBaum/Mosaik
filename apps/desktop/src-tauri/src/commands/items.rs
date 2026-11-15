@@ -9,6 +9,7 @@ use mosaic_vault::session::{ItemFilter, ItemRef, TrashFilter as CoreTrashFilter,
 use mosaic_vault::storage::Store;
 use tauri::State;
 
+use super::agent_bindings::{apply_ops, check_ops, confirm_touched, prepare_bindings};
 use super::draft;
 use super::otp::TakenOtp;
 use crate::attachment_files::{added_at, display_name, previewable_mime};
@@ -25,6 +26,10 @@ use crate::contract::items::{
 use crate::contract::secret::SecretOut;
 use crate::contract::session::ReauthPurpose;
 use crate::state::{AppState, Backend};
+
+fn now_ms() -> u64 {
+    u64::try_from(crate::browser::unix_millis()).unwrap_or(0)
+}
 
 /// How long a revealed secret stays visible (UX_GUIDELINES §8).
 pub const REVEAL_SECONDS: u32 = 60;
@@ -387,6 +392,7 @@ pub(super) fn detail(
         },
         ssh_key: ssh_summary(item),
         passkey: passkey_summary(item),
+        agent_bindings: Vec::new(),
     })
 }
 
@@ -429,7 +435,7 @@ impl Backend {
         if item.is_deleted() {
             return Err(IpcError::new(ErrorCode::ItemDeleted));
         }
-        detail(session.store(), vault_id, item_id, item)
+        self.detail_in(session, vault_id, item_id)
     }
 
     /// One secret of an item.
@@ -522,25 +528,35 @@ impl Backend {
         item_type: &mosaic_core::model::ItemType,
         taken: Option<&TakenOtp>,
     ) -> IpcResult<ItemDetail> {
-        let prepared = draft::prepare(request.draft, taken.map(TakenOtp::config).transpose()?)?;
+        let mut draft = request.draft;
+        let ops = prepare_bindings(std::mem::take(&mut draft.agent_bindings))?;
+        let prepared = draft::prepare(draft, taken.map(TakenOtp::config).transpose()?)?;
         if prepared.sets_ssh_key() && request.kind != ItemKind::SshKey {
             return Err(IpcError::new(ErrorCode::InvalidInput));
         }
         let vault_id = request.vault_id.get();
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
+        check_ops(
+            self.agent_access_on(),
+            session,
+            vault_id,
+            None,
+            &prepared,
+            &ops,
+        )?;
+        let mut touched = Vec::new();
         let item_id = session
             .add_item(vault_id, item_type, |edit| {
-                prepared.apply(edit, &[], Vec::new())
+                prepared.apply(edit, &[], Vec::new())?;
+                apply_ops(ops, edit, &[], &mut touched)
             })
             .map_err(draft::edit_error)?;
         self.items_changed(session);
-        detail(
-            session.store(),
-            vault_id,
-            item_id,
-            session.item(vault_id, item_id)?,
-        )
+        if !touched.is_empty() {
+            confirm_touched(session, vault_id, item_id, &touched, now_ms())?;
+        }
+        self.detail_in(session, vault_id, item_id)
     }
 
     /// Applies a draft to an item and returns its detail.
@@ -561,11 +577,22 @@ impl Backend {
         request: UpdateItemRequest,
         taken: Option<&TakenOtp>,
     ) -> IpcResult<ItemDetail> {
-        let prepared = draft::prepare(request.draft, taken.map(TakenOtp::config).transpose()?)?;
+        let mut draft = request.draft;
+        let ops = prepare_bindings(std::mem::take(&mut draft.agent_bindings))?;
+        let prepared = draft::prepare(draft, taken.map(TakenOtp::config).transpose()?)?;
         let (vault_id, item_id) = (request.vault_id.get(), request.item_id.get());
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
         let current = session.item(vault_id, item_id)?;
+        check_ops(
+            self.agent_access_on(),
+            session,
+            vault_id,
+            Some(current),
+            &prepared,
+            &ops,
+        )?;
+        let bindings = current.agent_bindings();
         if prepared.sets_ssh_key() && current.item_type() != Some(ItemType::SshKey) {
             return Err(IpcError::new(ErrorCode::InvalidInput));
         }
@@ -576,18 +603,18 @@ impl Backend {
         }
         let tags: Vec<String> = current.tags().into_iter().map(str::to_owned).collect();
         let fields = current.custom_fields();
+        let mut touched = Vec::new();
         session
             .update_item(vault_id, item_id, |edit| {
-                prepared.apply(edit, &tags, fields)
+                prepared.apply(edit, &tags, fields)?;
+                apply_ops(ops, edit, &bindings, &mut touched)
             })
             .map_err(draft::edit_error)?;
         self.items_changed(session);
-        detail(
-            session.store(),
-            vault_id,
-            item_id,
-            session.item(vault_id, item_id)?,
-        )
+        if !touched.is_empty() {
+            confirm_touched(session, vault_id, item_id, &touched, now_ms())?;
+        }
+        self.detail_in(session, vault_id, item_id)
     }
 
     /// Moves an item to another vault (new item ID). Moving an item **out

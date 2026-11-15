@@ -31,14 +31,67 @@ use crate::error::Error;
 #[cfg(windows)]
 mod lease;
 #[cfg(windows)]
-pub use lease::{DiscoveryLease, discovery_is_live, read_live_discovery_file};
+pub use lease::{
+    DiscoveryLease, discovery_is_live, read_live_discovery_file, read_live_discovery_file_for,
+};
 
 /// The app identifier of the desktop bundle (`tauri.conf.json`); the
 /// directory name under the user's data directories.
 pub const APP_IDENTIFIER: &str = "io.github.stephanbaum.mosaic";
 
-/// The prefix of the Windows pipe name.
+/// The prefix of the Windows pipe name of the browser channel.
 pub const PIPE_PREFIX: &str = r"\\.\pipe\mosaic-browser-";
+
+/// The prefix of the Windows pipe name of the agent channel.
+pub const AGENT_PIPE_PREFIX: &str = r"\\.\pipe\mosaic-agent-";
+
+/// Which local channel an endpoint serves. The two channels have separate
+/// directories, socket files, pipe names and discovery files, so a pairing
+/// or a squatter of one never reaches the other (CRYPTO_SPEC section 15).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ChannelKind {
+    /// The browser extension channel.
+    Browser,
+    /// The agent (MCP relay) channel.
+    Agent,
+}
+
+impl ChannelKind {
+    /// The directory name under the app directory: `browser` or `agent`.
+    #[must_use]
+    pub const fn dir_name(self) -> &'static str {
+        match self {
+            Self::Browser => "browser",
+            Self::Agent => "agent",
+        }
+    }
+
+    /// The Unix socket file name: `browser.sock` or `agent.sock`.
+    #[must_use]
+    pub const fn socket_file(self) -> &'static str {
+        match self {
+            Self::Browser => "browser.sock",
+            Self::Agent => "agent.sock",
+        }
+    }
+
+    /// The Windows pipe name prefix of this channel.
+    #[must_use]
+    pub const fn pipe_prefix(self) -> &'static str {
+        match self {
+            Self::Browser => PIPE_PREFIX,
+            Self::Agent => AGENT_PIPE_PREFIX,
+        }
+    }
+
+    /// The debug-build override variable of this channel.
+    const fn override_var(self) -> &'static str {
+        match self {
+            Self::Browser => "MOSAIC_BROWSER_ENDPOINT",
+            Self::Agent => "MOSAIC_AGENT_ENDPOINT",
+        }
+    }
+}
 
 /// A longest Unix socket path: `sun_path` holds 104 bytes on macOS and 108
 /// on Linux, including the terminating NUL.
@@ -62,15 +115,34 @@ pub enum Endpoint {
 /// # Errors
 /// [`Error::Channel`] if the OS CSPRNG fails.
 pub fn new_windows_pipe_name() -> Result<String, Error> {
+    new_windows_pipe_name_for(ChannelKind::Browser)
+}
+
+/// A fresh pipe name of `kind`: its prefix and `random(16)` as lowercase hex.
+///
+/// # Errors
+/// [`Error::Channel`] if the OS CSPRNG fails.
+pub fn new_windows_pipe_name_for(kind: ChannelKind) -> Result<String, Error> {
     let bytes = new_endpoint_token()?;
-    Ok(format!("{PIPE_PREFIX}{}", &**crate::hex::encode(&bytes)))
+    Ok(format!(
+        "{}{}",
+        kind.pipe_prefix(),
+        &**crate::hex::encode(&bytes)
+    ))
 }
 
 /// Whether `name` is `\\.\pipe\mosaic-browser-` followed by exactly 32
 /// lowercase hex digits.
 #[must_use]
 pub fn is_valid_pipe_name(name: &str) -> bool {
-    name.strip_prefix(PIPE_PREFIX).is_some_and(|rest| {
+    is_valid_pipe_name_for(ChannelKind::Browser, name)
+}
+
+/// Whether `name` is the prefix of `kind` followed by exactly 32 lowercase
+/// hex digits.
+#[must_use]
+pub fn is_valid_pipe_name_for(kind: ChannelKind, name: &str) -> bool {
+    name.strip_prefix(kind.pipe_prefix()).is_some_and(|rest| {
         rest.len() == 32
             && rest
                 .bytes()
@@ -107,8 +179,21 @@ pub fn linux_socket_path(
     xdg_data_home: Option<&Path>,
     home: Option<&Path>,
 ) -> Result<PathBuf, Error> {
+    linux_socket_path_for(ChannelKind::Browser, xdg_runtime_dir, xdg_data_home, home)
+}
+
+/// [`linux_socket_path`] for the channel `kind`.
+///
+/// # Errors
+/// As [`linux_socket_path`].
+pub fn linux_socket_path_for(
+    kind: ChannelKind,
+    xdg_runtime_dir: Option<&Path>,
+    xdg_data_home: Option<&Path>,
+    home: Option<&Path>,
+) -> Result<PathBuf, Error> {
     let path = if let Some(runtime) = absolute(xdg_runtime_dir) {
-        runtime.join("mosaic").join("browser.sock")
+        runtime.join("mosaic").join(kind.socket_file())
     } else {
         let data = match absolute(xdg_data_home) {
             Some(data) => data.to_path_buf(),
@@ -118,8 +203,8 @@ pub fn linux_socket_path(
                 .join("share"),
         };
         data.join(APP_IDENTIFIER)
-            .join("browser")
-            .join("browser.sock")
+            .join(kind.dir_name())
+            .join(kind.socket_file())
     };
     checked_socket_path(path)
 }
@@ -129,14 +214,22 @@ pub fn linux_socket_path(
 /// # Errors
 /// As [`linux_socket_path`].
 pub fn macos_socket_path(home: Option<&Path>) -> Result<PathBuf, Error> {
+    macos_socket_path_for(ChannelKind::Browser, home)
+}
+
+/// [`macos_socket_path`] for the channel `kind`.
+///
+/// # Errors
+/// As [`linux_socket_path`].
+pub fn macos_socket_path_for(kind: ChannelKind, home: Option<&Path>) -> Result<PathBuf, Error> {
     checked_socket_path(
         absolute(home)
             .ok_or(Error::EndpointInvalid)?
             .join("Library")
             .join("Application Support")
             .join(APP_IDENTIFIER)
-            .join("browser")
-            .join("browser.sock"),
+            .join(kind.dir_name())
+            .join(kind.socket_file()),
     )
 }
 
@@ -145,10 +238,21 @@ pub fn macos_socket_path(home: Option<&Path>) -> Result<PathBuf, Error> {
 /// # Errors
 /// [`Error::EndpointInvalid`] if `local_app_data` is missing or relative.
 pub fn discovery_file_path(local_app_data: Option<&Path>) -> Result<PathBuf, Error> {
+    discovery_file_path_for(ChannelKind::Browser, local_app_data)
+}
+
+/// [`discovery_file_path`] for the channel `kind`.
+///
+/// # Errors
+/// As [`discovery_file_path`].
+pub fn discovery_file_path_for(
+    kind: ChannelKind,
+    local_app_data: Option<&Path>,
+) -> Result<PathBuf, Error> {
     Ok(absolute(local_app_data)
         .ok_or(Error::EndpointInvalid)?
         .join(APP_IDENTIFIER)
-        .join("browser")
+        .join(kind.dir_name())
         .join("endpoint.json"))
 }
 
@@ -167,6 +271,14 @@ pub fn discovery_json(pipe: &str) -> String {
 /// [`MAX_DISCOVERY_BYTES`], is not exactly `{"version":1,"pipe":"..."}`, or
 /// the name is not a valid pipe name.
 pub fn parse_discovery(bytes: &[u8]) -> Result<String, Error> {
+    parse_discovery_for(ChannelKind::Browser, bytes)
+}
+
+/// [`parse_discovery`] for the channel `kind`.
+///
+/// # Errors
+/// As [`parse_discovery`].
+pub fn parse_discovery_for(kind: ChannelKind, bytes: &[u8]) -> Result<String, Error> {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct File {
@@ -177,7 +289,7 @@ pub fn parse_discovery(bytes: &[u8]) -> Result<String, Error> {
         return Err(Error::EndpointInvalid);
     }
     let file: File = serde_json::from_slice(bytes).map_err(|_| Error::EndpointInvalid)?;
-    if file.version == 1 && is_valid_pipe_name(&file.pipe) {
+    if file.version == 1 && is_valid_pipe_name_for(kind, &file.pipe) {
         Ok(file.pipe)
     } else {
         Err(Error::EndpointInvalid)
@@ -191,6 +303,14 @@ pub fn parse_discovery(bytes: &[u8]) -> Result<String, Error> {
 /// [`Error::DesktopNotRunning`] if the file does not exist,
 /// [`Error::EndpointInvalid`] if it is malformed or too long.
 pub fn read_discovery_file(path: &Path) -> Result<String, Error> {
+    read_discovery_file_for(ChannelKind::Browser, path)
+}
+
+/// [`read_discovery_file`] for the channel `kind`.
+///
+/// # Errors
+/// As [`read_discovery_file`].
+pub fn read_discovery_file_for(kind: ChannelKind, path: &Path) -> Result<String, Error> {
     let file = match fs::File::open(path) {
         Ok(file) => file,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(Error::DesktopNotRunning),
@@ -199,7 +319,7 @@ pub fn read_discovery_file(path: &Path) -> Result<String, Error> {
     let mut bytes = Vec::new();
     file.take(MAX_DISCOVERY_BYTES as u64 + 1)
         .read_to_end(&mut bytes)?;
-    parse_discovery(&bytes)
+    parse_discovery_for(kind, &bytes)
 }
 
 /// Writes the discovery file for `pipe` atomically (a temporary file in the
@@ -213,7 +333,15 @@ pub fn read_discovery_file(path: &Path) -> Result<String, Error> {
 /// [`Error::EndpointInvalid`] for a bad pipe name or a path without a
 /// directory, [`Error::Io`] on a write failure.
 pub fn write_discovery_file(path: &Path, pipe: &str) -> Result<(), Error> {
-    if !is_valid_pipe_name(pipe) || path.parent().is_none() {
+    write_discovery_file_for(ChannelKind::Browser, path, pipe)
+}
+
+/// [`write_discovery_file`] for the channel `kind`.
+///
+/// # Errors
+/// As [`write_discovery_file`].
+pub fn write_discovery_file_for(kind: ChannelKind, path: &Path, pipe: &str) -> Result<(), Error> {
+    if !is_valid_pipe_name_for(kind, pipe) || path.parent().is_none() {
         return Err(Error::EndpointInvalid);
     }
     write_discovery_file_io(path, pipe).map_err(Error::from)
@@ -251,14 +379,14 @@ pub fn remove_discovery_file(path: &Path) -> Result<(), Error> {
 
 /// The pipe name of the discovery file at `path`, trusted only while a
 /// desktop holds the file (Windows; elsewhere there is no discovery file).
-fn read_trusted_discovery_file(path: &Path) -> Result<String, Error> {
+fn read_trusted_discovery_file(kind: ChannelKind, path: &Path) -> Result<String, Error> {
     #[cfg(windows)]
     {
-        read_live_discovery_file(path)
+        read_live_discovery_file_for(kind, path)
     }
     #[cfg(not(windows))]
     {
-        read_discovery_file(path)
+        read_discovery_file_for(kind, path)
     }
 }
 
@@ -271,8 +399,16 @@ fn env_path(name: &str) -> Option<PathBuf> {
 /// # Errors
 /// [`Error::EndpointInvalid`] off Windows or without `%LOCALAPPDATA%`.
 pub fn discovery_file() -> Result<PathBuf, Error> {
+    discovery_file_for(ChannelKind::Browser)
+}
+
+/// The discovery file of this user for the channel `kind` (Windows only).
+///
+/// # Errors
+/// As [`discovery_file`].
+pub fn discovery_file_for(kind: ChannelKind) -> Result<PathBuf, Error> {
     if cfg!(windows) {
-        discovery_file_path(env_path("LOCALAPPDATA").as_deref())
+        discovery_file_path_for(kind, env_path("LOCALAPPDATA").as_deref())
     } else {
         Err(Error::EndpointInvalid)
     }
@@ -290,18 +426,28 @@ pub fn discovery_file() -> Result<PathBuf, Error> {
 /// [`Error::DesktopNotRunning`] on Windows without a discovery file,
 /// [`Error::EndpointInvalid`] for anything unusable.
 pub fn default_endpoint() -> Result<Endpoint, Error> {
+    default_endpoint_for(ChannelKind::Browser)
+}
+
+/// [`default_endpoint`] for the channel `kind`. In debug builds the agent
+/// channel's override variable is `MOSAIC_AGENT_ENDPOINT`.
+///
+/// # Errors
+/// As [`default_endpoint`].
+pub fn default_endpoint_for(kind: ChannelKind) -> Result<Endpoint, Error> {
     if cfg!(debug_assertions)
-        && let Some(value) = std::env::var_os("MOSAIC_BROWSER_ENDPOINT")
+        && let Some(value) = std::env::var_os(kind.override_var())
     {
-        return endpoint_from_override(&value.to_string_lossy());
+        return endpoint_from_override_for(kind, &value.to_string_lossy());
     }
     if cfg!(windows) {
-        let pipe = read_trusted_discovery_file(&discovery_file()?)?;
+        let pipe = read_trusted_discovery_file(kind, &discovery_file_for(kind)?)?;
         Ok(Endpoint::NamedPipe(pipe))
     } else if cfg!(target_os = "macos") {
-        macos_socket_path(env_path("HOME").as_deref()).map(Endpoint::UnixSocket)
+        macos_socket_path_for(kind, env_path("HOME").as_deref()).map(Endpoint::UnixSocket)
     } else {
-        linux_socket_path(
+        linux_socket_path_for(
+            kind,
             env_path("XDG_RUNTIME_DIR").as_deref(),
             env_path("XDG_DATA_HOME").as_deref(),
             env_path("HOME").as_deref(),
@@ -311,9 +457,10 @@ pub fn default_endpoint() -> Result<Endpoint, Error> {
 }
 
 /// The endpoint named by the debug override.
-fn endpoint_from_override(value: &str) -> Result<Endpoint, Error> {
+/// The endpoint of `kind` named by the debug override.
+fn endpoint_from_override_for(kind: ChannelKind, value: &str) -> Result<Endpoint, Error> {
     if cfg!(windows) {
-        if is_valid_pipe_name(value) {
+        if is_valid_pipe_name_for(kind, value) {
             Ok(Endpoint::NamedPipe(value.to_owned()))
         } else {
             Err(Error::EndpointInvalid)
@@ -326,6 +473,62 @@ fn endpoint_from_override(value: &str) -> Result<Endpoint, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_endpoint_paths_per_os() {
+        let a = ChannelKind::Agent;
+        assert_eq!(
+            linux_socket_path_for(a, Some(Path::new("/run/user/1000")), None, None).unwrap(),
+            PathBuf::from("/run/user/1000/mosaic/agent.sock")
+        );
+        assert_eq!(
+            linux_socket_path_for(a, None, None, Some(Path::new("/home/a"))).unwrap(),
+            PathBuf::from("/home/a/.local/share/io.github.stephanbaum.mosaic/agent/agent.sock")
+        );
+        assert_eq!(
+            macos_socket_path_for(a, Some(Path::new("/Users/a"))).unwrap(),
+            PathBuf::from(
+                "/Users/a/Library/Application Support/io.github.stephanbaum.mosaic/agent/agent.sock"
+            )
+        );
+        let local = std::env::temp_dir();
+        assert_eq!(
+            discovery_file_path_for(a, Some(&local)).unwrap(),
+            local
+                .join("io.github.stephanbaum.mosaic")
+                .join("agent")
+                .join("endpoint.json")
+        );
+        let pipe = new_windows_pipe_name_for(a).unwrap();
+        assert!(pipe.starts_with(AGENT_PIPE_PREFIX), "{pipe}");
+        assert!(is_valid_pipe_name_for(a, &pipe));
+        assert!(!is_valid_pipe_name_for(ChannelKind::Browser, &pipe));
+        assert!(!is_valid_pipe_name(&pipe));
+        let browser = new_windows_pipe_name().unwrap();
+        assert!(!is_valid_pipe_name_for(a, &browser));
+        assert_eq!(
+            parse_discovery_for(a, discovery_json(&pipe).as_bytes()),
+            Ok(pipe.clone())
+        );
+        assert_eq!(
+            parse_discovery(discovery_json(&pipe).as_bytes()),
+            Err(Error::EndpointInvalid)
+        );
+        assert_eq!(
+            endpoint_from_override_for(a, "relative"),
+            Err(Error::EndpointInvalid)
+        );
+    }
+
+    #[test]
+    fn browser_paths_are_unchanged() {
+        assert_eq!(
+            linux_socket_path(Some(Path::new("/run/user/1000")), None, None).unwrap(),
+            PathBuf::from("/run/user/1000/mosaic/browser.sock")
+        );
+        assert!(PIPE_PREFIX.ends_with("mosaic-browser-"));
+        assert_eq!(ChannelKind::Browser.dir_name(), "browser");
+    }
 
     #[test]
     fn pipe_names_are_random_and_validated() {
@@ -498,18 +701,21 @@ mod tests {
     fn the_debug_override_is_checked() {
         if cfg!(windows) {
             let pipe = format!("{PIPE_PREFIX}{}", "cd".repeat(16));
-            assert_eq!(endpoint_from_override(&pipe), Ok(Endpoint::NamedPipe(pipe)));
             assert_eq!(
-                endpoint_from_override("anything"),
+                endpoint_from_override_for(ChannelKind::Browser, &pipe),
+                Ok(Endpoint::NamedPipe(pipe))
+            );
+            assert_eq!(
+                endpoint_from_override_for(ChannelKind::Browser, "anything"),
                 Err(Error::EndpointInvalid)
             );
         } else {
             assert_eq!(
-                endpoint_from_override("/tmp/x/browser.sock"),
+                endpoint_from_override_for(ChannelKind::Browser, "/tmp/x/browser.sock"),
                 Ok(Endpoint::UnixSocket(PathBuf::from("/tmp/x/browser.sock")))
             );
             assert_eq!(
-                endpoint_from_override("relative"),
+                endpoint_from_override_for(ChannelKind::Browser, "relative"),
                 Err(Error::EndpointInvalid)
             );
         }

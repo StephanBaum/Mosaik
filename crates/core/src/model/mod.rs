@@ -70,9 +70,9 @@ pub use item::{
 pub use roster::{Role, RosterEdit, RosterMember, VaultRoster};
 pub use tombstone::Tombstone;
 pub use types::{
-    AttachmentRef, CustomField, CustomFieldValue, LoginUrl, MAX_CREDENTIAL_ID_LEN,
-    MAX_OTP_SECRET_LEN, MAX_USER_HANDLE_LEN, OtpAlgorithm, OtpConfig, OtpKind, PasskeyCredential,
-    PasskeyPublic, SshKeyMaterial, UrlMatch,
+    AgentBasicUser, AgentBindingRecord, AgentInject, AttachmentRef, CustomField, CustomFieldValue,
+    LoginUrl, MAX_CREDENTIAL_ID_LEN, MAX_OTP_SECRET_LEN, MAX_USER_HANDLE_LEN, OtpAlgorithm,
+    OtpConfig, OtpKind, PasskeyCredential, PasskeyPublic, SshKeyMaterial, UrlMatch,
 };
 pub use value::{MAX_JSON_DEPTH, Number, Object, Text, Value};
 pub use vault_meta::{

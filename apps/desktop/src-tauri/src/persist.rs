@@ -56,6 +56,9 @@ pub struct StoredState {
     pub account: Option<AccountInfo>,
     /// The user turned the SSH agent on (it still runs only while unlocked).
     pub ssh_agent_enabled: bool,
+    /// The user allowed AI agents to use marked secrets (ADR-0159). Reads
+    /// `false` while the vault is locked and after a failed MAC check.
+    pub agent_access_enabled: bool,
 }
 
 /// The account of this install: its ID and email (not secret).
@@ -163,6 +166,10 @@ struct StateFile {
     account: Option<AccountInfo>,
     #[serde(default)]
     ssh_agent_enabled: bool,
+    /// Written only while on, so the file of an install that never used agent
+    /// access is the one it always was (CRYPTO_SPEC §11.1).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    agent_access_enabled: bool,
     /// Hex of the settings MAC (CRYPTO_SPEC §11.1); absent in older files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mac: Option<String>,
@@ -321,8 +328,16 @@ pub fn canonical_settings(state: &StoredState) -> Vec<u8> {
             ),
         )
     };
+    // Agent access is in the MAC only while it is on, and sorts first, so every
+    // MAC written before it existed still verifies (CRYPTO_SPEC §11.1, ADR-0160).
+    let agent = if state.agent_access_enabled {
+        "\"agentAccessEnabled\":true,"
+    } else {
+        ""
+    };
     format!(
-        "{{\"autoLockMinutes\":{},{}{}\"clipboardClearSeconds\":{},\"email\":{},\"kitVerified\":{},\"language\":{},\"lockOnScreenLock\":{},\"lockOnSleep\":{},\"quickUnlockMaxAgeDays\":{},\"sshAgentEnabled\":{},\"theme\":{}}}",
+        "{{{}\"autoLockMinutes\":{},{}{}\"clipboardClearSeconds\":{},\"email\":{},\"kitVerified\":{},\"language\":{},\"lockOnScreenLock\":{},\"lockOnSleep\":{},\"quickUnlockMaxAgeDays\":{},\"sshAgentEnabled\":{},\"theme\":{}}}",
+        agent,
         number(settings.auto_lock_minutes),
         breach.0,
         breach.1,
@@ -377,6 +392,7 @@ pub fn parse_checked(bytes: &[u8]) -> Option<(StoredState, FileSettings)> {
         settings: file.settings.into(),
         account: file.account,
         ssh_agent_enabled: file.ssh_agent_enabled,
+        agent_access_enabled: file.agent_access_enabled,
     };
     // Locked: the strict settings, the SSH agent off (CRYPTO_SPEC §11.1).
     let state = StoredState {
@@ -386,6 +402,7 @@ pub fn parse_checked(bytes: &[u8]) -> Option<(StoredState, FileSettings)> {
             a
         }),
         ssh_agent_enabled: false,
+        agent_access_enabled: false,
     };
     let checked = FileSettings {
         state: raw,
@@ -404,6 +421,7 @@ pub fn render(state: &StoredState, mac: Option<&[u8; MAC_LEN]>) -> IpcResult<Vec
         settings: PersistedSettings::from(&state.settings),
         account: state.account.clone(),
         ssh_agent_enabled: state.ssh_agent_enabled,
+        agent_access_enabled: state.agent_access_enabled,
         mac: mac.map(|m| to_hex(m)),
     };
     serde_json::to_vec_pretty(&file).map_err(|_| IpcError::INTERNAL)
@@ -539,6 +557,7 @@ mod tests {
                 kit_verified: true,
             }),
             ssh_agent_enabled: true,
+            agent_access_enabled: false,
         }
     }
 
@@ -740,6 +759,7 @@ mod tests {
             settings,
             account: None,
             ssh_agent_enabled: false,
+            agent_access_enabled: false,
         }
     }
 
@@ -768,6 +788,7 @@ mod tests {
                 kit_verified: true,
             }),
             ssh_agent_enabled: true,
+            agent_access_enabled: false,
         };
         assert_eq!(
             String::from_utf8(canonical_settings(&other)).unwrap(),
@@ -785,6 +806,41 @@ mod tests {
         assert_eq!(
             String::from_utf8(canonical_settings(&golden)).unwrap(),
             r#"{"autoLockMinutes":10,"clipboardClearSeconds":30,"email":"a@example.com","kitVerified":true,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"sshAgentEnabled":false,"theme":"system"}"#
+        );
+    }
+
+    #[test]
+    fn agent_access_flag_is_in_the_mac_only_when_true() {
+        let off = with_settings(Settings::default());
+        let on = StoredState {
+            agent_access_enabled: true,
+            ..off.clone()
+        };
+        let off_bytes = String::from_utf8(canonical_settings(&off)).unwrap();
+        let on_bytes = String::from_utf8(canonical_settings(&on)).unwrap();
+        assert!(!off_bytes.contains("agentAccessEnabled"), "unchanged bytes");
+        assert!(
+            on_bytes.starts_with(r#"{"agentAccessEnabled":true,"autoLockMinutes""#),
+            "{on_bytes}"
+        );
+        assert_eq!(
+            on_bytes.replace(r#""agentAccessEnabled":true,"#, ""),
+            off_bytes
+        );
+        // The file of an install that never used it has no such key.
+        let rendered = String::from_utf8(render(&off, None).unwrap()).unwrap();
+        assert!(!rendered.contains("agentAccessEnabled"));
+        let rendered = render(&on, None).unwrap();
+        assert!(
+            parse_checked(&rendered)
+                .unwrap()
+                .1
+                .state
+                .agent_access_enabled
+        );
+        assert!(
+            !parse(&rendered).unwrap().agent_access_enabled,
+            "locked reads false"
         );
     }
 

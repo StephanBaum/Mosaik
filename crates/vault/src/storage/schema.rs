@@ -855,6 +855,53 @@ UPDATE sync_view_compare
        counter = counter & 4294967295;
 ";
 
+/// Version 13: agent access (CRYPTO_SPEC §11, ADR-0160). `agent_marks` holds the keyed marks that
+/// confirm, on this device, that the user saw an item's agent binding (32-byte HMACs; no binding
+/// content in cleartext). `agent_log` holds one sealed record per agent decision (`at_ms` in the
+/// clear for the 90-day pruning, bound into the AAD). Neither table is synced, put in the outbox,
+/// exported or touched by `reset_sync_state`. Marks go with the item (a purged or tombstoned
+/// record, here by trigger) and with the vault (cascade).
+const V13: &str = r"
+CREATE TABLE agent_marks (
+    vault_id  BLOB NOT NULL CHECK (length(vault_id) = 16)
+                   REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    item_id   BLOB NOT NULL CHECK (length(item_id) = 16),
+    mark      BLOB NOT NULL CHECK (length(mark) = 32),
+    PRIMARY KEY (vault_id, item_id, mark)
+) STRICT;
+
+CREATE TABLE agent_log (
+    entry_id  BLOB    NOT NULL PRIMARY KEY CHECK (length(entry_id) = 16),
+    at_ms     INTEGER NOT NULL CHECK (at_ms >= 0),
+    sealed    BLOB    NOT NULL CHECK (length(sealed) BETWEEN 42 AND 65536),
+    -- 1 for a refusal row: those keep their own, smaller cap (ADR-0159).
+    noisy     INTEGER NOT NULL DEFAULT 0 CHECK (noisy IN (0, 1))
+) STRICT;
+
+CREATE INDEX agent_log_at_ms ON agent_log (at_ms);
+CREATE INDEX agent_log_noisy_at_ms ON agent_log (noisy, at_ms);
+
+CREATE TRIGGER records_agent_marks_delete
+AFTER DELETE ON records
+BEGIN
+    DELETE FROM agent_marks WHERE vault_id = OLD.vault_id AND item_id = OLD.record_id;
+END;
+
+CREATE TRIGGER records_agent_marks_tombstone_insert
+AFTER INSERT ON records
+WHEN NEW.kind = 2
+BEGIN
+    DELETE FROM agent_marks WHERE vault_id = NEW.vault_id AND item_id = NEW.record_id;
+END;
+
+CREATE TRIGGER records_agent_marks_tombstone_update
+AFTER UPDATE ON records
+WHEN NEW.kind = 2
+BEGIN
+    DELETE FROM agent_marks WHERE vault_id = NEW.vault_id AND item_id = NEW.record_id;
+END;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -905,10 +952,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 12,
         sql: V12,
     },
+    Migration {
+        version: 13,
+        sql: V13,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 12;
+pub const LATEST_VERSION: u32 = 13;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -1070,10 +1121,14 @@ mod tests {
             },
             Migration {
                 version: 13,
+                sql: V13,
+            },
+            Migration {
+                version: 14,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 13);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 14);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -1087,11 +1142,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 13,
-                supported: 12
+                found: 14,
+                supported: 13
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 13);
+        assert_eq!(user_version(&c).unwrap(), 14);
     }
 
     #[test]
@@ -1149,11 +1204,15 @@ mod tests {
             },
             Migration {
                 version: 13,
+                sql: V13,
+            },
+            Migration {
+                version: 14,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 12);
+        assert_eq!(user_version(&c).unwrap(), 13);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1922,5 +1981,68 @@ mod tests {
             [],
         )
         .unwrap();
+    }
+
+    /// v12 to v13: the agent tables start empty and take only well-formed rows; a record's
+    /// deletion or its turning into a tombstone removes the item's marks.
+    #[test]
+    fn v13_migrates_from_v12_and_checks_lengths() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..12]).unwrap(), 12);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 13);
+        for table in ["agent_marks", "agent_log"] {
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table} starts empty");
+        }
+        let vault = "x'02020202020202020202020202020202'";
+        let item = "x'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a'";
+        // The length checks refuse these before the foreign key is looked at.
+        for sql in [
+            format!("INSERT INTO agent_marks VALUES ({vault}, x'0a', zeroblob(32))"),
+            format!("INSERT INTO agent_marks VALUES (x'02', {item}, zeroblob(32))"),
+            format!("INSERT INTO agent_marks VALUES ({vault}, {item}, zeroblob(31))"),
+            format!("INSERT INTO agent_marks VALUES ({vault}, {item}, zeroblob(33))"),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(15), 0, zeroblob(60))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), -1, zeroblob(60))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(41))".to_owned(),
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(65537))".to_owned(),
+        ] {
+            assert!(c.execute(&sql, []).is_err(), "{sql}");
+        }
+        c.execute(
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(42))",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (x'01010101010101010101010101010101', 0, zeroblob(65536))",
+            [],
+        )
+        .unwrap();
+    }
+
+    /// v13: `agent_log.noisy` exists, defaults to 0 and takes only 0 or 1.
+    #[test]
+    fn v13_agent_log_has_the_noisy_flag() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 13);
+        c.execute(
+            "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(42))",
+            [],
+        )
+        .unwrap();
+        let noisy: i64 = c
+            .query_row("SELECT noisy FROM agent_log", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(noisy, 0);
+        assert!(
+            c.execute(
+                "INSERT INTO agent_log VALUES (x'01010101010101010101010101010101', 0, zeroblob(42), 2)",
+                [],
+            )
+            .is_err()
+        );
     }
 }

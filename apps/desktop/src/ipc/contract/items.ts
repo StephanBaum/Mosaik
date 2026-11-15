@@ -2,6 +2,7 @@
  * Item contract: mirrors `src-tauri/src/contract/items.rs`. Summaries and details never
  * contain a secret; `RevealedSecret.value` is the only secret here.
  */
+import type { AgentBindingChange, AgentBindingView } from "./agent.ts";
 import type { AttachmentId, ItemId, UnixMillis, VaultId } from "./common.ts";
 import type { ChangeUrlView, HistoryEntryView, PolicyDays, RotationAttemptView } from "./credentialRotation.ts";
 
@@ -212,6 +213,8 @@ export interface ItemDetail {
   sshKey: SshKeySummary | null;
   /** `null` unless the item is a passkey. */
   passkey: PasskeySummary | null;
+  /** The agent bindings, without values. Empty unless agent access is on. */
+  agentBindings: AgentBindingView[];
 }
 
 export type SecretRef =
@@ -271,6 +274,8 @@ export interface ItemDraft {
   otp: OtpChange | null;
   /** `null`: unchanged. Only for `sshKey` items (`invalidInput` otherwise). */
   sshKey: SshKeyChange | null;
+  /** Changes to the agent bindings; omitted or empty: unchanged. */
+  agentBindings?: AgentBindingChange[];
 }
 
 export interface AddItemRequest {

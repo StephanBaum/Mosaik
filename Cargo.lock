@@ -3199,15 +3199,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaic-agent"
+version = "0.1.0"
+dependencies = [
+ "base64ct",
+ "http",
+ "mosaic-core",
+ "mosaic-native-messaging",
+ "mosaic-origin",
+ "mosaic-vault",
+ "proptest",
+ "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "zeroize",
+]
+
+[[package]]
 name = "mosaic-cli"
 version = "0.1.0"
 dependencies = [
  "axum",
  "ctrlc",
  "lexopt",
+ "mosaic-agent",
  "mosaic-core",
  "mosaic-generator",
  "mosaic-import",
+ "mosaic-native-messaging",
  "mosaic-platform",
  "mosaic-server",
  "mosaic-sync",
@@ -3220,7 +3246,6 @@ dependencies = [
  "sha2 0.11.1",
  "tempfile",
  "tokio",
- "unicode-normalization",
  "winapi-util",
  "zeroize",
 ]
@@ -3254,6 +3279,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "getrandom 0.4.3",
+ "mosaic-agent",
  "mosaic-core",
  "mosaic-generator",
  "mosaic-import",
@@ -3595,6 +3621,7 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror 2.0.21",
+ "unicode-normalization",
  "zeroize",
 ]
 

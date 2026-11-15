@@ -30,6 +30,11 @@ mod shortcut {
     }
 }
 
+use contract::agent::AgentBindingConfirmRequest;
+use contract::agent_access::{
+    AgentAccessRespondRequest, AgentGrantRevokeRequest, AgentLogRequest, AgentPairingRemoveRequest,
+    AgentPairingRespondRequest, AgentSetEnabledRequest,
+};
 use contract::clipboard::CopyRequest;
 use contract::credential_rotation::{
     HistoryRestoreRequest, RotationAttemptRequest, RotationBeginRequest, RotationCloseRequest,
@@ -86,7 +91,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 73;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 81;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -205,6 +210,21 @@ fuzz_target!(|data: &[u8]| {
         69 => drop(parse::<RotationCloseRequest>(json)),
         70 => drop(parse::<HistoryRestoreRequest>(json)),
         71 => drop(parse::<RotationSnoozeRequest>(json)),
-        _ => drop(parse::<RotationPolicyRequest>(json)),
+        72 => drop(parse::<RotationPolicyRequest>(json)),
+        // Agent access (ADR-0159): none of these carries a reference, a URL, a header or a body.
+        73 => drop(parse::<AgentBindingConfirmRequest>(json)),
+        74 => drop(parse::<AgentSetEnabledRequest>(json)),
+        75 => drop(parse::<AgentPairingRespondRequest>(json)),
+        76 => drop(parse::<AgentPairingRemoveRequest>(json)),
+        77 => drop(parse::<AgentAccessRespondRequest>(json)),
+        78 => drop(parse::<AgentGrantRevokeRequest>(json)),
+        79 => drop(parse::<AgentLogRequest>(json)),
+        // A draft's binding changes are checked without a session: whatever parses either
+        // becomes a list of checked changes or is refused with a binding error.
+        _ => {
+            if let Some(r) = parse::<UpdateItemRequest>(json) {
+                let _ = r.draft.agent_bindings.len();
+            }
+        }
     }
 });

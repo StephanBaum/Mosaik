@@ -85,6 +85,24 @@ export const errors = {
     "Dieser Browser ist nicht mehr verbunden. Öffne die Einstellungen neu, um die aktuelle Liste zu sehen.",
   "error.browserHostMissing":
     "Zu dieser Kopie von Mosaic ist kein Browser-Connector installiert, deshalb gibt es nichts zu reparieren. Installiere Mosaic mit dem Installer, um einen Browser zu verbinden.",
+  "error.agentOriginInvalid":
+    "Agenten können einen Schlüssel nur an eine Seite senden, die mit https:// beginnt und nur die Seite nennt, zum Beispiel https://api.example.com. Prüfe die Adresse.",
+  "error.agentBindingInvalid":
+    "Mosaic kann diese Einstellung für Agenten nicht verwenden. Prüfe das Feld, die Seiten und wie der Schlüssel gesendet wird.",
+  "error.agentValueUnusable":
+    "Dieser Wert ist zu kurz oder enthält einen Zeilenumbruch, deshalb können Agenten ihn nicht nutzen. Ein Schlüssel braucht mindestens 12 Zeichen in einer Zeile.",
+  "error.agentVaultShared":
+    "Agenten können nur Einträge in einem Tresor nutzen, der dir gehört und nicht geteilt ist. Verschiebe den Eintrag zuerst in einen eigenen Tresor.",
+  "error.agentAccessOff":
+    "Der Agent-Zugriff ist ausgeschaltet. Schalte ihn in den Einstellungen unter Agenten ein.",
+  "error.agentRequestExpired":
+    "Diese Agent-Anfrage ist bereits beendet. Der Agent kann noch einmal anfragen, wenn er sie braucht.",
+  "error.agentAllowTooSoon":
+    "Das ging zu schnell, um die Anfrage zu lesen. Prüfe die Angaben und wähle dann noch einmal.",
+  "error.agentPairingNotFound":
+    "Dieser Agent ist nicht mehr verbunden. Öffne die Einstellungen neu, um die aktuelle Liste zu sehen.",
+  "error.agentEndpointUnavailable":
+    "Mosaic konnte die Verbindung für Agenten nicht öffnen. Schließe andere Kopien von Mosaic und versuche es noch einmal.",
   "error.kitNotVerified":
     "Speichere zuerst das neue Emergency Kit und bestätige seine letzte Gruppe. Vorher ändert Mosaic nichts.",
   "error.kitGroupMismatch":

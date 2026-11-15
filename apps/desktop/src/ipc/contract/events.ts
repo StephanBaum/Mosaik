@@ -9,6 +9,7 @@ import type {
 import type { ErrorCode, ItemId, UnixMillis, VaultId } from "./common.ts";
 import type { BreachScanError } from "./credentialRotation.ts";
 import type { RotationKind, RotationPhaseName } from "./rotation.ts";
+import type { AgentAccessRequest, AgentCloseReason, AgentPairingRequest } from "./agent.ts";
 import type { SshApprovalRequest, SshCloseReason, SshSignFailReason } from "./ssh.ts";
 
 export const lockReasons = ["manual", "idle", "sleep", "screenLock"] as const;
@@ -53,6 +54,16 @@ export type AppEvent =
   | { type: "hardwareVaultClosed"; vaultId: VaultId }
   /** Protection settings in the settings file failed their integrity check and were reset. */
   | { type: "settingsReset" }
+  /** An agent client asks to be paired: show its name and the code, and wait for the user. */
+  | { type: "agentPairingRequested"; request: AgentPairingRequest }
+  | { type: "agentPairingClosed"; requestId: string; reason: AgentCloseReason }
+  /** An agent asks to use a secret (no value in it); sent again when the queue length changes. */
+  | { type: "agentAccessRequested"; request: AgentAccessRequest }
+  | { type: "agentAccessClosed"; requestId: string; reason: AgentCloseReason }
+  /** The number of agent requests being sent changed. */
+  | { type: "agentActivity"; inFlight: number }
+  /** Agent pairings, grants or the endpoint changed: read `agent_access_status` again. */
+  | { type: "agentStateChanged" }
   /** A browser asks to be paired: show the code and wait for the user. */
   | { type: "browserPairingRequested"; request: BrowserPairingRequest }
   | { type: "browserPairingClosed"; requestId: string; reason: BrowserCloseReason }

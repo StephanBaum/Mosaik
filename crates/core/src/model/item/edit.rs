@@ -3,8 +3,8 @@
 use core::fmt;
 
 use super::{
-    ATTACHMENT_PREFIX, CONFLICT_COPY_OF, ElementId, FAVORITE, FIELD_PREFIX, HISTORY_PREFIX,
-    HistoryReason, MAX_HISTORY, MAX_KEYS, MAX_TAG_LEN, OTP, OTP_COUNTER, PASSKEY,
+    AGENT_PREFIX, ATTACHMENT_PREFIX, CONFLICT_COPY_OF, ElementId, FAVORITE, FIELD_PREFIX,
+    HISTORY_PREFIX, HistoryReason, MAX_HISTORY, MAX_KEYS, MAX_TAG_LEN, OTP, OTP_COUNTER, PASSKEY,
     PASSKEY_SIGN_COUNT, ROTATION_PREFIX, SSH_KEY, SecretField, TAG_PREFIX, TRASHED, TextField,
     URL_PREFIX, history_stamp,
 };
@@ -13,8 +13,8 @@ use crate::ids::{AttachmentId, DeviceId};
 use crate::model::clock::{Stamp, Timestamp};
 use crate::model::doc::{DELETED_KEY, Doc, Entry, Register, check_key};
 use crate::model::types::{
-    AttachmentRef, CustomField, CustomFieldValue, LoginUrl, OtpConfig, PasskeyCredential,
-    SshKeyMaterial,
+    AgentBindingRecord, AttachmentRef, CustomField, CustomFieldValue, LoginUrl, OtpConfig,
+    PasskeyCredential, SshKeyMaterial,
 };
 use crate::model::value::{Object, Text, Value};
 
@@ -323,6 +323,37 @@ impl ItemEdit<'_> {
     /// [`Error::ClockOverflow`].
     pub fn remove_url(&mut self, id: &ElementId) -> Result<()> {
         self.remove(&format!("{URL_PREFIX}{}", id.0)).map(|_| ())
+    }
+
+    /// Adds an agent binding (ADR-0159). The core checks shape only; validate
+    /// with `mosaic-agent` first.
+    ///
+    /// # Errors
+    /// [`Error::ClockOverflow`].
+    pub fn add_agent_binding(&mut self, b: &AgentBindingRecord) -> Result<ElementId> {
+        let id = self.next_id()?;
+        self.put(&format!("{AGENT_PREFIX}{id}"), b.to_value(), false)?;
+        Ok(ElementId(id))
+    }
+
+    /// Replaces an agent binding. Like [`ItemEdit::set_url`] it keeps the
+    /// losers of a concurrent edit, so a conflicted binding stays conflicted
+    /// (and unusable) until it is resolved.
+    ///
+    /// # Errors
+    /// [`Error::Malformed`] if the item has no agent binding `id`;
+    /// [`Error::ClockOverflow`].
+    pub fn set_agent_binding(&mut self, id: &ElementId, b: &AgentBindingRecord) -> Result<()> {
+        let key = self.existing(AGENT_PREFIX, id)?;
+        self.put(&key, b.to_value(), true)
+    }
+
+    /// Removes an agent binding.
+    ///
+    /// # Errors
+    /// [`Error::ClockOverflow`].
+    pub fn remove_agent_binding(&mut self, id: &ElementId) -> Result<()> {
+        self.remove(&format!("{AGENT_PREFIX}{}", id.0)).map(|_| ())
     }
 
     /// Adds a custom field.

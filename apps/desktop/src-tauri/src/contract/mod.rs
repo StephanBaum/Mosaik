@@ -19,6 +19,8 @@
 
 mod macros;
 
+pub mod agent;
+pub mod agent_access;
 pub mod attachments;
 pub mod browser;
 pub mod clipboard;
