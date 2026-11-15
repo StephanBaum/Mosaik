@@ -65,6 +65,9 @@ check_root() {
 for dir in "$root"/crates/*/ "$root"/apps/desktop/src-tauri/; do
   rel="${dir#"$root/"}"
   rel="${rel%/}"
+  # crates/winshim is the one owner-approved unsafe crate (ADR-0157); tools/check-unsafe-confined.sh
+  # checks that it stays the only one.
+  [ "$rel" = "crates/winshim" ] && continue
   check_root "$rel/src/lib.rs"
   check_root "$rel/src/main.rs"
   for bin in "$root/$rel"/src/bin/*.rs; do
