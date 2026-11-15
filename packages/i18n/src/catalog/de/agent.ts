@@ -146,6 +146,7 @@ export const agent = {
   "agent.editor.destinations": "Seiten",
   "agent.editor.destinationsHint":
     "Nur diese Seiten, mit ihrer vollständigen Adresse, zum Beispiel https://api.example.com. Immer https.",
+  "agent.editor.destination": "Seite {index}",
   "agent.editor.destinationPlaceholder": "https://api.example.com",
   "agent.editor.addDestination": "Seite hinzufügen",
   "agent.editor.removeDestination": "{site} entfernen",
@@ -164,7 +165,7 @@ export const agent = {
   "agent.editor.basicUserKind.literal": "Ein fester Name",
   "agent.editor.basicUserKind.field": "Aus einem Feld dieses Eintrags",
   "agent.editor.basicUserKind.secretIsUser": "Der Wert ist der Benutzername",
-  "agent.editor.basicUserLiteral": "Benutzername",
+  "agent.editor.basicUserLiteral": "Name",
   "agent.editor.basicUserField": "Feld",
   "agent.editor.queryName": "Parametername",
   "agent.editor.queryNote":

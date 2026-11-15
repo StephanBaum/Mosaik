@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- the sample items of every kind, one literal each. */
 /**
  * Sample data for the mock IPC. Illustrative only: the Secret Key is the one from the
  * design mockups (docs/design/README.md), the master password is `mosaic`.

@@ -14,7 +14,7 @@ use mosaic_agent::binding::{Binding, BindingError, BindingField, check_value};
 use mosaic_agent::log::{LogEntry, LogKind};
 use mosaic_core::model::{
     AgentBasicUser, AgentBindingRecord, AgentInject, CustomFieldValue, ElementId, Item,
-    SecretField, Text,
+    SecretField, Text, TextField,
 };
 use mosaic_core::{ItemId, VaultId};
 use mosaic_origin::AgentOrigin;
@@ -27,7 +27,7 @@ use crate::contract::agent::{
     AgentBindingSnapshot, AgentBindingView, AgentInjectKind, AgentInjectView,
 };
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
-use crate::contract::items::{ItemDetail, SecretFieldKey, SecretRef};
+use crate::contract::items::{ItemDetail, SecretFieldKey, SecretRef, TextFieldKey};
 use crate::state::{AppState, Backend};
 
 /// How many log entries are read to find what the user last confirmed.
@@ -67,6 +67,23 @@ pub(super) enum BindingOp {
     Remove(ElementId),
 }
 
+/// The model key (`api_key.key_id`) of a text field named on the wire (`apiKeyId`).
+fn text_key_to_model(wire: &str) -> Option<String> {
+    serde_json::from_value::<TextFieldKey>(serde_json::Value::String(wire.to_owned()))
+        .ok()
+        .map(|key| key.to_model().key().to_owned())
+}
+
+/// The wire name of a text field stored under its model key; a key this build does not know
+/// is shown as stored.
+fn text_key_to_wire(model: &str) -> String {
+    TextField::from_key(model)
+        .map(TextFieldKey::from_model)
+        .and_then(|key| serde_json::to_value(key).ok())
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| model.to_owned())
+}
+
 fn element(id: &str) -> IpcResult<ElementId> {
     ElementId::from_stored(id).map_err(|_| error(ErrorCode::AgentBindingInvalid))
 }
@@ -96,7 +113,9 @@ fn inject_of(view: &AgentInjectView) -> IpcResult<AgentInject> {
             AgentInject::Basic {
                 user: match (user.kind, value) {
                     (AgentBasicUserKind::Literal, Some(v)) => AgentBasicUser::Literal(Text::new(v)),
-                    (AgentBasicUserKind::Field, Some(v)) => AgentBasicUser::Field(Text::new(v)),
+                    (AgentBasicUserKind::Field, Some(v)) => {
+                        AgentBasicUser::Field(Text::new(&text_key_to_model(v).ok_or_else(bad)?))
+                    }
                     (AgentBasicUserKind::SecretIsUser, None) => AgentBasicUser::SecretIsUser,
                     _ => return Err(bad()),
                 },
@@ -353,7 +372,7 @@ fn inject_view(inject: &AgentInject) -> AgentInjectView {
                 },
                 AgentBasicUser::Field(t) => AgentBasicUserView {
                     kind: AgentBasicUserKind::Field,
-                    value: Some(t.as_str().to_owned()),
+                    value: Some(text_key_to_wire(t.as_str())),
                 },
                 AgentBasicUser::SecretIsUser => AgentBasicUserView {
                     kind: AgentBasicUserKind::SecretIsUser,

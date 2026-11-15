@@ -425,3 +425,47 @@ fn a_hidden_custom_field_can_be_bound() {
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::AgentBindingInvalid);
 }
+
+#[test]
+fn a_basic_user_from_a_text_field_uses_the_wire_name() {
+    let _kdf = crate::test_support::kdf_permit();
+    let b = backend();
+    enable(&b);
+    let basic = |user: &str| {
+        json!({
+            "op": "add",
+            "field": { "kind": "field", "field": "apiKeySecret" },
+            "origins": ["https://api.example.com"],
+            "inject": { "kind": "basic", "headerName": null, "headerPrefix": null,
+                        "basicUser": { "kind": "field", "value": user }, "queryName": null },
+            "env": null
+        })
+    };
+    let draft = |binding: Value| {
+        json!({
+            "text": [{ "field": "title", "value": "Example API" }, { "field": "apiKeyId", "value": "key-id-1" }],
+            "secrets": [{ "field": "apiKeySecret", "value": API_KEY }],
+            "urls": [], "customFields": [], "tags": null, "otp": null, "sshKey": null,
+            "agentBindings": [binding]
+        })
+    };
+    let v = vault(&b);
+    let d: ItemDetail = b
+        .add_item(req(
+            json!({ "vaultId": v, "kind": "apiKey", "draft": draft(basic("apiKeyId")) }),
+        ))
+        .unwrap();
+    let user = d.agent_bindings[0].inject.basic_user.as_ref().unwrap();
+    assert_eq!(
+        user.value.as_deref(),
+        Some("apiKeyId"),
+        "the wire name, not the model key"
+    );
+    // The model key is not a wire name.
+    let e = b
+        .add_item(req(
+            json!({ "vaultId": v, "kind": "apiKey", "draft": draft(basic("api_key.key_id")) }),
+        ))
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::AgentBindingInvalid);
+}

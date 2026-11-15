@@ -49,7 +49,8 @@ wire_enum!(
 pub struct AgentBasicUserView {
     /// The source.
     pub kind: AgentBasicUserKind,
-    /// The literal or the text field key; `null` for `secretIsUser`.
+    /// The literal, or the wire name of a text field of the item (for example `apiKeyId`);
+    /// `null` for `secretIsUser`.
     pub value: Option<String>,
 }
 

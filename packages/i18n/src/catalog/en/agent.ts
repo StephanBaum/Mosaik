@@ -142,6 +142,7 @@ export const agent = {
   "agent.editor.destinations": "Sites",
   "agent.editor.destinationsHint":
     "Only these sites, by their full address, for example https://api.example.com. Always https.",
+  "agent.editor.destination": "Site {index}",
   "agent.editor.destinationPlaceholder": "https://api.example.com",
   "agent.editor.addDestination": "Add a site",
   "agent.editor.removeDestination": "Remove {site}",
@@ -159,7 +160,7 @@ export const agent = {
   "agent.editor.basicUserKind.literal": "A fixed name",
   "agent.editor.basicUserKind.field": "From a field of this item",
   "agent.editor.basicUserKind.secretIsUser": "The value is the user name",
-  "agent.editor.basicUserLiteral": "User name",
+  "agent.editor.basicUserLiteral": "Name",
   "agent.editor.basicUserField": "Field",
   "agent.editor.queryName": "Parameter name",
   "agent.editor.queryNote":

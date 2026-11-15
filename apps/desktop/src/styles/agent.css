@@ -135,3 +135,10 @@
   border-radius: var(--radius-panel);
   background: var(--color-warning-subtle);
 }
+
+/* The agent access of an item in the detail pane. */
+.detail__agent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
