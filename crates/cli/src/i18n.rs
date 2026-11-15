@@ -101,6 +101,7 @@ messages! {
     ErrEnvSecretIgnored => "cli.err.envSecretIgnored",
     ErrExportUnreadable => "cli.err.exportUnreadable",
     ErrImportFailed => "cli.err.importFailed",
+    ErrImportTooLarge => "cli.err.importTooLarge",
     ErrSyncNotConfigured => "cli.err.syncNotConfigured",
     ErrSyncHalted => "cli.err.syncHalted",
     ErrSyncFailed => "cli.err.syncFailed",

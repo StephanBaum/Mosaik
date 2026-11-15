@@ -5,10 +5,7 @@
 //! Written from public descriptions of the export. The JSON shape and the
 //! item types are unverified against a current export (launch gate).
 
-use std::io::Cursor;
-
 use mosaic_core::model::{ItemType, SecretField, TextField};
-use zip::ZipArchive;
 
 use crate::Format;
 use crate::archive;
@@ -35,7 +32,7 @@ pub(crate) enum Located {
 /// Finds the export in an archive: `Proton Pass/data.json`, else the first
 /// member named `data.json` in any folder; a `data.pgp` without one is the
 /// encrypted export.
-pub(crate) fn locate(zip: &ZipArchive<Cursor<&[u8]>>) -> Option<Located> {
+pub(crate) fn locate(zip: &archive::Archive<'_>) -> Option<Located> {
     archive::find(zip, |n| n == DATA_JSON)
         .or_else(|| archive::find(zip, |n| n == "data.json" || n.ends_with("/data.json")))
         .map(Located::Json)

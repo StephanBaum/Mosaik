@@ -89,7 +89,7 @@ pub mod proton_pass;
 use mosaic_core::SecretString;
 
 pub use commit::{CommitReport, commit};
-pub use detect::{Detected, Source, detect};
+pub use detect::{Detected, Source, detect, try_detect};
 pub use draft::{
     Attachment, EntryWarning, ItemDraft, MAX_ATTACHMENTS_PER_ENTRY, MAX_FIELDS_PER_ENTRY,
     MAX_IMPORT_ATTACHMENT_BYTES, MAX_IMPORT_PASSKEYS, MAX_PASSKEYS_PER_ENTRY, PasskeyDraft,

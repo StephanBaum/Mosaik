@@ -66,8 +66,21 @@ pub struct Detected {
     pub source: Source,
 }
 
+/// [`detect`] that tells a file over [`crate::MAX_FILE_LEN`] apart from one
+/// nothing recognizes: `Ok(None)` is "not an export Mosaic reads".
+///
+/// # Errors
+/// [`crate::Error::TooLarge`] above [`crate::MAX_FILE_LEN`].
+pub fn try_detect(input: &[u8]) -> crate::Result<Option<Detected>> {
+    if input.len() > crate::MAX_FILE_LEN {
+        return Err(crate::Error::TooLarge);
+    }
+    Ok(detect(input))
+}
+
 /// What the file is, from its content only (never its name). `None`: not an
-/// export Mosaic reads.
+/// export Mosaic reads (or a file over [`crate::MAX_FILE_LEN`]; see
+/// [`try_detect`]).
 #[must_use]
 pub fn detect(input: &[u8]) -> Option<Detected> {
     if input.is_empty() || input.len() > crate::MAX_FILE_LEN {

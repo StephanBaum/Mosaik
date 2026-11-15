@@ -141,3 +141,10 @@ fn utf16_and_latin1_are_not_detected() {
         Error::Malformed
     );
 }
+
+#[test]
+fn try_detect_tells_too_large_from_unrecognized() {
+    assert_eq!(mosaic_import::try_detect(b"hello"), Ok(None));
+    let big = vec![b'a'; mosaic_import::MAX_FILE_LEN + 1];
+    assert_eq!(mosaic_import::try_detect(&big), Err(Error::TooLarge));
+}

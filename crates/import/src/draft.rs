@@ -116,6 +116,33 @@ pub enum EntryWarning {
     /// A URL that is not a web address or an Android app link was kept as a
     /// text field; it is not used for filling.
     UrlKeptAsText,
+    /// A login URL's host has punycode (`xn--`) labels: it may look like
+    /// another site. The entry is imported as it is; the user should check
+    /// the address.
+    IdnHost,
+}
+
+impl EntryWarning {
+    /// Whether the warning means data of the source entry did not come
+    /// across (left out, cut off or unreadable), as opposed to data that was
+    /// kept in another shape or only noted.
+    #[must_use]
+    pub const fn loses_data(&self) -> bool {
+        matches!(
+            self,
+            Self::AttachmentTooLarge
+                | Self::AttachmentMissing
+                | Self::AttachmentQuota
+                | Self::TagsDropped
+                | Self::HistoryTruncated
+                | Self::PasskeysNotImported
+                | Self::PasskeyUnreadable
+                | Self::PasskeyUnsupported
+                | Self::PasskeysLimit
+                | Self::FieldsDropped
+                | Self::NotesTruncated
+        )
+    }
 }
 
 /// An attachment file of an entry.
@@ -428,6 +455,17 @@ impl Builder {
         }
     }
 
+    /// Whether the entry already holds [`MAX_FIELDS_PER_ENTRY`] fields (the
+    /// warning is set). Checked before any scan or parse of a new value, so
+    /// an entry full of fields costs nothing more per extra value.
+    fn full(&mut self) -> bool {
+        if self.fields >= MAX_FIELDS_PER_ENTRY {
+            self.warn(EntryWarning::FieldsDropped);
+            return true;
+        }
+        false
+    }
+
     /// Counts one field against [`MAX_FIELDS_PER_ENTRY`].
     fn room(&mut self) -> bool {
         if self.fields >= MAX_FIELDS_PER_ENTRY {
@@ -539,7 +577,7 @@ impl Builder {
     /// Adds a login URL (a URL custom field on other types).
     pub(crate) fn url(&mut self, value: &str, label: &str) {
         let v = value.trim();
-        if v.is_empty() {
+        if v.is_empty() || self.full() {
             return;
         }
         if self.draft.item_type == ItemType::Login {
@@ -551,9 +589,11 @@ impl Builder {
             }
             // A login URL is used for matching, so only a web origin or an
             // Android app link is kept as one (spec 7).
-            if mosaic_origin::saved_origin(v).is_some()
-                || mosaic_origin::app::AndroidAppUrl::parse(v).is_ok()
-            {
+            let origin = mosaic_origin::saved_origin(v);
+            if origin.is_some() || mosaic_origin::app::AndroidAppUrl::parse(v).is_ok() {
+                if origin.is_some_and(|o| mosaic_origin::idn_unicode(&o.host_str()).is_some()) {
+                    self.warn(EntryWarning::IdnHost);
+                }
                 if self.room() {
                     self.draft.urls.push(Text::new(v));
                 }
@@ -687,6 +727,9 @@ impl Builder {
     /// result is trimmed and cut to [`MAX_TAG_LEN`] bytes at a character
     /// boundary. Blank tags are dropped ([`EntryWarning::TagsDropped`]).
     pub(crate) fn tag(&mut self, name: &str) {
+        if self.full() {
+            return;
+        }
         let mut clean = Str::default();
         clean.extend(name.chars().map(|c| if c.is_control() { ' ' } else { c }));
         let mut t = clean.trim();
@@ -1211,6 +1254,28 @@ mod tests {
         let (d, w) = b.finish().unwrap();
         assert_eq!(w, [EntryWarning::NotesTruncated]);
         assert_eq!(d.text(TextField::Notes), Some("first"));
+    }
+
+    #[test]
+    fn a_punycode_host_is_flagged_and_still_kept() {
+        let mut b = Builder::new(ItemType::Login);
+        b.url("https://xn--pple-43d.example/", "u");
+        b.url("https://plain.example/", "u");
+        let (d, w) = b.finish().unwrap();
+        assert_eq!(d.urls.len(), 2);
+        assert_eq!(w, [EntryWarning::IdnHost]);
+    }
+
+    #[test]
+    fn urls_and_tags_stop_at_the_field_cap_without_scanning() {
+        let mut b = Builder::new(ItemType::Login);
+        for i in 0..100_000 {
+            b.url(&format!("https://h{i}.example.com/"), "u");
+            b.tag(&format!("tag{i}"));
+        }
+        let (d, w) = b.finish().unwrap();
+        assert_eq!(d.urls.len() + d.tags.len(), MAX_FIELDS_PER_ENTRY);
+        assert_eq!(w, [EntryWarning::FieldsDropped]);
     }
 
     #[test]

@@ -30,10 +30,10 @@
 //! item gets its vault's name as a tag.
 
 use std::collections::HashMap;
+#[cfg(test)]
 use std::io::Cursor;
 
 use mosaic_core::model::{ItemType, SecretField, TextField};
-use zip::ZipArchive;
 
 use crate::Format;
 use crate::archive;
@@ -88,7 +88,7 @@ pub fn parse(input: &[u8]) -> Result<Import> {
 }
 
 /// Reads one archive member by exact name into a zeroizing buffer.
-fn member(zip: &mut ZipArchive<Cursor<&[u8]>>, name: &str, limit: usize) -> Result<Option<Buf>> {
+fn member(zip: &mut archive::Archive<'_>, name: &str, limit: usize) -> Result<Option<Buf>> {
     let Some(index) = zip.index_for_name(name) else {
         return Ok(None);
     };
@@ -97,7 +97,7 @@ fn member(zip: &mut ZipArchive<Cursor<&[u8]>>, name: &str, limit: usize) -> Resu
 
 /// The attachment files of the archive, looked up by document ID.
 struct Files<'a> {
-    zip: ZipArchive<Cursor<&'a [u8]>>,
+    zip: archive::Archive<'a>,
     budget: AttachmentBudget,
     /// `files/<name>`: the member index of each exact name after `files/`
     /// (the lowest index for a repeated name).
@@ -114,7 +114,7 @@ struct Files<'a> {
 }
 
 impl<'a> Files<'a> {
-    fn new(zip: ZipArchive<Cursor<&'a [u8]>>) -> Self {
+    fn new(zip: archive::Archive<'a>) -> Self {
         let mut exact: HashMap<Box<[u8]>, usize> = HashMap::new();
         let mut prefixed: HashMap<Box<[u8]>, usize> = HashMap::new();
         for (i, raw) in zip.file_names_raw().enumerate() {
@@ -493,7 +493,7 @@ mod tests {
     #[test]
     fn find_matches_document_id_and_double_underscore_names() {
         let bytes = archive(&["files/a__b__c".into(), "files/ab".into(), "files/a".into()]);
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         // Member 0 is keyed by the text before its FIRST `__`: "a".
         assert_eq!(files.find("a"), Some(0));
         // An ID with a `__` of its own matches only an exact name.
@@ -512,7 +512,7 @@ mod tests {
             "files/__z".into(),   // 2: key ""; exact match for ID "__z" only
             "files/a_".into(),    // 3: no `__`; exact match for ID "a_" only
         ]);
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         assert_eq!(files.find("a_"), Some(3));
         assert_eq!(files.find("_"), None);
         assert_eq!(files.find("__z"), Some(2));
@@ -531,7 +531,7 @@ mod tests {
     fn find_is_bounded_for_ids_that_match_no_member() {
         let names: Vec<String> = (0..20_000).map(|i| format!("files/doc__{i}")).collect();
         let bytes = archive(&names);
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         assert_eq!(files.find("doc__zz"), None);
         assert!(
             files.probes.get() <= 2,
@@ -544,7 +544,7 @@ mod tests {
     fn find_is_linear_in_lookups() {
         let names: Vec<String> = (0..10_000).map(|i| format!("files/m{i}__x.bin")).collect();
         let bytes = archive(&names);
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         for i in 0..10_000 {
             assert!(files.find(&format!("m{i}")).is_some());
         }
@@ -561,7 +561,7 @@ mod tests {
     fn prefix_map_is_linear_in_the_member_name_length() {
         let name = format!("files/{}", "_".repeat(20_000));
         let bytes = archive(std::slice::from_ref(&name));
-        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let files = Files::new(archive::open(bytes.as_slice(), MAX_ARCHIVE_MEMBERS).unwrap());
         let key_bytes: usize = files.prefixed.keys().map(|k| k.len()).sum();
         assert!(
             key_bytes <= 64 * name.len(),
