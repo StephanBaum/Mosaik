@@ -6,8 +6,8 @@ use std::time::Instant;
 use mosaic_core::InstallId;
 use sha2::{Digest, Sha256};
 
-use super::fsutil::{self, Entry};
 use super::layout::{HEAD_NAME, INFO_NAME};
+use super::store::Entry;
 use super::{FolderCrypto, FolderTransport, decoded};
 use crate::engine::consts::FOLDER_POLL_INTERVAL;
 use crate::transport::{ChangeToken, RemoteDevice, TransportError};
@@ -27,9 +27,11 @@ const MAX_CHECKPOINT_CANDIDATES: usize = 32;
 impl<C: FolderCrypto> FolderTransport<C> {
     /// The device directories under `d/`.
     fn device_ids(&self) -> Result<Vec<InstallId>, TransportError> {
-        Ok(fsutil::list(&self.layout.devices_dir())?
+        Ok(self
+            .store
+            .list(&self.layout.devices_dir())?
             .iter()
-            .filter(|e| e.is_dir)
+            .filter(|e| e.is_dir())
             .filter_map(|e| match folder_names::parse(&e.name) {
                 Some(FolderName::Dir(id)) => InstallId::from_bytes(id).ok(),
                 _ => None,
@@ -44,9 +46,11 @@ impl<C: FolderCrypto> FolderTransport<C> {
         self.own_checkpoints_read.clear();
         for device in self.device_ids()? {
             let dir = self.layout.device_dir(&device);
-            let mut candidates: Vec<Entry> = fsutil::list(&dir)?
+            let mut candidates: Vec<Entry> = self
+                .store
+                .list(&dir)?
                 .into_iter()
-                .filter(|e| !e.is_dir && folder_names::is_checkpoint_candidate(&e.name))
+                .filter(|e| !e.is_dir() && folder_names::is_checkpoint_candidate(&e.name))
                 .collect();
             candidates.sort_by(|a, b| {
                 (b.name == HEAD_NAME)
@@ -56,8 +60,10 @@ impl<C: FolderCrypto> FolderTransport<C> {
             });
             candidates.truncate(MAX_CHECKPOINT_CANDIDATES);
             for entry in candidates {
-                let Ok(Some(bytes)) = fsutil::read_capped(&dir.join(&entry.name), MAX_LEN as u64)
-                else {
+                let Some(path) = dir.child_of(&entry) else {
+                    continue;
+                };
+                let Ok(Some(bytes)) = self.store.read_capped(&path, MAX_LEN as u64) else {
                     continue;
                 };
                 if device == self.install {
@@ -76,8 +82,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
         let candidates = self.folder_checkpoints()?;
         let mut out = Vec::new();
         for device in self.device_ids()? {
-            let info = match fsutil::read_capped(
-                &self.layout.device_dir(&device).join(INFO_NAME),
+            let info = match self.store.read_capped(
+                &self.layout.device_dir(&device).known(INFO_NAME),
                 MAX_INFO_LEN,
             ) {
                 Ok(Some(sealed)) => decoded(DeviceInfo::open(&sealed, device, &self.crypto))?,
@@ -113,7 +119,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
         wanted: impl Fn(&Entry) -> bool,
         files: &mut Vec<(String, u64, u64)>,
     ) {
-        for e in entries.iter().filter(|e| !e.is_dir && wanted(e)) {
+        for e in entries.iter().filter(|e| !e.is_dir() && wanted(e)) {
             files.push((
                 format!("{prefix}/{}", e.name.to_string_lossy()),
                 e.len,
@@ -130,13 +136,13 @@ impl<C: FolderCrypto> FolderTransport<C> {
     fn change_digest(&self) -> Result<ChangeToken, TransportError> {
         let mut files: Vec<(String, u64, u64)> = Vec::new();
         let parsable = |e: &Entry| folder_names::parse(&e.name).is_some();
-        let account = fsutil::list(&self.layout.account_files())?;
+        let account = self.store.list(&self.layout.account_files())?;
         Self::collect_files("account", &account, parsable, &mut files);
         for device in self.device_ids()? {
             if device == self.install {
                 continue;
             }
-            let dir = fsutil::list(&self.layout.device_dir(&device))?;
+            let dir = self.store.list(&self.layout.device_dir(&device))?;
             let prefix = format!("d/{}", crate::wire::hex(device.as_bytes()));
             Self::collect_files(
                 &prefix,
@@ -147,13 +153,13 @@ impl<C: FolderCrypto> FolderTransport<C> {
         }
         for vault in self.vault_ids()? {
             let vhex = crate::wire::hex(vault.as_bytes());
-            let blobs = fsutil::list(&self.layout.blobs_dir(&vault))?;
+            let blobs = self.store.list(&self.layout.blobs_dir(&vault))?;
             Self::collect_files(&format!("v/{vhex}/blobs"), &blobs, parsable, &mut files);
             for device in self.log_devices(&vault)? {
                 if device == self.install {
                     continue;
                 }
-                let log = fsutil::list(&self.layout.log_dir(&vault, &device))?;
+                let log = self.store.list(&self.layout.log_dir(&vault, &device))?;
                 let prefix = format!("v/{vhex}/log/{}", crate::wire::hex(device.as_bytes()));
                 Self::collect_files(&prefix, &log, parsable, &mut files);
             }

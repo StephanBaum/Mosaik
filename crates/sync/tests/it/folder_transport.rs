@@ -14,12 +14,15 @@ use std::path::PathBuf;
 use mosaic_core::model::{ItemType, SecretField};
 use mosaic_core::{Argon2Profile, ItemId, VaultId};
 use mosaic_sync::engine::{SyncError, SyncWarning};
-use mosaic_sync::folder::{self, FolderContents, FolderError};
-use mosaic_sync::testutil::LocalSession;
+use mosaic_sync::folder::{
+    self, FolderContents, FolderError, FolderParts, FolderTransport, LocalStore,
+};
+use mosaic_sync::testutil::{LocalSession, StatOverride};
 use mosaic_sync::transport::{Cursor, Transport, TransportError};
 use mosaic_sync::wire::SessionCrypto;
 use mosaic_sync::wire::checkpoint::Checkpoint;
 use mosaic_sync::wire::cursor::FolderCursor;
+use mosaic_sync::wire::device_info::{DeviceInfo, Platform};
 use mosaic_sync::wire::folder_names::dir_name;
 use mosaic_sync::wire::segment::{Segment, SegmentPath};
 use mosaic_vault::session::LockedSession;
@@ -678,4 +681,44 @@ fn a_foreign_write_during_a_run_is_noticed_on_the_next_poll() {
     w.cloud.settle().unwrap();
     w.sync(1);
     assert_ne!(held, token(&mut w, 1));
+}
+
+/// A listing can lag behind the writes of a provider API: the own-log
+/// rollback check asks `stat` before it halts. A name the listing hides but
+/// `stat` finds is not a rollback; one that is gone is.
+#[test]
+fn own_log_rollback_check_asks_stat_before_halting() {
+    let (w, vault, _item) = two_devices();
+    let store = StatOverride::new(LocalStore::new(&w.replica(0)));
+    let hidden = store.hidden();
+    let crypto = SessionCrypto::new(w.devs[0].access.clone()).unwrap();
+    let parts = FolderParts {
+        account_id: crypto.account_id(),
+        install_id: mosaic_sync::SyncCrypto::install_id(&crypto),
+        crypto,
+        clock: std::sync::Arc::new(w.clock.clone()),
+        device: DeviceInfo {
+            created_at_ms: mosaic_sync::clock::Clock::now_ms(&w.clock),
+            name: "device 0".to_owned(),
+            platform: Platform::Linux,
+        },
+    };
+    let mut transport = FolderTransport::open_with_store(Box::new(store), parts).unwrap();
+    let newest = segments(&log_dir(&w, 0, 0, vault)).pop().unwrap();
+    let name = newest.file_name().unwrap().to_string_lossy().into_owned();
+    assert_eq!(transport.own_logs_rolled_back(&[vault]), Ok(false));
+    // The listing lags: the newest own segment is missing from it.
+    *hidden.lock().unwrap() = Some(name);
+    assert_eq!(transport.own_logs_rolled_back(&[vault]), Ok(false));
+    // The file is really gone.
+    fs::remove_file(&newest).unwrap();
+    assert_eq!(transport.own_logs_rolled_back(&[vault]), Ok(true));
+}
+
+#[test]
+fn local_store_passes_the_store_contract() {
+    let dir = tempfile::tempdir().unwrap();
+    crate::common::store_contract(&LocalStore::new(dir.path()), false);
+    let dir = tempfile::tempdir().unwrap();
+    crate::common::store_contract(&LocalStore::new(dir.path()), true);
 }

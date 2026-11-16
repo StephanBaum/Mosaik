@@ -93,8 +93,22 @@ export const mobile = {
     "Mosaic konnte nicht synchronisieren. Prüfe deine Verbindung und versuche es noch einmal.",
   "error.passwordInApp":
     "Hier ist Entsperren mit dem Master-Passwort nicht möglich. Öffne die Mosaic-App und entsperre sie dort.",
-  "error.folderAccountUnsupported":
-    "Dieses Konto synchronisiert über einen Cloud-Ordner, den Mosaic auf Smartphones noch nicht unterstützt. Nutze einen Desktop oder ein Konto auf einem Sync-Server.",
+  "error.folderProviderUnsupported":
+    "Dieses Smartphone erreicht den Cloud-Ordner dieses Kontos nicht. Melde dich erneut beim Anbieter des Ordners an oder nutze einen Desktop.",
+  "error.folderProviderSignedOut":
+    "Dein Cloud-Dienst hat die Anmeldung beendet oder abgelehnt. Melde dich erneut an, damit die Synchronisierung weiterläuft.",
+  "error.folderNotFound":
+    "Mosaic findet diesen Ordner nicht, oder es ist kein Mosaic-Ordner. Wähle den Ordner, mit dem dein Computer synchronisiert.",
+  "error.folderStorageFull":
+    "Dein Cloud-Speicher ist voll. Schaffe dort Platz und synchronisiere danach erneut.",
+  "error.folderLinkExpired":
+    "Die Anmeldung hat zu lange gedauert. Starte sie noch einmal.",
+  "error.folderLinkInvalid":
+    "Die Anmeldung hat nicht funktioniert oder wurde abgebrochen. Starte sie noch einmal.",
+  "error.folderServerTlsTooOld":
+    "Dieser Server ist für eine sichere Verbindung zu alt. Mosaic braucht TLS 1.3. Bitte die Person, die den Server betreibt, ihn zu aktualisieren.",
+  "mobile.error.syncPasswordRollback":
+    "Der Ordner bietet ein älteres Master-Passwort an, als dieses Smartphone kennt. Prüfe den Ordner und deinen Cloud-Dienst.",
   "error.setupCodeInvalid":
     "Dieser Einrichtungscode ist ungültig oder abgelaufen. Erstelle auf deinem Computer einen neuen und scanne ihn noch einmal.",
   "error.notEnoughMemory":
@@ -178,38 +192,6 @@ export const mobile = {
   "mobile.vault.addNote": "Sichere Notiz",
   "mobile.vault.untitled": "Ohne Titel",
   "mobile.vault.favorite": "Favorit",
-  "mobile.sync.never": "Noch nicht synchronisiert",
-  "mobile.sync.last": "Synchronisiert {time}",
-  "mobile.sync.localOnly":
-    "Dieser Tresor liegt nur auf diesem Handy. Die Synchronisierung ist nicht eingerichtet.",
-  "mobile.sync.pending":
-    "{count, plural, one {# Änderung wartet aufs Hochladen} other {# Änderungen warten aufs Hochladen}}",
-  "mobile.sync.now": "Jetzt synchronisieren",
-  "mobile.sync.working": "Synchronisiere",
-  "mobile.sync.warnings": "Sync-Warnungen",
-  "mobile.sync.warning.freezeSuspected":
-    "Änderungen von einem anderen Gerät sind seit einer Weile nicht angekommen. Prüfe, ob das andere Gerät an und online ist.",
-  "mobile.sync.warning.noCommonView":
-    "Seit zwei Tagen stimmen die Serverdaten auf diesem Handy und auf einem anderen Gerät nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen. Synchronisiere dein anderes Gerät und dann dieses.",
-  "mobile.sync.warning.rollbackDetected":
-    "Deine Sync-Daten wirken älter als dieses Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
-  "mobile.sync.warning.identityDuplicated":
-    "Eine andere Kopie von Mosaic schreibt unter der Identität dieses Handys, zum Beispiel nach dem Wiederherstellen einer Sicherung. Die Synchronisierung ist pausiert. Stelle sicher, dass nur eine Kopie benutzt wird, und wähle dann „Ich habe es geprüft“.",
-  "mobile.sync.warning.serverInconsistent":
-    "Der Server hat diesem Handy andere Daten gezeigt als einem anderen Gerät. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
-  "mobile.sync.warning.serverRollback":
-    "Die Kopie eines deiner Tresore auf dem Server ist älter als die auf diesem Handy. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
-  "mobile.sync.warning.sharingAttention":
-    "Bei einem geteilten Tresor ist etwas offen: Ein Schlüsselwechsel wartet, oder ein Mitglied konnte nicht geprüft werden. Öffne Mosaic auf deinem Computer, um zu sehen, was es ist. Wähle dann „Ich habe es geprüft“.",
-  "mobile.sync.warning.undecryptable":
-    "{count, plural, one {# empfangener Eintrag konnte} other {# empfangene Einträge konnten}} auf diesem Handy nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.",
-  "mobile.sync.warning.accountRollback":
-    "Der Server zeigt einen älteren Kontoschlüssel als dieses Handy. Es wurde nichts geändert. Öffne Mosaic auf einem anderen Gerät und prüfe, ob deine letzten Änderungen da sind. Wähle dann „Ich habe es geprüft“.",
-  "mobile.sync.acknowledge": "Ich habe es geprüft…",
-  "mobile.sync.acknowledgeTitle": "Sync-Warnungen löschen?",
-  "mobile.sync.acknowledgeBody":
-    "Mach nur weiter, wenn du den Server selbst geprüft hast. Das löscht alle Warnungen, und die Synchronisierung läuft weiter. Wurden deine Daten wirklich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen. Mach das auf jedem deiner Geräte.",
-  "mobile.sync.acknowledgeConfirm": "Ich habe es geprüft",
   "mobile.search.hint": "Suche nach Titel, Benutzername, Website oder Tag.",
   "mobile.search.none": "Kein Eintrag passt zu {query}.",
   "mobile.detail.favoriteAdd": "Zu Favoriten hinzufügen",

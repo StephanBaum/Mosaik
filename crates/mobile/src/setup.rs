@@ -12,17 +12,22 @@ use zeroize::Zeroizing;
 
 use crate::Core;
 use crate::error::{MobileError, Result};
+use crate::folder::{FolderProvider, FolderSetupInfo};
 use crate::otp::LumaFrame;
 use crate::secret::{SecretValue, text_of};
+use crate::storage::hex;
 
 /// A parsed setup code.
 pub struct SetupCode {
-    /// The server's canonical origin.
+    /// The server's canonical origin (`""` for a folder account).
     pub server: String,
-    /// The account email, normalized.
+    /// The account email, normalized (`""` for a folder account).
     pub email: String,
     /// The Secret Key in its display form (`M1-…`), as text bytes.
     pub secret_key: Arc<SecretValue>,
+    /// What a folder account's code adds: the account, the provider hint, the server and the
+    /// path hint. `None` for a hosted account.
+    pub folder: Option<FolderSetupInfo>,
 }
 
 fn setup_error(e: CoreError) -> MobileError {
@@ -34,7 +39,30 @@ fn setup_error(e: CoreError) -> MobileError {
 
 impl Core {
     fn setup_code_of(&self, bytes: &[u8]) -> Result<SetupCode> {
-        let code = mosaic_sync::setup_code::parse(bytes).map_err(setup_error)?;
+        use mosaic_sync::setup_code::{FolderProviderHint, ParsedSetupCode};
+        let code = match mosaic_sync::setup_code::parse_any(bytes).map_err(setup_error)? {
+            ParsedSetupCode::Hosted(code) => code,
+            ParsedSetupCode::Folder(folder) => {
+                let display = folder.secret_key.to_display()?;
+                let non_empty = |s: String| (!s.is_empty()).then_some(s);
+                return Ok(SetupCode {
+                    server: String::new(),
+                    email: String::new(),
+                    secret_key: self.issue(SecretValue::from_text(display.expose_secret())),
+                    folder: Some(FolderSetupInfo {
+                        account: hex(&folder.account),
+                        provider: match folder.provider {
+                            FolderProviderHint::Dropbox => Some(FolderProvider::Dropbox),
+                            FolderProviderHint::OneDrive => Some(FolderProvider::OneDrive),
+                            FolderProviderHint::WebDav => Some(FolderProvider::WebDav),
+                            FolderProviderHint::Other => None,
+                        },
+                        server: non_empty(folder.server),
+                        path: non_empty(folder.path),
+                    }),
+                });
+            }
+        };
         // A release build of the phone refuses a code that names a plain-`http`
         // server (G1-17).
         crate::join::check_phone_origin(code.server.clone(), crate::join::ALLOW_HTTP_LOOPBACK)
@@ -44,6 +72,7 @@ impl Core {
             server: code.server,
             email: code.email,
             secret_key: self.issue(SecretValue::from_text(display.expose_secret())),
+            folder: None,
         })
     }
 

@@ -69,6 +69,13 @@ pub fn sync_token_name(account: &AccountId) -> String {
     format!("sync-token/{}", hex(account.as_bytes()))
 }
 
+/// `folder-credential/<account_id hex32>`: the credential of the provider of a folder account
+/// (an app password or a refresh token, encoded by `ProviderCredential::encode`).
+#[must_use]
+pub fn folder_credential_name(account: &AccountId) -> String {
+    format!("folder-credential/{}", hex(account.as_bytes()))
+}
+
 /// The version byte of an Android secure-store file; it is bound into the AAD
 /// (the header-binding rule of CRYPTO_SPEC §3).
 pub const SECURE_STORE_VERSION: u8 = 0x01;

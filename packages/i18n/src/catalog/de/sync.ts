@@ -118,8 +118,8 @@ export const sync = {
   "settings.sync.phone.hidden.time": "Die 60 Sekunden sind um, der Code ist ausgeblendet.",
   "settings.sync.phone.hidden.away": "Du hast dieses Fenster verlassen, der Code ist ausgeblendet.",
   "settings.sync.phone.again": "Erneut anzeigen",
-  "settings.sync.phone.folder":
-    "Dieses Konto synchronisiert über einen Ordner. Die Handy-Apps unterstützen vorerst nur Mosaic-Sync.",
+  "settings.sync.phone.folderHint":
+    "Dein Handy meldet sich bei deinem Cloud-Speicher an und öffnet denselben Ordner.",
 
   "settings.sync.totp.title": "Authenticator-App",
   "settings.sync.totp.body":

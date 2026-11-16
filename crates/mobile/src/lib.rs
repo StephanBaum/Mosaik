@@ -32,6 +32,7 @@ compile_error!("the `test-hooks` feature of mosaic-mobile is for debug builds on
 pub mod autofill;
 mod config;
 mod error;
+mod folder;
 mod generator;
 mod items;
 mod join;
@@ -64,6 +65,10 @@ pub use autofill::{
 };
 pub use config::{CoreConfig, CoreContext, Platform};
 pub use error::{MobileError, Result, error_codes};
+pub use folder::{
+    FolderCandidate, FolderDirEntry, FolderOverview, FolderProvider, FolderSetupInfo,
+    JoinFolderRequest, LinkInfo, LinkKind, LinkStatus,
+};
 pub use generator::{GeneratedSecret, GeneratorMode, GeneratorOptions};
 pub use items::{
     AttachmentView, FieldView, ItemDetail, ItemFilter, ItemKey, ItemKind, ItemSummary, LoginDraft,
@@ -83,8 +88,8 @@ pub use settings::{MobileSettings, SettingsUpdate};
 pub use setup::SetupCode;
 pub use state::{QuickUnlockAvailability, QuickUnlockPlatform, SessionState};
 pub use storage::{
-    SECURE_STORE_VERSION, SETTINGS_KEY_HINT, SecureStorage, StorageError, secret_key_name,
-    secure_store_aad, sync_token_name,
+    SECURE_STORE_VERSION, SETTINGS_KEY_HINT, SecureStorage, StorageError, folder_credential_name,
+    secret_key_name, secure_store_aad, sync_token_name,
 };
 pub use sync::{ResetConfirm, ResetOutcome, SyncOverview, SyncWarning, SyncWarningKind};
 
@@ -137,14 +142,18 @@ pub struct Core {
     issued: Mutex<Vec<Weak<SecretValue>>>,
     /// The asset-links fetch and its cache (ADR-0092, ADR-0093).
     pub(crate) assetlinks: autofill::AssetLinks,
+    /// The provider endpoints and client IDs of the folder accounts (the test hooks replace
+    /// them).
+    pub(crate) folder_env: Mutex<folder::FolderEnv>,
     /// Milliseconds a long call sleeps before it takes the mutex again
     /// (test hooks only: it makes the races of the tests deterministic).
     #[cfg(feature = "test-hooks")]
     pub(crate) work_delay_ms: std::sync::atomic::AtomicU64,
 }
 
-/// Whether the Secret Key and the session token of the account are in secure
-/// storage: asked with `contains`, so no secret is read to test presence.
+/// Whether the Secret Key and the session token (a folder account: the provider
+/// credential) of the account are in secure storage: asked with `contains`, so no secret is
+/// read to test presence.
 fn stored_flags(phase: &Phase, storage: &dyn SecureStorage) -> (bool, bool) {
     let Phase::Locked(locked) = phase else {
         return (false, false);
@@ -156,7 +165,10 @@ fn stored_flags(phase: &Phase, storage: &dyn SecureStorage) -> (bool, bool) {
                 .unwrap_or(false),
             storage
                 .contains(&sync_token_name(&account))
-                .unwrap_or(false),
+                .unwrap_or(false)
+                || storage
+                    .contains(&folder_credential_name(&account))
+                    .unwrap_or(false),
         )
     })
 }
@@ -236,6 +248,7 @@ impl Core {
                 last_sync_at_ms: None,
                 last_sync_error: None,
                 sync_warnings: Vec::new(),
+                folder_engine: None,
                 shown_sharing: Vec::new(),
                 secret_key_stored,
                 signed_in,
@@ -244,6 +257,7 @@ impl Core {
             generation: AtomicU64::new(0),
             issued: Mutex::new(Vec::new()),
             assetlinks: autofill::AssetLinks::new(),
+            folder_env: Mutex::new(folder::FolderEnv::production()),
             #[cfg(feature = "test-hooks")]
             work_delay_ms: std::sync::atomic::AtomicU64::new(0),
         })
@@ -441,6 +455,7 @@ impl Core {
             // handed out are wiped after it (see `issue_gated`).
             self.generation.fetch_add(1, Ordering::SeqCst);
             inner.slots.clear_on_lock(keep_join);
+            inner.folder_engine = None;
             inner.settings.locked();
             if close {
                 inner.drop_expired_join(now);
@@ -685,6 +700,7 @@ impl Core {
         if let Some(strict) = guard.pending.take_lock() {
             self.generation.fetch_add(1, Ordering::SeqCst);
             guard.slots.clear_on_lock(false);
+            guard.folder_engine = None;
             guard.settings.locked();
             // The holder's mutex is taken without the core's.
             drop(guard);

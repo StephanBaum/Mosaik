@@ -27,6 +27,7 @@ import { credentialRotation } from "./catalog/de/credentialRotation.ts";
 import { breach } from "./catalog/de/breach.ts";
 import { mobile } from "./catalog/de/mobile.ts";
 import { mobileUx } from "./catalog/de/mobileUx.ts";
+import { mobileFolder } from "./catalog/de/mobileFolder.ts";
 import type { MessageKey } from "./en.ts";
 
 export const de: Readonly<Record<MessageKey, string>> = {
@@ -58,4 +59,5 @@ export const de: Readonly<Record<MessageKey, string>> = {
   ...breach,
   ...mobile,
   ...mobileUx,
+  ...mobileFolder,
 };

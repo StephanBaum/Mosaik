@@ -6,6 +6,7 @@ use mosaic_vault::session::LockedSession;
 
 use crate::autofill::FillSessions;
 use crate::error::MobileError;
+use crate::folder::{KeptEngine, PendingLink};
 use crate::join::PendingJoin;
 use crate::otp::PendingOtps;
 use crate::passkeys::PasskeySessions;
@@ -123,7 +124,8 @@ pub(crate) enum Phase {
     Busy,
 }
 
-/// Pending slots. Every slot is dropped on lock, the pending join included: a
+/// Pending slots. Every slot is dropped on lock, the pending join and the pending folder
+/// sign-in included: a
 /// join holds the Secret Key and the derived keys, and must not outlive a lock
 /// (G1-11). The one exception is `close_store()`, which iOS calls when the app
 /// goes to the background while the user is in Safari for the security-key
@@ -135,6 +137,9 @@ pub(crate) struct Slots {
     pub quick: Option<PendingEnroll>,
     pub otp: PendingOtps,
     pub join: Option<PendingJoin>,
+    /// A folder account's provider sign-in (ADR-0162). It holds a provider credential, so it
+    /// follows the rule of the join: a lock drops it, a `close_store()` keeps it.
+    pub link: Option<PendingLink>,
     pub passkeys: PasskeySessions,
     pub fill: FillSessions,
 }
@@ -148,6 +153,14 @@ impl Slots {
         self.fill.clear();
         if !keep_join {
             self.join = None;
+            self.link = None;
+        }
+    }
+
+    /// Drops a pending folder sign-in that ran out.
+    pub(crate) fn drop_expired_link(&mut self, now_ms: u64) {
+        if self.link.as_ref().is_some_and(|l| l.expired(now_ms)) {
+            self.link = None;
         }
     }
 
@@ -179,6 +192,10 @@ pub(crate) struct Inner {
     /// (a later run does not clear it; G5b-1). No secrets: kinds, counts and
     /// times only.
     pub sync_warnings: Vec<crate::SyncWarning>,
+    /// The engine of a folder account, kept between runs so a run does not read again what the
+    /// last one read. Valid for the unlock it was built in; dropped by every lock, a reset and
+    /// a sign in again (it holds the provider's access token).
+    pub folder_engine: Option<KeptEngine>,
     /// The sharing findings the last sync overview showed. The phone shows
     /// them only as one generic warning, and an acknowledgement clears only
     /// what was shown: a finding recorded since stays until it was shown
@@ -257,6 +274,7 @@ impl Inner {
 
     /// Drops a pending join that ran out and settles what it kept.
     pub fn drop_expired_join(&mut self, now_ms: u64) {
+        self.slots.drop_expired_link(now_ms);
         if self.slots.drop_expired_join(now_ms) && !self.pending.join_in_flight {
             self.settle_abandoned_join();
         }

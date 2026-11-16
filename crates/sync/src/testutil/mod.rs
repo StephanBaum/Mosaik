@@ -1,7 +1,7 @@
 //! Test utilities for the sync engine and the transports (feature
 //! `test-util`): a manual clock, a fixed jitter, a seeded random source, a
-//! session holder that can lock, a simulated file-sync client
-//! ([`CloudSim`]), and transports that fail ([`ChaosTransport`]) or lie
+//! session holder that can lock, a store with a lagging listing
+//! ([`StatOverride`]), a simulated file-sync client ([`CloudSim`]), and transports that fail ([`ChaosTransport`]) or lie
 //! ([`MaliciousTransport`]).
 //!
 //! Everything here is deterministic for a seed and never sleeps. It is not
@@ -14,18 +14,29 @@
 
 mod chaos;
 mod cloudsim;
+#[cfg(feature = "folder-remote")]
+mod fake_cloud;
+mod fakehttp;
 mod malicious;
 mod refused;
 mod session;
+mod statstore;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub use chaos::{ChaosConfig, ChaosTransport};
 pub use cloudsim::{CloudSim, RoundStats, SimConfig};
+#[cfg(feature = "folder-remote")]
+pub use fake_cloud::{
+    AUTHORIZATION_CODE, DRIVE_ID, FakeDav, FakeDropbox, FakeGraph, Faults,
+    GRAPH_AUTHORIZATION_CODE, id_of,
+};
+pub use fakehttp::{FakeHttp, FakeRequest, FakeResponse};
 pub use malicious::MaliciousTransport;
 pub use refused::{RefusedSharing, RotateStub};
 pub use session::{LocalSession, SessionMut, SessionRef};
+pub use statstore::{HiddenName, StatOverride};
 
 use crate::clock::{Clock, SystemClock};
 use crate::engine::Jitter;
