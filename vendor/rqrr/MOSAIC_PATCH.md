@@ -120,3 +120,13 @@ Unreachable, left as upstream:
 Overflow that only wraps in release and never reaches indexing (for example
 corner scores on frames wider than 16384 px, which Mosaic does not produce from
 images) was noted, not changed.
+
+### Fourth patch, addendum: bounded alignment search (2026-11-16)
+
+`find_alignment_pattern` (`src/identify/grid.rs`) spirals out until `step_size² ≥ 100 · size_estimate`.
+A misshaped capstone can make `size_estimate` about 2·10⁹, so one candidate asked for about
+2·10¹¹ iterations: not a panic, but a hung scan (R32). The spiral now stops at
+`MAX_ALIGN_STEP = 1024` steps (search radius about ±512 px, at most about 10⁶ iterations). A
+real alignment pattern lies within about ten module widths of the estimate, so codes with
+modules up to about 100 px decode as before. Marked `// Mosaic patch:`.
+

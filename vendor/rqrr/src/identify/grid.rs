@@ -265,7 +265,14 @@ where
 
     // Mosaic patch: saturating, so a 32-bit target cannot overflow (a debug
     // panic) or wrap into a much longer search; 64-bit results are unchanged.
-    while step_size.saturating_mul(step_size) < size_estimate.saturating_mul(100) {
+    // Mosaic patch: the spiral never goes past MAX_ALIGN_STEP. A misshaped capstone can make
+    // size_estimate about 2e9, which asked for about 2e11 iterations (a hung scan). A real
+    // alignment pattern is found within about ten module widths, so 1024 steps cover module
+    // sizes up to about 100 px; worst case about a million cheap iterations.
+    const MAX_ALIGN_STEP: usize = 1024;
+    while step_size <= MAX_ALIGN_STEP
+        && step_size.saturating_mul(step_size) < size_estimate.saturating_mul(100)
+    {
         const DX_MAP: [i32; 4] = [1, 0, -1, 0];
         const DY_MAP: [i32; 4] = [0, -1, 0, 1];
         for _pass in 0..step_size {
