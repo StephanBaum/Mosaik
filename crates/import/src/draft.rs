@@ -1132,6 +1132,26 @@ mod tests {
         assert!(w.contains(&EntryWarning::UrlKeptAsText));
     }
 
+    /// A crafted export cannot pre-link a login to a Windows program: a
+    /// `winapp://` binding only comes from the desktop's link step
+    /// (ADR-0164), so the import keeps it as text (red team F5).
+    #[test]
+    fn a_program_url_is_never_a_login_url() {
+        let mut b = Builder::new(ItemType::Login);
+        for u in [
+            "winapp://signed/slack.exe?signer=abc",
+            "WINAPP://path/C:/x.exe?hash=00",
+            "winapp:signed/slack.exe",
+        ] {
+            b.url(u, "URL");
+        }
+        let (d, w) = b.finish().unwrap();
+        let urls: Vec<&str> = d.urls.iter().map(Text::as_str).collect();
+        assert_eq!(urls, Vec::<&str>::new());
+        assert_eq!(d.custom_fields.len(), 3);
+        assert!(w.contains(&EntryWarning::UrlKeptAsText));
+    }
+
     #[test]
     fn full_name_splits_at_the_last_word() {
         let mut b = Builder::new(ItemType::Identity);

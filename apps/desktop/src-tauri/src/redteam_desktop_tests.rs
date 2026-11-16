@@ -576,7 +576,7 @@ fn junction(link: &Path, target: &Path) -> bool {
 /// directory, the vault's blob directory), each pointing at a directory of
 /// the victim's own profile. Sync neither reads through them nor deletes
 /// their targets when it cleans its own directories, and it keeps working.
-/// The Unix symlink case has its test in `mosaic-sync` (`fsutil`); junctions
+/// The Unix symlink case has its test in `mosaic-sync` (`folder::store`); junctions
 /// are a reparse point of their own and had none.
 #[cfg(windows)]
 #[test]

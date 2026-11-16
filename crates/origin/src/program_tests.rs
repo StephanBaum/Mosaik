@@ -299,3 +299,23 @@ fn lookalike_names_are_found_without_matching() {
     assert_eq!(program_lookalike_of("slack.exe", ["discord.exe"]), None);
     assert_eq!(program_lookalike_of("abc.exe", ["abd.exe"]), None);
 }
+
+#[test]
+fn federated_sign_in_brokers_and_web_app_hosts_are_excluded() {
+    assert_eq!(
+        classify_program("x.exe", Some("microsoft.aad.brokerplugin_cw5n1h2txyewy")),
+        ProgramClass::Broker
+    );
+    assert_eq!(
+        classify_program(
+            "x.exe",
+            Some("microsoft.windows.cloudexperiencehost_cw5n1h2txyewy")
+        ),
+        ProgramClass::Broker
+    );
+    assert_eq!(
+        classify_program("microsoft.aad.brokerplugin.exe", None),
+        ProgramClass::Broker
+    );
+    assert_eq!(classify_program("wwahost.exe", None), ProgramClass::Host);
+}

@@ -1,8 +1,9 @@
 //! The folder backend (CRYPTO_SPEC §10.1, ADR-0043): a directory that a
 //! file-sync client (Dropbox, `OneDrive`, iCloud Drive, Nextcloud, Syncthing,
 //! a NAS share) replicates between the user's devices. [`FolderTransport`]
-//! implements [`Transport`](crate::transport::Transport) over `std::fs`
-//! only.
+//! implements [`Transport`](crate::transport::Transport) over a
+//! [`FolderStore`]: a local directory ([`LocalStore`], `std::fs` only) or, on
+//! the phone, a provider API (ADR-0162).
 //!
 //! Every path is written by exactly one install (its own `d/<device>/`, its
 //! own `log/<device>/`, its own `.macct` and `.mdel`; blobs are write-once),
@@ -23,12 +24,15 @@
 mod account;
 mod blobs;
 mod devices;
-pub(crate) mod fsutil;
+pub mod hint;
 mod init;
 mod layout;
 mod maintain;
 mod reader;
 mod rekey;
+#[cfg(feature = "folder-remote")]
+pub mod remote;
+pub mod store;
 mod writer;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,12 +43,18 @@ use std::time::SystemTime;
 
 use mosaic_core::{AccountId, InstallId, KeyGeneration, VaultId};
 
-pub use account::{JoinError, JoinFailure, current_account_file, join_from_folder};
-pub use init::{
-    FolderContents, FolderError, MAX_LISTED_ACCOUNTS, has_account, init, inspect, list_accounts,
+pub use account::{
+    JoinError, JoinFailure, current_account_file, current_account_file_in, join_from_folder,
+    join_from_folder_in, join_from_folder_versioned_in,
 };
+pub use init::{
+    FolderContents, FolderError, MAX_LISTED_ACCOUNTS, has_account, has_account_in, init, init_in,
+    inspect, inspect_in, list_accounts, list_accounts_in,
+};
+pub use store::{Entry, EntryKind, FolderStore, LocalStore, RelPath};
 
 use self::layout::{HEAD_NAME, INFO_NAME, Layout};
+use self::reader::SegmentFile;
 use crate::clock::Clock;
 use crate::transport::{
     ChangeToken, Cursor, KeyPushResult, MaintainContext, PullPage, PushRecord, PushResult,
@@ -100,6 +110,20 @@ pub struct FolderConfig<C> {
     pub device: DeviceInfo,
 }
 
+/// What [`FolderTransport::open_with_store`] needs besides the store.
+pub struct FolderParts<C> {
+    /// The account.
+    pub account_id: AccountId,
+    /// This install.
+    pub install_id: InstallId,
+    /// The keyed operations (the unlocked session's keys).
+    pub crypto: C,
+    /// The clock for file contents and age checks.
+    pub clock: Arc<dyn Clock>,
+    /// This device's name and platform, published as `info.mdev`.
+    pub device: DeviceInfo,
+}
+
 /// What is known of a segment file from reading it once.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Outcome {
@@ -114,17 +138,31 @@ pub(crate) enum Outcome {
     },
 }
 
-/// The cache entry of a segment file: valid for the length and modification
-/// time it was read at.
-#[derive(Clone, Copy, Debug)]
+/// The cache entry of a segment file: valid for the version token (or the
+/// length and modification time) it was read at.
+#[derive(Clone, Debug)]
 pub(crate) struct ScanEntry {
     pub(crate) len: u64,
     pub(crate) modified: Option<SystemTime>,
+    pub(crate) version: Option<Box<[u8]>>,
     pub(crate) outcome: Outcome,
+}
+
+impl ScanEntry {
+    /// Whether the entry still describes `file`: the store version tokens
+    /// when both sides have one, otherwise the length and the modification
+    /// time.
+    pub(crate) fn current_for(&self, file: &SegmentFile) -> bool {
+        match (&self.version, &file.version) {
+            (Some(a), Some(b)) => a == b,
+            _ => self.len == file.len && self.modified == file.modified,
+        }
+    }
 }
 
 /// The folder transport. See the [module documentation](self).
 pub struct FolderTransport<C: FolderCrypto> {
+    pub(crate) store: Box<dyn FolderStore>,
     pub(crate) layout: Layout,
     pub(crate) account: AccountId,
     pub(crate) install: InstallId,
@@ -170,29 +208,59 @@ impl<C: FolderCrypto> FolderTransport<C> {
     /// empty and not a Mosaic folder; [`TransportError::Incompatible`] for
     /// another folder version; [`TransportError::Io`].
     pub fn open(config: FolderConfig<C>) -> Result<Self, TransportError> {
-        match inspect(&config.root) {
+        Self::open_with_store(
+            Box::new(LocalStore::new(&config.root)),
+            FolderParts {
+                account_id: config.account_id,
+                install_id: config.install_id,
+                crypto: config.crypto,
+                clock: config.clock,
+                device: config.device,
+            },
+        )
+    }
+
+    /// As [`open`](Self::open), over any [`FolderStore`].
+    ///
+    /// # Errors
+    /// As [`open`](Self::open).
+    pub fn open_with_store(
+        store: Box<dyn FolderStore>,
+        parts: FolderParts<C>,
+    ) -> Result<Self, TransportError> {
+        match inspect_in(&*store) {
             FolderContents::Mosaic { .. } => {}
             FolderContents::Missing | FolderContents::Foreign | FolderContents::Empty => {
                 return Err(TransportError::FolderUnavailable);
             }
             FolderContents::OtherVersion => return Err(TransportError::Incompatible),
         }
-        let layout = Layout::new(&config.root, &config.account_id);
+        let layout = Layout::new(&parts.account_id);
         let transport = Self {
+            store,
             layout,
-            account: config.account_id,
-            install: config.install_id,
-            crypto: config.crypto,
-            clock: config.clock,
+            account: parts.account_id,
+            install: parts.install_id,
+            crypto: parts.crypto,
+            clock: parts.clock,
             scan: BTreeMap::new(),
             own_next: BTreeMap::new(),
             force_compact: BTreeSet::new(),
             own_checkpoints_read: BTreeMap::new(),
-            device: config.device.clone(),
+            device: parts.device.clone(),
             scan_epoch: 0,
         };
-        transport.write_device_info(&config.device)?;
+        transport.write_device_info(&parts.device)?;
         Ok(transport)
+    }
+
+    /// Tells the store that a sync run starts (a remote store refreshes what
+    /// it caches for the run).
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    pub fn begin_run(&mut self) -> Result<(), TransportError> {
+        self.store.begin_run()
     }
 
     /// The account.
@@ -211,7 +279,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
         let sealed = info
             .seal(&self.crypto)
             .map_err(|e| lock_or(e, TransportError::Io))?;
-        fsutil::write_atomic(
+        self.store.write_atomic(
             &self.layout.device_dir(&self.install),
             INFO_NAME,
             &sealed,
@@ -346,7 +414,7 @@ impl<C: FolderCrypto> Transport for FolderTransport<C> {
         if bytes.len() > crate::wire::checkpoint::MAX_LEN {
             return Err(TransportError::Protocol);
         }
-        fsutil::write_atomic(
+        self.store.write_atomic(
             &self.layout.device_dir(&self.install),
             HEAD_NAME,
             bytes,

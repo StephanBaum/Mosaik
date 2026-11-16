@@ -6,14 +6,21 @@ import android.security.keystore.UserNotAuthenticatedException
 import io.github.stephanbaum.mosaic.core.CoreHolder
 import io.github.stephanbaum.mosaic.core.SecretBytes
 import io.github.stephanbaum.mosaic.ffi.HandoffInfo
+import io.github.stephanbaum.mosaic.ffi.FolderCandidate
+import io.github.stephanbaum.mosaic.ffi.FolderDirEntry
+import io.github.stephanbaum.mosaic.ffi.FolderProvider
 import io.github.stephanbaum.mosaic.ffi.HandoffStatus
+import io.github.stephanbaum.mosaic.ffi.JoinFolderRequest
 import io.github.stephanbaum.mosaic.ffi.JoinHostedRequest
 import io.github.stephanbaum.mosaic.ffi.JoinOutcome
+import io.github.stephanbaum.mosaic.ffi.LinkInfo
+import io.github.stephanbaum.mosaic.ffi.LinkStatus
 import io.github.stephanbaum.mosaic.ffi.LumaFrame
 import io.github.stephanbaum.mosaic.ffi.MobileSettings
 import io.github.stephanbaum.mosaic.ffi.QuickUnlockAvailability
 import io.github.stephanbaum.mosaic.ffi.QuickUnlockPlatform
 import io.github.stephanbaum.mosaic.ffi.QuickUnlockSetup
+import io.github.stephanbaum.mosaic.ffi.ResetConfirm
 import io.github.stephanbaum.mosaic.ffi.ServerInfo
 import io.github.stephanbaum.mosaic.ffi.SessionState
 import io.github.stephanbaum.mosaic.ffi.SetupCode
@@ -29,7 +36,13 @@ import java.security.GeneralSecurityException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** The result of a session operation: a value, a core error code (`error.<code>`), or a cancel by the user. */
@@ -53,6 +66,13 @@ class JoinTracker {
     fun set(value: Boolean) {
         pending.set(value)
     }
+}
+
+/** How a cloud-folder sign-in that came back through the browser redirect ended. */
+sealed interface FolderLinkEvent {
+    data object Linked : FolderLinkEvent
+
+    class Failed(val code: String) : FolderLinkEvent
 }
 
 /** The first join step: what the server asked for, and whether quick unlock is on now (an unlocked join only). */
@@ -226,6 +246,178 @@ class SessionController(
     suspend fun cancelJoin() {
         joinTracker.set(false)
         holder.call { it.joinCancel() }
+    }
+
+    // ---- cloud-folder accounts -----------------------------------------------------------------
+
+    private val folderLinkState = MutableStateFlow<FolderLinkEvent?>(null)
+
+    // The redirect activity has no screen to run a call for it: its callback runs here.
+    private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** The end of the last redirect sign-in; null before one ends and after [clearFolderLinkEvent]. */
+    val folderLink: StateFlow<FolderLinkEvent?> get() = folderLinkState
+
+    fun clearFolderLinkEvent() {
+        folderLinkState.value = null
+    }
+
+    /**
+     * Starts a sign-in with a cloud provider (a join without an account, or a sign in again while unlocked on a
+     * folder account of the same provider). The lock policy keeps the pending sign-in alive, like a pending join,
+     * until it ends ([folderLinkCancel], a failure, the join, or a sign in again that stored its credential).
+     * [server] is the WebDAV origin.
+     */
+    suspend fun folderLinkBegin(provider: FolderProvider, server: String?): Outcome<LinkInfo> =
+        guarded {
+            folderLinkState.value = null
+            val info = holder.call { it.folderLinkBegin(provider, server) }
+            joinTracker.set(true)
+            info
+        }
+
+    /** Hands the redirect address to the core (from the redirect activity); the result is [folderLink]. */
+    fun deliverOAuthCallback(callbackUrl: String) {
+        callbackScope.launch { folderLinkFinish(callbackUrl) }
+    }
+
+    /** Finishes a sign-in of kind redirect with the address the browser ended on. */
+    suspend fun folderLinkFinish(callbackUrl: String): Outcome<Unit> {
+        val result = guarded { holder.call { it.folderLinkFinish(callbackUrl) } }
+        when (result) {
+            is Outcome.Ok -> {
+                releaseIfUnlocked()
+                folderLinkState.value = FolderLinkEvent.Linked
+            }
+            is Outcome.Failed -> {
+                joinTracker.set(false)
+                folderLinkState.value = FolderLinkEvent.Failed(result.code)
+            }
+            Outcome.Cancelled -> Unit
+        }
+        return result
+    }
+
+    /** One poll of a sign-in of kind poll (Nextcloud). A sign-in that ended or ran out is no longer pending. */
+    suspend fun folderLinkStatus(): Outcome<LinkStatus> {
+        val result = guarded { holder.call { it.folderLinkStatus() } }
+        when {
+            result is Outcome.Failed -> joinTracker.set(false)
+            result is Outcome.Ok && result.value == LinkStatus.EXPIRED -> joinTracker.set(false)
+            result is Outcome.Ok && result.value == LinkStatus.LINKED -> releaseIfUnlocked()
+        }
+        return result
+    }
+
+    /** Signs in to a WebDAV server with an address, a login and an app password; [password] is wiped here. */
+    suspend fun folderLinkPassword(davUrl: String, login: String, password: SecretBytes): Outcome<Unit> {
+        val result =
+            guarded {
+                try {
+                    holder.call { core -> password.consume { core.folderLinkPassword(davUrl, login, it) } }
+                } finally {
+                    password.wipe()
+                }
+            }
+        if (result is Outcome.Ok) {
+            // The link now waits for the join (no account yet) or is final (a sign in again while unlocked).
+            joinTracker.set(true)
+            releaseIfUnlocked()
+        } else {
+            joinTracker.set(false)
+        }
+        return result
+    }
+
+    /** Drops a pending sign-in from a screen that is going away (no call to wait for). */
+    fun abandonFolderLink() {
+        callbackScope.launch { folderLinkCancel() }
+    }
+
+    /** Drops a pending sign-in (the user went back). */
+    suspend fun folderLinkCancel() {
+        joinTracker.set(false)
+        folderLinkState.value = null
+        runCatching { holder.call { it.folderLinkCancel() } }
+    }
+
+    suspend fun folderLocate(pathHint: String?): Outcome<List<FolderCandidate>> =
+        guarded { holder.call { it.folderLocate(pathHint) } }
+
+    suspend fun folderBrowse(dir: String): Outcome<List<FolderDirEntry>> =
+        guarded { holder.call { it.folderBrowse(dir) } }
+
+    /**
+     * Joins a folder account from its folder. As for a hosted join, [secretKey] is the flow's copy (this call works
+     * on a copy of it and wipes the copy), [password] is wiped, and with [enrollQuick] the typed password starts
+     * the quick-unlock enrolment inside the same core call. The value is whether quick unlock is now on.
+     */
+    suspend fun joinFolder(
+        context: Context,
+        path: String,
+        account: String,
+        deviceName: String,
+        password: SecretBytes,
+        secretKey: ByteArray,
+        enrollQuick: Boolean,
+        text: PromptText,
+    ): Outcome<Boolean> =
+        guarded {
+            val key = SecretBytes.of(secretKey.copyOf())
+            val joined: Pair<SessionState, QuickUnlockSetup?>
+            try {
+                joined =
+                    holder.call { core ->
+                        password.consume { pw ->
+                            key.consume { sk ->
+                                val state =
+                                    core.joinFolder(
+                                        JoinFolderRequest(
+                                            path = path,
+                                            account = account,
+                                            password = pw,
+                                            secretKey = sk,
+                                            deviceName = deviceName.trim().ifEmpty { null },
+                                        ),
+                                    )
+                                val setup =
+                                    if (enrollQuick && state is SessionState.Unlocked) {
+                                        runCatching { core.quickUnlockEnrollBegin(pw) }.getOrNull()
+                                    } else {
+                                        null
+                                    }
+                                state to setup
+                            }
+                        }
+                    }
+            } finally {
+                password.wipe()
+                key.wipe()
+            }
+            joinTracker.set(false)
+            val pendingSetup = joined.second
+            val enrolled = pendingSetup != null && runCatching { finishEnroll(context, pendingSetup, text) }.isSuccess
+            afterUnlocked()
+            enrolled
+        }
+
+    /**
+     * Removes the account from this phone. [typed] must be the reset phrase of the sync overview (the first 8
+     * characters of a folder account's ID, the email of a hosted one). The Keystore keys the core names go too.
+     * The result is true when the provider grant could not be revoked.
+     */
+    suspend fun resetDevice(typed: String): Outcome<Boolean> =
+        guarded {
+            val outcome = holder.call { it.resetDevice(ResetConfirm(typedEmail = typed)) }
+            for (alias in outcome.keyAliases) keys.delete(alias)
+            onSessionChanged()
+            // True when the provider could not be told to end the grant: the app points to its page.
+            outcome.revokeFailed
+        }
+
+    /** A sign in again (unlocked) stores its credential at once: nothing is left pending for the lock policy. */
+    private fun releaseIfUnlocked() {
+        if (holder.state() is SessionState.Unlocked) joinTracker.set(false)
     }
 
     // ---- unlock ---------------------------------------------------------------------------------

@@ -76,7 +76,7 @@ function login(spec: LoginSpec): MockItem {
       createdAt: 1_761_400_000_000,
       text: [{ field: "username", value: username }],
       secrets: ["password"],
-      urls: [{ elementId: `${itemId}-url`, url, matchMode: "exactOrigin", allowHttp: false }],
+      urls: [{ elementId: `${itemId}-url`, url, matchMode: "exactOrigin", allowHttp: false, program: null }],
       customFields: [],
       attachments: [],
       otp:

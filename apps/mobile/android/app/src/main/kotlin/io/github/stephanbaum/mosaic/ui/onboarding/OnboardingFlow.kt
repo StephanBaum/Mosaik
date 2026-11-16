@@ -13,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -20,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import io.github.stephanbaum.mosaic.MosaicApp
+import io.github.stephanbaum.mosaic.ffi.FolderProvider
 import io.github.stephanbaum.mosaic.ffi.HandoffInfo
 import io.github.stephanbaum.mosaic.ffi.HandoffStatus
 import io.github.stephanbaum.mosaic.ffi.JoinOutcome
@@ -52,7 +54,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-private enum class Step { Welcome, Details, Password, Second, Quick, Autofill, Done }
+private enum class Step { Welcome, Details, FolderChoose, FolderFlow, Password, Second, Quick, Autofill, Done }
 
 /**
  * The Secret Key typed in step 2, kept as bytes until the join no longer needs it (never a `String`). The flow wipes
@@ -89,6 +91,9 @@ private class KeyHolder {
 
 private val KEY_ERRORS = setOf("secretKeyMalformed", "secretKeyMistyped", "secretKeyRequired")
 private val GIVE_UP_ERRORS = setOf("syncHandoffExpired", "noAccount", "accountExists")
+
+/** Folder join errors after which the sign-in and the folder are chosen again (the link or the folder is gone). */
+private val FOLDER_RESTART_ERRORS = setOf("folderLinkExpired", "folderNotFound", "syncFolderNoAccount", "notFound")
 private const val POLL_MS = 2000L
 
 /** How long a Secret Key stays in memory while the onboarding waits for the user: five minutes. */
@@ -121,6 +126,16 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
     var keyWiped by remember { mutableStateOf(false) }
     var enrollNext by remember { mutableStateOf(true) }
 
+    // A cloud-folder account (a scanned folder setup code, or "use a cloud folder"): the provider (by name), the
+    // WebDAV origin, the hints of the code, and what was chosen for the join. None of it is secret.
+    var folderProviderName by rememberSaveable { mutableStateOf<String?>(null) }
+    var folderServer by rememberSaveable { mutableStateOf("") }
+    var folderPathHint by rememberSaveable { mutableStateOf<String?>(null) }
+    var folderAccountHint by rememberSaveable { mutableStateOf<String?>(null) }
+    var folderPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var folderAccount by rememberSaveable { mutableStateOf<String?>(null) }
+    var folderRun by remember { mutableIntStateOf(0) }
+
     val keyHolder = remember { KeyHolder() }
     val keyField = remember { SecretFieldState() }
     val passwordField = remember { SecretFieldState() }
@@ -147,7 +162,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
     LaunchedEffect(keyHolder.version) {
         if (keyHolder.bytes != null) {
             keyWiped = false
-        } else if (scanned && (step == Step.Details || step == Step.Password)) {
+        } else if (scanned && (step == Step.Details || step == Step.FolderChoose || step == Step.Password)) {
             scanned = false
             keyWiped = true
         }
@@ -211,15 +226,36 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
             target = ScanTarget.SetupCode,
             layout = ScanLayout.Screen,
             onSetupCode = { code ->
+                val folder = code.folder
                 useSetupCode(code, keyHolder) { scannedServer, scannedEmail ->
-                    server = scannedServer
-                    email = scannedEmail
+                    // A folder account's code carries no server and no email.
+                    if (folder == null) {
+                        server = scannedServer
+                        email = scannedEmail
+                    }
                 }
                 keyField.take()?.wipe()
                 errorCode = null
                 scanned = true
                 keyWiped = false
                 scanning = false
+                if (folder != null) {
+                    val named = folder.provider
+                    folderProviderName = named?.name
+                    folderServer = folder.server.orEmpty()
+                    folderPathHint = folder.path?.trim('/')?.ifEmpty { null }
+                    folderAccountHint = folder.account
+                    folderPath = null
+                    folderAccount = null
+                    folderRun += 1
+                    // No provider named ("other"), or a WebDAV server not named: the person picks it first.
+                    step =
+                        if (named == null || (named == FolderProvider.WEB_DAV && folder.server == null)) {
+                            Step.FolderChoose
+                        } else {
+                            Step.FolderFlow
+                        }
+                }
             },
             onOtp = {},
             onCancel = { scanning = false },
@@ -303,8 +339,78 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                         },
                     )
                 }
+                QuietButton(
+                    L10n.folderUseFolder(resources),
+                    onClick = {
+                        errorCode = null
+                        step = Step.FolderChoose
+                    },
+                    enabled = !busy,
+                )
                 QuietButton(L10n.commonBack(resources), onClick = { step = Step.Welcome }, enabled = !busy)
             }
+
+        Step.FolderChoose ->
+            FolderChooseContent(
+                provider = providerOf(folderProviderName),
+                onProvider = { folderProviderName = it.name },
+                server = folderServer,
+                onServer = { folderServer = it },
+                keyField = keyField,
+                keyKept = keyHolder.bytes != null,
+                error = error,
+                busy = busy,
+                onContinue = {
+                    scope.launch {
+                        busy = true
+                        errorCode = null
+                        val typed = keyField.take()
+                        if (typed != null) {
+                            keyHolder.wipe()
+                            keyHolder.bytes = typed.consume { it.copyOf() }
+                        }
+                        val chosen = providerOf(folderProviderName)
+                        if (keyHolder.bytes == null) {
+                            errorCode = "secretKeyRequired"
+                        } else if (chosen == FolderProvider.WEB_DAV && folderServer.isBlank()) {
+                            errorCode = "invalidInput"
+                        } else {
+                            folderServer = folderServer.trim()
+                            folderPath = null
+                            folderAccount = null
+                            folderRun += 1
+                            step = Step.FolderFlow
+                        }
+                        busy = false
+                    }
+                },
+                onBack = { step = Step.Details },
+            )
+
+        Step.FolderFlow -> {
+            val chosenProvider = providerOf(folderProviderName)
+            if (chosenProvider == null) {
+                LaunchedEffect(Unit) { step = Step.FolderChoose }
+            } else {
+                // A new run (a restart after a folder error) starts the flow from its intro again.
+                key(folderRun) {
+                    FolderJoinFlow(
+                        app = app,
+                        provider = chosenProvider,
+                        server = folderServer,
+                        pathHint = folderPathHint,
+                        accountHint = folderAccountHint,
+                        onChosen = { path, account ->
+                            errorCode = null
+                            folderPath = path
+                            folderAccount = account
+                            step = Step.Password
+                        },
+                        onBack = { step = Step.FolderChoose },
+                    )
+                }
+            }
+        }
 
         Step.Password ->
             ScreenFrame {
@@ -341,6 +447,31 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                                     password.wipe()
                                     errorCode = "secretKeyRequired"
                                     step = Step.Details
+                                } else if (folderPath != null && folderAccount != null) {
+                                    val wantQuick = enrollNext && biometricAvailable
+                                    val joined =
+                                        session.joinFolder(
+                                            context, folderPath.orEmpty(), folderAccount.orEmpty(), deviceName, password, key,
+                                            wantQuick, promptText,
+                                        )
+                                    when (joined) {
+                                        is Outcome.Ok -> {
+                                            keyHolder.wipe()
+                                            step = if (wantQuick && !joined.value) Step.Quick else Step.Autofill
+                                        }
+                                        is Outcome.Failed -> {
+                                            errorCode = joined.code
+                                            if (joined.code in KEY_ERRORS) {
+                                                step = Step.FolderChoose
+                                            } else if (joined.code in FOLDER_RESTART_ERRORS) {
+                                                folderPath = null
+                                                folderAccount = null
+                                                folderRun += 1
+                                                step = Step.FolderFlow
+                                            }
+                                        }
+                                        Outcome.Cancelled -> Unit
+                                    }
                                 } else {
                                     val wantQuick = enrollNext && biometricAvailable
                                     val outcome =
@@ -371,7 +502,23 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                         },
                     )
                 }
-                QuietButton(L10n.commonBack(resources), onClick = { step = Step.Details }, enabled = !busy)
+                QuietButton(
+                    L10n.commonBack(resources),
+                    onClick = {
+                        if (folderPath != null) {
+                            // The sign-in is dropped; the folder is chosen again after a new sign-in.
+                            scope.launch {
+                                session.folderLinkCancel()
+                                folderPath = null
+                                folderAccount = null
+                                step = Step.FolderChoose
+                            }
+                        } else {
+                            step = Step.Details
+                        }
+                    },
+                    enabled = !busy,
+                )
             }
 
         Step.Second -> {
@@ -525,8 +672,8 @@ private fun useSetupCode(code: SetupCode, holder: KeyHolder, fill: (String, Stri
     fill(code.server, code.email)
 }
 
-/** Opens the handoff page in the system browser; only an https address is opened. */
-private fun openInBrowser(context: Context, url: String) {
+/** Opens a handoff or sign-in page in the system browser; only an https address is opened. */
+internal fun openInBrowser(context: Context, url: String) {
     if (!url.startsWith("https://")) return
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))

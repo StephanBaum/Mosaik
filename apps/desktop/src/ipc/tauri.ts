@@ -23,7 +23,7 @@ export function toIpcError(error: unknown): IpcError {
   return { code: "internal" };
 }
 
-async function call<K extends CommandName>(
+export async function call<K extends CommandName>(
   command: K,
   request: RequestOf<K>,
 ): Promise<IpcResult<ResponseOf<K>>> {

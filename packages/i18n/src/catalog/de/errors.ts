@@ -161,6 +161,9 @@ export const errors = {
     "Dein Sync-Speicher zeigt ältere Kontoschlüssel, als dieses Gerät hat. Es wurde nichts geändert.",
   "error.syncRekeyRefused":
     "Die Schlüssel, die dein Sync-Speicher anbietet, sind nicht die nächsten nach denen dieses Geräts. Es wurde nichts geändert. Prüfe deine anderen Geräte.",
+  "error.pickerStale": "Diese Liste ist nicht mehr aktuell. Klick noch einmal ins Feld.",
+  "error.pickerTooSoon": "Warte einen Moment und bestätige dann noch einmal.",
+  "error.programFillUnavailable": "Das Ausfüllen in Programmen ist auf diesem Gerät nicht verfügbar.",
   "error.busy":
     "Mosaic schließt noch den letzten Schritt ab. Warte kurz und versuche es dann noch einmal.",
   "error.internal":
@@ -286,7 +289,7 @@ export const errors = {
     "Dein Master-Passwort wurde auf dem Server oder im Ordner geändert. Gib unten das neue ein.",
   "error.sharingNotHosted":
     "Zum Teilen brauchst du einen Mosaic-Server. Verbinde zuerst in den Sync-Einstellungen einen.",
-  "error.setupCodeNeedsServer": "Ein Handy kann nur einem Konto auf einem Mosaic-Server beitreten.",
+  "error.setupCodeNeedsServer": "Ein Handy kann nur einem Konto beitreten, das synchronisiert.",
   "error.sharingContactUnverified":
     "Vergleiche zuerst den Sicherheitscode dieser Person. Mosaic teilt nur mit Personen, die du geprüft hast.",
   "error.sharingKeyChanged":

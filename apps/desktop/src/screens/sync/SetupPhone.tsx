@@ -1,10 +1,11 @@
 /**
- * "Set up a phone" (M10, ADR-0096): a QR code that holds the server, the email and the Secret Key
- * of this hosted account, so a phone can join without typing them. It asks for the master
+ * "Set up a phone" (M10, ADR-0096, ADR-0161): a QR code that holds the server, the email and the
+ * Secret Key of a hosted account, or the account, the provider hint and the Secret Key of a folder
+ * account, so a phone can join without typing them. It asks for the master
  * password like every view of the Secret Key. Rust builds and renders the code; this file only
  * draws the module matrix on a canvas, and hides it after 60 seconds, when the window loses
- * focus or is hidden, and on lock (the screen unmounts then). A folder account gets a sentence
- * instead: the phone apps support Mosaic sync for now.
+ * focus or is hidden, and on lock (the screen unmounts then). A folder account gets one more sentence:
+ * the phone signs in to the cloud storage itself and opens the same folder.
  */
 import { useEffect, useRef, useState } from "react";
 import { useLatest } from "../../hooks/useLatest.ts";
@@ -117,13 +118,11 @@ export function SetupPhone({ config }: { config: SyncConfigView }) {
   const [shown, setShown] = useState<SetupCodeShown | null>(null);
   const [away, setAway] = useState<Away | null>(null);
 
-  if (config.kind !== "hosted") {
-    return <p className="field__hint">{t("settings.sync.phone.folder")}</p>;
-  }
   return (
     <div className="stack">
       <h3 className="subtitle">{t("settings.sync.phone.title")}</h3>
       <p className="caption">{t("settings.sync.phone.body")}</p>
+      {config.kind === "folder" && <p className="caption">{t("settings.sync.phone.folderHint")}</p>}
       {away !== null && (
         <p className="caption" role="status">
           {t(away === "time" ? "settings.sync.phone.hidden.time" : "settings.sync.phone.hidden.away")}

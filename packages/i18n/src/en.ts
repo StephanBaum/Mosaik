@@ -14,6 +14,7 @@ import { insights } from "./catalog/en/insights.ts";
 import { importMessages } from "./catalog/en/import.ts";
 import { agent } from "./catalog/en/agent.ts";
 import { importGuide } from "./catalog/en/importGuide.ts";
+import { programFill } from "./catalog/en/programFill.ts";
 import { browser } from "./catalog/en/browser.ts";
 import { ssh } from "./catalog/en/ssh.ts";
 import { settings } from "./catalog/en/settings.ts";
@@ -29,6 +30,7 @@ import { credentialRotation } from "./catalog/en/credentialRotation.ts";
 import { breach } from "./catalog/en/breach.ts";
 import { mobile } from "./catalog/en/mobile.ts";
 import { mobileUx } from "./catalog/en/mobileUx.ts";
+import { mobileFolder } from "./catalog/en/mobileFolder.ts";
 
 export const en = {
   ...app,
@@ -45,6 +47,7 @@ export const en = {
   ...ssh,
   ...browser,
   ...agent,
+  ...programFill,
   ...settings,
   ...palette,
   ...shell,
@@ -58,6 +61,7 @@ export const en = {
   ...breach,
   ...mobile,
   ...mobileUx,
+  ...mobileFolder,
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

@@ -26,6 +26,7 @@
 pub mod access;
 mod errors;
 mod folder_flow;
+mod hint_sources;
 mod hosted_flow;
 mod rotation_flow;
 mod runner;
@@ -52,6 +53,7 @@ use mosaic_sync::wire::device_info::{DeviceInfo, Platform};
 use mosaic_vault::session::{SyncConfig, SyncKind, UnlockedSession};
 
 pub use errors::{sync_code, transport_code};
+pub(crate) use hint_sources::gather_hint_sources;
 pub(crate) use hosted_flow::PendingLogin;
 
 use self::access::BackendSession;

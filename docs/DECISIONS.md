@@ -5112,7 +5112,7 @@ M10 brings Mosaic to Android and iOS (brief §2 and §10: "native autofill and p
   - The desktop "Set up a phone" setup code (ADR-0096).
 - **Out of scope**, each with its reason:
   - *Account creation on mobile.* It needs Argon2 calibration on the phone, the Emergency Kit PDF and its verification step. The app says "Create your account on a computer, then set up this phone." The `test-hooks` feature creates local accounts for tests only.
-  - *Folder sync.* Android has no path-based access to cloud folders (Storage Access Framework URIs, no atomic rename, no file locks). On iOS, iCloud Drive and File Provider folders need `NSFileCoordinator` downloads, which need a signed-in Apple ID on a device; CI has neither. Deferred to M10b (OD-M10-11). The app says "This account syncs through a folder. The phone apps support Mosaic sync for now."
+  - *Folder sync.* Android has no path-based access to cloud folders (Storage Access Framework URIs, no atomic rename, no file locks). On iOS, iCloud Drive and File Provider folders need `NSFileCoordinator` downloads, which need a signed-in Apple ID on a device; CI has neither. Deferred to M10b (OD-M10-11). The app says "This account syncs through a folder. The phone apps support Mosaic sync for now." Android: resolved by ADR-0162 (provider APIs, no SAF).
   - *Features that stay on the computer:*
     - sharing management and emergency access;
     - key or credential rotation, and re-key adoption (the fallback is "Set up this phone again", ADR-0091);
@@ -6230,53 +6230,6 @@ and Q3. The rules are pure and live in `crates/origin/src/program.rs`; the captu
 ### Consequences
 THREAT_MODEL §4.10. `crates/program-fill` (identity, policy, re-verification) builds on these rules.
 
-## ADR-0160: Agent channel labels, device marks and the agent log
-
-- Status: accepted
-- Date: 2026-11-15
-- Milestone: agent access, phase 0 (spec `docs/superpowers/specs/2026-11-14-agent-access-design.md` §5.2, §6.4, §9.4)
-
-### Context
-AI agents use vault secrets through a local MCP relay (`mosaic agent mcp`) that talks to the unlocked desktop. That needs (1) a local channel
-with its own pairings, (2) a way to make a binding that arrived by sync unusable until the user confirmed it on this device, and (3) a log of every
-agent use. The log holds item titles, origins and command lines, which are derived from item plaintext, so CRYPTO_SPEC §11 forbids storing them in
-cleartext.
-
-### Decision
-- **Channel labels.** CRYPTO_SPEC §15 becomes "Local app channels". The construction is unchanged and used by two channels with disjoint label sets:
-  `browser/auth|handshake|session|frame` and `agent/auth|handshake|session|frame`. Pairings, `K_pair` storage and endpoints are per channel. Every
-  derivation and the frame AAD carry the channel's labels, so a key of one channel fails the other's handshake. The agent `K_pair` is stored by the
-  desktop in `agent-pairings.json` as §4 stores browser pairings, and by the client only in the OS keystore. The browser golden vector stays
-  byte-identical; a second vector pins the agent labels.
-- **Device marks.** `K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)`; `mark = HMAC-SHA-256(K_agent_mark, item_id[16] || u32(len(binding_id)) || binding_id || canonical(v))` (the binding ID is in the mark, a binding with
-  concurrent register entries is unconfirmed, numbers are integers only);
-  local-only table `agent_marks(vault_id, item_id, mark)`; no binding content in cleartext. A binding is usable on a device when a mark of its item
-  matches its canonical form, so a binding that arrives by sync, or is changed by another writer, needs the user's confirmation on this device.
-- **Agent log.** `K_agent_log = HKDF(AK, "", ctx("agent-log-key"), 32)`; each record
-  `0x01 || 0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, random nonce, plaintext, AAD = header || aad("agent-log", entry_id, at_ms))`; local-only
-  table `agent_log(entry_id, at_ms, sealed)` with the time in cleartext for pruning (90 days or 10,000 entries) and bound into the AAD. Never synced,
-  never in the outbox. When the count cap removes an entry younger than 90 days, the log screen says so.
-- **Labels are not reused.** The plan text of the spec used `agent-log` as the HKDF info and as the AAD label. §3 says every derived key and every AEAD
-  use has a unique label, so the HKDF info is `agent-log-key` and `agent-log` stays the AAD label (the `export` / `export-key` precedent).
-- **Settings (B2).** `canonical(settings)` gains the key `agentAccessEnabled`, which sorts first. It is written as `"agentAccessEnabled":true,` only
-  while true and omitted while false, so every existing MAC still verifies: no migration, no version bump. While locked it reads `false`; a missing
-  or invalid MAC sets it `false`, and the `settingsReset` notice fires if the file had it `true`.
-
-### Alternatives
-- A separate key agreement for agents: rejected. It is a new construction; the same OS access control and the user's approval authenticate the pairing.
-- Marks stored per element ID in cleartext: rejected. Element IDs live in item plaintext (§11).
-- The log in `settings.json` or a plain file: rejected. Titles and origins are derived from plaintext.
-- A counter nonce for log records: rejected. §7.2 requires a fresh random nonce, and the records are independent (a counter nonce is used only for the
-  channel frames, ADR-0036, where each key lives for one connection).
-- The same HKDF label for the log key and the log AAD: rejected (§3, see above).
-
-### Consequences
-Unreadable log rows (a record that does not open, for example after a full re-key) are skipped and counted, never deleted on read; the count is shown. Skipping preserves evidence of tampering and never destroys data on a read error.
-
-No new primitive, crate or dependency: HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 and `random(n)` as in §2. The crypto-reviewer reviews this ADR
-and the spec text before `mosaic-core` code lands (Task 3 of the plan). THREAT_MODEL §4.11 rows cite this ADR; R179 records the cleartext time
-column of the log. A disk reader of the store learns when agent use happened and how many records exist, not what was used.
-
 ## ADR-0159: Desktop agent mode: an MCP request tool
 
 - Status: accepted
@@ -6368,6 +6321,317 @@ Decisions made on top of the spec (D = spec decision, Q = spec open question, B 
 plan's later tasks. THREAT_MODEL §4.11 and R179 to R185, `docs/NATIVE_MESSAGING.md` §9 and `docs/CLI.md` "Agent access" are normative for them. The
 landing page may make a claim only after the red-team pass of the plan (spec §11.5); this ADR makes none. The README stays pre-audit.
 
+## ADR-0160: Agent channel labels, device marks and the agent log
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: agent access, phase 0 (spec `docs/superpowers/specs/2026-11-14-agent-access-design.md` §5.2, §6.4, §9.4)
+
+### Context
+AI agents use vault secrets through a local MCP relay (`mosaic agent mcp`) that talks to the unlocked desktop. That needs (1) a local channel
+with its own pairings, (2) a way to make a binding that arrived by sync unusable until the user confirmed it on this device, and (3) a log of every
+agent use. The log holds item titles, origins and command lines, which are derived from item plaintext, so CRYPTO_SPEC §11 forbids storing them in
+cleartext.
+
+### Decision
+- **Channel labels.** CRYPTO_SPEC §15 becomes "Local app channels". The construction is unchanged and used by two channels with disjoint label sets:
+  `browser/auth|handshake|session|frame` and `agent/auth|handshake|session|frame`. Pairings, `K_pair` storage and endpoints are per channel. Every
+  derivation and the frame AAD carry the channel's labels, so a key of one channel fails the other's handshake. The agent `K_pair` is stored by the
+  desktop in `agent-pairings.json` as §4 stores browser pairings, and by the client only in the OS keystore. The browser golden vector stays
+  byte-identical; a second vector pins the agent labels.
+- **Device marks.** `K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)`; `mark = HMAC-SHA-256(K_agent_mark, item_id[16] || u32(len(binding_id)) || binding_id || canonical(v))` (the binding ID is in the mark, a binding with
+  concurrent register entries is unconfirmed, numbers are integers only);
+  local-only table `agent_marks(vault_id, item_id, mark)`; no binding content in cleartext. A binding is usable on a device when a mark of its item
+  matches its canonical form, so a binding that arrives by sync, or is changed by another writer, needs the user's confirmation on this device.
+- **Agent log.** `K_agent_log = HKDF(AK, "", ctx("agent-log-key"), 32)`; each record
+  `0x01 || 0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, random nonce, plaintext, AAD = header || aad("agent-log", entry_id, at_ms))`; local-only
+  table `agent_log(entry_id, at_ms, sealed)` with the time in cleartext for pruning (90 days or 10,000 entries) and bound into the AAD. Never synced,
+  never in the outbox. When the count cap removes an entry younger than 90 days, the log screen says so.
+- **Labels are not reused.** The plan text of the spec used `agent-log` as the HKDF info and as the AAD label. §3 says every derived key and every AEAD
+  use has a unique label, so the HKDF info is `agent-log-key` and `agent-log` stays the AAD label (the `export` / `export-key` precedent).
+- **Settings (B2).** `canonical(settings)` gains the key `agentAccessEnabled`, which sorts first. It is written as `"agentAccessEnabled":true,` only
+  while true and omitted while false, so every existing MAC still verifies: no migration, no version bump. While locked it reads `false`; a missing
+  or invalid MAC sets it `false`, and the `settingsReset` notice fires if the file had it `true`.
+
+### Alternatives
+- A separate key agreement for agents: rejected. It is a new construction; the same OS access control and the user's approval authenticate the pairing.
+- Marks stored per element ID in cleartext: rejected. Element IDs live in item plaintext (§11).
+- The log in `settings.json` or a plain file: rejected. Titles and origins are derived from plaintext.
+- A counter nonce for log records: rejected. §7.2 requires a fresh random nonce, and the records are independent (a counter nonce is used only for the
+  channel frames, ADR-0036, where each key lives for one connection).
+- The same HKDF label for the log key and the log AAD: rejected (§3, see above).
+
+### Consequences
+Unreadable log rows (a record that does not open, for example after a full re-key) are skipped and counted, never deleted on read; the count is shown. Skipping preserves evidence of tampering and never destroys data on a read error.
+
+No new primitive, crate or dependency: HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 and `random(n)` as in §2. The crypto-reviewer reviews this ADR
+and the spec text before `mosaic-core` code lands (Task 3 of the plan). THREAT_MODEL §4.11 rows cite this ADR; R179 records the cleartext time
+column of the log. A disk reader of the store learns when agent use happened and how many records exist, not what was used.
+
+## ADR-0161: Folder setup code v2
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: Android folder sync (spec `docs/superpowers/specs/2026-11-15-android-folder-sync-design.md` §7)
+
+### Context
+The desktop setup code (ADR-0096, CRYPTO_SPEC §6.9.7) carries a server, an email and the Secret Key, so it only
+fits hosted accounts, and the desktop refuses to show it for a folder account. A free user whose desktop syncs
+through Dropbox, OneDrive or Nextcloud has to type the account ID, the provider, the folder and the Secret Key on
+the phone. A folder account has no server and no email, so it needs another body.
+
+### Decision
+A second code form, `mosaic-setup:2:` followed by unpadded base64url of a canonical JSON with seven members in a
+fixed order: `v` (2), `kind` (`folder`), `account` (32 lowercase hex), `provider` (`dropbox`, `onedrive`, `webdav`
+or `other`), `server` (a canonical `https` origin, non-empty exactly for `webdav`), `path` (a hint, strict path
+rules) and `sk` (the Secret Key display form). At most 1 024 bytes. The exact rules are in CRYPTO_SPEC §6.9.7. The
+v1 form and its parser stay as they are.
+
+- The code carries nothing secret that is not in a v1 code: the Secret Key was already there, and the account ID
+  and the path are visible to the provider (§12.1). It has no label and uses no primitive.
+- The desktop builds it only after re-authentication and shows it for 60 s, as for v1.
+- The path and the provider come from the desktop's provider client configuration (Dropbox `info.json`, the
+  `OneDrive*` variables, the Nextcloud client config). The hint is best effort: an unknown source gives `other`
+  and an empty path, and the phone asks the user to choose the folder.
+
+### Alternatives considered
+- **An optional member in v1.** Rejected: the v1 parser is strict (exactly four members), so an older phone would
+  refuse the code with a misleading error, and a strict parser is the point.
+- **Carrying an OAuth token in the code.** Rejected: a new secret in a QR code that a camera or a screenshot can
+  capture. The phone signs in to the provider itself.
+
+### Consequences
+The desktop shows the code for folder accounts. A wrong or hostile hint gains nothing: the join opens only an
+account file that the master password and the Secret Key unwrap, and the version rule refuses a re-planted
+wrapping (§10.1 "Joining"), while the newer file is visible; a withholding provider is R54. THREAT_MODEL R139 applies to the folder code too.
+
+## ADR-0162: Android folder sync through provider APIs
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: Android folder sync (spec `docs/superpowers/specs/2026-11-15-android-folder-sync-design.md`, with the
+  owner answers of 2026-11-15)
+
+### Context
+The phone apps support hosted accounts only (`folderAccountUnsupported`), so a free user, who syncs through their
+own cloud folder, cannot use the Android app. Android has no path-based access to Dropbox or OneDrive folders
+(spec §4). The folder format, MACs and join rules of CRYPTO_SPEC §10.1 stay as they are; no primitive is added.
+
+### Decision
+- **Rust HTTP stores, not SAF.** A `FolderStore` trait goes under `FolderTransport`; today's local file access
+  becomes `LocalStore` (no behaviour change). Remote stores for WebDAV, Dropbox API v2 and Microsoft Graph live in
+  `mosaic-sync` behind the feature `folder-remote`, over the existing blocking `reqwest` client with `rustls`. A
+  SAF store for local-sync apps is a possible phase 2 and not part of this decision.
+- **Full-access scopes, confined by our code** (owner answer 2): Dropbox Full Dropbox with
+  `files.metadata.read files.content.read files.content.write account_info.read`, Graph
+  `Files.ReadWrite offline_access`. Mosaic's code reaches only `root + RelPath`, a validated relative path type.
+- **No provider SDKs, no Play services, no `androidx.browser`.** The sign-in page opens with
+  `Intent.ACTION_VIEW` in the system browser (RFC 8252 external user agent), as the WebAuthn handoff does, not in
+  Custom Tabs.
+- **OAuth.** Redirect `io.github.stephanbaum.mosaic.oauth:/cb`, PKCE S256 with a fresh 32-byte verifier per
+  attempt and a 32-byte `state` compared in constant time with `subtle`. PKCE is RFC 7636 over SHA-256 and
+  `random(32)` from CRYPTO_SPEC §2, not a new construction. There is no client secret.
+- **Pending link.** The pending sign-in lives 5 minutes and follows the lifetime of the join slot; it is dropped
+  on lock.
+- **Client IDs** are compile-time `option_env!` values; an empty one means `folderProviderUnsupported`.
+- **Graph lists per directory** at launch (no `delta`).
+- **Revocation.** Unlink revokes what can be revoked: Dropbox `/2/auth/token/revoke`, Nextcloud
+  `DELETE /ocs/v2.php/core/apppassword`. Microsoft has no per-app revocation of consumer refresh tokens: the user
+  removes the app on the account page (R168).
+- **TLS 1.3 only** (owner answer 3, ADR-0046, ADR-0091), also for self-hosted WebDAV. A TLS 1.2 server gets
+  `folderServerTlsTooOld`.
+- **Google Drive is skipped** (owner answer 1): restricted-scope verification, an annual assessment and Play
+  services conflict with the rules above. iCloud Drive has no Android access.
+- **`quick-xml`** (already in `Cargo.lock` through `plist`) reads WebDAV `PROPFIND` answers; `subtle` (already in
+  the lock file) compares `state`. Neither adds a cryptographic primitive.
+- **Build order** (owner answer 4): WebDAV and Nextcloud, then Dropbox, then OneDrive.
+
+### Alternatives considered
+- **SAF through a Kotlin callback store for every provider.** Rejected: Dropbox, OneDrive and Google Drive expose
+  no usable tree (spec §4), and Rust-owned provider rules are written and host-tested once.
+- **App-folder scopes.** Rejected by the owner: an existing desktop folder would have to move, and Dropbox team
+  folders are out of reach.
+- **A provider SDK or MSAL.** Rejected: telemetry and proprietary code, and Play services.
+
+### Consequences
+- CRYPTO_SPEC §10.1 "Remote stores" lists the write and listing rules; §12.1 lists what a provider sees; §6.9.1
+  adds the `folder-credential/<account>` secure-storage entry.
+- A provider API answer is a hostile folder (R54): the MAC checks, the name parser, the caps and the own-log
+  rollback halt apply unchanged. The own-log check asks an authoritative `stat` before it halts, so a lagging
+  listing never causes a false halt.
+- New residual risks R166 to R170 in THREAT_MODEL §5.
+
+## ADR-0163: Windows program fill phase 2: shim scope for focus events, writes and input
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: autofill everywhere, part 1 (Windows program fill, phase 2)
+
+### Context
+ADR-0157 D1 left C-UIA-EVENTS, C-UIA-WRITE and C-INPUT open for phase 2 and D5 forbids a second UIA client. Phase 2 needs
+focus events (to offer a login at a field), `ValuePattern` reads and writes, keyboard input, and a way to show Mosaic's own
+chip without taking focus.
+
+### Decision
+- **All three go to `mosaic-winshim`.** Its UIA client already carries the `IUIAutomation2` timeouts (ADR-0157 D5);
+  `uiautomation` has none; `enigo` and `rdev` failed vetting in ADR-0157; `winsafe` copies `INPUT` into a non-zeroized `Vec`.
+- **The added public API** is exactly the interface block of the phase 2 plan, Task 5: `FocusSubscription` and
+  `Uia::{subscribe_focus, edits_near, edits_in_window, refresh, set_focus, set_value, value}`, `send_unicode`, `send_key`,
+  `modifiers_down`, `set_foreground`, `show_no_activate`, `Key`, `MAX_UNITS_PER_CALL`, and the errors `TooLong` and
+  `NotOwnWindow`. No `unsafe fn`, no raw pointer, raw handle or `windows` type in a public signature.
+- **Features.** The added `windows =0.62.2` feature is `Win32_UI_Input_KeyboardAndMouse` (new). `Win32_System_Variant` was
+  already enabled in phase 1. The focus handler uses `windows::core::implement` (the `windows-implement` crate is already in
+  the tree); its generated code names `::windows_core`, so `windows-core =0.62.2` (the version `windows` already pulls
+  in) becomes a direct dependency edge of the shim. The only changes to `Cargo.lock` are these edges and `zeroize`
+  (workspace dependency) joining `mosaic-winshim` and `mosaic-program-fill`; no new package.
+- **Input buffers.** `send_unicode` builds its `INPUT` records in a `Zeroizing<Vec<InputRecord>>` of exact capacity that is
+  never grown, at most 16 UTF-16 units (32 records) per call; the typed password therefore never sits in a record that is
+  not wiped. A longer slice is `TooLong`.
+- **Narrow permissions.** `set_value` and `value` refuse password elements (`AccessDenied`); `show_no_activate` accepts only
+  windows of Mosaic's own process (`NotOwnWindow`); `set_foreground` accepts only top-level windows.
+- **Also added** (same rules): `ProcessHandle::start_time` (`GetProcessTimes`, to tell a reused parent process ID from the
+  parent, for the `WebView2` chain of ADR-0164) and `ImageFile::product_name` (`GetFileVersionInfoW`, `VerQueryValueW`, both
+  in the already enabled `Win32_Storage_FileSystem`; read by the final path of the image that is held open without write or
+  delete sharing; display data used only to refuse a renamed browser).
+- **Hardening carried from the phase 1 red team** (open items of ADR-0158): the worker is respawned after a hung call
+  (ADR-0164, timers); renamed browsers are handled by ADR-0164. **Still open:** comparing the file ID of the held image with
+  `GetMappedFileNameW` of the image base (R178). It needs `PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` on the target, which
+  the shim does not take today (`PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE`); widening the rights on every program
+  Mosaic looks at is a security change of its own and needs its own review. R178 stands.
+
+### Alternatives
+- A second UIA client for events: rejected (ADR-0157 D5).
+- `SendInput` through a wrapper crate: rejected, see above.
+
+### Consequences
+`crates/winshim` grows by `sys_input.rs` and additions to `sys_uia.rs`, `sys_window.rs` and `sys_process.rs`. Every new
+`unsafe` block carries a `// SAFETY:` reading, and `tools/check-unsafe-confined.sh` keeps the exception confined.
+
+### Review log
+| Date | Review | Result |
+|---|---|---|
+| (pending) | crypto-reviewer reading of the new `unsafe` blocks; Fable red-team review of the changed shim before merge | to be recorded by the orchestrator |
+
+## ADR-0164: Windows program fill phase 2: picker windows, fill, submit and linking
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: autofill everywhere, part 1 (Windows program fill, phase 2)
+
+### Context
+Phase 1 (ADR-0157, ADR-0158) identifies a program and re-verifies before a write but writes nothing. Phase 2 offers the
+logins bound to the focused program at its login field, fills on the user's pick and presses Enter, and lets a program be
+linked on the spot. Spec `docs/superpowers/specs/2026-11-14-autofill-everywhere-design.md` §2.1 G1 to G4, §2.3 A1, A2, A8,
+§5.1 and §5.2, §7 Q1 to Q4.
+
+### Decision
+- **Picker surface.** Two Tauri webview windows created from Rust only (`program_fill::picker_windows`): `picker-chip`
+  (24 x 24 logical px, `focusable(false)`, shown through the shim's `show_no_activate`) and `picker` (the list, takes
+  focus). Both: no decorations, not resizable, skip taskbar, always on top, `content_protected(true)`, served from the
+  bundled `chip.html` and `picker.html`. Capabilities `chip` and `picker` grant only `CHIP_COMMANDS` and `LIST_COMMANDS`.
+  A native layered window was rejected: it would put a window procedure, text rendering, IME, DPI and accessibility into
+  the `unsafe` shim and lose i18n, design tokens and screen-reader support.
+- **Not spoofable.** A target program cannot draw into Mosaic's windows. Before `picker_choose` and `picker_link_confirm`
+  Rust checks: the generation is current, the item is in Rust's own offer (or the link step Rust opened), the list window
+  is foreground, its outer rectangle equals the last placement, and the five probe points of the list rectangle resolve
+  through UIA to the list's own top-level window. Picks within 300 ms of the list appearing are ignored (a double click on
+  the chip). Link confirmation keeps the 1 s guard of `prompts.rs`, and unsigned programs need the second confirmation of
+  ADR-0158. Synthesised input into the picker is residual R171.
+- **Detection.** One MTA worker owns the UIA client; focus events are debounced 150 ms; events of Mosaic's own process are
+  ignored; an identity cache of 16 entries keyed by PID holds the process handle. The worker runs only while
+  `programFill` is on and (the vault is unlocked, or it was unlocked once in this run so the setting is verified). The
+  field rectangle is polled every 250 ms only while the chip is visible. Container for the user-name search: the ancestor
+  3 levels above the focused Edit; at most 64 Edits scanned. A lone text field is offered only when the program has a
+  matching login and the whole window holds exactly one usable Edit.
+- **Writing.** User name: `ValuePattern.SetValue` with read-back for the frameworks `Win32`, `WinForm`, `WPF`, else typing.
+  Password: always typed in phase 2 (no framework is proven for a password `SetValue`). Typing: modifier wait up to
+  2000 ms (poll 20 ms), batches of at most 8 UTF-16 units that never split a surrogate pair, a full `verify::check` before
+  every batch, a focus event since the last `SetFocus` (after a 50 ms settle) aborts, a short `SendInput` count aborts; on
+  abort, if the same field still verifies, Ctrl+A then Backspace.
+- **Submit.** Enter, after `check(Submit)`, when the global `programFillSubmit` is on and no matched binding has
+  `extra.submit = false`. Never on an empty password. On a lone text field (the first page of a two-step login) Enter follows
+  the user name after `check(SubmitText)`, which needs the same text field of the pick (`WriteKind::SubmitText`).
+- **Two-step.** A pick on a lone text field fills the user name (and presses Enter when submit is on) and arms a
+  continuation: a password field focused in the same root window, window PID and element PID within 60 s of the pick gets
+  the password and Enter, once; the worker keeps the old process handle until the continuation ends. The code step (TOTP)
+  is not in phase 2.
+- **Linking.** Only Rust-captured identities become `winapp://` URLs: `UrlChange` add and update refuse `winapp://`. A
+  link replaces the user's bindings that `binding_change` reports for this identity (no stale duplicates). Display data
+  `extra.program = { name, signer }` (each at most 256 chars); per-binding `extra.submit = false` turns Enter off.
+- **Block list.** "Don't offer for this program" stores `{ key, label }` in `program_fill_blocked.json` next to
+  `settings.json`, outside the MAC (it only ever removes offers, R176), at most 200 entries. Keys: `package:<family>`,
+  `signed:<exe>:<signer b64url>`, `path:<folded path>` (an update of an unsigned program stays blocked).
+- **Settings.** `programFill` (default off, Q1, first-unlock card), `programFillSubmit` (default on), both in the MAC only
+  while `programFill` is on (so existing MACs stay valid, like `breachCheck`); an unverified file reads both as off.
+  `programFillHotkey` (default none, Q4; not a protection, outside the MAC; must differ from `globalShortcut`). D3 of
+  ADR-0157 holds: Chromium and Electron programs follow the global setting.
+- **Hotkey.** Opens the list directly for a detected login field; on an elevated target it shows the administrator
+  notice; on anything else "Mosaic can't see a login field here". "Type into this program" for undetected fields (spec
+  §5.1.4) is not in phase 2.
+- **Locked vault.** Before the first unlock of a run nothing is watched. Later, while locked, the chip shows a lock on
+  password and user-name fields; a click opens the main window's unlock and, within 60 s, Mosaic refocuses the field,
+  captures again and opens the list only if the same element (RuntimeId) is focused.
+- **Exclusions added to ADR-0158.** Package families `microsoft.aad.brokerplugin_cw5n1h2txyewy` and
+  `microsoft.windows.cloudexperiencehost_cw5n1h2txyewy`, exe `microsoft.aad.brokerplugin.exe` are `Broker` (they show
+  federated sign-in pages of any tenant); `wwahost.exe` is `Host`.
+- **Timers** in one table:
+
+  | Timer | Value |
+  |---|---|
+  | focus debounce | 150 ms |
+  | pick guard | 300 ms |
+  | link guard | 1000 ms |
+  | second confirmation gap | 1000 ms |
+  | pick TTL | 30 s |
+  | continuation | 60 s |
+  | UIA timeouts | 2000 ms |
+  | host call timeout (then the worker is abandoned and respawned) | 5000 ms |
+  | fill call timeout (a fill ends by its own 30 s pick expiry) | 35 s |
+  | rect poll | 250 ms |
+  | notice | 6000 ms |
+  | unlock resume | 60 s |
+
+### Amendment to ADR-0158 Q2: WebView2 content of a signed, non-browser host (owner decision 2026-11-15)
+"Also WebView2 apps should work." Content rendered by WebView2 (`msedgewebview2.exe`) for a host program counts as that
+host program's own content, so new Teams and other WebView2 apps get offers. Conditions, all required and all tested:
+1. the focused element's process is `msedgewebview2.exe` and its WebView2 browser process was started by the host program
+   (the parent chain from the renderer to the browser process to the host; the PIDs and process start times are
+   re-verified before each write, like the program itself);
+2. the host program is signed or packaged (an unsigned host is refused, with no two-confirmation path);
+3. the host is not a browser (Edge, Chrome, Firefox and the other excluded classes stay refused; the extension covers them);
+4. the binding stays exe plus signer (or package) of the **host**, never the WebView2 runtime.
+The sign-in broker windows stay `Broker` (above). The rest of ADR-0158 Q2 (foreign process content refused) is unchanged.
+R174 is widened accordingly.
+
+### Amendment to "Two-step": the second step writes alone only where it is certain (red-team F2)
+The first reading let any password field focused in the same root window within 60 s receive the password and Enter with no
+gesture. Conservative reading: the host continues without a new pick only when (1) the focused field is not web content
+(framework `Chrome`, `WebView`, `Edge`, `Gecko` and the like, an element process other than the window's, or a WebView2 host)
+and (2) it is the only usable password edit of its root window, besides the unchanged checks (same root window and processes,
+60 s, unused, unlocked). In every other case the host reports `ContinueOffer`: the desktop spends the continuation, opens the
+list on the field with the first step's login preselected, and one Enter or click (after the 300 ms guard) fills as an
+ordinary pick. Recorded as R207 (the remaining case: a native window whose single password field is not the login's).
+Related hardening (red-team F1, F3, F4, F6): events reach the sink on a dispatcher thread, not the worker's (a sink that calls
+the host would wait for its own worker), and an abandoned worker leaves before running any queued command; an unlock resume
+needs the clicked offer's token and program to be the current offer; modifier keys are checked before every typed batch, the
+clean-up chord and Enter; a lone text field is first judged from its container's edits, and the window is searched by a walk
+that stops at the second usable edit and checks its deadline per element.
+
+### Renamed browsers (open item of the phase 1 red team)
+A browser copied to another file name keeps the vendor's signature, so the name list of ADR-0158 does not exclude it.
+Phase 2 adds an exclusion by the product name of the version resource (`Google Chrome`, `Microsoft Edge`, `Mozilla Firefox`,
+`Brave`, `Opera`, `Vivaldi` and the other browsers of the name list; the whole name or the name followed by a space), whoever
+signed the file and whatever it is called. That is stricter than "signer plus product": a stripped or re-signed copy is excluded
+too. A renamed browser whose version resource cannot be read or carries another name is covered by R206.
+
+### Alternatives considered
+One picker window with `set_focusable` toggling (not verified at runtime in tao 0.37.2); polling focus instead of events
+(idle cost); `SetValue` for passwords (not readable back, unproven).
+
+### Consequences
+THREAT_MODEL §4.10 (phase 2 rows) and R171 to R176, R206. `docs/DESKTOP_IPC.md` and `docs/PROGRAM_FILL.md` follow with the
+desktop tasks.
+
 ## ADR-0165: Onboarding import: detection, deletion and unverified presets
 
 - Status: accepted
@@ -6433,3 +6697,46 @@ parsers sit on the existing CSV, JSON and bounded ZIP readers of `crates/import`
 ### Consequences
 THREAT_MODEL §4.1 (import rows) and R194 to R196. The launch-gate checklist in `docs/PROGRESS.md` ("Onboarding
 import: launch gate") must be done before the guides and presets are described as supported without reservation.
+
+## ADR-0166: Provider stores keep to the folder; test hooks are test-only
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: Android folder sync (ADR-0162), Dropbox and OneDrive stores
+
+### Context
+The Dropbox and Graph stores run on full-access scopes (ADR-0162, R166). Our code is the only thing that keeps
+them inside the chosen folder, and the provider client has a loopback `http` switch for the tests.
+
+### Decision
+- **Confinement.** A store builds every request path from the chosen folder and a validated `RelPath`. A listed
+  entry is used only if it is strictly below the folder, component by component (Dropbox: the lower-case path
+  starts with the folder's components, the display path equals the lower-case path, the name is the last
+  component; Graph: a valid single component that is a plain file or folder, never a shortcut, package or deleted
+  item). A Graph `nextLink` is followed only inside `drives/<drive>/`; an upload URL must be https and gets no
+  `Authorization`; a download link is fetched once without it.
+- **Deletes.** A delete carries the listed `rev` (Dropbox `parent_rev`) or `eTag` (`If-Match`) and never removes a
+  folder on the name of a file. `remove_squatter` removes whatever sits on one of the writer's own segment names
+  and `remove_empty_dir` an empty folder; both are recursive on the provider (R198; this includes WebDAV, whose
+  `DELETE` of a collection removes it with everything in it). The chosen folder itself is
+  never deleted.
+- **Tokens.** Refresh tokens and access tokens are zeroizing and never in an error or a log. The access token is
+  fetched when missing and once after a 401; a refused grant ends the run as signed out. A rotated Graph refresh
+  token is stored before the new access token is used (R199). Dropbox uploads are single requests (at most
+  150 MiB); Graph uses an upload session above 4 MiB with 3 276 800-byte chunks.
+- **Test hooks.** `RemoteHttp::new()` is the only production constructor (https only). `new_loopback()` exists
+  only in test builds or in debug builds with the `test-util` feature, so no release build has it, with or without
+  `test-util` (CI release test runs enable `test-util` through dev-dependencies) (R200).
+- **Store schema v14** adds the device-local `folder_remote` table (CRYPTO_SPEC section 11).
+- **Open items resolved after the red team.** Graph write-once now goes through `createUploadSession` with
+  `conflictBehavior: fail` (documented) for every size; a simple `PUT` is used only for replacing. A WebDAV 401 is
+  confirmed by a second `PROPFIND` before the credential is deleted, and the app password is revoked first (R201).
+  A forged sign-in callback no longer destroys the pending link (five failures, then it expires; R202). A join
+  records the account file's version (R203). Phones register as `android` and `ios` in `info.mdev` (R204). A
+  reset reports a revocation that did not happen (R205). A read error of the own segment fails the run, with no
+  24 h timer (CRYPTO_SPEC section 10.1).
+
+### Alternatives considered
+- **A flag on the production constructor.** Rejected: a caller could enable it.
+- **Metadata call before every Graph download.** Rejected: the download response carries its length, which is
+  checked against the cap before the body is read.

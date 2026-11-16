@@ -51,6 +51,7 @@ Use pnpm, never npm. The Rust toolchain is pinned in `rust-toolchain.toml`.
 - `crates/origin`: exact-origin matching, HTTP rules, IDN and look-alike checks for fills. `crates/native-messaging`: the host `mosaic-native-host` and the extension channel (`docs/NATIVE_MESSAGING.md`)
 - `crates/program-fill`: program identity capture, binding policy and re-verification for Windows program fill (ADR-0157, ADR-0158). `crates/winshim` (added with the Windows probe): the only crate with `unsafe`, a safe minimal shim over Win32 (ADR-0157)
 - `crates/agent`: agent access (bindings, masking, request path, policy engine, agent wire protocol; ADR-0159, ADR-0160)
+- `crates/sync`: sync client, folder transport and engine; `folder/remote`: WebDAV, Dropbox and Graph folder stores (feature `folder-remote`, ADR-0162)
 - `crates/server`: axum sync server. `crates/cli`: the `mosaic` binary
 - `packages/{design-tokens,i18n}`: shared TS for the apps
 - `apps/desktop`: Tauri v2 app (M3). IPC contract: `docs/DESKTOP_IPC.md`;

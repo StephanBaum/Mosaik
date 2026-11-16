@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use mosaic_core::{AttachmentId, InstallId, VaultId};
 use mosaic_vault::storage::validate_attachment_ciphertext;
 
-use super::{FolderCrypto, FolderTransport, decoded, fsutil, lock_or};
+use super::{FolderCrypto, FolderTransport, decoded, lock_or};
 use crate::transport::{RemoteAttachment, TransportError};
 use crate::wire::blob_delete::{self, BlobDelete, BlobDeletePath};
 use crate::wire::folder_names::{self, FolderName};
@@ -24,11 +24,11 @@ impl<C: FolderCrypto> FolderTransport<C> {
     ) -> Result<(), TransportError> {
         validate_attachment_ciphertext(ciphertext).map_err(|_| TransportError::Protocol)?;
         let path = self.layout.blob_path(&vault, &id);
-        if fsutil::exists(&path) {
+        if self.store.exists(&path) {
             // Identical content for an ID everywhere: nothing to write.
             return Ok(());
         }
-        fsutil::write_atomic(
+        self.store.write_atomic(
             &self.layout.blobs_dir(&vault),
             &folder_names::blob_name(id.as_bytes()),
             ciphertext,
@@ -46,7 +46,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
         ciphertext: &[u8],
     ) -> Result<(), TransportError> {
         validate_attachment_ciphertext(ciphertext).map_err(|_| TransportError::Protocol)?;
-        fsutil::write_atomic(
+        self.store.write_atomic(
             &self.layout.blobs_dir(&vault),
             &folder_names::blob_name(id.as_bytes()),
             ciphertext,
@@ -59,7 +59,9 @@ impl<C: FolderCrypto> FolderTransport<C> {
         vault: VaultId,
         id: AttachmentId,
     ) -> Result<Option<Vec<u8>>, TransportError> {
-        let Some(bytes) = fsutil::read_capped(&self.layout.blob_path(&vault, &id), MAX_BLOB_LEN)?
+        let Some(bytes) = self
+            .store
+            .read_capped(&self.layout.blob_path(&vault, &id), MAX_BLOB_LEN)?
         else {
             return Ok(None);
         };
@@ -81,7 +83,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
         let bytes = marker
             .encode(&self.crypto)
             .map_err(|e| lock_or(e, TransportError::Protocol))?;
-        fsutil::write_atomic(
+        self.store.write_atomic(
             &self.layout.blobs_dir(&vault),
             &folder_names::blob_delete_name(id.as_bytes(), self.install.as_bytes()),
             &bytes,
@@ -95,8 +97,9 @@ impl<C: FolderCrypto> FolderTransport<C> {
         vault: VaultId,
         id: AttachmentId,
     ) -> Result<bool, TransportError> {
-        fsutil::remove(&self.layout.marker_path(&vault, &id, &self.install))?;
-        Ok(fsutil::exists(&self.layout.blob_path(&vault, &id)))
+        self.store
+            .remove(&self.layout.marker_path(&vault, &id, &self.install))?;
+        Ok(self.store.exists(&self.layout.blob_path(&vault, &id)))
     }
 
     /// The verified markers of a vault: attachment to the deleting devices
@@ -106,7 +109,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
         vault: &VaultId,
     ) -> Result<BTreeMap<AttachmentId, Vec<(InstallId, u64)>>, TransportError> {
         let mut out: BTreeMap<AttachmentId, Vec<(InstallId, u64)>> = BTreeMap::new();
-        for entry in fsutil::list(&self.layout.blobs_dir(vault))? {
+        for entry in self.store.list(&self.layout.blobs_dir(vault))? {
             let Some(FolderName::BlobDelete { attachment, device }) =
                 folder_names::parse(&entry.name)
             else {
@@ -121,8 +124,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
             let path = self
                 .layout
                 .blobs_dir(vault)
-                .join(folder_names::blob_delete_name(&attachment, &device));
-            let Ok(Some(bytes)) = fsutil::read_capped(&path, blob_delete::LEN as u64) else {
+                .known(&folder_names::blob_delete_name(&attachment, &device));
+            let Ok(Some(bytes)) = self.store.read_capped(&path, blob_delete::LEN as u64) else {
                 continue;
             };
             let expected = BlobDeletePath {
@@ -145,8 +148,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
     ) -> Result<Vec<RemoteAttachment>, TransportError> {
         let markers = self.verified_markers(&vault)?;
         let mut out = Vec::new();
-        for entry in fsutil::list(&self.layout.blobs_dir(&vault))? {
-            if entry.is_dir {
+        for entry in self.store.list(&self.layout.blobs_dir(&vault))? {
+            if entry.is_dir() {
                 continue;
             }
             let Some(FolderName::Blob(id)) = folder_names::parse(&entry.name) else {

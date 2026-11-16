@@ -152,8 +152,8 @@ const stored = detail("login", {
   text: [{ field: "username", value: "alex" }],
   secrets: ["password"],
   urls: [
-    { elementId: "u1", url: "https://a.example", matchMode: "exactOrigin", allowHttp: true },
-    { elementId: "u2", url: "https://b.example", matchMode: "exactOrigin", allowHttp: false },
+    { elementId: "u1", url: "https://a.example", matchMode: "exactOrigin", allowHttp: true, program: null },
+    { elementId: "u2", url: "https://b.example", matchMode: "exactOrigin", allowHttp: false, program: null },
   ],
   customFields: [
     { elementId: "c1", label: "Note", kind: "text", value: "hello" },

@@ -375,6 +375,13 @@ wire_enum!(
         BreachConsentRequired,
         /// A breach check is running already.
         BreachRunning,
+        /// The picker's list is out of date: its generation or its place changed, or it is
+        /// covered or not in front (ADR-0164).
+        PickerStale,
+        /// The pick or confirmation came too soon after the list or step appeared.
+        PickerTooSoon,
+        /// Filling in programs is not available on this device.
+        ProgramFillUnavailable,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.

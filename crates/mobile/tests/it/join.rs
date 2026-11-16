@@ -358,7 +358,7 @@ fn pending_join_expires_after_five_minutes() {
 }
 
 #[test]
-fn folder_setup_code_or_config_is_folder_account_unsupported() {
+fn copied_desktop_folder_store_is_provider_unsupported() {
     // A store whose account syncs through a folder (a copied desktop store, say).
     let (phone, _) = Phone::with_account();
     phone.core.close_store();
@@ -381,17 +381,19 @@ fn folder_setup_code_or_config_is_folder_account_unsupported() {
         .unwrap();
     assert_eq!(
         phone.core.sync_now().err(),
-        Some(MobileError::FolderAccountUnsupported)
+        Some(MobileError::FolderProviderUnsupported)
     );
     assert_eq!(
         phone
             .core
             .recover_password(b"another password".to_vec())
             .err(),
-        Some(MobileError::FolderAccountUnsupported)
+        Some(MobileError::FolderProviderUnsupported)
     );
+    // A folder account is configured; the location of its folder is not.
     let overview = phone.core.sync_overview();
-    assert!(!overview.configured);
+    assert!(overview.configured);
+    assert_eq!(overview.folder, None);
 }
 
 #[test]

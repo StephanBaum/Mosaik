@@ -150,6 +150,9 @@ export const errors = {
     "Your sync backend shows older account keys than this device has. Nothing was changed.",
   "error.syncRekeyRefused":
     "The keys your sync backend offers are not the next ones after this device's. Nothing was changed. Check your other devices.",
+  "error.pickerStale": "This list is out of date. Click the field again.",
+  "error.pickerTooSoon": "Wait a moment, then confirm again.",
+  "error.programFillUnavailable": "Filling in programs isn't available on this device.",
   "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
   "error.internal":
     "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",
@@ -265,7 +268,7 @@ export const errors = {
     "Your master password was changed on the server or in the folder. Enter the new one below.",
   "error.sharingNotHosted":
     "Sharing needs a Mosaic server. Connect one in the Sync settings first.",
-  "error.setupCodeNeedsServer": "A phone can only join an account on a Mosaic server.",
+  "error.setupCodeNeedsServer": "A phone can only join an account that syncs.",
   "error.sharingContactUnverified":
     "Compare this person's safety code first. Mosaic only shares with people you verified.",
   "error.sharingKeyChanged":

@@ -11,6 +11,7 @@ import { insights } from "./catalog/de/insights.ts";
 import { importMessages } from "./catalog/de/import.ts";
 import { agent } from "./catalog/de/agent.ts";
 import { importGuide } from "./catalog/de/importGuide.ts";
+import { programFill } from "./catalog/de/programFill.ts";
 import { browser } from "./catalog/de/browser.ts";
 import { ssh } from "./catalog/de/ssh.ts";
 import { settings } from "./catalog/de/settings.ts";
@@ -26,6 +27,7 @@ import { credentialRotation } from "./catalog/de/credentialRotation.ts";
 import { breach } from "./catalog/de/breach.ts";
 import { mobile } from "./catalog/de/mobile.ts";
 import { mobileUx } from "./catalog/de/mobileUx.ts";
+import { mobileFolder } from "./catalog/de/mobileFolder.ts";
 import type { MessageKey } from "./en.ts";
 
 export const de: Readonly<Record<MessageKey, string>> = {
@@ -43,6 +45,7 @@ export const de: Readonly<Record<MessageKey, string>> = {
   ...ssh,
   ...browser,
   ...agent,
+  ...programFill,
   ...settings,
   ...palette,
   ...shell,
@@ -56,4 +59,5 @@ export const de: Readonly<Record<MessageKey, string>> = {
   ...breach,
   ...mobile,
   ...mobileUx,
+  ...mobileFolder,
 };

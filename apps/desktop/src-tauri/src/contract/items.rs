@@ -9,6 +9,7 @@ use super::agent::{AgentBindingChange, AgentBindingView};
 use super::credential_rotation::{ChangeUrlView, HistoryEntryView, RotationAttemptView};
 use super::ids::{UnixMillis, WireAttachmentId, WireItemId, WireVaultId};
 use super::macros::wire_enum;
+use super::picker::ProgramKind;
 use super::secret::{SecretIn, SecretOut};
 
 wire_enum!(
@@ -250,6 +251,23 @@ pub struct TextFieldEntry {
     pub value: String,
 }
 
+/// What the item view shows of a `winapp://` binding (ADR-0164): the program a login is linked
+/// to. Display data only; matching never reads it.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgramBindingView {
+    /// How the program is identified.
+    pub kind: ProgramKind,
+    /// The name to show: the stored display name, else the exe, the package or the file name.
+    pub name: String,
+    /// The signer's name, from the display data.
+    pub signer: Option<String>,
+    /// The file's path, for an unsigned program (`path/` bindings only).
+    pub path: Option<String>,
+    /// Whether Enter is pressed after the fill.
+    pub submit: bool,
+}
+
 /// A login URL.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -262,6 +280,8 @@ pub struct UrlEntry {
     pub match_mode: UrlMatchMode,
     /// Filling over plain HTTP was allowed explicitly.
     pub allow_http: bool,
+    /// The program, for a `winapp://` URL (the editor shows it as a program, never as a link).
+    pub program: Option<ProgramBindingView>,
 }
 
 /// A custom field. Hidden and OTP values are never included.
@@ -526,10 +546,18 @@ pub enum UrlChange {
         /// Allow filling over plain HTTP.
         allow_http: bool,
     },
-    /// Remove a URL.
+    /// Remove a URL (also the way to unlink a program).
     Remove {
         /// The element.
         element_id: String,
+    },
+    /// Turn Enter after the fill on or off for a `winapp://` binding (ADR-0164). The URL and
+    /// its display data stay; any other element is `invalidInput`.
+    ProgramSubmit {
+        /// The element.
+        element_id: String,
+        /// Whether Enter is pressed after the fill.
+        submit: bool,
     },
 }
 
@@ -767,6 +795,7 @@ pub(crate) mod samples {
                 url: "https://github.com/login".into(),
                 match_mode: UrlMatchMode::ExactOrigin,
                 allow_http: false,
+                program: None,
             }],
             custom_fields: vec![
                 CustomFieldEntry {
@@ -915,6 +944,10 @@ pub(crate) mod samples {
                 },
                 UrlChange::Remove {
                     element_id: "6-019a2b3c4d5e7000".into(),
+                },
+                UrlChange::ProgramSubmit {
+                    element_id: "8-019a2b3c4d5e7000".into(),
+                    submit: false,
                 },
             ],
             custom_fields: vec![

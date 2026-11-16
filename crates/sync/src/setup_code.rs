@@ -4,7 +4,10 @@
 //! crate's.
 
 use mosaic_core::Result;
-pub use mosaic_core::setup_code::{MAX_SETUP_CODE_LEN, SETUP_CODE_PREFIX, SetupCode, build};
+pub use mosaic_core::setup_code::{
+    FolderProviderHint, FolderSetupCode, MAX_SETUP_CODE_LEN, ParsedSetupCode, SETUP_CODE_PREFIX,
+    SETUP_CODE_PREFIX_V2, SetupCode, build, build_folder,
+};
 
 use crate::wire::{email, origin};
 
@@ -21,6 +24,29 @@ pub fn parse(bytes: &[u8]) -> Result<SetupCode> {
             email::normalize(address).ok()?,
         ))
     })
+}
+
+/// Parses a setup code of either form strictly (CRYPTO_SPEC §6.9.7, ADR-0161):
+/// v1 as [`parse`]; for v2 the `WebDAV` server must be a canonical `https`
+/// origin.
+///
+/// # Errors
+/// As [`mosaic_core::setup_code::parse_any`].
+pub fn parse_any(bytes: &[u8]) -> Result<ParsedSetupCode> {
+    mosaic_core::setup_code::parse_any(
+        bytes,
+        |server, address| {
+            Some((
+                origin::canonical_origin(server).ok()?,
+                email::normalize(address).ok()?,
+            ))
+        },
+        |server| {
+            origin::canonical_origin(server)
+                .ok()
+                .filter(|canonical| canonical.starts_with("https://"))
+        },
+    )
 }
 
 #[cfg(test)]
@@ -60,5 +86,34 @@ mod tests {
                 "{server} {email}"
             );
         }
+    }
+
+    #[test]
+    fn folder_setup_code_uses_https_origin() {
+        let webdav = |server: &str| FolderSetupCode {
+            account: [7; 16],
+            provider: FolderProviderHint::WebDav,
+            server: server.to_owned(),
+            path: String::new(),
+            secret_key: SecretKey::generate().unwrap(),
+        };
+        for server in ["https://Cloud.example.com", "http://cloud.example.com"] {
+            let text = build_folder(&webdav(server)).unwrap();
+            assert_eq!(
+                parse_any(text.as_bytes()).err(),
+                Some(Error::Malformed),
+                "{server}"
+            );
+        }
+        let text = build_folder(&webdav("https://cloud.example.com")).unwrap();
+        assert!(matches!(
+            parse_any(text.as_bytes()).unwrap(),
+            ParsedSetupCode::Folder(f) if f.server == "https://cloud.example.com"
+        ));
+        let hosted = build(&code("https://sync.example.com", "alice@example.com")).unwrap();
+        assert!(matches!(
+            parse_any(hosted.as_bytes()).unwrap(),
+            ParsedSetupCode::Hosted(_)
+        ));
     }
 }

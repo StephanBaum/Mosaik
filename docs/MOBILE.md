@@ -21,7 +21,7 @@ simulators and emulators.
             ▼
    crates/mobile      (mosaic-mobile: all logic, forbid(unsafe_code), host-tested)
             │
-   mosaic-vault · mosaic-sync (http) · mosaic-core · mosaic-origin · mosaic-passkey · mosaic-totp
+   mosaic-vault · mosaic-sync (http, folder-remote) · mosaic-core · mosaic-origin · mosaic-passkey · mosaic-totp
    mosaic-generator · mosaic-qr
 ```
 
@@ -35,6 +35,14 @@ simulators and emulators.
   - sync;
   - settings integrity.
 - **The UI stays thin.** Screens render Rust records. Logic in Kotlin or Swift is limited to calling the OS.
+- **Folder accounts on Android (ADR-0161, ADR-0162, ADR-0166).** `mosaic-sync` (feature `folder-remote`) carries
+  three remote folder stores under the same `FolderStore` trait as the local one: WebDAV (Nextcloud and plain
+  WebDAV), Dropbox API v2 and Microsoft Graph. All speak TLS 1.3 only, through the existing blocking client. They
+  reach `root + RelPath` and nothing else. `mosaic-mobile` links the provider (PKCE, custom-scheme redirect, or the
+  Nextcloud login flow), keeps the credential in `SecureStorage` under `folder-credential/<account>`, and keeps
+  the folder engine alive while unlocked. The Kotlin side only opens the sign-in page in the system browser and
+  hands the redirect address to the core. The folder format, the MACs and the join rules of CRYPTO_SPEC §10.1 are
+  unchanged. iOS has no folder accounts yet (OD-M10-11).
 - **Toolkits:** Jetpack Compose and SwiftUI, both native (ADR-0088). Minimum OS: Android API 28, iOS 17.
 - **`mosaic-platform` is not used on mobile.** Its `keyring` and `arboard` do not build for Android, and the
   platform code lives in Kotlin and Swift.
@@ -85,12 +93,30 @@ The binding surface is `crates/mobile-ffi/src/lib.rs`; its rustdoc is the refere
       `syncHandoffExpired`, `syncRateLimited`, `syncPasswordChanged`, `syncAccountRekeyed`, `syncFailed`, and
       the server codes of `sync_check_server`.
   - **New in M10:**
-    - context and onboarding: `passwordInApp`, `folderAccountUnsupported`, `setupCodeInvalid`,
-      `notEnoughMemory`;
+    - context and onboarding: `passwordInApp`, `setupCodeInvalid`, `notEnoughMemory`;
+    - folder accounts: `folderProviderUnsupported` (this build has no client ID for the provider; renamed from
+      `folderAccountUnsupported`), `folderProviderSignedOut`, `folderNotFound`, `folderStorageFull`,
+      `folderLinkExpired`, `folderLinkInvalid`, `folderServerTlsTooOld`, `syncFolderNoAccount`,
+      `syncFolderDamaged`, `syncPasswordRollback`;
     - autofill: `noMatch`, `insecureOrigin`, `appNotLinked`, `foreignFrame`;
     - passkeys: `assetLinksUnavailable`, `appNotVerified`, `rpIdInvalid`, `passkeyNotFound`, `passkeyExcluded`,
       `passkeyUnsupportedAlgorithm`, `passkeySessionExpired`;
     - other: `qrNotFound`, `storageUnavailable`.
+- **Folder account calls (Android).**
+  - Sign-in: `folder_link_begin(provider, server?) -> LinkInfo` (a `url` for the system browser, `kind` Redirect or
+    Poll), `folder_link_finish(callback_url)` (Redirect), `folder_link_status() -> LinkStatus` (Poll: Waiting,
+    Linked, Expired), `folder_link_password(dav_url, login, password)` (WebDAV app password),
+    `folder_link_cancel()`. Providers: Dropbox, OneDrive, WebDav. While unlocked on a folder account of the same
+    provider, the same calls sign in again; the core checks that the folder still holds the account before it
+    stores a credential.
+  - Folder: `folder_locate(path_hint?) -> [FolderCandidate]` (checks one folder, never searches the drive),
+    `folder_browse(dir) -> [FolderDirEntry]`, `join_folder(JoinFolderRequest) -> SessionState`. Paths look like
+    `Mosaic/Family` (no leading slash). The phone never creates or initialises a folder.
+  - Records: `SetupCode.folder` (account, provider hint, server, path hint), `SyncOverview.folder` (provider and
+    path) and `SyncOverview.reset_phrase` (the first 8 hex characters of the account ID for a folder account).
+    `reset_device` compares the typed text with that phrase.
+  - Build input: `MOSAIC_DROPBOX_APP_KEY` and `MOSAIC_MS_CLIENT_ID` are read at compile time. An empty value makes
+    that provider `folderProviderUnsupported`.
 - **Contexts.** `CoreContext::App` and `CoreContext::IosAutofillExtension`. The extension context refuses the
   password unlock (`passwordInApp`) and every join, sync, recovery, reset, enrolment or settings call
   (`invalidInput`) before any work (CRYPTO_SPEC §6.9.3).
@@ -151,8 +177,31 @@ Limits that users notice:
   or a page inside it, and a focus in one refuses the fill; a page starts at its first node with a `webDomain`
   (M10-G2 round 2, N1). A `webDomain` without a `webScheme` is refused as well: the scheme is never assumed
   to be `https` (RT-android-1).
-- **Hosted accounts only.** A folder account gets: "This account syncs through a folder. The phone apps support
-  Mosaic sync for now."
+- **Folder accounts: Android only for now.** On Android a folder account joins through Dropbox, OneDrive or
+  Nextcloud/WebDAV (below). On iOS a folder account is still refused ("This account syncs through a folder. The
+  phone apps support Mosaic sync for now."): iCloud Drive and the File Provider come later (OD-M10-11). Google Drive
+  and iCloud Drive do not work on Android.
+- **Cloud folder sign-in (Android).**
+  - *Browser.* The sign-in page opens with `ACTION_VIEW` in the normal browser (RFC 8252 external user agent; no
+    Custom Tabs, no `androidx.browser`, no Play services). Only `https` addresses are opened. The phone shows the
+    WebDAV origin and asks before the first sign-in.
+  - *Redirect.* Dropbox and OneDrive end on `io.github.stephanbaum.mosaic.oauth:/cb?...`, caught by
+    `OAuthRedirectActivity` (exported, no history, not in recents, no saved state, never logs). `OAuthCallback`
+    passes only that exact shape, up to 4 096 characters, to the core. Another app can claim the same scheme; PKCE and
+    the `state` the core checks make a copied code useless (RFC 8252 §8.1). Android matches a path only together
+    with a host, so the scheme is the manifest's filter and `accepts` is the real one.
+  - *Permission wording.* The provider's page asks for access to all files. The app says so before the sign-in:
+    Mosaic only opens the folder the person chooses (owner decision; R166).
+  - *Tokens.* Refresh tokens, app passwords, access tokens, PKCE verifiers and codes live in zeroizing types, are
+    never logged and never part of an error (a `TransportError` carries nothing from a provider). The credential
+    is stored in `SecureStorage` only after the folder was found to hold the account. Microsoft rotates the
+    refresh token; the new one is stored before it is used (R199).
+  - *Revocation.* Resetting a folder account revokes the Dropbox grant. Microsoft has no revoke call for this
+    grant, so the settings tell the person to remove the app on their Microsoft account page under Apps.
+  - *Lock.* A pending sign-in survives the lock policy like a pending join, until it ends, is cancelled, or the
+    join finishes. A sign in again that stores its credential releases it at once; a screen that goes away with a
+    sign in again unfinished drops the link.
+  - *Reset.* Removing a folder account from the phone asks for the first 8 hex characters of the account ID.
 - **Re-key or Secret Key change elsewhere.** It needs "Set up this phone again". Unsynced local edits are then
   lost; the app shows their count and asks the user to type the email.
 
@@ -267,13 +316,26 @@ tests run in `mobile.yml`. The names below are binding: each track writes the te
 - `setup_payload_is_classified_and_returned`
 - `scan_drops_other_payloads_unread`
 
+**`mosaic-mobile`, folder accounts (`crates/mobile/tests/it/folder.rs`):**
+- link and join: `dropbox_link_begin_finish_stores_nothing_before_join`, `forged_callback_state_is_refused_and_drops_the_link`,
+  `link_expires_after_five_minutes`, `lock_drops_link_close_keeps_it`, `nextcloud_poll_waits_then_links`,
+  `provider_without_client_id_is_unsupported`, `folder_setup_code_parses_with_folder_info`,
+  `join_folder_over_dav_then_items_visible`, `choosing_a_wrong_folder_writes_nothing`,
+  `browse_lists_folders_sorted_and_caps_at_200`, `join_folder_without_link_is_not_found`
+- sync and recovery: `folder_sync_round_trip_dav_dropbox_graph`, `engine_kept_between_runs_does_not_redownload_segments`,
+  `signed_out_provider_reports_and_relink_restores`, `relink_to_folder_without_account_stores_nothing`,
+  `folder_password_recovery_adopts_newer_file_and_refuses_rollback`, `folder_reset_uses_short_id_phrase_and_revokes_dropbox`,
+  `storage_full_maps_to_folder_storage_full`, `synced_folder_account_survives_a_reopen_and_needs_no_relink`
+- `mosaic-sync` (`crates/sync/tests/it/remote_*.rs`, feature `folder-remote`): the slow-provider cases
+  `phone_waits_for_late_desktop_files_without_halting` and `expired_access_token_mid_run_refreshes_once`
+  (`remote_engine.rs`), `dropbox_429_maps_to_rate_limited`, `rotated_refresh_token_is_stored_before_use`.
+
 **`mosaic-mobile`, core (T3a):**
 - open and close: `open_new_dir_reports_no_account`, `close_store_releases_the_file_lock`,
   `reopen_after_close_restores_locked_state`, `core_is_send_and_sync`
 - join (loopback server): `join_hosted_unlocks_and_stores_secret_key_and_token`, `join_hosted_totp_second_factor`,
   `join_hosted_wrong_password_is_wrong_credentials`, `join_hosted_webauthn_begin_returns_handoff_url_and_waits`,
-  `join_refused_when_account_exists`, `pending_join_holds_no_store`, `pending_join_expires_after_five_minutes`,
-  `folder_setup_code_or_config_is_folder_account_unsupported`
+  `join_refused_when_account_exists`, `pending_join_holds_no_store`, `pending_join_expires_after_five_minutes`
 - unlock: `unlock_password_uses_stored_secret_key`, `unlock_password_records_boot_marker`,
   `wrong_secret_key_checksum_is_mistyped`, `extension_context_refuses_password_unlock_join_and_sync`,
   `extension_quick_unlock_after_app_password_unlock_same_boot`, `quick_unlock_refused_after_reboot`,
@@ -331,6 +393,9 @@ tests run in `mobile.yml`. The names below are binding: each track writes the te
   `ClipboardGuardTest.keepsForeignClipWhenReadable`, `ClipboardGuardTest.clearsWhenUnreadable`,
   `QuickUnlockKeyParamsTest.matchesCryptoSpecPerApiLevel`, `StructureReaderTest.mapsNodesHintsAndWebDomain`,
   `L10nTest.argumentOrderMatchesCatalog`
+- `:app`, cloud folder sign-in: `OAuthCallbackTest` (the exact callback shape, other paths and schemes, the 4 096
+  character cap) and `RedTeamG3Test.theOAuthRedirectActivityTakesOnlyItsOwnScheme` (the one other exported
+  activity: one VIEW filter, one data element, no history)
 
 **Android instrumented tests** (CI emulator API 34):
 - storage, keys and trust: `SecureStorageInstrumentedTest.roundTripDeleteAndAadBinding`,
@@ -343,7 +408,8 @@ tests run in `mobile.yml`. The names below are binding: each track writes the te
   `installerTrustedAtListButNotAtTapLinksNothing`, `aLoginThatMatchesByTheTapRefusesTheLink`; JVM: `LinkFlowTest`.
   The test client activity declares a `MAIN`/`LAUNCHER` intent filter, so it is visible under the `<queries>`
   rule (ADR-0092).
-- screenshots: `ScreenshotTest.mainScreensLightDarkEnDe`
+- screenshots: `ScreenshotTest.mainScreensLightDarkEnDe` (20 images, among them the settings of a signed-out folder
+  account and the provider choice)
 
 **Swift** (CI simulator):
 - `MosaicKitTests`, platform pieces: `KeychainSecureStorageTests.testRoundTripDeleteAccessibilityAndNoSync`,
@@ -391,12 +457,72 @@ applies.
 | OD-M10-8 | Android inline (keyboard) suggestions | off |
 | OD-M10-9 | 32-bit Android (`armv7`) | no |
 | OD-M10-10 | Desktop setup code (a QR code with the Secret Key) | yes, behind re-authentication, 60 s |
-| OD-M10-11 | Folder sync on mobile (M10b: iOS iCloud Drive and File Provider first; Android SAF later or never) | deferred |
+| OD-M10-11 | Folder sync on mobile | **Android: resolved** (ADR-0162: Dropbox, OneDrive, Nextcloud/WebDAV through their own APIs; Google Drive skipped). **iOS: deferred** (iCloud Drive and File Provider) |
 | OD-M10-12 | Hosted default URL in the apps (depends on OD-M9-6) | a custom URL is required until a domain exists |
 | OD-M10-13 | CI budget if the repository becomes private (macOS minutes) | iOS UI tests nightly only; build and unit tests on PRs |
 | OD-M10-14 | Local Android NDK on the development PC | no (CI-first) |
 | OD-M10-15 | Export compliance (`ITSAppUsesNonExemptEncryption`, US EAR self-classification) and the Play encryption declaration | declare that the app uses encryption; the owner files what the classification requires before the first upload |
 | OD-M10-16 | Mobile design mockups before T8 and T11 (the lesson of the M3 fidelity gap) | the agents derive screens from the desktop design language and tokens; the owner reviews the G4 screenshots, and a design-pass track follows if needed |
+
+### Owner checklist: Android folder sync (ADR-0162)
+
+Folder sync stays off for a provider until its client ID is in the release build. Without one, the app says
+that provider is not available in this build (`folderProviderUnsupported`); Nextcloud/WebDAV needs nothing from the
+owner and works at once. Do the steps in this order. Each client ID is public (it is not a secret), but it is
+set as a build variable so a fork can use its own.
+
+**Dropbox** (about 20 minutes; needed before any user can link Dropbox)
+- [ ] 1. Open the Dropbox App Console (dropbox.com/developers/apps) and choose "Create app".
+- [ ] 2. Choose "Scoped access", then the access type **Full Dropbox** (not "App folder": the folder a user already
+  shares with the desktop, including a team folder, is not inside an app folder). Name it "Mosaic".
+- [ ] 3. Permissions tab: tick `files.metadata.read`, `files.content.read`, `files.content.write` and
+  `account_info.read`, then "Submit". Mosaic's code reaches only the folder the person chooses.
+- [ ] 4. Settings tab: add the redirect URI `io.github.stephanbaum.mosaic.oauth:/cb`. **Check that the console
+  accepts a custom (non-https) scheme for a PKCE app.** If it does not, write that down in this file and tell the
+  builder: the redirect then needs a different form for Dropbox (the code takes `REDIRECT_URI` per provider).
+- [ ] 5. Settings tab: leave "Allow public clients (Implicit Grant & PKCE)" on. There is no app secret to keep.
+- [ ] 6. Branding tab: the app icon, a description and the privacy policy link (see "Privacy policy" below).
+- [ ] 7. Copy the "App key" into the release build variable `MOSAIC_DROPBOX_APP_KEY` (CI `release` environment and
+  the local build environment). Rebuild the Android app.
+- [ ] 8. A new Dropbox app is in "Development" status and allows only 50 linked users. Before the 50th user, apply for
+  production in the console ("Apply for production"). Justification text: "Mosaic is a password manager. It syncs an
+  encrypted vault through a folder the user already has, including Dropbox Business team folders. The app asks for
+  Full Dropbox because that folder already exists on the user's computer; the code confines every request to the
+  folder the user chooses." Include a short screen recording of the sign-in and the folder choice.
+
+**Microsoft (OneDrive)** (about 20 minutes)
+- [ ] 1. Open the Microsoft Entra admin centre (entra.microsoft.com), "App registrations", "New registration".
+- [ ] 2. Name "Mosaic". Supported account types: **"Accounts in any organizational directory and personal Microsoft
+  accounts"** (so a private OneDrive and a work OneDrive both work).
+- [ ] 3. Redirect URI: platform **"Mobile and desktop applications"**, value
+  `io.github.stephanbaum.mosaic.oauth:/cb`. **Check that the portal accepts the custom URI** (it lists it under
+  "Custom redirect URIs").
+- [ ] 4. Authentication tab: "Allow public client flows" = **Yes**. Do not create a client secret.
+- [ ] 5. API permissions: Microsoft Graph, delegated: `Files.ReadWrite` and `offline_access` (the sign-in asks for
+  these two; no admin consent is needed for personal accounts, a work tenant may require its admin to approve).
+- [ ] 6. Copy the "Application (client) ID" into the release build variable `MOSAIC_MS_CLIENT_ID`. Rebuild.
+- [ ] 7. Later (OD-M9-6, OD-M10-12): publisher verification, so work accounts do not show "unverified" on the consent
+  page. It needs a Microsoft Partner Program account (free) and a verified domain.
+
+**Privacy policy** (before the first store upload; the Dropbox and Microsoft consoles ask for the link too)
+- [ ] State that the phone connects straight to the cloud provider the person picks (Dropbox, Microsoft or their
+  own Nextcloud/WebDAV server). Mosaic runs no server in between and collects nothing.
+- [ ] State that the provider sees what CRYPTO_SPEC §12.1 lists: encrypted file names and sizes, and the times of
+  access. It never sees the vault's contents.
+- [ ] State that the sign-in token stays in the phone's keystore-protected storage and is removed when the person
+  removes the account from the phone (Dropbox is revoked then; for Microsoft the person removes the app on their
+  Microsoft account page).
+
+**Play data-safety form**
+- [ ] "Data collected": none. "Data shared": none. The provider connection is a transfer the user starts to a
+  service the user chooses, encrypted in transit; say so in the optional description.
+- [ ] No account creation in the app; data deletion: removing the account from the phone deletes the local copy and
+  the stored sign-in.
+
+**Review before release**
+- [ ] THREAT_MODEL R166 to R170 and R197 to R200; CRYPTO_SPEC §6.9.7, §10.1, §12.1; ADR-0161, ADR-0162, ADR-0166.
+- [ ] **Google Drive: skipped at launch** (owner answer 1). Revisit when revenue pays for the restricted-scope
+  verification and the yearly security assessment.
 
 **Store listing draft** (OD-M10-6, not submitted):
 - *Name:* Mosaic Password Manager.
@@ -459,6 +585,36 @@ These need real hardware, and they wait for OD-M10-2 and OD-M10-3. Record each r
   `NSExtensionHostDidBecomeActive` (G3i-4). Decide from the result whether `WillResignActive` stays an end.
 - [ ] Does Safari send a `.domain` identifier for `http://` pages? The core refuses an insecure origin; check
   that the list then shows no matches and says why (G3i).
+
+**Android folder sync** (one phone, a desktop with the same folder account; needs the client IDs above for
+Dropbox and OneDrive):
+- [ ] **Dropbox:** on the desktop, show the setup code of a Dropbox folder account; scan it on the phone. The intro
+  says the account syncs through Dropbox and the scope text says "all your files". "Sign in to Dropbox" opens the
+  browser; after "Allow" the phone returns to Mosaic by itself (check that no second Mosaic window stays behind
+  in the recents list). The folder is found from the hint, the master password joins, the vault shows the
+  desktop's items. Add an item on the phone; it appears on the desktop within the desktop's sync interval, and the
+  other way round.
+- [ ] **Dropbox, no code:** "Sync through a cloud folder instead", pick Dropbox, type the Secret Key, sign in, browse
+  to the folder, "Use this folder". A folder without `mosaic-sync.json` says it is not a Mosaic folder and writes
+  nothing (check in the Dropbox web UI that no file appeared).
+- [ ] **Dropbox, team folder:** the same with a Dropbox Business team folder.
+- [ ] **OneDrive:** the same with a personal OneDrive and with a work OneDrive. Sign out of the account in the
+  Microsoft account page (remove the app), sync on the phone: the settings show "Sign in again"; signing in again
+  restores sync without a re-join. After "Remove account", the settings text for OneDrive names the Apps page.
+- [ ] **Nextcloud:** type the server address; the phone asks to confirm the origin, opens the login page, and the
+  app finishes by itself after "Grant access" (the phone polls). Also join with an app password and a WebDAV
+  address. A server that only offers TLS 1.2 gives the "needs TLS 1.3" text.
+- [ ] **Slow cloud:** change several items on the desktop and sync the phone before the desktop's upload finishes
+  (or while the Dropbox desktop client lags): no warning, and the items arrive on the next sync.
+- [ ] **Lock during sign-in:** start a sign-in, switch to the browser for longer than the auto-lock time, finish the
+  sign-in: it still completes (a pending sign-in is kept).
+- [ ] **Hostile redirect:** with another test app registered for the same scheme, the redirect asks which app to
+  open; choosing the other app does not link (the code is useless without the phone's verifier).
+- [ ] **Reset:** "Remove account…" asks for the first 8 characters of the account ID; a wrong text keeps the
+  button off; after it the phone shows the onboarding, and the Dropbox app no longer lists Mosaic under
+  connected apps.
+- [ ] Airplane mode while syncing: the sync line shows an error, no crash, and the next sync completes.
+- [ ] TalkBack through the provider choice, the sign-in and the folder browse; font scaling to 200 %; DE and EN.
 
 **Both:**
 - [ ] Join with a desktop setup code, then with a TOTP second factor, then with the WebAuthn handoff in the

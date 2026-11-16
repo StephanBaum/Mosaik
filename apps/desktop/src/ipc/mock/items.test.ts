@@ -47,7 +47,7 @@ describe("mock websites", () => {
       ],
     });
     expect(updated.ok && updated.value.urls).toEqual([
-      { elementId, url: "https://gist.github.com", matchMode: "etld1", allowHttp: false },
+      { elementId, url: "https://gist.github.com", matchMode: "etld1", allowHttp: false, program: null },
     ]);
     expect(updated.ok && updated.value.summary.host).toBe("gist.github.com");
     const removed = await update(GITHUB, { urls: [{ op: "remove", elementId }] });
@@ -55,6 +55,23 @@ describe("mock websites", () => {
     expect(removed.ok && removed.value.summary.host).toBeNull();
     const unknown = await update(GITHUB, { urls: [{ op: "remove", elementId: "nope" }] });
     expect(unknown).toEqual({ ok: false, error: { code: "invalidInput" } });
+  });
+
+  it("refuses a program binding in the editor and a submit switch on a website", async () => {
+    const { update, detail } = setup();
+    const elementId = (await detail(GITHUB)).urls[0]?.elementId ?? "";
+    for (const url of ["winapp://signed/evil.exe?signer=AAAA", " WinApp://path/AAAA?sha256=BBBB"]) {
+      const added = await update(GITHUB, {
+        urls: [{ op: "add", url, matchMode: "exactOrigin", allowHttp: false }],
+      });
+      expect(added).toEqual({ ok: false, error: { code: "invalidInput" } });
+      const edited = await update(GITHUB, {
+        urls: [{ op: "update", elementId, url, matchMode: "exactOrigin", allowHttp: false }],
+      });
+      expect(edited).toEqual({ ok: false, error: { code: "invalidInput" } });
+    }
+    const switched = await update(GITHUB, { urls: [{ op: "programSubmit", elementId, submit: false }] });
+    expect(switched).toEqual({ ok: false, error: { code: "invalidInput" } });
   });
 });
 

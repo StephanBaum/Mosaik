@@ -4,4 +4,12 @@
     <style name="Theme.Mosaic" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/mosaic_window_background</item>
     </style>
+
+    <!-- The sign-in redirect activity: draws nothing, so the return from the browser shows no flash. -->
+    <style name="Theme.Mosaic.Translucent" parent="Theme.Mosaic">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

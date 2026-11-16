@@ -481,6 +481,10 @@ pub enum TransportError {
     /// (CRYPTO_SPEC §9.4, "Lost answer").
     #[error("password change outcome unknown")]
     OutcomeUnknown,
+    /// The server (a self-hosted `WebDAV` server) does not offer TLS 1.3,
+    /// which is the only version this client speaks (ADR-0091, ADR-0162).
+    #[error("server does not offer TLS 1.3")]
+    TlsVersionUnsupported,
 }
 
 /// What a transport may ask the engine for while it maintains its storage

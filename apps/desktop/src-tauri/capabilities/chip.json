@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "chip",
+  "description": "The program fill chip window: its own three picker commands and nothing else (no vault, clipboard, settings or core permission). See ADR-0164.",
+  "windows": [
+    "picker-chip"
+  ],
+  "permissions": [
+    "allow-picker-subscribe",
+    "allow-picker-state",
+    "allow-picker-chip-click"
+  ]
+}

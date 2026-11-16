@@ -902,6 +902,19 @@ BEGIN
 END;
 ";
 
+/// Version 14: the device-local remote folder location (CRYPTO_SPEC §11, ADR-0162). A phone that
+/// syncs a folder account through a provider API keeps where the folder is (a JSON text of at most
+/// 4096 characters: provider, display path, drive and item ids or a namespace) in `folder_remote`.
+/// The table is additive and holds no secret; `sync_config` and the rows in it are untouched (on a
+/// phone `folder_path` holds the display path). The row is never synced.
+const V14: &str = r"
+CREATE TABLE folder_remote (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    location    TEXT    NOT NULL CHECK (length(location) BETWEEN 2 AND 4096),
+    updated_at  INTEGER NOT NULL
+) STRICT;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -956,10 +969,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 13,
         sql: V13,
     },
+    Migration {
+        version: 14,
+        sql: V14,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 13;
+pub const LATEST_VERSION: u32 = 14;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -1125,10 +1142,14 @@ mod tests {
             },
             Migration {
                 version: 14,
+                sql: V14,
+            },
+            Migration {
+                version: 15,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 14);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 15);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -1142,11 +1163,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 14,
-                supported: 13
+                found: 15,
+                supported: 14
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 14);
+        assert_eq!(user_version(&c).unwrap(), 15);
     }
 
     #[test]
@@ -1208,11 +1229,15 @@ mod tests {
             },
             Migration {
                 version: 14,
+                sql: V14,
+            },
+            Migration {
+                version: 15,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 13);
+        assert_eq!(user_version(&c).unwrap(), 14);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1989,7 +2014,7 @@ mod tests {
     fn v13_migrates_from_v12_and_checks_lengths() {
         let mut c = conn();
         assert_eq!(migrate(&mut c, &MIGRATIONS[..12]).unwrap(), 12);
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 13);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
         for table in ["agent_marks", "agent_log"] {
             let n: i64 = c
                 .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
@@ -2027,7 +2052,7 @@ mod tests {
     #[test]
     fn v13_agent_log_has_the_noisy_flag() {
         let mut c = conn();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 13);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
         c.execute(
             "INSERT INTO agent_log (entry_id, at_ms, sealed) VALUES (zeroblob(16), 0, zeroblob(42))",
             [],
@@ -2044,5 +2069,47 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// v13 to v14: the folder location table starts empty, takes only text of 2 to 4096 characters
+    /// and a single row, and the rest of the store (here `sync_config`) is untouched.
+    #[test]
+    fn v14_adds_folder_remote_and_keeps_sync_config() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..13]).unwrap(), 13);
+        c.execute(
+            "INSERT INTO sync_config (id, kind, folder_path, device_name, updated_at)
+             VALUES (1, 2, '/Mosaic', 'Phone', 5)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 14);
+        let (kind, path, name): (i64, String, String) = c
+            .query_row(
+                "SELECT kind, folder_path, device_name FROM sync_config WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (kind, path.as_str(), name.as_str()),
+            (2, "/Mosaic", "Phone")
+        );
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM folder_remote", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "the new table starts empty");
+        let insert = |id: i64, location: &str| {
+            c.execute(
+                "INSERT INTO folder_remote (id, location, updated_at) VALUES (?1, ?2, 0)",
+                rusqlite::params![id, location],
+            )
+        };
+        assert!(insert(1, "{}").is_ok());
+        assert!(insert(2, "{}").is_err(), "one row only");
+        c.execute("DELETE FROM folder_remote", []).unwrap();
+        assert!(insert(1, "x").is_err(), "too short");
+        assert!(insert(1, &"x".repeat(4097)).is_err(), "too long");
+        assert!(insert(1, &"x".repeat(4096)).is_ok());
     }
 }

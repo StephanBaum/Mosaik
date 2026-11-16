@@ -4,19 +4,26 @@
  * (from an import, say) are listed under "Other fields", so nothing is hidden. Then the
  * one-time code, websites and custom fields.
  */
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
+import { Button } from "../../components/Button.tsx";
 import { Chip } from "../../components/Chip.tsx";
 import { CopyButton } from "../../components/CopyButton.tsx";
+import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { Icon } from "../../components/icons.tsx";
 import { SecretField } from "../../components/SecretField.tsx";
+import { Switch } from "../../components/Switch.tsx";
+import { UserText } from "../../components/UserText.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import type {
   CopyField,
+  IpcError,
   ItemDetail as Detail,
   ItemRequest,
   SecretFieldKey,
   TextFieldKey,
+  UrlChange,
+  UrlEntry,
 } from "../../ipc/contract/index.ts";
 import { useNow } from "../../time/clock.ts";
 import { groupCardNumber, isExpired } from "./kinds/cardFormat.ts";
@@ -156,18 +163,112 @@ function OtherRows({ detail, item }: { detail: Detail; item: ItemRequest }) {
   );
 }
 
-function UrlRows({ detail }: { detail: Detail }) {
+/**
+ * A program a login is linked to (Windows program fill, ADR-0164): never a link, with the switch
+ * for Enter after the fill and Unlink. Both are one `update_item` with a URL change; the editor
+ * itself cannot write a `winapp://` URL.
+ */
+function ProgramRow({
+  entry,
+  item,
+  onDetail,
+}: {
+  entry: UrlEntry & { program: NonNullable<UrlEntry["program"]> };
+  item: ItemRequest;
+  onDetail: ((detail: Detail) => void) | undefined;
+}) {
   const { t } = useI18n();
-  return detail.urls.map((entry) => (
-    <div key={entry.elementId} className="row">
+  const ipc = useIpc();
+  const [error, setError] = useState<IpcError | null>(null);
+  const { program } = entry;
+  const where =
+    program.kind === "package"
+      ? t("programFill.item.storeApp")
+      : program.kind === "signed"
+        ? program.signer === null
+          ? ""
+          : t("programFill.item.signedBy", { signer: program.signer })
+        : t("programFill.item.unsigned", { path: program.path ?? "" });
+
+  const apply = async (change: UrlChange): Promise<void> => {
+    const result = await ipc.call("update_item", {
+      ...item,
+      draft: { text: [], secrets: [], urls: [change], customFields: [], tags: null, otp: null, sshKey: null },
+    });
+    if (result.ok) {
+      setError(null);
+      onDetail?.(result.value);
+    } else {
+      setError(result.error);
+    }
+  };
+
+  return (
+    <div className="row row--program">
       <div className="row__main">
-        <span className="row__label">{t("item.urls", { count: detail.urls.length })}</span>
-        <span className="row__value">{entry.url}</span>
+        <span className="row__label">{t("programFill.item.program")}</span>
+        <span className="row__value">
+          <UserText>{program.name}</UserText>
+        </span>
+        {where !== "" && (
+          <span className="caption">
+            <UserText>{where}</UserText>
+          </span>
+        )}
+        <Switch
+          label={t("programFill.item.submit")}
+          checked={program.submit}
+          disabled={onDetail === undefined}
+          onChange={(event) => {
+            void apply({ op: "programSubmit", elementId: entry.elementId, submit: event.target.checked });
+          }}
+        />
+        <ErrorAlert error={error} />
       </div>
-      <Chip>{t(`item.urlMatch.${entry.matchMode}`)}</Chip>
-      {entry.allowHttp && <Chip>{t("item.urlMatch.http")}</Chip>}
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={onDetail === undefined}
+        onClick={() => {
+          void apply({ op: "remove", elementId: entry.elementId });
+        }}
+      >
+        {t("programFill.item.unlink")}
+      </Button>
     </div>
-  ));
+  );
+}
+
+function UrlRows({
+  detail,
+  item,
+  onDetail,
+}: {
+  detail: Detail;
+  item: ItemRequest;
+  onDetail: ((detail: Detail) => void) | undefined;
+}) {
+  const { t } = useI18n();
+  const web = detail.urls.filter((entry) => entry.program === null);
+  return detail.urls.map((entry) =>
+    entry.program === null ? (
+      <div key={entry.elementId} className="row">
+        <div className="row__main">
+          <span className="row__label">{t("item.urls", { count: web.length })}</span>
+          <span className="row__value">{entry.url}</span>
+        </div>
+        <Chip>{t(`item.urlMatch.${entry.matchMode}`)}</Chip>
+        {entry.allowHttp && <Chip>{t("item.urlMatch.http")}</Chip>}
+      </div>
+    ) : (
+      <ProgramRow
+        key={entry.elementId}
+        entry={{ ...entry, program: entry.program }}
+        item={item}
+        onDetail={onDetail}
+      />
+    ),
+  );
 }
 
 function CustomRows({ detail, item }: { detail: Detail; item: ItemRequest }) {
@@ -217,7 +318,16 @@ function CustomHeading() {
   return <h3 className="editor__group-heading">{t("item.customFields")}</h3>;
 }
 
-export function DetailFields({ detail, item }: { detail: Detail; item: ItemRequest }) {
+export function DetailFields({
+  detail,
+  item,
+  onDetail,
+}: {
+  detail: Detail;
+  item: ItemRequest;
+  /** Where a change made in the rows (a program link) delivers the new detail; none: read only. */
+  onDetail?: (detail: Detail) => void;
+}) {
   return (
     <div className="rows">
       {detail.sshKey !== null && <SshRows summary={detail.sshKey} item={item} />}
@@ -225,7 +335,7 @@ export function DetailFields({ detail, item }: { detail: Detail; item: ItemReque
       <LayoutRows detail={detail} item={item} />
       <OtherRows detail={detail} item={item} />
       {detail.otp !== null && <TotpCode source={{ kind: "item", item }} />}
-      <UrlRows detail={detail} />
+      <UrlRows detail={detail} item={item} onDetail={onDetail} />
       {detail.customFields.length > 0 && <CustomHeading />}
       <CustomRows detail={detail} item={item} />
     </div>

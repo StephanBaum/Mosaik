@@ -7,7 +7,9 @@ use core::ffi::c_void;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GA_ROOT, GetAncestor, GetForegroundWindow, GetWindowThreadProcessId, IsIconic, IsWindow,
+    GA_ROOT, GetAncestor, GetForegroundWindow, GetWindowThreadProcessId, HWND_TOPMOST, IsIconic,
+    IsWindow, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetForegroundWindow,
+    SetWindowPos, ShowWindow,
 };
 
 use crate::error::{Result, ShimError};
@@ -90,4 +92,51 @@ pub fn window_facts(hwnd: isize) -> Result<WindowFacts> {
         cloaked: cloaked != 0,
         minimized,
     })
+}
+
+/// Brings a top-level window to the foreground. `false` when Windows refused
+/// (the calling process has no right to take the foreground).
+///
+/// # Errors
+/// [`ShimError::NotFound`] for a null, destroyed or non-top-level handle (a
+/// child window is never brought forward).
+pub fn set_foreground(hwnd: isize) -> Result<bool> {
+    let facts = window_facts(hwnd)?;
+    if facts.root != hwnd {
+        return Err(ShimError::NotFound);
+    }
+    // SAFETY: `hwnd` was just checked to be a top-level window; the call asks
+    // the shell to bring it forward and moves no memory.
+    let done = unsafe { SetForegroundWindow(hwnd_of(hwnd)) };
+    Ok(done.as_bool())
+}
+
+/// Shows one of Mosaic's own windows without taking focus, and keeps it on top.
+///
+/// # Errors
+/// [`ShimError::NotFound`] for a null or destroyed handle,
+/// [`ShimError::NotOwnWindow`] for a window of another process, or an OS error.
+pub fn show_no_activate(hwnd: isize) -> Result<()> {
+    let facts = window_facts(hwnd)?;
+    if facts.owner_pid != std::process::id() {
+        return Err(ShimError::NotOwnWindow);
+    }
+    let handle = hwnd_of(hwnd);
+    // SAFETY: `handle` is a window of this process (checked above); showing it
+    // without activation only changes its visibility state.
+    let _was_visible = unsafe { ShowWindow(handle, SW_SHOWNOACTIVATE) };
+    // SAFETY: as above; `HWND_TOPMOST` is a placement constant, the flags keep
+    // position, size and activation unchanged.
+    unsafe {
+        SetWindowPos(
+            handle,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+    }?;
+    Ok(())
 }

@@ -21,6 +21,7 @@ milestone close appends its section there).
 | M8 CLI | ✅ done (2026-11-10; PR #50; T1 to T5, the T1 crypto review and the CLI security review; `crates/cli` and `crates/platform`; ADR-0071 to 0075, R105 to R111; open: Windows console-mode restore after a timeout or Ctrl-C, the owner decisions OD-M8-1 to OD-M8-9, signed distribution in M9). **M9 hardening is next** |
 | M9 Hardening | ✅ done (2026-11-12; branch `feat/m9-hardening` with `feat/m9-docs` merged; T1 to T13, ADR-0076 to 0087, R112 to R124; the T2 crypto review, the T12 milestone review (crypto-reviewer, extension-attacker, sync-chaos, ux-reviewer, test-engineer) and the T13 fixes; open: the extended fuzz run (CI workflow `fuzz-extended`), the manual checks, the owner decisions OD-M9-1 to OD-M9-21, M9-UX5 rest and the flaky `passkey-shim-tamper.spec.ts:120`). M10 mobile followed |
 | M10 Mobile | ✅ done (2026-11-14; branch `feat/m10-mobile` with `main` merged in (`2111186`); T1 to T15 and G1 to G5, ADR-0088 to ADR-0096, R125 to R141; Android and iOS apps built and tested in CI simulators and emulators only; open: the manual device checks (`docs/MOBILE.md` §7) and the owner items below; see "M10 Mobile" below) |
+| Windows program fill | phase 1 merged (PR #90, ADR-0157/0158); phase 2 on `feat/program-fill-phase2` (ADR-0163/0164, R171 to R176, R206): the chip, the picker list, the hotkey, typing, submit and the two-step continuation, WebView2 hosts (owner decision 2026-11-15); a real fill ran end to end on Windows 10; open: the owner run of `docs/PROGRAM_FILL.md` "Phase 2: the app", the `GetMappedFileNameW` image check, the red-team review |
 | Red-team campaign | round 1 landed in `main` (PRs #73 to #78, 2026-11-13 to 2026-11-14); round 2 (chained attacks) is in PR #80, not yet merged; see "Red-team campaign" under M10 |
 
 **Next steps (2026-11-14):** (1) the v0.1.0 release (a prerelease, pre-audit): it waits for the owner items in
@@ -2757,6 +2758,24 @@ parsers, release, iOS and Android. Each fix was adversarially re-verified. Round
 (chained attacks across components) is in PR #80 and not yet merged. Counts per surface:
 `docs/SECURITY_REVIEW_LOG.md` ("Red-team campaign 2026-11").
 
+## Android folder sync (2026-11-15)
+
+**Status: built, waiting for CI and the owner steps.** Branch `feat/android-folder-sync`. A free user joins and syncs an
+existing folder account on Android through Nextcloud/WebDAV, Dropbox or OneDrive. The folder format, MACs and join rules
+(CRYPTO_SPEC §10.1) are unchanged. Spec and plan: the 2026-11-15 design and plan of the orchestrator; normative texts:
+ADR-0161 (setup code v2), ADR-0162 (provider APIs), ADR-0166 (provider stores keep to the folder), THREAT_MODEL R166 to
+R170 and R197 to R200, `docs/MOBILE.md` §1, §2, §3, §5, §6, §7.
+
+- **Rust:** `mosaic-sync` feature `folder-remote` (`FolderStore`, WebDAV, Dropbox, Graph, OAuth with PKCE, Nextcloud login
+  flow); store schema v14 (device-local remote folder location); `mosaic-mobile` folder accounts (link, locate, browse,
+  join, sync, recovery, reset, sign in again); FFI calls and the renamed `folderProviderUnsupported`.
+- **Android:** the provider choice, the WebDAV origin confirmation, the sign-in in the system browser (redirect for
+  Dropbox and OneDrive, poll for Nextcloud, app password for WebDAV), the folder locate/browse/pick steps, a folder
+  join on the master password step, the settings line, "Sign in again", the OneDrive revoke hint and the reset phrase.
+  EN and DE strings. Google Drive and iCloud Drive are not supported on Android; iOS folder accounts stay deferred.
+- **Not compiled locally:** the Kotlin compiles in CI only (`mobile.yml`). A red CI gets a small fix commit.
+- **Open:** the owner checklist (`docs/MOBILE.md` §6) and the device checks (§7, "Android folder sync").
+
 ## Onboarding import: launch gate
 
 Branch `feat/onboarding-import` (spec `docs/superpowers/specs/2026-11-15-onboarding-import-design.md`, ADR-0165,
@@ -2987,3 +3006,8 @@ See the THREAT_MODEL §5 residual-risk register.
   - **Manual device checks**: the Android, iOS and "both" lists in `docs/MOBILE.md` §7, on real devices (they wait for
     OD-M10-2 and OD-M10-3). Record each result here.
   - **Approvals**: merge PR #80 (red-team round 2) and approve the autofill-everywhere design before it is built.
+  - **Android folder sync (2026-11-15)**: create the Dropbox app (Full Dropbox, four scopes, redirect URI,
+    `MOSAIC_DROPBOX_APP_KEY`, production approval before the 50th user) and the Microsoft Entra registration (personal and
+    work accounts, mobile redirect, public client, `MOSAIC_MS_CLIENT_ID`); check that both consoles accept the custom scheme
+    `io.github.stephanbaum.mosaic.oauth:/cb`; update the privacy policy and the Play data-safety form. Step by step in
+    `docs/MOBILE.md` §6 ("Owner checklist: Android folder sync"). Until the client IDs are set, only Nextcloud/WebDAV works.

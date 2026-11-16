@@ -18,6 +18,7 @@
 
 mod autofill;
 mod common;
+mod folder;
 mod g1_review;
 mod g3_redteam;
 mod g3i_redteam;
