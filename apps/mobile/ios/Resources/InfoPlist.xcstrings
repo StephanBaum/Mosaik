@@ -19,61 +19,61 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "Mosaic usa la cámara solo para leer este código QR. No se guarda ni se envía nada."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "Mosaic n’utilise la caméra que pour lire ce code QR. Rien n’est enregistré ni envoyé."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "Mosaic usa la fotocamera solo per leggere questo codice QR. Non viene salvato né inviato nulla."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "Mosaic は、この QR コードを読み取るためにのみカメラを使用します。何も保存・送信されません。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "Mosaic은 이 QR 코드를 읽는 데만 카메라를 사용해요. 아무것도 저장하거나 전송하지 않아요."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "Mosaic gebruikt de camera alleen om deze QR-code te lezen. Er wordt niets bewaard of verstuurd."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "Mosaic używa aparatu tylko do odczytania tego kodu QR. Nic nie jest zapisywane ani wysyłane."
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "O Mosaic usa a câmera somente para ler este código QR. Nada é salvo nem enviado."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "Mosaic kamerayı yalnızca bu QR kodunu okumak için kullanır. Hiçbir şey kaydedilmez veya gönderilmez."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+            "value" : "Mosaic 只用相机读取这个二维码。不会保存或发送任何内容。"
           }
         }
       }
@@ -96,61 +96,61 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "Mosaic usa Face ID para desbloquear tu caja fuerte rápidamente. Tu contraseña maestra también funciona siempre."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "Mosaic utilise Face ID pour déverrouiller rapidement votre coffre-fort. Votre mot de passe principal fonctionne toujours aussi."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "Mosaic usa Face ID per sbloccare rapidamente la tua cassaforte. Funziona sempre anche la password principale."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "Mosaic は Face ID で、保管庫のロックをすばやく解除します。マスターパスワードも常に使えます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "Mosaic은 Face ID로 보관함을 빠르게 열어요. 마스터 비밀번호는 언제나 사용할 수 있어요."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "Mosaic gebruikt Face ID om je kluis snel te ontgrendelen. Je hoofdwachtwoord werkt altijd ook."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "Mosaic używa Face ID do szybkiego odblokowania sejfu. Hasło główne również zawsze działa."
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "O Mosaic usa o Face ID para desbloquear o seu cofre rapidamente. A sua senha mestra também sempre funciona."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "Mosaic, kasanızın kilidini hızlıca açmak için Face ID kullanır. Ana parolanız da her zaman çalışır."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+            "value" : "Mosaic 使用面容 ID 来快速解锁你的保险库。你的主密码也始终可用。"
           }
         }
       }
