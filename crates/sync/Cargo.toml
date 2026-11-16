@@ -19,6 +19,9 @@ test-util = ["mosaic-vault/test-util"]
 opaque = ["dep:opaque-ke", "dep:sha2_0_10"]
 # The HTTP transport and the hosted client functions (M6 T4); enables `opaque`.
 http = ["opaque", "dep:mosaic-insights", "dep:reqwest", "dep:rustls", "dep:rustls-platform-verifier", "dep:zeroize"]
+# Provider stores for the folder backend (ADR-0162): WebDAV/Nextcloud now, Dropbox
+# and Graph next; enables `http`.
+folder-remote = ["http", "dep:quick-xml", "dep:subtle"]
 
 [dependencies]
 mosaic-core = { path = "../core" }
@@ -46,6 +49,12 @@ rustls = { workspace = true, optional = true }
 # Wipes OPAQUE's session and export keys and builds the bearer value (only
 # with feature `http`; the crate is already in the workspace).
 zeroize = { workspace = true, optional = true }
+# WebDAV `PROPFIND` multistatus answers (only with feature `folder-remote`; already
+# in the lock file through `plist`).
+quick-xml = { workspace = true, optional = true }
+# Constant-time compare of the OAuth `state` (only with feature `folder-remote`;
+# already in the lock file).
+subtle = { workspace = true, optional = true }
 # SHA-512 of the TripleDH key exchange: opaque-ke 4.0 uses the digest 0.10 generation.
 sha2_0_10 = { workspace = true, optional = true }
 # Random temp file names of the folder transport, the retry jitter and

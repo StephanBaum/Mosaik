@@ -6,12 +6,16 @@
 //!
 //! ```text
 //! len:u16 || canonical JSON (len <= 510) || zero bytes
-//! {"createdAt":<ms>,"name":"<1..64 characters>","platform":"windows"|"macos"|"linux"}
+//! {"createdAt":<ms>,"name":"<1..64 characters>","platform":"windows"|"macos"|"linux"|"android"|"ios"}
 //! ```
 //!
 //! The JSON has its keys in that order. [`DeviceInfo::from_plaintext`]
 //! accepts only exactly that form (a length of at most 510, canonical JSON,
-//! all-zero padding), so one device info has one encoding.
+//! all-zero padding), so one device info has one encoding. A platform name a
+//! reader does not know (1 to 16 lower-case ASCII letters) reads as
+//! [`Platform::Unknown`], so a newer device never makes an older reader drop
+//! the whole file; an older reader that is strict about the name shows such a
+//! device without its name.
 
 use mosaic_core::InstallId;
 use serde::Deserialize;
@@ -36,7 +40,17 @@ pub enum Platform {
     Macos,
     /// Linux.
     Linux,
+    /// Android.
+    Android,
+    /// iOS.
+    Ios,
+    /// A platform this version does not know.
+    #[serde(other)]
+    Unknown,
 }
+
+/// The longest platform name a reader accepts, in bytes.
+const MAX_PLATFORM_LEN: usize = 16;
 
 impl Platform {
     const fn as_str(self) -> &'static str {
@@ -44,8 +58,33 @@ impl Platform {
             Self::Windows => "windows",
             Self::Macos => "macos",
             Self::Linux => "linux",
+            Self::Android => "android",
+            Self::Ios => "ios",
+            Self::Unknown => "unknown",
         }
     }
+
+    /// The platform of a canonical name; anything else is [`Platform::Unknown`].
+    fn from_name(name: &str) -> Self {
+        match name {
+            "windows" => Self::Windows,
+            "macos" => Self::Macos,
+            "linux" => Self::Linux,
+            "android" => Self::Android,
+            "ios" => Self::Ios,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// The wire form of [`DeviceInfo`]: the platform is still a string.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawInfo {
+    #[serde(rename = "createdAt")]
+    created_at_ms: u64,
+    name: String,
+    platform: String,
 }
 
 /// The info of one device.
@@ -104,6 +143,11 @@ impl DeviceInfo {
     /// characters or with control characters; [`WireError::Length`] above
     /// [`MAX_JSON_LEN`] bytes.
     pub fn to_json(&self) -> Result<Vec<u8>, WireError> {
+        self.json_with(self.platform.as_str())
+    }
+
+    /// The canonical JSON with `platform` as the platform text.
+    fn json_with(&self, platform: &str) -> Result<Vec<u8>, WireError> {
         self.check_name()?;
         let mut out = String::new();
         out.push_str("{\"createdAt\":");
@@ -111,7 +155,7 @@ impl DeviceInfo {
         out.push_str(",\"name\":");
         push_json_string(&mut out, &self.name);
         out.push_str(",\"platform\":\"");
-        out.push_str(self.platform.as_str());
+        out.push_str(platform);
         out.push_str("\"}");
         if out.len() > MAX_JSON_LEN {
             return Err(WireError::Length);
@@ -154,8 +198,19 @@ impl DeviceInfo {
         if padding.iter().any(|b| *b != 0) {
             return Err(WireError::Field);
         }
-        let info: Self = serde_json::from_slice(json).map_err(|_| WireError::Field)?;
-        if info.to_json()? == json {
+        let raw: RawInfo = serde_json::from_slice(json).map_err(|_| WireError::Field)?;
+        if raw.platform.is_empty()
+            || raw.platform.len() > MAX_PLATFORM_LEN
+            || !raw.platform.bytes().all(|b| b.is_ascii_lowercase())
+        {
+            return Err(WireError::Field);
+        }
+        let info = Self {
+            created_at_ms: raw.created_at_ms,
+            name: raw.name,
+            platform: Platform::from_name(&raw.platform),
+        };
+        if info.json_with(&raw.platform)? == json {
             Ok(info)
         } else {
             Err(WireError::Field)
@@ -326,7 +381,9 @@ mod tests {
             br#"{"createdAt":1,"name":"x","platform":"macos","extra":1}"#,
             br#"{"createdAt":1,"name":"x"}"#,
             br#"{"createdAt":-1,"name":"x","platform":"macos"}"#,
-            br#"{"createdAt":1,"name":"x","platform":"beos"}"#,
+            br#"{"createdAt":1,"name":"x","platform":"BeOS"}"#,
+            br#"{"createdAt":1,"name":"x","platform":""}"#,
+            br#"{"createdAt":1,"name":"x","platform":"abcdefghijklmnopq"}"#,
             br#"{"createdAt":1,"name":"","platform":"macos"}"#,
             br#"{"createdAt":01,"name":"x","platform":"macos"}"#,
             br#"{"createdAt":1,"name":"a\/b","platform":"macos"}"#,
@@ -339,6 +396,26 @@ mod tests {
                 String::from_utf8_lossy(bad)
             );
         }
+    }
+
+    #[test]
+    fn new_platforms_round_trip_and_an_unknown_one_reads_as_unknown() {
+        for platform in [Platform::Android, Platform::Ios, Platform::Linux] {
+            let mut phone = info("Phone");
+            phone.platform = platform;
+            let plaintext = phone.to_plaintext().unwrap();
+            assert_eq!(DeviceInfo::from_plaintext(&plaintext).unwrap(), phone);
+        }
+        let json = br#"{"createdAt":1,"name":"x","platform":"beos"}"#;
+        assert_eq!(
+            DeviceInfo::from_plaintext(&pad(json)).unwrap().platform,
+            Platform::Unknown
+        );
+        let android = br#"{"createdAt":1,"name":"x","platform":"android"}"#;
+        assert_eq!(
+            DeviceInfo::from_plaintext(&pad(android)).unwrap().platform,
+            Platform::Android
+        );
     }
 
     #[test]

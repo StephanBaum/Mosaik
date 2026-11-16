@@ -15,7 +15,6 @@ use mosaic_core::InstallId;
 use mosaic_core::sync_auth::MAX_EPOCH_JUMP;
 use sha2::{Digest, Sha256};
 
-use super::fsutil;
 use super::{FolderCrypto, FolderTransport, decoded};
 use crate::transport::{
     MaintainContext, RekeyCandidate, RekeyMarkerSeen, RekeyPublish, RekeySignals, TransportError,
@@ -47,9 +46,11 @@ impl<C: FolderCrypto> FolderTransport<C> {
     fn list_account_dir(&self) -> Result<AccountDir, TransportError> {
         let mut files = Vec::new();
         let mut markers = Vec::new();
-        for e in fsutil::list(&self.layout.account_files())?
+        for e in self
+            .store
+            .list(&self.layout.account_files())?
             .iter()
-            .filter(|e| !e.is_dir)
+            .filter(|e| !e.is_dir())
         {
             match folder_names::parse(&e.name) {
                 Some(FolderName::Account { version, device }) => files.push((version, device)),
@@ -74,8 +75,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
         let path = self
             .layout
             .account_files()
-            .join(folder_names::account_name(version, device));
-        match fsutil::read_capped(&path, account_file::LEN as u64) {
+            .known(&folder_names::account_name(version, device));
+        match self.store.read_capped(&path, account_file::LEN as u64) {
             Ok(bytes) => Ok(bytes),
             Err(TransportError::Protocol) => Ok(None),
             Err(e) => Err(e),
@@ -108,8 +109,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
             let path = self
                 .layout
                 .account_files()
-                .join(folder_names::rekey_marker_name(*from_epoch, device));
-            let bytes = match fsutil::read_capped(&path, rekey_marker::LEN as u64) {
+                .known(&folder_names::rekey_marker_name(*from_epoch, device));
+            let bytes = match self.store.read_capped(&path, rekey_marker::LEN as u64) {
                 Ok(Some(b)) => b,
                 Ok(None) | Err(TransportError::Protocol) => continue,
                 Err(e) => return Err(e),
@@ -259,7 +260,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
             cx.mark_rekey_snapshot(*vault)?;
         }
         if let Some(marker) = publish.marker {
-            fsutil::write_atomic(
+            self.store.write_atomic(
                 &self.layout.account_files(),
                 &folder_names::rekey_marker_name(publish.from_epoch, self.install.as_bytes()),
                 marker,

@@ -172,6 +172,42 @@ impl MosaicCore {
     pub fn join_cancel(&self) {
         self.inner.join_cancel();
     }
+    pub fn folder_link_begin(
+        &self,
+        provider: FolderProvider,
+        server: Option<String>,
+    ) -> Result<LinkInfo, MobileError> {
+        lift(self.inner.folder_link_begin(provider.conv(), server))
+    }
+    pub fn folder_link_finish(&self, callback_url: String) -> Result<(), MobileError> {
+        lift(self.inner.folder_link_finish(callback_url))
+    }
+    pub fn folder_link_status(&self) -> Result<LinkStatus, MobileError> {
+        lift(self.inner.folder_link_status())
+    }
+    pub fn folder_link_password(
+        &self,
+        dav_url: String,
+        login: String,
+        password: Vec<u8>,
+    ) -> Result<(), MobileError> {
+        lift(self.inner.folder_link_password(dav_url, login, password))
+    }
+    pub fn folder_link_cancel(&self) {
+        self.inner.folder_link_cancel();
+    }
+    pub fn folder_locate(
+        &self,
+        path_hint: Option<String>,
+    ) -> Result<Vec<FolderCandidate>, MobileError> {
+        lift(self.inner.folder_locate(path_hint))
+    }
+    pub fn folder_browse(&self, dir: String) -> Result<Vec<FolderDirEntry>, MobileError> {
+        lift(self.inner.folder_browse(dir))
+    }
+    pub fn join_folder(&self, req: JoinFolderRequest) -> Result<SessionState, MobileError> {
+        lift(self.inner.join_folder(req.conv()))
+    }
     pub fn parse_setup_code(&self, text: Vec<u8>) -> Result<SetupCode, MobileError> {
         lift(self.inner.parse_setup_code(text))
     }

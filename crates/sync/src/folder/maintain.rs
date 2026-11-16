@@ -8,9 +8,9 @@ use std::collections::BTreeMap;
 use mosaic_core::{AttachmentId, InstallId, VaultId};
 use mosaic_vault::storage::{FolderRekeyFloor, MarkerStamp};
 
-use super::fsutil::{self, TEMP_EXTENSION};
 use super::layout::{HEAD_NAME, INFO_NAME};
 use super::reader::SegmentFile;
+use super::store::TEMP_EXTENSION;
 use super::{FolderCrypto, FolderTransport, Outcome, decoded};
 use crate::engine::consts::{BLOB_RETENTION_MS, COMPACT_BYTES, COMPACT_SEGMENTS, TEMP_MAX_AGE_MS};
 use crate::transport::{MaintainContext, TransportError};
@@ -116,7 +116,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
             let now = cx.now_ms();
             for file in self.segment_files(&vault, &install)? {
                 if file.seq < base && removable(floors, vault, file.seq, now) {
-                    fsutil::remove(&dir.join(folder_names::segment_name(file.seq)))?;
+                    self.store
+                        .remove(&dir.known(&folder_names::segment_name(file.seq)))?;
                     self.scan.remove(&(vault, install, file.seq));
                 }
             }
@@ -127,9 +128,9 @@ impl<C: FolderCrypto> FolderTransport<C> {
     /// Whether the segment file was read (and did not verify) at its current
     /// length and time.
     pub(super) fn known_bad(&self, vault: VaultId, device: InstallId, file: &SegmentFile) -> bool {
-        self.scan.get(&(vault, device, file.seq)).is_some_and(|e| {
-            e.len == file.len && e.modified == file.modified && matches!(e.outcome, Outcome::Bad)
-        })
+        self.scan
+            .get(&(vault, device, file.seq))
+            .is_some_and(|e| e.current_for(file) && matches!(e.outcome, Outcome::Bad))
     }
 
     /// Cleans this install's own directories only:
@@ -152,8 +153,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
     ) -> Result<(), TransportError> {
         let install = self.install;
         let device_dir = self.layout.device_dir(&install);
-        for entry in fsutil::list(&device_dir)? {
-            if entry.is_dir {
+        for entry in self.store.list(&device_dir)? {
+            if entry.is_dir() {
                 continue;
             }
             let name = entry.name.to_string_lossy();
@@ -164,8 +165,10 @@ impl<C: FolderCrypto> FolderTransport<C> {
                         |(len, modified)| *len == entry.len && *modified == entry.modified,
                     ))
                     || (name.ends_with(".mdev") && name != INFO_NAME));
-            if stale_temp || conflict_copy {
-                fsutil::remove(&device_dir.join(&entry.name))?;
+            if (stale_temp || conflict_copy)
+                && let Some(path) = device_dir.child_of(&entry)
+            {
+                self.store.remove(&path)?;
             }
         }
         for vault in self.vault_ids()? {
@@ -183,22 +186,27 @@ impl<C: FolderCrypto> FolderTransport<C> {
     ) -> Result<(), TransportError> {
         let install = self.install;
         let dir = self.layout.log_dir(&vault, &install);
-        for entry in fsutil::list(&dir)? {
+        for entry in self.store.list(&dir)? {
             let name = entry.name.to_string_lossy().into_owned();
             let old = now_ms.saturating_sub(entry.modified_ms()) > TEMP_MAX_AGE_MS;
             let segment = match folder_names::parse(&entry.name) {
                 Some(FolderName::Segment { seq }) => Some(seq),
                 _ => None,
             };
-            if entry.is_dir {
+            if entry.is_dir() {
                 // A directory squatting on a segment name.
-                if segment.is_some() && old {
-                    fsutil::remove_empty_dir(&dir.join(&entry.name));
+                if segment.is_some()
+                    && old
+                    && let Some(path) = dir.child_of(&entry)
+                {
+                    self.store.remove_empty_dir(&path);
                 }
                 continue;
             }
             if is_stale_temp(&name, entry.modified_ms(), now_ms) {
-                fsutil::remove(&dir.join(&entry.name))?;
+                if let Some(path) = dir.child_of(&entry) {
+                    self.store.remove(&path)?;
+                }
                 continue;
             }
             let Some(seq) = segment.filter(|_| old) else {
@@ -211,11 +219,14 @@ impl<C: FolderCrypto> FolderTransport<C> {
                 seq,
                 len: entry.len,
                 modified: entry.modified,
+                version: entry.version.clone(),
             };
             // Read it first: an unreadable file is not a bad one.
             let _ = self.probe(vault, install, &file)?;
-            if self.known_bad(vault, install, &file) {
-                fsutil::remove(&dir.join(&entry.name))?;
+            if self.known_bad(vault, install, &file)
+                && let Some(path) = dir.child_of(&entry)
+            {
+                self.store.remove(&path)?;
                 self.scan.remove(&(vault, install, seq));
             }
         }
@@ -228,9 +239,11 @@ impl<C: FolderCrypto> FolderTransport<C> {
     /// password does not linger.
     fn clean_account_files(&mut self) -> Result<(), TransportError> {
         let dir = self.layout.account_files();
-        let mut found: Vec<(u64, [u8; 16])> = fsutil::list(&dir)?
+        let mut found: Vec<(u64, [u8; 16])> = self
+            .store
+            .list(&dir)?
             .iter()
-            .filter(|e| !e.is_dir)
+            .filter(|e| !e.is_dir())
             .filter_map(|e| match folder_names::parse(&e.name) {
                 Some(FolderName::Account { version, device }) => Some((version, device)),
                 _ => None,
@@ -242,7 +255,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
         };
         for (version, device) in found {
             if version < highest && device == *self.install.as_bytes() {
-                fsutil::remove(&dir.join(folder_names::account_name(version, &device)))?;
+                self.store
+                    .remove(&dir.known(&folder_names::account_name(version, &device)))?;
             }
         }
         Ok(())
@@ -268,8 +282,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
             let Ok(device_id) = InstallId::from_bytes(*device) else {
                 continue;
             };
-            let Some(bytes) = fsutil::read_capped(
-                &dir.join(folder_names::account_name(*version, device)),
+            let Some(bytes) = self.store.read_capped(
+                &dir.known(&folder_names::account_name(*version, device)),
                 account_file::LEN as u64,
             )?
             else {
@@ -335,13 +349,14 @@ impl<C: FolderCrypto> FolderTransport<C> {
         attachment: AttachmentId,
     ) -> Result<(), TransportError> {
         let blob = self.layout.blob_path(&vault, &attachment);
-        if fsutil::exists(&blob) {
+        if self.store.exists(&blob) {
             if cx.attachment_referenced(attachment)? {
                 return Ok(());
             }
-            fsutil::remove(&blob)?;
+            self.store.remove(&blob)?;
         }
-        fsutil::remove(&self.layout.marker_path(&vault, &attachment, &self.install))
+        self.store
+            .remove(&self.layout.marker_path(&vault, &attachment, &self.install))
     }
 }
 

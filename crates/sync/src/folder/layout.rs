@@ -13,10 +13,9 @@
 //!
 //! `F/s/` is reserved for shared vaults (M6b); this crate never touches it.
 
-use std::path::{Path, PathBuf};
-
 use mosaic_core::{AccountId, AttachmentId, InstallId, VaultId};
 
+use super::store::RelPath;
 use crate::wire::folder_names;
 
 /// The marker file's name.
@@ -26,71 +25,71 @@ pub(crate) const MARKER_BYTES: &[u8] = br#"{"format":"mosaic-folder","version":1
 /// The readme's name.
 pub(crate) const README_NAME: &str = "README.txt";
 /// The exact bytes of the readme.
-pub(crate) const README_BYTES: &[u8] =
-    b"Managed by Mosaic. Do not edit, move or delete files here.\n";
+pub(crate) const README_BYTES: &[u8] = b"Managed by Mosaic. Do not edit, move or delete files here.
+";
 /// The canonical checkpoint file name.
 pub(crate) const HEAD_NAME: &str = "head.mck";
 /// The device info file name.
 pub(crate) const INFO_NAME: &str = "info.mdev";
+/// The directory of all accounts.
+pub(crate) const ACCOUNTS_DIR: &str = "a";
 
-/// The paths of one account in a folder.
+/// The paths of one account in a folder, relative to the folder's root.
 #[derive(Clone, Debug)]
 pub(crate) struct Layout {
-    account_dir: PathBuf,
+    account_dir: RelPath,
 }
 
 impl Layout {
-    pub(crate) fn new(root: &Path, account: &AccountId) -> Self {
+    pub(crate) fn new(account: &AccountId) -> Self {
         Self {
-            account_dir: root
-                .join("a")
-                .join(folder_names::dir_name(account.as_bytes())),
+            account_dir: accounts_dir().known(&folder_names::dir_name(account.as_bytes())),
         }
     }
 
     /// The account's directory.
-    pub(crate) fn dir(&self) -> PathBuf {
+    pub(crate) fn dir(&self) -> RelPath {
         self.account_dir.clone()
     }
 
-    pub(crate) fn account_files(&self) -> PathBuf {
-        self.account_dir.join("account")
+    pub(crate) fn account_files(&self) -> RelPath {
+        self.account_dir.known("account")
     }
 
-    pub(crate) fn devices_dir(&self) -> PathBuf {
-        self.account_dir.join("d")
+    pub(crate) fn devices_dir(&self) -> RelPath {
+        self.account_dir.known("d")
     }
 
-    pub(crate) fn device_dir(&self, device: &InstallId) -> PathBuf {
+    pub(crate) fn device_dir(&self, device: &InstallId) -> RelPath {
         self.devices_dir()
-            .join(folder_names::dir_name(device.as_bytes()))
+            .known(&folder_names::dir_name(device.as_bytes()))
     }
 
-    pub(crate) fn vaults_dir(&self) -> PathBuf {
-        self.account_dir.join("v")
+    pub(crate) fn vaults_dir(&self) -> RelPath {
+        self.account_dir.known("v")
     }
 
-    pub(crate) fn vault_dir(&self, vault: &VaultId) -> PathBuf {
+    pub(crate) fn vault_dir(&self, vault: &VaultId) -> RelPath {
         self.vaults_dir()
-            .join(folder_names::dir_name(vault.as_bytes()))
+            .known(&folder_names::dir_name(vault.as_bytes()))
     }
 
-    pub(crate) fn logs_dir(&self, vault: &VaultId) -> PathBuf {
-        self.vault_dir(vault).join("log")
+    pub(crate) fn logs_dir(&self, vault: &VaultId) -> RelPath {
+        self.vault_dir(vault).known("log")
     }
 
-    pub(crate) fn log_dir(&self, vault: &VaultId, device: &InstallId) -> PathBuf {
+    pub(crate) fn log_dir(&self, vault: &VaultId, device: &InstallId) -> RelPath {
         self.logs_dir(vault)
-            .join(folder_names::dir_name(device.as_bytes()))
+            .known(&folder_names::dir_name(device.as_bytes()))
     }
 
-    pub(crate) fn blobs_dir(&self, vault: &VaultId) -> PathBuf {
-        self.vault_dir(vault).join("blobs")
+    pub(crate) fn blobs_dir(&self, vault: &VaultId) -> RelPath {
+        self.vault_dir(vault).known("blobs")
     }
 
-    pub(crate) fn blob_path(&self, vault: &VaultId, id: &AttachmentId) -> PathBuf {
+    pub(crate) fn blob_path(&self, vault: &VaultId, id: &AttachmentId) -> RelPath {
         self.blobs_dir(vault)
-            .join(folder_names::blob_name(id.as_bytes()))
+            .known(&folder_names::blob_name(id.as_bytes()))
     }
 
     pub(crate) fn marker_path(
@@ -98,10 +97,20 @@ impl Layout {
         vault: &VaultId,
         id: &AttachmentId,
         device: &InstallId,
-    ) -> PathBuf {
-        self.blobs_dir(vault).join(folder_names::blob_delete_name(
+    ) -> RelPath {
+        self.blobs_dir(vault).known(&folder_names::blob_delete_name(
             id.as_bytes(),
             device.as_bytes(),
         ))
     }
+}
+
+/// The directory that holds the account directories (`a`).
+pub(crate) fn accounts_dir() -> RelPath {
+    RelPath::root().known(ACCOUNTS_DIR)
+}
+
+/// The marker file.
+pub(crate) fn marker_path() -> RelPath {
+    RelPath::root().known(MARKER_NAME)
 }

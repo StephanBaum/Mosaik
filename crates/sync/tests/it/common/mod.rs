@@ -15,11 +15,11 @@ use std::sync::Arc;
 
 use mosaic_core::{AccountId, Argon2Profile, MasterPassword, SecretKey, VaultId};
 use mosaic_sync::engine::{EngineConfig, SyncEngine, SyncError, SyncReport};
-use mosaic_sync::folder::{self, FolderConfig, FolderTransport};
+use mosaic_sync::folder::{self, FolderConfig, FolderParts, FolderStore, FolderTransport, RelPath};
 use mosaic_sync::testutil::{
     CloudSim, FixedJitter, LocalSession, ManualClock, SessionMut, SessionRef, SimConfig, SimRng,
 };
-use mosaic_sync::transport::TransportKind;
+use mosaic_sync::transport::{TransportError, TransportKind};
 use mosaic_sync::wire::SessionCrypto;
 use mosaic_sync::wire::device_info::{DeviceInfo, Platform};
 use mosaic_sync::wire::folder_names::dir_name;
@@ -72,14 +72,48 @@ pub fn open_transport(
     .unwrap()
 }
 
+/// As [`open_transport`], over any store (a provider store, a lagging one).
+pub fn open_remote_transport(
+    access: &LocalSession,
+    store: Box<dyn FolderStore>,
+    clock: &ManualClock,
+    name: &str,
+) -> FolderTransport<Crypto> {
+    let crypto = SessionCrypto::new(access.clone()).unwrap();
+    let (account_id, install_id) = (
+        crypto.account_id(),
+        mosaic_sync::SyncCrypto::install_id(&crypto),
+    );
+    FolderTransport::open_with_store(
+        store,
+        FolderParts {
+            account_id,
+            install_id,
+            crypto,
+            clock: Arc::new(clock.clone()),
+            device: DeviceInfo {
+                created_at_ms: mosaic_sync::clock::Clock::now_ms(clock),
+                name: name.to_owned(),
+                platform: Platform::Linux,
+            },
+        },
+    )
+    .unwrap()
+}
+
 pub fn make_engine(
     access: &LocalSession,
     replica: &Path,
     clock: &ManualClock,
     name: &str,
 ) -> Engine {
+    make_engine_over(open_transport(access, replica, clock, name))
+}
+
+/// The engine of the tests over a transport that is already open.
+pub fn make_engine_over(transport: FolderTransport<Crypto>) -> Engine {
     SyncEngine::with_jitter(
-        open_transport(access, replica, clock, name),
+        transport,
         EngineConfig::for_kind(TransportKind::Folder),
         Box::new(FixedJitter(1000)),
     )
@@ -325,4 +359,75 @@ pub fn device_dir(w: &World, replica: usize, owner: usize) -> PathBuf {
 
 pub fn segments(dir: &Path) -> Vec<PathBuf> {
     files_ending(dir, ".mseg")
+}
+
+/// What every `FolderStore` must do, below the directory `contract/` of its
+/// root (which must not exist yet). `begin_run` selects whether the store is
+/// used inside a run (a remote store then caches its listings).
+pub fn store_contract(store: &dyn FolderStore, begin_run: bool) {
+    let dir = RelPath::root().child("contract").unwrap();
+    let file = |n: &str| dir.child(n).unwrap();
+    if begin_run {
+        store.begin_run().unwrap();
+    }
+    // A missing directory has no entries and no stat.
+    assert!(store.list(&dir).unwrap().is_empty());
+    assert!(store.stat(&dir).unwrap().is_none());
+    assert_eq!(store.read_capped(&file("a.bin"), 10), Ok(None));
+    // Writes create the directory; the listing is sorted.
+    store.write_atomic(&dir, "b.bin", b"two", false).unwrap();
+    store.write_atomic(&dir, "a.bin", b"one", false).unwrap();
+    let names = |store: &dyn FolderStore| -> Vec<(String, u64)> {
+        store
+            .list(&dir)
+            .unwrap()
+            .iter()
+            .map(|e| (e.name.to_string_lossy().into_owned(), e.len))
+            .collect()
+    };
+    assert_eq!(
+        names(store),
+        [("a.bin".to_owned(), 3), ("b.bin".to_owned(), 3)]
+    );
+    assert!(store.stat(&dir).unwrap().unwrap().is_dir());
+    // Reads: the cap is exact, a longer file is a protocol error.
+    assert_eq!(
+        store.read_capped(&file("a.bin"), 3),
+        Ok(Some(b"one".to_vec()))
+    );
+    assert_eq!(
+        store.read_capped(&file("a.bin"), 2),
+        Err(TransportError::Protocol)
+    );
+    // Write-once: the second write fails and changes nothing.
+    assert_eq!(
+        store.write_atomic(&dir, "a.bin", b"other", false),
+        Err(TransportError::Io)
+    );
+    assert_eq!(
+        store.read_capped(&file("a.bin"), 10),
+        Ok(Some(b"one".to_vec()))
+    );
+    // Replace.
+    store.write_atomic(&dir, "a.bin", b"newer", true).unwrap();
+    assert_eq!(
+        store.read_capped(&file("a.bin"), 10),
+        Ok(Some(b"newer".to_vec()))
+    );
+    assert_eq!(store.stat(&file("a.bin")).unwrap().unwrap().len, 5);
+    // Remove, and removing what is not there.
+    store.remove(&file("b.bin")).unwrap();
+    store.remove(&file("b.bin")).unwrap();
+    store.remove(&file("never.bin")).unwrap();
+    assert!(store.stat(&file("b.bin")).unwrap().is_none());
+    assert_eq!(names(store), [("a.bin".to_owned(), 5)]);
+    // No temp file is left behind.
+    assert!(names(store).iter().all(|(n, _)| !n.contains(".mtmp")));
+    // Nested directories.
+    let nested = dir.child("x").unwrap().child("y").unwrap();
+    store.create_dir_all(&nested).unwrap();
+    assert!(store.is_real_dir(&nested));
+    store.remove_empty_dir(&nested);
+    assert!(!store.is_real_dir(&nested));
+    assert!(store.is_real_dir(&dir.child("x").unwrap()));
 }

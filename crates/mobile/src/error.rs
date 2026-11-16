@@ -122,8 +122,27 @@ mobile_errors! {
     // New on mobile: context and onboarding.
     /// The master password is entered in the app, not in the extension.
     PasswordInApp => "passwordInApp",
-    /// The account syncs through a folder; the phone apps support hosted accounts only.
-    FolderAccountUnsupported => "folderAccountUnsupported",
+    /// This phone cannot reach the folder of the account: the provider is not set up in this
+    /// build, or the store holds no usable location.
+    FolderProviderUnsupported => "folderProviderUnsupported",
+    /// The cloud provider ended the sign-in (revoked, expired or refused).
+    FolderProviderSignedOut => "folderProviderSignedOut",
+    /// The folder is not there (or is not a Mosaic folder).
+    FolderNotFound => "folderNotFound",
+    /// The cloud storage is full.
+    FolderStorageFull => "folderStorageFull",
+    /// The sign-in took too long.
+    FolderLinkExpired => "folderLinkExpired",
+    /// The sign-in answer was refused (denied, forged or not expected).
+    FolderLinkInvalid => "folderLinkInvalid",
+    /// The `WebDAV` server does not offer TLS 1.3.
+    FolderServerTlsTooOld => "folderServerTlsTooOld",
+    /// The folder holds no data of this account.
+    SyncFolderNoAccount => "syncFolderNoAccount",
+    /// Files of the folder are damaged.
+    SyncFolderDamaged => "syncFolderDamaged",
+    /// The folder offers an older master password than this phone knows.
+    SyncPasswordRollback => "syncPasswordRollback",
     /// The setup code is not valid.
     SetupCodeInvalid => "setupCodeInvalid",
     /// The phone has too little free memory to unlock.
@@ -244,6 +263,27 @@ impl From<TransportError> for MobileError {
     }
 }
 
+/// The error of a call against a folder provider: like [`MobileError::from`], with the folder
+/// codes (a provider that refuses the grant, a full storage, a missing folder, a server
+/// without TLS 1.3).
+pub(crate) fn folder_error(e: TransportError) -> MobileError {
+    match e {
+        TransportError::Unauthorized => MobileError::FolderProviderSignedOut,
+        TransportError::QuotaExceeded => MobileError::FolderStorageFull,
+        TransportError::FolderUnavailable | TransportError::NotFound => MobileError::FolderNotFound,
+        TransportError::TlsVersionUnsupported => MobileError::FolderServerTlsTooOld,
+        other => other.into(),
+    }
+}
+
+/// As [`folder_error`] for a sync run over a folder.
+pub(crate) fn folder_sync_error(e: SyncError) -> MobileError {
+    match e {
+        SyncError::Transport(t) => folder_error(t),
+        other => other.into(),
+    }
+}
+
 impl From<SyncError> for MobileError {
     fn from(e: SyncError) -> Self {
         match e {
@@ -290,6 +330,41 @@ mod tests {
             let mut chars = c.chars();
             assert!(chars.next().is_some_and(|f| f.is_ascii_lowercase()), "{c}");
             assert!(c.chars().all(|ch| ch.is_ascii_alphanumeric()), "{c}");
+        }
+    }
+
+    #[test]
+    fn folder_errors_map_to_the_folder_codes() {
+        for (from, to) in [
+            (
+                TransportError::Unauthorized,
+                MobileError::FolderProviderSignedOut,
+            ),
+            (
+                TransportError::QuotaExceeded,
+                MobileError::FolderStorageFull,
+            ),
+            (
+                TransportError::FolderUnavailable,
+                MobileError::FolderNotFound,
+            ),
+            (TransportError::NotFound, MobileError::FolderNotFound),
+            // A `WebDAV` server that speaks TLS 1.2 only.
+            (
+                TransportError::TlsVersionUnsupported,
+                MobileError::FolderServerTlsTooOld,
+            ),
+            (
+                TransportError::Unreachable,
+                MobileError::SyncServerUnreachable,
+            ),
+            (
+                TransportError::RateLimited { retry_after_s: 3 },
+                MobileError::SyncRateLimited,
+            ),
+            (TransportError::Protocol, MobileError::SyncServerInvalid),
+        ] {
+            assert_eq!(folder_error(from), to);
         }
     }
 

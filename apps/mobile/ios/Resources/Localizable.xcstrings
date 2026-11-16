@@ -103,19 +103,121 @@
         }
       }
     },
-    "error.folderAccountUnsupported" : {
+    "error.folderLinkExpired" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dieses Konto synchronisiert über einen Cloud-Ordner, den Mosaic auf Smartphones noch nicht unterstützt. Nutze einen Desktop oder ein Konto auf einem Sync-Server."
+            "value" : "Die Anmeldung hat zu lange gedauert. Starte sie noch einmal."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This account syncs through a cloud folder, which Mosaic on phones doesn't support yet. Use a desktop or a sync server account."
+            "value" : "The sign-in took too long. Start it again."
+          }
+        }
+      }
+    },
+    "error.folderLinkInvalid" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Anmeldung hat nicht funktioniert oder wurde abgebrochen. Starte sie noch einmal."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The sign-in didn't work or was cancelled. Start it again."
+          }
+        }
+      }
+    },
+    "error.folderNotFound" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic findet diesen Ordner nicht, oder es ist kein Mosaic-Ordner. Wähle den Ordner, mit dem dein Computer synchronisiert."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic can't find that folder, or it isn't a Mosaic folder. Pick the folder your computer syncs to."
+          }
+        }
+      }
+    },
+    "error.folderProviderSignedOut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Cloud-Dienst hat die Anmeldung beendet oder abgelehnt. Melde dich erneut an, damit die Synchronisierung weiterläuft."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your cloud service ended the sign-in or refused it. Sign in again to keep syncing."
+          }
+        }
+      }
+    },
+    "error.folderProviderUnsupported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Smartphone erreicht den Cloud-Ordner dieses Kontos nicht. Melde dich erneut beim Anbieter des Ordners an oder nutze einen Desktop."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This phone can't reach the cloud folder of this account. Sign in to the folder's provider again, or use a desktop."
+          }
+        }
+      }
+    },
+    "error.folderServerTlsTooOld" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Server ist für eine sichere Verbindung zu alt. Mosaic braucht TLS 1.3. Bitte die Person, die den Server betreibt, ihn zu aktualisieren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This server is too old for a secure connection. Mosaic needs TLS 1.3. Ask whoever runs the server to update it."
+          }
+        }
+      }
+    },
+    "error.folderStorageFull" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Cloud-Speicher ist voll. Schaffe dort Platz und synchronisiere danach erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your cloud storage is full. Free up space there, then sync again."
           }
         }
       }
@@ -732,6 +834,40 @@
         }
       }
     },
+    "error.syncFolderDamaged" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Sync-Dateien in diesem Ordner sind beschädigt. Lass deinen Cloud-Dienst fertig synchronisieren oder stelle den Ordner aus einer Sicherung wieder her und versuche es dann noch einmal."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again."
+          }
+        }
+      }
+    },
+    "error.syncFolderNoAccount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In diesem Ordner liegen keine Sync-Daten für dieses Konto. Wähle den Ordner, mit dem dein anderes Gerät synchronisiert."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This folder holds no sync data for this account. Choose the folder your other device syncs to."
+          }
+        }
+      }
+    },
     "error.syncHandoffExpired" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -779,6 +915,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Your master password was changed on the server or in the folder. Enter the new one below."
+          }
+        }
+      }
+    },
+    "error.syncPasswordRollback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Ordner bietet ein älteres Master-Passwort an, als dieses Smartphone kennt. Prüfe den Ordner und deinen Cloud-Dienst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The folder offers an older master password than this phone knows. Check the folder and your cloud service."
           }
         }
       }
@@ -3881,6 +4034,550 @@
         }
       }
     },
+    "mobile.folder.accountOption" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto %1$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account %1$@"
+          }
+        }
+      }
+    },
+    "mobile.folder.appPasswordAction" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit dem App-Passwort anmelden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in with the app password"
+          }
+        }
+      }
+    },
+    "mobile.folder.appPasswordHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erstelle ein App-Passwort in den Sicherheitseinstellungen deines Servers. Nimm nicht dein Hauptpasswort."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create an app password in your server's security settings. Don't use your main password."
+          }
+        }
+      }
+    },
+    "mobile.folder.appPasswordLabel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Passwort"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App password"
+          }
+        }
+      }
+    },
+    "mobile.folder.appPasswordToggle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stattdessen ein App-Passwort verwenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use an app password instead"
+          }
+        }
+      }
+    },
+    "mobile.folder.browseHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es ist der Ordner, den dein Computer synchronisiert, mit einer Datei namens mosaic-sync.json."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It's the folder your computer syncs, with a file named mosaic-sync.json."
+          }
+        }
+      }
+    },
+    "mobile.folder.browseTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle deinen Mosaic-Ordner"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose your Mosaic folder"
+          }
+        }
+      }
+    },
+    "mobile.folder.chooseProvider" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wo synchronisiert dein Konto?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where does your account sync?"
+          }
+        }
+      }
+    },
+    "mobile.folder.currentFolder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktueller Ordner: %1$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current folder: %1$@"
+          }
+        }
+      }
+    },
+    "mobile.folder.davLabel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WebDAV-Ordneradresse"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WebDAV folder address"
+          }
+        }
+      }
+    },
+    "mobile.folder.intro" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Konto synchronisiert über deinen %1$@-Ordner."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account syncs through your %1$@ folder."
+          }
+        }
+      }
+    },
+    "mobile.folder.linked" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Angemeldet. Die Synchronisierung läuft wieder."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signed in. Syncing again."
+          }
+        }
+      }
+    },
+    "mobile.folder.locating" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suche deinen Mosaic-Ordner …"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Looking for your Mosaic folder…"
+          }
+        }
+      }
+    },
+    "mobile.folder.loginLabel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Benutzername"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Username"
+          }
+        }
+      }
+    },
+    "mobile.folder.msRevokeHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um Mosaics Zugriff ganz zu entfernen, entferne die App auf der Seite deines Microsoft-Kontos unter Apps."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To remove Mosaic's access completely, remove it on your Microsoft account page under Apps."
+          }
+        }
+      }
+    },
+    "mobile.folder.noDrive" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Google Drive und iCloud Drive funktionieren unter Android noch nicht. Nimm Dropbox, OneDrive, Nextcloud oder die Mosaic-Synchronisierung."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Google Drive and iCloud Drive don't work on Android yet. Use Dropbox, OneDrive, Nextcloud or Mosaic sync."
+          }
+        }
+      }
+    },
+    "mobile.folder.noSubfolders" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hier gibt es keine Ordner."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There are no folders here."
+          }
+        }
+      }
+    },
+    "mobile.folder.pickAccount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welchem Konto soll dieses Handy beitreten?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Which account is this phone joining?"
+          }
+        }
+      }
+    },
+    "mobile.folder.providerDropbox" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dropbox"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dropbox"
+          }
+        }
+      }
+    },
+    "mobile.folder.providerOneDrive" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OneDrive"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OneDrive"
+          }
+        }
+      }
+    },
+    "mobile.folder.providerWebDav" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nextcloud oder WebDAV"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nextcloud or WebDAV"
+          }
+        }
+      }
+    },
+    "mobile.folder.relink" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neu anmelden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in again"
+          }
+        }
+      }
+    },
+    "mobile.folder.scope" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ fragt nach Zugriff auf alle deine Dateien. Mosaic öffnet nur den Ordner, den du auswählst, und rührt sonst nichts an."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ will ask for access to all your files. Mosaic only opens the folder you choose and never touches anything else."
+          }
+        }
+      }
+    },
+    "mobile.folder.serverConfirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic meldet sich bei %1$@ an. Mach nur weiter, wenn das dein eigener Server ist."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic will sign in at %1$@. Only continue if this is your own server."
+          }
+        }
+      }
+    },
+    "mobile.folder.serverHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "https://cloud.example.com"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "https://cloud.example.com"
+          }
+        }
+      }
+    },
+    "mobile.folder.serverLabel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nextcloud- oder WebDAV-Adresse"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nextcloud or WebDAV address"
+          }
+        }
+      }
+    },
+    "mobile.folder.settingsLine" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisiert über %1$@: %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Syncs through %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "mobile.folder.signIn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bei %1$@ anmelden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to %1$@"
+          }
+        }
+      }
+    },
+    "mobile.folder.up" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Ebene höher"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Up one level"
+          }
+        }
+      }
+    },
+    "mobile.folder.useFolder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stattdessen über einen Cloud-Ordner synchronisieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync through a cloud folder instead"
+          }
+        }
+      }
+    },
+    "mobile.folder.useThis" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesen Ordner verwenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use this folder"
+          }
+        }
+      }
+    },
+    "mobile.folder.waiting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schließ die Anmeldung im Browser ab und komm dann hierher zurück."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finish signing in in your browser, then come back here."
+          }
+        }
+      }
+    },
     "mobile.generator.ambiguous" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5645,6 +6342,142 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mosaic can't continue"
+          }
+        }
+      }
+    },
+    "mobile.reset.action" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto entfernen …"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove account…"
+          }
+        }
+      }
+    },
+    "mobile.reset.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das löscht die Tresor-Kopie, den Secret Key und die Cloud-Anmeldung auf diesem Handy. Deine Daten im Cloud-Ordner oder auf dem Server bleiben erhalten. Du kannst später mit deinem Secret Key und Master-Passwort wieder beitreten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This deletes the vault copy, the Secret Key and the cloud sign-in stored on this phone. Your data in the cloud folder or on the server stays. You can join again later with your Secret Key and master password."
+          }
+        }
+      }
+    },
+    "mobile.reset.confirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto entfernen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove account"
+          }
+        }
+      }
+    },
+    "mobile.reset.phraseLabel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bestätigung"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirmation"
+          }
+        }
+      }
+    },
+    "mobile.reset.revokeDropbox" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Konto wurde entfernt. Mosaics Zugriff bei Dropbox konnten wir nicht beenden: Entferne ihn in Dropbox unter Einstellungen, Verbundene Apps."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The account was removed. We could not end Mosaic's access at Dropbox: remove it in Dropbox under Settings, Connected apps."
+          }
+        }
+      }
+    },
+    "mobile.reset.revokeWebdav" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Konto wurde entfernt. Das App-Passwort auf deinem Server konnten wir nicht löschen: Entferne es dort unter Einstellungen, Sicherheit, Geräte und Sitzungen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The account was removed. We could not delete the app password on your server: remove it there under Settings, Security, Devices and sessions."
+          }
+        }
+      }
+    },
+    "mobile.reset.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Konto von diesem Handy entfernen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove this account from this phone"
+          }
+        }
+      }
+    },
+    "mobile.reset.typePhrase" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gib %1$@ ein, um zu bestätigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type %1$@ to confirm"
           }
         }
       }

@@ -43,5 +43,8 @@ pub mod testutil;
 pub mod transport;
 pub mod wire;
 
+// The loopback http hook of the provider client (`RemoteHttp::new_loopback`)
+// exists only in debug builds, also with `test-util`; release builds never have it.
+
 pub use transport::{Transport, TransportError};
 pub use wire::{SyncCrypto, WireError};
