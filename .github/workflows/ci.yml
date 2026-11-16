@@ -1,48 +1,155 @@
 name: CI
 
+# Change-aware (docs/CI.md, ADR-0167). A pull request runs what its changes can affect; pushes to
+# main, the nightly schedule and manual runs run everything. The required checks always run and end
+# green or red: an unaffected one finishes in seconds on a Linux runner, and every one of them fails
+# when the change detection fails (fail closed).
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Pull requests: a new push cancels the old run. main, the schedule and manual runs are never
+# cancelled; a newer run waits for the running one (GitHub keeps only the newest waiting run).
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
 jobs:
+  # Which jobs this run needs (scripts/ci/changes.mjs). Not a required check itself: when it fails or
+  # its outputs are missing, every required job below fails at its first step.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read # the ci:full label
+    outputs:
+      ok: ${{ steps.plan.outputs.ok }}
+      summary: ${{ steps.plan.outputs.summary }}
+      rust_os: ${{ steps.plan.outputs.rust_os }}
+      rust_args: ${{ steps.plan.outputs.rust_args }}
+      rust_release_args: ${{ steps.plan.outputs.rust_release_args }}
+      cli_os: ${{ steps.plan.outputs.cli_os }}
+      desktop_rust_os: ${{ steps.plan.outputs.desktop_rust_os }}
+      ts_os: ${{ steps.plan.outputs.ts_os }}
+      desktop_frontend: ${{ steps.plan.outputs.desktop_frontend }}
+      extension: ${{ steps.plan.outputs.extension }}
+      web: ${{ steps.plan.outputs.web }}
+      server_image: ${{ steps.plan.outputs.server_image }}
+      supply_chain: ${{ steps.plan.outputs.supply_chain }}
+      release: ${{ steps.plan.outputs.release }}
+      coverage: ${{ steps.plan.outputs.coverage }}
+      fuzz: ${{ steps.plan.outputs.fuzz }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Pull requests diff against the merge base, which needs the history.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Self-test of the change detection
+        run: node --test scripts/ci/changes.test.mjs
+      - name: Plan
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            node scripts/ci/changes.mjs --full "$EVENT run" --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The current labels, so a re-run sees a ci:full label added after the push; the event's
+          # labels if the API is unavailable.
+          labels="$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name' 2>/dev/null)" || labels="$EVENT_LABELS"
+          if printf '%s\n' $labels | grep -qxF 'ci:full'; then
+            node scripts/ci/changes.mjs --full "label ci:full" --github-output "$GITHUB_OUTPUT"
+          else
+            node scripts/ci/changes.mjs --base "$BASE" --head "$HEAD" --github-output "$GITHUB_OUTPUT"
+          fi
+
+  # The required checks (the `main` ruleset) never skip at job level: `!cancelled()` runs them even
+  # when `changes` failed, and their first step then fails. An unaffected matrix entry runs on
+  # ubuntu-latest (the check name keeps its OS), so it holds no Windows or macOS runner. New jobs
+  # (the website's, for example) follow the same pattern: needs, if, gate, `RUN`, a no-op step.
   rust:
     name: Rust (${{ matrix.os }})
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ contains(needs.changes.outputs.rust_os, matrix.os) && matrix.os || 'ubuntu-latest' }}
+    env:
+      RUN: ${{ contains(needs.changes.outputs.rust_os, matrix.os) }}
+      # `--workspace --exclude mosaic-desktop`, or `-p` for each affected crate (empty: fmt and the
+      # unsafe check only). The release flavour also leaves out the mobile crates.
+      RUST_ARGS: ${{ needs.changes.outputs.rust_args }}
+      RUST_RELEASE_ARGS: ${{ needs.changes.outputs.rust_release_args }}
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Change detection gate (fails closed)
+        shell: bash
+        env:
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
+        run: |
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
+          fi
+      - if: env.RUN == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
       - name: Install toolchain from rust-toolchain.toml
+        if: env.RUN == 'true'
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo fmt --all --check
+      # Only a full workspace build saves the cache: a scoped (`-p`) build would store a partial one
+      # under the same key, and later runs would restore that instead of the full one.
+      - if: env.RUN == 'true' && env.RUST_ARGS != ''
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ startsWith(env.RUST_ARGS, '--workspace') }}
+      - if: env.RUN == 'true'
+        run: cargo fmt --all --check
       # `unsafe` lives only in crates/winshim (ADR-0157 D2).
-      - run: bash tools/check-unsafe-confined.sh
+      - if: env.RUN == 'true'
+        run: bash tools/check-unsafe-confined.sh
       # The desktop app needs the webview toolchain; it has its own job below.
-      - run: cargo clippy --workspace --exclude mosaic-desktop --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --exclude mosaic-desktop --locked
+      - if: env.RUN == 'true' && env.RUST_ARGS != ''
+        run: cargo clippy $RUST_ARGS --all-targets --locked -- -D warnings
+      - if: env.RUN == 'true' && env.RUST_ARGS != ''
+        run: cargo test $RUST_ARGS --locked
       # Slow-in-debug tests (the 50 MiB attachment round trip at exactly
       # MAX_ATTACHMENT_LEN, the long multi-device sync simulation) run
       # optimized.
       # The SSH agent's OpenSSH interop test (ignored, run below) needs the Windows
       # OpenSSH client, which speaks the named pipe the agent serves.
       - name: Check the OpenSSH client (Windows)
-        if: runner.os == 'Windows'
+        if: env.RUN == 'true' && env.RUST_RELEASE_ARGS != '' && runner.os == 'Windows'
         shell: pwsh
         run: |
           if (-not (Test-Path 'C:\Windows\System32\OpenSSH\ssh-keygen.exe')) {
@@ -50,56 +157,114 @@ jobs:
           }
       # The mobile crates are left out: their tests enable the `test-hooks` feature, which refuses to
       # compile in a release build by design (crates/mobile/src/lib.rs), and they have no ignored tests.
-      - run: cargo test --release --locked --workspace --exclude mosaic-desktop --exclude mosaic-mobile --exclude mosaic-mobile-ffi -- --ignored
+      - if: env.RUN == 'true' && env.RUST_RELEASE_ARGS != ''
+        run: cargo test --release --locked $RUST_RELEASE_ARGS -- --ignored
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op for ${{ matrix.os }}, no Rust change reaches it. Plan, $SUMMARY"
 
   cli:
     name: CLI (${{ matrix.os }})
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ contains(needs.changes.outputs.cli_os, matrix.os) && matrix.os || 'ubuntu-latest' }}
+    env:
+      RUN: ${{ contains(needs.changes.outputs.cli_os, matrix.os) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Change detection gate (fails closed)
+        shell: bash
+        env:
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
+        run: |
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
+          fi
+      - if: env.RUN == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
       - name: Install toolchain from rust-toolchain.toml
+        if: env.RUN == 'true'
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - if: env.RUN == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # `mosaic` itself, as shipped (spec section 3.9). Release builds have no test backends.
-      - run: cargo build -p mosaic-cli --release --locked
+      - if: env.RUN == 'true'
+        run: cargo build -p mosaic-cli --release --locked
       # The integration tests need the `test-util` feature (file-based keystore, session store and
       # clipboard, a loopback server for the hosted flows), which is debug-only and a compile
       # error in release. Two threads: every fixture copy unlocks with the 128 MiB Argon2id cost.
       # `docs_are_current` (the committed man page and completions) is part of this run.
-      - run: cargo test -p mosaic-cli --features test-util --locked -- --test-threads=2
+      - if: env.RUN == 'true'
+        run: cargo test -p mosaic-cli --features test-util --locked -- --test-threads=2
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op for ${{ matrix.os }}, nothing the CLI builds on changed for it. Plan, $SUMMARY"
 
   desktop-rust:
     name: Desktop app, Rust (${{ matrix.os }})
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ contains(needs.changes.outputs.desktop_rust_os, matrix.os) && matrix.os || 'ubuntu-latest' }}
+    env:
+      RUN: ${{ contains(needs.changes.outputs.desktop_rust_os, matrix.os) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Change detection gate (fails closed)
+        shell: bash
+        env:
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
+        run: |
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
+          fi
+      - if: env.RUN == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
       # Tauri v2 prerequisites (https://v2.tauri.app/start/prerequisites/), minus
       # libssl-dev: Mosaic links no OpenSSL (deny.toml bans it).
       - name: Install Tauri system libraries (Linux)
-        if: runner.os == 'Linux'
+        if: env.RUN == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends             build-essential file libwebkit2gtk-4.1-dev libayatana-appindicator3-dev             librsvg2-dev libxdo-dev
       - name: Install toolchain from rust-toolchain.toml
+        if: env.RUN == 'true'
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo check -p mosaic-desktop --all-targets --locked
-      - run: cargo clippy -p mosaic-desktop --all-targets --locked -- -D warnings
+      - if: env.RUN == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - if: env.RUN == 'true'
+        run: cargo check -p mosaic-desktop --all-targets --locked
+      - if: env.RUN == 'true'
+        run: cargo clippy -p mosaic-desktop --all-targets --locked -- -D warnings
       # Includes the contract fixture check (ADR-0018) and the command/ACL wiring test.
-      - run: cargo test -p mosaic-desktop --locked
+      - if: env.RUN == 'true'
+        run: cargo test -p mosaic-desktop --locked
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op for ${{ matrix.os }}, nothing the desktop app builds on changed for it. Plan, $SUMMARY"
 
+  # Not required checks: an empty list skips the job. Full runs (main, schedule, dispatch) list all.
   coverage:
     name: Coverage (${{ matrix.crate }} >= 90 % lines)
+    needs: changes
+    if: needs.changes.outputs.ok == 'true' && needs.changes.outputs.coverage != '[]'
     strategy:
       fail-fast: false
       matrix:
@@ -108,18 +273,9 @@ jobs:
         # input; insights rates vault passwords; origin decides which site gets a
         # fill and native-messaging frames the extension channel; sync holds the
         # wire formats of both sync backends and server is the sync server (M6).
-        # mobile is the phone core (M10). All are held to the same bar.
-        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging, mosaic-passkey, mosaic-sync, mosaic-server, mosaic-mobile]
-        include:
-          # The folder, engine, HTTP and chaos tests of the sync crate need the
-          # test utilities. The hosted engine paths are exercised by the server
-          # crate's integration tests (real server on loopback), so they run
-          # too; only crates/sync production files count (server files and the
-          # test utilities are excluded from the report).
-          - crate: mosaic-sync
-            features: >-
-              -p mosaic-server --features mosaic-sync/http,mosaic-sync/test-util
-              --ignore-filename-regex '(crates/server/|/testutil/)'
+        # mobile is the phone core (M10). All are held to the same bar. The list and
+        # the per-crate flags live in scripts/ci/changes.mjs (COVERAGE).
+        include: ${{ fromJSON(needs.changes.outputs.coverage) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -134,28 +290,15 @@ jobs:
 
   fuzz-smoke:
     name: Fuzz smoke (${{ matrix.dir }}, 60 s per target)
+    needs: changes
+    if: needs.changes.outputs.ok == 'true' && needs.changes.outputs.fuzz != '[]'
     strategy:
       fail-fast: false
       matrix:
-        dir:
-          - crates/core/fuzz
-          - crates/vault/fuzz
-          - crates/totp/fuzz
-          - crates/qr/fuzz
-          - crates/generator/fuzz
-          - crates/insights/fuzz
-          - crates/import/fuzz
-          - crates/ssh-agent/fuzz
-          - crates/native-messaging/fuzz
-          - crates/origin/fuzz
-          - crates/passkey/fuzz
-          - crates/sync/fuzz
-          - crates/server/fuzz
-          - crates/cli/fuzz
-          - crates/mobile/fuzz
-          # Includes the shell's contract, persist, draft and Emergency Kit modules by
-          # path; no tauri, so no WebKitGTK is needed.
-          - apps/desktop/src-tauri/fuzz
+        # The fuzz crates of the affected crates (FUZZ_DIRS in scripts/ci/changes.mjs). The desktop
+        # one includes the shell's contract, persist, draft and Emergency Kit modules by path; no
+        # tauri, so no WebKitGTK is needed.
+        dir: ${{ fromJSON(needs.changes.outputs.fuzz) }}
     runs-on: ubuntu-latest
     env:
       # Dated nightly so the job does not break when a new nightly ships.
@@ -218,13 +361,30 @@ jobs:
   # the example config (M6, ADR-0044).
   server-image:
     name: Server image (build and smoke test)
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    env:
+      RUN: ${{ needs.changes.outputs.server_image == 'true' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Change detection gate (fails closed)
+        shell: bash
+        env:
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
+        run: |
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
+          fi
+      - if: env.RUN == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
       - name: Build the image
+        if: env.RUN == 'true'
         run: docker build -f deploy/Dockerfile -t mosaic-server:ci .
       - name: Initialise and start with the example config
+        if: env.RUN == 'true'
         run: |
           set -euo pipefail
           mkdir -p ci-data ci-config
@@ -241,214 +401,357 @@ jobs:
           docker logs mosaic-ci
           exit 1
       - name: Stop
-        if: always()
+        if: always() && env.RUN == 'true'
         run: docker rm -f mosaic-ci || true
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op, neither the server, a crate it builds on nor deploy/ changed. Plan, $SUMMARY"
 
+  # Lockfiles, manifests and deny.toml. Advisories published later are caught by main and the
+  # nightly run, which always run this job.
   rust-supply-chain:
     name: Rust supply chain
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    env:
+      RUN: ${{ needs.changes.outputs.supply_chain == 'true' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Change detection gate (fails closed)
+        shell: bash
+        env:
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
+        run: |
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
+          fi
+      - if: env.RUN == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
       # Each fuzz crate has its own workspace and lockfile (libfuzzer-sys and
       # its build dependencies), which the checks above do not see.
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/core/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/vault/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/totp/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/qr/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/generator/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/insights/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/import/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/ssh-agent/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/native-messaging/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/origin/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/passkey/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/sync/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/server/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/cli/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: crates/mobile/fuzz/Cargo.toml
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - if: env.RUN == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
           manifest-path: apps/desktop/src-tauri/fuzz/Cargo.toml
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+      - if: env.RUN == 'true'
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-audit@0.22.2
-      - run: cargo audit --deny warnings
+      - if: env.RUN == 'true'
+        run: cargo audit --deny warnings
       - name: cargo audit (fuzz lockfiles)
+        if: env.RUN == 'true'
         run: |
           set -euo pipefail
           for d in crates/core/fuzz crates/vault/fuzz crates/totp/fuzz crates/qr/fuzz crates/generator/fuzz \
                    crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz crates/native-messaging/fuzz crates/passkey/fuzz crates/sync/fuzz crates/server/fuzz crates/cli/fuzz crates/origin/fuzz crates/mobile/fuzz apps/desktop/src-tauri/fuzz; do
             cargo audit --deny warnings -f "$d/Cargo.lock"
           done
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op, no lockfile, manifest or deny.toml changed. Plan, $SUMMARY"
 
   typescript:
     name: TypeScript (${{ matrix.os }})
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ contains(needs.changes.outputs.ts_os, matrix.os) && matrix.os || 'ubuntu-latest' }}
+    env:
+      RUN: ${{ contains(needs.changes.outputs.ts_os, matrix.os) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Change detection gate (fails closed)
+        shell: bash
+        env:
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
+        run: |
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
+          fi
+      # The ubuntu-latest entry always checks out: the wording check below reads documentation too.
+      - if: env.RUN == 'true' || matrix.os == 'ubuntu-latest'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: env.RUN == 'true'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - if: env.RUN == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
+      - if: env.RUN == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: env.RUN == 'true'
+        run: pnpm lint
       # No "audited", "bank-grade" and the other banned claims in shipped or user-facing text (M9).
-      - run: node scripts/release/wording-check.mjs
-      - run: pnpm typecheck
-      - run: pnpm test
+      # It scans README.md, SECURITY.md and docs as well, so it runs on every pull request (the
+      # runner's Node; no install needed).
+      - if: env.RUN == 'true' || matrix.os == 'ubuntu-latest'
+        run: node scripts/release/wording-check.mjs
+      - if: env.RUN == 'true'
+        run: pnpm typecheck
+      - if: env.RUN == 'true'
+        run: pnpm test
       # The mobile strings, tokens and generated sources must match the catalogs and tokens (M10).
       # One OS is enough: the output is byte-identical (.gitattributes pins LF).
       - name: Mobile export drift check
-        if: matrix.os == 'ubuntu-latest'
+        if: env.RUN == 'true' && matrix.os == 'ubuntu-latest'
         run: |
           pnpm --filter @mosaic/i18n export:mobile
           pnpm --filter @mosaic/design-tokens export:mobile
           git diff --exit-code -- apps/mobile
-      - run: pnpm audit --audit-level low
+      - if: env.RUN == 'true'
+        run: pnpm audit --audit-level low
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op for ${{ matrix.os }} (the wording check runs on ubuntu-latest), no TypeScript change. Plan, $SUMMARY"
 
   # The release scripts (checksums, minisign signing and verification) run against fixtures with
-  # throw-away keys. Only when a pull request touches them or the release workflow.
+  # throw-away keys: on pull requests that touch them, the release workflow, a manifest or a
+  # package.json, and on every full run.
   release-selftest:
     name: Release scripts self-test
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
+    env:
+      RUN: ${{ needs.changes.outputs.release == 'true' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Did the pull request touch the release scripts?
-        id: changed
+      - name: Change detection gate (fails closed)
+        shell: bash
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
         run: |
-          set -euo pipefail
-          if git diff --quiet "$BASE" HEAD -- scripts/release .github/workflows/release.yml package.json pnpm-workspace.yaml; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
           fi
+      - if: env.RUN == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
       - name: Install minisign (pinned version, logged)
-        if: steps.changed.outputs.run == 'true'
+        if: env.RUN == 'true'
         run: bash scripts/release/install-minisign.sh
       - name: Self-test
-        if: steps.changed.outputs.run == 'true'
+        if: env.RUN == 'true'
         run: bash scripts/release/selftest.sh
       # The red-team regression tests (RT-release): the release scripts under attack, the pnpm
       # install-script setting (needs pnpm) and the SBOM generator (needs Node).
-      - if: steps.changed.outputs.run == 'true'
+      - if: env.RUN == 'true'
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - if: steps.changed.outputs.run == 'true'
+      - if: env.RUN == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       - name: Red-team self-test
-        if: steps.changed.outputs.run == 'true'
+        if: env.RUN == 'true'
         run: bash scripts/release/redteam-selftest.sh
       - name: SBOM generator test
-        if: steps.changed.outputs.run == 'true'
+        if: env.RUN == 'true'
         run: node --test scripts/release/sbom-js.test.mjs
       - name: No Cargo features in the release build
-        if: steps.changed.outputs.run == 'true'
+        if: env.RUN == 'true'
         run: bash scripts/release/check-features.sh
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op, no release script, manifest or package.json changed. Plan, $SUMMARY"
 
   desktop-frontend:
     name: Desktop app, frontend (build, Playwright + axe)
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    env:
+      RUN: ${{ needs.changes.outputs.desktop_frontend == 'true' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Change detection gate (fails closed)
+        shell: bash
+        env:
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
+        run: |
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
+          fi
+      - if: env.RUN == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: env.RUN == 'true'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - if: env.RUN == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm exec vitest run --project desktop
-      - run: pnpm --filter @mosaic/desktop build
+      - if: env.RUN == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: env.RUN == 'true'
+        run: pnpm lint
+      - if: env.RUN == 'true'
+        run: pnpm typecheck
+      - if: env.RUN == 'true'
+        run: pnpm exec vitest run --project desktop
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/desktop build
       - name: Install Chromium for Playwright
+        if: env.RUN == 'true'
         run: pnpm --filter @mosaic/desktop exec playwright install --with-deps chromium
       # Mock-mode build served with the production CSP; axe in light and dark.
-      - run: pnpm --filter @mosaic/desktop exec playwright test --workers=1
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/desktop exec playwright test --workers=1
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op, neither apps/desktop (frontend) nor packages changed. Plan, $SUMMARY"
 
   extension:
     name: Browser extension (build, dist check, Playwright hostile pages)
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    env:
+      RUN: ${{ needs.changes.outputs.extension == 'true' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Change detection gate (fails closed)
+        shell: bash
+        env:
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
+        run: |
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
+          fi
+      - if: env.RUN == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: env.RUN == 'true'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - if: env.RUN == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec vitest run --project extension
+      - if: env.RUN == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: env.RUN == 'true'
+        run: pnpm exec vitest run --project extension
       # The production packages (chromium, firefox), then the checks on what ships.
-      - run: pnpm --filter @mosaic/extension build
-      - run: node apps/extension/scripts/check-dist.mjs
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/extension build
+      - if: env.RUN == 'true'
+        run: node apps/extension/scripts/check-dist.mjs
       - name: Install Chromium for Playwright
+        if: env.RUN == 'true'
         run: pnpm --filter @mosaic/extension exec playwright install --with-deps chromium
       # The e2e build carries the test hooks and the `*.test` host access; the
       # hostile-site server and the fake desktop start from the fixtures. Chromium
       # runs headless with the extension loaded, so no display server is needed.
-      - run: pnpm --filter @mosaic/extension build:e2e
-      - run: pnpm --filter @mosaic/extension exec playwright test
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/extension build:e2e
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/extension exec playwright test
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op, nothing the extension builds on or its tests read changed. Plan, $SUMMARY"

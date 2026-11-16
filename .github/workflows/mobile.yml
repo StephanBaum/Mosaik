@@ -33,9 +33,10 @@ on:
 permissions:
   contents: read
 
+# Pull requests: a new push cancels the old run. main, the schedule and manual runs are never cancelled.
 concurrency:
-  group: mobile-${{ github.ref }}
-  cancel-in-progress: true
+  group: mobile-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -46,6 +47,37 @@ env:
   CARGO_NDK_VERSION: "4.1.2"
 
 jobs:
+  # Whether a pull request touches anything iOS builds (scripts/ci/changes.mjs, docs/CI.md): the iOS
+  # job holds a scarce macOS runner. Android runs on every trigger, as before.
+  changes:
+    name: Detect iOS changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      ios: ${{ steps.plan.outputs.ios }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Plan
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ] || printf '%s\n' $LABELS | grep -qxF 'ci:full'; then
+            node scripts/ci/changes.mjs --full "$EVENT run or label ci:full" --github-output "$GITHUB_OUTPUT"
+          else
+            node scripts/ci/changes.mjs --base "$BASE" --head "$HEAD" --github-output "$GITHUB_OUTPUT"
+          fi
+
   android:
     name: Android build and JVM tests
     runs-on: ubuntu-24.04
@@ -216,6 +248,11 @@ jobs:
 
   ios:
     name: iOS build and simulator smoke test
+    needs: changes
+    # Pull requests: only when an iOS input changed (apps/mobile/ios, crates/mobile*, packages/i18n,
+    # packages/design-tokens, the iOS scripts, or a run-everything file). Runs when in doubt: also when
+    # the detection failed. Not a required check.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.ios == 'true') }}
     runs-on: macos-15
     timeout-minutes: 60
     env:
