@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: clipboard. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -6,16 +5,16 @@
 import type { clipboard as en } from "../en/clipboard.ts";
 
 export const clipboard = {
-  "clipboard.copied": "Copied. Clears in {seconds, plural, one {# second} other {# seconds}}.",
-  "clipboard.cleared": "Clipboard cleared.",
-  "toast.copied": "Copied. Clears in {seconds, plural, one {# second} other {# seconds}}.",
-  "toast.copiedKept": "Copied. Mosaic won't clear the clipboard.",
-  "toast.clipboardCleared": "Clipboard cleared.",
-  "toast.saved": "Saved.",
-  "toast.trashed": "Moved to Trash.",
-  "toast.restored": "Restored.",
-  "toast.purged": "Deleted for good.",
-  "clipboard.clearNow": "Clear now",
-  "toast.dismiss": "Dismiss",
-  "toast.region": "Notifications",
+  "clipboard.copied": "Kopyalandı. {seconds, plural, one {# saniye} other {# saniye}} sonra temizlenecek.",
+  "clipboard.cleared": "Pano temizlendi.",
+  "toast.copied": "Kopyalandı. {seconds, plural, one {# saniye} other {# saniye}} sonra temizlenecek.",
+  "toast.copiedKept": "Kopyalandı. Mosaic panoyu temizlemeyecek.",
+  "toast.clipboardCleared": "Pano temizlendi.",
+  "toast.saved": "Kaydedildi.",
+  "toast.trashed": "Çöp Kutusu’na taşındı.",
+  "toast.restored": "Geri yüklendi.",
+  "toast.purged": "Kalıcı olarak silindi.",
+  "clipboard.clearNow": "Şimdi temizle",
+  "toast.dismiss": "Kapat",
+  "toast.region": "Bildirimler",
 } satisfies Record<keyof typeof en, string>;

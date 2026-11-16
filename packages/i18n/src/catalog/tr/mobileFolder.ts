@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: mobileFolder. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -6,84 +5,84 @@
 import type { mobileFolder as en } from "../en/mobileFolder.ts";
 
 export const mobileFolder = {
-  "mobile.sync.never": "Not synced yet",
-  "mobile.sync.last": "Synced {time}",
-  "mobile.sync.localOnly": "This vault is only on this phone. Sync is not set up.",
+  "mobile.sync.never": "Henüz eşitlenmedi",
+  "mobile.sync.last": "Eşitlendi: {time}",
+  "mobile.sync.localOnly": "Bu kasa yalnızca bu telefonda. Eşitleme kurulmadı.",
   "mobile.sync.pending":
-    "{count, plural, one {# change waiting to upload} other {# changes waiting to upload}}",
-  "mobile.sync.now": "Sync now",
-  "mobile.sync.working": "Syncing",
-  "mobile.sync.warnings": "Sync warnings",
+    "{count, plural, one {Yüklenmeyi bekleyen # değişiklik} other {Yüklenmeyi bekleyen # değişiklik}}",
+  "mobile.sync.now": "Şimdi eşitle",
+  "mobile.sync.working": "Eşitleniyor",
+  "mobile.sync.warnings": "Eşitleme uyarıları",
   "mobile.sync.warning.freezeSuspected":
-    "Changes from another device have not arrived for a while. Check that the other device is on and online.",
+    "Başka bir aygıttan gelen değişiklikler bir süredir ulaşmadı. Diğer aygıtın açık ve çevrimiçi olduğunu kontrol edin.",
   "mobile.sync.warning.noCommonView":
-    "This phone and another device haven't seen the same server data for two days. The server may be showing them different versions. Sync your other device, then sync here.",
+    "Bu telefon ve başka bir aygıt iki gündür aynı sunucu verisini görmedi. Sunucu onlara farklı sürümler gösteriyor olabilir. Diğer aygıtınızı eşitleyin, sonra burada eşitleyin.",
   "mobile.sync.warning.rollbackDetected":
-    "Your sync data looks older than this phone. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+    "Eşitleme verileriniz bu telefondan daha eski görünüyor. Mosaic’i başka bir aygıtta açın ve en son değişikliklerinizin orada olduğunu kontrol edin. Sonra “Kontrol ettim”i seçin.",
   "mobile.sync.warning.identityDuplicated":
-    "Another copy of Mosaic is writing under this phone's identity, for example after a backup was restored. Syncing is paused. Make sure only one copy is in use, then choose “I've checked”.",
+    "Mosaic’in başka bir kopyası bu telefonun kimliğiyle yazıyor, örneğin bir yedek geri yüklendikten sonra. Eşitleme duraklatıldı. Yalnızca bir kopyanın kullanıldığından emin olun, sonra “Kontrol ettim”i seçin.",
   "mobile.sync.warning.serverInconsistent":
-    "The server showed this phone different data than another device. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+    "Sunucu bu telefona başka bir aygıttan farklı veriler gösterdi. Mosaic’i başka bir aygıtta açın ve en son değişikliklerinizin orada olduğunu kontrol edin. Sonra “Kontrol ettim”i seçin.",
   "mobile.sync.warning.serverRollback":
-    "The server's copy of one of your vaults is older than this phone's. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+    "Sunucudaki kasalarınızdan birinin kopyası bu telefonunkinden daha eski. Mosaic’i başka bir aygıtta açın ve en son değişikliklerinizin orada olduğunu kontrol edin. Sonra “Kontrol ettim”i seçin.",
   "mobile.sync.warning.sharingAttention":
-    "A shared vault needs attention: a key change is waiting, or a member could not be checked. Open Mosaic on your computer to see which one. Then choose “I've checked”.",
+    "Paylaşılan bir kasanın ilgilenmeniz gerekiyor: bir anahtar değişikliği bekliyor veya bir üye denetlenemedi. Hangisi olduğunu görmek için Mosaic’i bilgisayarınızda açın. Sonra “Kontrol ettim”i seçin.",
   "mobile.sync.warning.undecryptable":
-    "{count, plural, one {# received item} other {# received items}} couldn't be read on this phone. Update Mosaic on all your devices, then sync again.",
+    "{count, plural, one {Alınan # öğe} other {Alınan # öğe}} bu telefonda okunamadı. Mosaic’i tüm aygıtlarınızda güncelleyin, sonra yeniden eşitleyin.",
   "mobile.sync.warning.accountRollback":
-    "The server shows an older account key than this phone has. Nothing was changed. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
-  "mobile.sync.acknowledge": "I've checked…",
-  "mobile.sync.acknowledgeTitle": "Clear the sync warnings?",
+    "Sunucu bu telefondakinden daha eski bir hesap anahtarı gösteriyor. Hiçbir şey değiştirilmedi. Mosaic’i başka bir aygıtta açın ve en son değişikliklerinizin orada olduğunu kontrol edin. Sonra “Kontrol ettim”i seçin.",
+  "mobile.sync.acknowledge": "Kontrol ettim…",
+  "mobile.sync.acknowledgeTitle": "Eşitleme uyarıları temizlensin mi?",
   "mobile.sync.acknowledgeBody":
-    "Only go on after you have checked the server yourself. This clears every warning, and syncing continues. If your data really was rolled back or changed, Mosaic can't tell afterwards. Do this on each of your devices.",
-  "mobile.sync.acknowledgeConfirm": "I've checked",
-  "mobile.folder.intro": "This account syncs through your {provider} folder.",
-  "mobile.folder.signIn": "Sign in to {provider}",
+    "Yalnızca sunucuyu kendiniz kontrol ettikten sonra devam edin. Bu, tüm uyarıları temizler ve eşitleme devam eder. Verileriniz gerçekten geri alındıysa veya değiştirildiyse Mosaic bunu sonradan anlayamaz. Bunu her aygıtınızda yapın.",
+  "mobile.sync.acknowledgeConfirm": "Kontrol ettim",
+  "mobile.folder.intro": "Bu hesap {provider} klasörünüz üzerinden eşitlenir.",
+  "mobile.folder.signIn": "{provider} hesabında oturum aç",
   "mobile.folder.scope":
-    "{provider} will ask for access to all your files. Mosaic only opens the folder you choose and never touches anything else.",
-  "mobile.folder.waiting": "Finish signing in in your browser, then come back here.",
-  "mobile.folder.serverLabel": "Nextcloud or WebDAV address",
+    "{provider} tüm dosyalarınıza erişim isteyecek. Mosaic yalnızca seçtiğiniz klasörü açar ve başka hiçbir şeye dokunmaz.",
+  "mobile.folder.waiting": "Oturum açmayı tarayıcınızda tamamlayın, sonra buraya dönün.",
+  "mobile.folder.serverLabel": "Nextcloud veya WebDAV adresi",
   "mobile.folder.serverHint": "https://cloud.example.com",
   "mobile.folder.serverConfirm":
-    "Mosaic will sign in at {server}. Only continue if this is your own server.",
-  "mobile.folder.locating": "Looking for your Mosaic folder…",
-  "mobile.folder.browseTitle": "Choose your Mosaic folder",
+    "Mosaic {server} adresinde oturum açacak. Yalnızca bu kendi sunucunuzsa devam edin.",
+  "mobile.folder.locating": "Mosaic klasörünüz aranıyor…",
+  "mobile.folder.browseTitle": "Mosaic klasörünüzü seçin",
   "mobile.folder.browseHint":
-    "It's the folder your computer syncs, with a file named mosaic-sync.json.",
-  "mobile.folder.currentFolder": "Current folder: {path}",
-  "mobile.folder.noSubfolders": "There are no folders here.",
-  "mobile.folder.useThis": "Use this folder",
-  "mobile.folder.up": "Up one level",
-  "mobile.folder.chooseProvider": "Where does your account sync?",
+    "Bilgisayarınızın eşitlediği, içinde mosaic-sync.json adlı bir dosya olan klasördür.",
+  "mobile.folder.currentFolder": "Geçerli klasör: {path}",
+  "mobile.folder.noSubfolders": "Burada klasör yok.",
+  "mobile.folder.useThis": "Bu klasörü kullan",
+  "mobile.folder.up": "Bir üst düzey",
+  "mobile.folder.chooseProvider": "Hesabınız nerede eşitleniyor?",
   "mobile.folder.noDrive":
-    "Google Drive and iCloud Drive don't work on Android yet. Use Dropbox, OneDrive, Nextcloud or Mosaic sync.",
-  "mobile.folder.useFolder": "Sync through a cloud folder instead",
+    "Google Drive ve iCloud Drive henüz Android’de çalışmıyor. Dropbox, OneDrive, Nextcloud veya Mosaic eşitlemesini kullanın.",
+  "mobile.folder.useFolder": "Bunun yerine bir bulut klasörü üzerinden eşitle",
   "mobile.folder.providerDropbox": "Dropbox",
   "mobile.folder.providerOneDrive": "OneDrive",
-  "mobile.folder.providerWebDav": "Nextcloud or WebDAV",
-  "mobile.folder.appPasswordToggle": "Use an app password instead",
-  "mobile.folder.davLabel": "WebDAV folder address",
-  "mobile.folder.loginLabel": "Username",
-  "mobile.folder.appPasswordLabel": "App password",
+  "mobile.folder.providerWebDav": "Nextcloud veya WebDAV",
+  "mobile.folder.appPasswordToggle": "Bunun yerine bir uygulama parolası kullan",
+  "mobile.folder.davLabel": "WebDAV klasör adresi",
+  "mobile.folder.loginLabel": "Kullanıcı adı",
+  "mobile.folder.appPasswordLabel": "Uygulama parolası",
   "mobile.folder.appPasswordHint":
-    "Create an app password in your server's security settings. Don't use your main password.",
-  "mobile.folder.appPasswordAction": "Sign in with the app password",
-  "mobile.folder.pickAccount": "Which account is this phone joining?",
-  "mobile.folder.accountOption": "Account {id}",
-  "mobile.folder.linked": "Signed in. Syncing again.",
-  "mobile.folder.settingsLine": "Syncs through {provider}: {path}",
-  "mobile.folder.relink": "Sign in again",
+    "Sunucunuzun güvenlik ayarlarında bir uygulama parolası oluşturun. Ana parolanızı kullanmayın.",
+  "mobile.folder.appPasswordAction": "Uygulama parolasıyla oturum aç",
+  "mobile.folder.pickAccount": "Bu telefon hangi hesaba katılıyor?",
+  "mobile.folder.accountOption": "Hesap {id}",
+  "mobile.folder.linked": "Oturum açıldı. Yeniden eşitleniyor.",
+  "mobile.folder.settingsLine": "{provider} üzerinden eşitlenir: {path}",
+  "mobile.folder.relink": "Yeniden oturum aç",
   "mobile.folder.msRevokeHint":
-    "To remove Mosaic's access completely, remove it on your Microsoft account page under Apps.",
+    "Mosaic’in erişimini tamamen kaldırmak için Microsoft hesap sayfanızda Uygulamalar altından kaldırın.",
   "mobile.reset.revokeDropbox":
-    "The account was removed. We could not end Mosaic's access at Dropbox: remove it in Dropbox under Settings, Connected apps.",
+    "Hesap kaldırıldı. Mosaic’in Dropbox’taki erişimi sonlandırılamadı: Dropbox’ta Ayarlar, Bağlı uygulamalar altından kaldırın.",
   "mobile.reset.revokeWebdav":
-    "The account was removed. We could not delete the app password on your server: remove it there under Settings, Security, Devices and sessions.",
-  "mobile.reset.title": "Remove this account from this phone",
+    "Hesap kaldırıldı. Sunucunuzdaki uygulama parolası silinemedi: orada Ayarlar, Güvenlik, Aygıtlar ve oturumlar altından kaldırın.",
+  "mobile.reset.title": "Bu hesabı bu telefondan kaldır",
   "mobile.reset.body":
-    "This deletes the vault copy, the Secret Key and the cloud sign-in stored on this phone. Your data in the cloud folder or on the server stays. You can join again later with your Secret Key and master password.",
-  "mobile.reset.action": "Remove account…",
-  "mobile.reset.confirm": "Remove account",
-  "mobile.reset.phraseLabel": "Confirmation",
-  "mobile.reset.typePhrase": "Type {phrase} to confirm",
+    "Bu, bu telefonda saklanan kasa kopyasını, Gizli Anahtarı ve bulut oturumunu siler. Bulut klasöründeki veya sunucudaki verileriniz kalır. Daha sonra Gizli Anahtarınız ve ana parolanızla yeniden katılabilirsiniz.",
+  "mobile.reset.action": "Hesabı kaldır…",
+  "mobile.reset.confirm": "Hesabı kaldır",
+  "mobile.reset.phraseLabel": "Onay",
+  "mobile.reset.typePhrase": "Onaylamak için {phrase} yazın",
 } satisfies Record<keyof typeof en, string>;

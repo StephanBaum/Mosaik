@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: errors. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -6,296 +5,296 @@
 import type { errors as en } from "../en/errors.ts";
 
 export const errors = {
-  "error.notImplemented": "This isn't available yet. It's coming in a later version of Mosaic.",
+  "error.notImplemented": "Bu henüz kullanılamıyor. Mosaic’in sonraki bir sürümünde gelecek.",
   "error.noAccount":
-    "There's no account on this device yet. Create one, or sign in with your Emergency Kit.",
-  "error.accountExists": "This device already has a Mosaic account. Unlock it instead.",
-  "error.locked": "Mosaic is locked. Unlock it to continue.",
-  "error.alreadyUnlocked": "Mosaic is already unlocked. You can continue where you left off.",
+    "Bu aygıtta henüz hesap yok. Bir hesap oluşturun veya Acil Durum Kitinizle oturum açın.",
+  "error.accountExists": "Bu aygıtta zaten bir Mosaic hesabı var. Bunun yerine kilidini açın.",
+  "error.locked": "Mosaic kilitli. Devam etmek için kilidini açın.",
+  "error.alreadyUnlocked": "Mosaic’in kilidi zaten açık. Kaldığınız yerden devam edebilirsiniz.",
   "error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check Caps Lock and your keyboard layout, then try again.",
+    "Bu ana parola veya Gizli Anahtar çalışmadı. Caps Lock’u ve klavye düzeninizi kontrol edin, sonra yeniden deneyin.",
   "error.secretKeyRequired":
-    "This device doesn't have your Secret Key. Type it from your Emergency Kit.",
+    "Bu aygıtta Gizli Anahtarınız yok. Acil Durum Kitinizden yazın.",
   "error.secretKeyMalformed":
-    "That isn't a Secret Key. Yours starts with “M1-” and is on your Emergency Kit.",
+    "Bu bir Gizli Anahtar değil. Sizinki “M1-” ile başlar ve Acil Durum Kitinizdedir.",
   "error.secretKeyMistyped":
-    "That Secret Key has a typo. Compare it with your Emergency Kit, character by character.",
-  "error.emptyPassword": "The master password is empty. Enter it to continue.",
+    "Bu Gizli Anahtarda bir yazım hatası var. Acil Durum Kitinizle karakter karakter karşılaştırın.",
+  "error.emptyPassword": "Ana parola boş. Devam etmek için girin.",
   "error.quickUnlockUnavailable":
-    "Quick unlock isn't set up on this device. Unlock with your master password.",
+    "Hızlı kilit açma bu aygıtta kurulu değil. Ana parolanızla kilidi açın.",
   "error.storeInUse":
-    "Mosaic is already open on this computer. Close the other window, then try again.",
+    "Mosaic bu bilgisayarda zaten açık. Diğer pencereyi kapatın, sonra yeniden deneyin.",
   "error.storeUnavailable":
-    "Mosaic couldn't open your vault file on this device. Check that the disk is available and has free space, then restart Mosaic.",
-  "error.vaultNotFound": "That vault no longer exists. It may have been deleted on another device.",
+    "Mosaic bu aygıttaki kasa dosyanızı açamadı. Diskin kullanılabilir olduğunu ve boş alanı bulunduğunu kontrol edin, sonra Mosaic’i yeniden başlatın.",
+  "error.vaultNotFound": "Bu kasa artık yok. Başka bir aygıtta silinmiş olabilir.",
   "error.vaultUnavailable":
-    "This vault can't be opened in this session. Unlock it with its hardware key, or sync and try again.",
+    "Bu kasa bu oturumda açılamıyor. Donanım anahtarıyla kilidini açın veya eşitleyip yeniden deneyin.",
   "error.itemNotFound":
-    "That item no longer exists. It may have been moved or deleted on another device.",
+    "Bu öğe artık yok. Başka bir aygıtta taşınmış veya silinmiş olabilir.",
   "error.itemDeleted":
-    "That item was deleted for good, so it can't be opened. Choose another item.",
-  "error.sameVault": "The item is already in that vault. Choose a different vault.",
-  "error.noOtp": "This item has no one-time code. Edit the item to add one.",
+    "Bu öğe kalıcı olarak silindi, bu yüzden açılamaz. Başka bir öğe seçin.",
+  "error.sameVault": "Öğe zaten bu kasada. Farklı bir kasa seçin.",
+  "error.noOtp": "Bu öğede tek kullanımlık kod yok. Eklemek için öğeyi düzenleyin.",
   "error.fieldEmpty":
-    "That field is empty, so there's nothing to copy or show. Edit the item to fill it in.",
+    "Bu alan boş, bu yüzden kopyalanacak veya gösterilecek bir şey yok. Doldurmak için öğeyi düzenleyin.",
   "error.invalidInput":
-    "Something in this form isn't valid. Check the highlighted fields and try again.",
+    "Bu formdaki bir şey geçerli değil. Vurgulanan alanları kontrol edin ve yeniden deneyin.",
   "error.sshKeyInvalid":
-    "This isn't an OpenSSH private key. Paste the whole key, including the BEGIN and END lines.",
-  "error.reauthRequired": "This change needs your master password. Enter it to confirm.",
-  "error.attachmentTooLarge": "That file is larger than 50 MiB. Choose a smaller file.",
+    "Bu bir OpenSSH özel anahtarı değil. BEGIN ve END satırları dahil anahtarın tamamını yapıştırın.",
+  "error.reauthRequired": "Bu değişiklik ana parolanızı gerektirir. Onaylamak için girin.",
+  "error.attachmentTooLarge": "Bu dosya 50 MiB’den büyük. Daha küçük bir dosya seçin.",
   "error.attachmentQuota":
-    "Your files would use more than the 1 GiB available. Remove some attachments, then try again.",
-  "error.attachmentNotFound": "This file is no longer part of the item. Reload the item.",
+    "Dosyalarınız mevcut 1 GiB’den fazla yer kaplayacak. Bazı ekleri kaldırın, sonra yeniden deneyin.",
+  "error.attachmentNotFound": "Bu dosya artık öğenin parçası değil. Öğeyi yeniden yükleyin.",
   "error.attachmentUnavailable":
-    "This file can't be opened on this device. It may not be synced yet or may be damaged.",
-  "error.attachmentFileUnreadable": "That file can't be read. Choose another file.",
-  "error.attachmentSaveFailed": "The file couldn't be saved there. Choose another folder.",
-  "error.attachmentPreviewUnsupported": "There's no preview for this file. Use Save as to open it.",
-  "error.attachmentPreviewTooLarge": "This image is too large to preview. Use Save as to open it.",
+    "Bu dosya bu aygıtta açılamıyor. Henüz eşitlenmemiş veya hasarlı olabilir.",
+  "error.attachmentFileUnreadable": "Bu dosya okunamıyor. Başka bir dosya seçin.",
+  "error.attachmentSaveFailed": "Dosya oraya kaydedilemedi. Başka bir klasör seçin.",
+  "error.attachmentPreviewUnsupported": "Bu dosya için önizleme yok. Açmak için Farklı kaydet’i kullanın.",
+  "error.attachmentPreviewTooLarge": "Bu görsel önizleme için çok büyük. Açmak için Farklı kaydet’i kullanın.",
   "error.clipboardUnavailable":
-    "Mosaic couldn't use the clipboard. Close apps that might be holding it, then try again.",
+    "Mosaic panoyu kullanamadı. Panoyu tutuyor olabilecek uygulamaları kapatın, sonra yeniden deneyin.",
   "error.importFileUnreadable":
-    "Mosaic couldn't read that file. Check that it still exists and isn't open in another app, then try again.",
+    "Mosaic bu dosyayı okuyamadı. Hâlâ var olduğunu ve başka bir uygulamada açık olmadığını kontrol edin, sonra yeniden deneyin.",
   "error.importDeleteNotAllowed":
-    "Import the file first. Mosaic only deletes an export after its items are in your vault.",
+    "Önce dosyayı içe aktarın. Mosaic bir dışa aktarmayı yalnızca öğeleri kasanıza girdikten sonra siler.",
   "error.importDeleteFailed":
-    "The file couldn't be deleted. It may be open in another app or read-only. Delete it yourself, then empty the recycle bin.",
+    "Dosya silinemedi. Başka bir uygulamada açık veya salt okunur olabilir. Kendiniz silin, sonra geri dönüşüm kutusunu boşaltın.",
   "error.importFormatInvalid":
-    "That file isn't in the format you chose. Choose the matching format, or export the file again.",
-  "error.importPreviewExpired": "This import was cancelled. Choose the file again to start over.",
+    "Bu dosya seçtiğiniz biçimde değil. Uygun biçimi seçin veya dosyayı yeniden dışa aktarın.",
+  "error.importPreviewExpired": "Bu içe aktarma iptal edildi. Baştan başlamak için dosyayı yeniden seçin.",
   "error.sshRequestExpired":
-    "That SSH request has already ended. Run the command again if you still need it.",
+    "Bu SSH isteği zaten sona erdi. Hâlâ gerekiyorsa komutu yeniden çalıştırın.",
   "error.sshAgentUnavailable":
-    "The SSH agent couldn't start. Check that no other SSH agent is running, then turn it on again.",
-  "error.unlockDelayed": "Too many wrong attempts in a row. Wait a few seconds, then try again.",
+    "SSH aracısı başlatılamadı. Başka bir SSH aracısının çalışmadığını kontrol edin, sonra yeniden açın.",
+  "error.unlockDelayed": "Art arda çok fazla yanlış deneme. Birkaç saniye bekleyin, sonra yeniden deneyin.",
   "error.tooManyAttempts":
-    "Too many wrong answers. Mosaic locked. Unlock it with your master password to continue.",
+    "Çok fazla yanlış yanıt. Mosaic kilitlendi. Devam etmek için ana parolanızla kilidi açın.",
   "error.sshAllowTooSoon":
-    "That was too quick to read the request. Check the key and the program, then choose Allow again.",
+    "İsteği okumak için bu çok hızlıydı. Anahtarı ve programı kontrol edin, sonra yeniden İzin ver’i seçin.",
   "error.browserRequestExpired":
-    "That browser request has already ended. Ask again from the extension if you still need it.",
+    "Bu tarayıcı isteği zaten sona erdi. Hâlâ gerekiyorsa uzantıdan yeniden isteyin.",
   "error.browserAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
+    "İsteği okumak için bu çok hızlıydı. Ayrıntıları kontrol edin, sonra yeniden seçin.",
   "error.browserPairingNotFound":
-    "That browser is no longer connected. Reopen Settings to see the current list.",
+    "Bu tarayıcı artık bağlı değil. Güncel listeyi görmek için Ayarlar’ı yeniden açın.",
   "error.browserHostMissing":
-    "This copy of Mosaic has no browser connector installed, so there is nothing to repair. Install Mosaic with its installer to connect a browser.",
+    "Mosaic’in bu kopyasında yüklü bir tarayıcı bağlayıcısı yok, bu yüzden onarılacak bir şey yok. Bir tarayıcıyı bağlamak için Mosaic’i yükleyicisiyle yükleyin.",
   "error.agentOriginInvalid":
-    "Agents can send a key only to a site that starts with https:// and names just the site, like https://api.example.com. Check the address.",
+    "Aracılar bir anahtarı yalnızca https:// ile başlayan ve sadece siteyi belirten bir siteye, örneğin https://api.example.com adresine gönderebilir. Adresi kontrol edin.",
   "error.agentBindingInvalid":
-    "Mosaic can't use this setting for agents. Check the field, the sites and how the key is sent.",
+    "Mosaic bu ayarı aracılar için kullanamıyor. Alanı, siteleri ve anahtarın nasıl gönderildiğini kontrol edin.",
   "error.agentValueUnusable":
-    "This value is too short or has a line break in it, so agents can't use it. A key needs at least 12 characters on one line.",
+    "Bu değer çok kısa veya içinde satır sonu var, bu yüzden aracılar onu kullanamaz. Bir anahtar tek satırda en az 12 karakter olmalıdır.",
   "error.agentVaultShared":
-    "Agents can only use items in a vault that belongs to you and isn't shared. Move the item to one of your own vaults first.",
-  "error.agentAccessOff": "Agent access is switched off. Turn it on in Settings, under Agents.",
+    "Aracılar yalnızca size ait olan ve paylaşılmayan bir kasadaki öğeleri kullanabilir. Önce öğeyi kendi kasalarınızdan birine taşıyın.",
+  "error.agentAccessOff": "Aracı erişimi kapalı. Ayarlar’da Aracılar altından açın.",
   "error.agentRequestExpired":
-    "That agent request has already ended. The agent can ask again if it still needs it.",
+    "Bu aracı isteği zaten sona erdi. Hâlâ gerekiyorsa aracı yeniden isteyebilir.",
   "error.agentAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
+    "İsteği okumak için bu çok hızlıydı. Ayrıntıları kontrol edin, sonra yeniden seçin.",
   "error.agentPairingNotFound":
-    "That agent is no longer connected. Reopen Settings to see the current list.",
+    "Bu aracı artık bağlı değil. Güncel listeyi görmek için Ayarlar’ı yeniden açın.",
   "error.agentEndpointUnavailable":
-    "Mosaic could not open the connection agents use. Close other copies of Mosaic and try again.",
+    "Mosaic aracıların kullandığı bağlantıyı açamadı. Mosaic’in diğer kopyalarını kapatın ve yeniden deneyin.",
   "error.kitNotVerified":
-    "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
+    "Önce yeni Acil Durum Kitini kaydedin ve son grubunu onaylayın. Mosaic bundan önce hiçbir şeyi değiştirmez.",
   "error.kitGroupMismatch":
-    "That is not the last group of the new Secret Key. Check the new Emergency Kit.",
+    "Bu, yeni Gizli Anahtarın son grubu değil. Yeni Acil Durum Kitini kontrol edin.",
   "error.rotationInProgress":
-    "Another key change is still open. Finish it with Continue key rotation, or discard it first.",
-  "error.rotationNone": "There is no key change to continue.",
+    "Başka bir anahtar değişikliği hâlâ açık. Anahtar yenilemeye devam et ile bitirin veya önce silin.",
+  "error.rotationNone": "Devam edilecek bir anahtar değişikliği yok.",
   "error.rotationNotFound":
-    "That password change is no longer open. It may have been closed on another device or in the browser. Reopen the item to see where it stands.",
+    "Bu parola değişikliği artık açık değil. Başka bir aygıtta veya tarayıcıda kapatılmış olabilir. Durumunu görmek için öğeyi yeniden açın.",
   "error.rotationLimit":
-    "Four password changes of this item are open already. Finish or close one in the item first.",
+    "Bu öğenin dört parola değişikliği zaten açık. Önce öğede birini bitirin veya kapatın.",
   "error.rotationOpen":
-    "This login has an open password change. Restore it from the trash, then choose It worked or It didn't work on the item. After that you can delete it forever.",
+    "Bu girişin açık bir parola değişikliği var. Onu Çöp Kutusu’ndan geri yükleyin, sonra öğede Çalıştı veya Çalışmadı’yı seçin. Ondan sonra kalıcı olarak silebilirsiniz.",
   "error.rotationNotSupported":
-    "Mosaic can't guide this change. It needs a login with an https address. Change the password on the site yourself.",
+    "Mosaic bu değişiklikte rehberlik edemiyor. https adresi olan bir giriş gerekir. Parolayı sitede kendiniz değiştirin.",
   "error.historyNotFound":
-    "That earlier password isn't in the history any more. Reopen the item to see the current list.",
+    "Bu önceki parola artık geçmişte değil. Güncel listeyi görmek için öğeyi yeniden açın.",
   "error.originNotRelated":
-    "That page doesn't belong to this login's site, so Mosaic didn't add it. Edit the item's addresses if it should.",
+    "Bu sayfa bu girişin sitesine ait değil, bu yüzden Mosaic onu eklemedi. Olması gerekiyorsa öğenin adreslerini düzenleyin.",
   "error.breachConsentRequired":
-    "The breach check is off. Turn it on and agree to what it sends first.",
+    "Veri ihlali kontrolü kapalı. Önce açın ve gönderdiklerini kabul edin.",
   "error.breachRunning":
-    "A breach check is already running. Wait for it to finish, or stop it first.",
+    "Bir veri ihlali kontrolü zaten çalışıyor. Bitmesini bekleyin veya önce durdurun.",
   "error.rotationTooFar":
-    "This change already reached your account, so it can't be discarded. Continue it to finish.",
+    "Bu değişiklik hesabınıza zaten ulaştı, bu yüzden silinemez. Bitirmek için devam edin.",
   "error.rotationJumpTooLarge":
-    "This device is too far behind the other devices to catch up. Set it up again: remove the account from this device and join again with your Emergency Kit.",
+    "Bu aygıt diğer aygıtlara yetişemeyecek kadar geride. Yeniden kurun: hesabı bu aygıttan kaldırın ve Acil Durum Kitinizle yeniden katılın.",
   "error.rotationNotApplied":
-    "The change never reached your account, so nothing was changed. Start again or discard it.",
+    "Değişiklik hesabınıza hiç ulaşmadı, bu yüzden hiçbir şey değişmedi. Yeniden başlayın veya silin.",
   "error.secretKeyUnchanged":
-    "That Secret Key no longer works. Use the one from the Emergency Kit you saved on the device that made the change.",
-  "error.passwordUnchanged": "The new master password has to be different from the current one.",
+    "Bu Gizli Anahtar artık çalışmıyor. Değişikliği yapan aygıtta kaydettiğiniz Acil Durum Kitindekini kullanın.",
+  "error.passwordUnchanged": "Yeni ana parola mevcut olandan farklı olmalıdır.",
   "error.profileDowngrade":
-    "That level is not stronger than what your account uses now. Pick a higher one.",
+    "Bu düzey hesabınızın şu an kullandığından daha güçlü değil. Daha yüksek birini seçin.",
   "error.profileTooSlow":
-    "Unlocking with that level would take this device more than two seconds. Pick a lower level, or upgrade anyway.",
+    "Bu düzeyle kilit açmak bu aygıtta iki saniyeden uzun sürerdi. Daha düşük bir düzey seçin veya yine de yükseltin.",
   "error.rekeyNeedsCleanSync":
-    "A re-key needs sync to be up to date and free of warnings. Sync now, look at any warning, then try again.",
+    "Yeniden anahtarlama için eşitlemenin güncel ve uyarısız olması gerekir. Şimdi eşitleyin, uyarılara bakın, sonra yeniden deneyin.",
   "error.rekeyMemberKeyMismatch":
-    "You have not compared the safety code of everyone in a shared vault yet, so that vault can't be renewed. Compare their codes in the vault's sharing settings, then try again.",
-  "error.rekeyBusy": "Your vaults kept changing while Mosaic worked. Wait a moment and try again.",
+    "Paylaşılan bir kasadaki herkesin güvenlik kodunu henüz karşılaştırmadınız, bu yüzden o kasa yenilenemez. Kasanın paylaşım ayarlarında kodlarını karşılaştırın, sonra yeniden deneyin.",
+  "error.rekeyBusy": "Mosaic çalışırken kasalarınız değişmeye devam etti. Biraz bekleyin ve yeniden deneyin.",
   "error.rekeyOutcomeUnknown":
-    "Mosaic couldn't confirm whether your account accepted the new keys. Choose Continue key rotation to find out.",
+    "Mosaic hesabınızın yeni anahtarları kabul edip etmediğini doğrulayamadı. Öğrenmek için Anahtar yenilemeye devam et’i seçin.",
   "error.rekeyNeedsServer":
-    "Re-keying needs your sync server or folder, and it can't be reached. Check the connection and try again.",
+    "Yeniden anahtarlama eşitleme sunucunuzu veya klasörünüzü gerektirir ve ona ulaşılamıyor. Bağlantıyı kontrol edin ve yeniden deneyin.",
   "error.rekeyNoAccountFile":
-    "Nothing in your sync folder opens with this password and Secret Key. Check the new Emergency Kit.",
+    "Eşitleme klasörünüzdeki hiçbir şey bu parola ve Gizli Anahtarla açılmıyor. Yeni Acil Durum Kitini kontrol edin.",
   "error.syncAccountRekeyed":
-    "Your account's keys were renewed on another device. Use the Secret Key from the new Emergency Kit to continue.",
+    "Hesabınızın anahtarları başka bir aygıtta yenilendi. Devam etmek için yeni Acil Durum Kitindeki Gizli Anahtarı kullanın.",
   "error.syncEpochRollback":
-    "Your sync backend shows older account keys than this device has. Nothing was changed.",
+    "Eşitleme arka ucunuz bu aygıttakinden daha eski hesap anahtarları gösteriyor. Hiçbir şey değiştirilmedi.",
   "error.syncRekeyRefused":
-    "The keys your sync backend offers are not the next ones after this device's. Nothing was changed. Check your other devices.",
-  "error.pickerStale": "This list is out of date. Click the field again.",
-  "error.pickerTooSoon": "Wait a moment, then confirm again.",
-  "error.programFillUnavailable": "Filling in programs isn't available on this device.",
-  "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
+    "Eşitleme arka ucunuzun sunduğu anahtarlar bu aygıttakilerin devamı değil. Hiçbir şey değiştirilmedi. Diğer aygıtlarınızı kontrol edin.",
+  "error.pickerStale": "Bu liste güncel değil. Alana yeniden tıklayın.",
+  "error.pickerTooSoon": "Biraz bekleyin, sonra yeniden onaylayın.",
+  "error.programFillUnavailable": "Programlarda doldurma bu aygıtta kullanılamıyor.",
+  "error.busy": "Mosaic hâlâ son adımı bitiriyor. Biraz bekleyin, sonra yeniden deneyin.",
   "error.internal":
-    "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",
+    "Beklenmeyen bir şey bu işlemi durdurdu. Yeniden deneyin; tekrarlanırsa Mosaic’i yeniden başlatın.",
   "error.importTooLarge":
-    "This file is too large or too complex to import. Export fewer items at a time, then try again.",
+    "Bu dosya içe aktarmak için çok büyük veya çok karmaşık. Her seferinde daha az öğe dışa aktarın, sonra yeniden deneyin.",
   "error.importUnsupported":
-    "Mosaic can't read this version of the format. Export again in a current format (for KeePass: KDBX 4 with AES or ChaCha20), then try again.",
+    "Mosaic biçimin bu sürümünü okuyamıyor. Güncel bir biçimde yeniden dışa aktarın (KeePass için: AES veya ChaCha20 ile KDBX 4), sonra yeniden deneyin.",
   "error.importEncrypted":
-    "This export is password-protected. Export again without encryption, import it, then delete the file.",
+    "Bu dışa aktarma parolayla korunuyor. Şifrelemesiz yeniden dışa aktarın, içe aktarın, sonra dosyayı silin.",
   "error.sshAgentEndpointInUse":
-    "Another SSH agent is already running (on Windows, the OpenSSH Authentication Agent service). Stop it, then turn on Mosaic's SSH agent again.",
-  "error.cancelled": "Cancelled. Nothing changed.",
+    "Başka bir SSH aracısı zaten çalışıyor (Windows’ta OpenSSH Authentication Agent hizmeti). Onu durdurun, sonra Mosaic’in SSH aracısını yeniden açın.",
+  "error.cancelled": "İptal edildi. Hiçbir şey değişmedi.",
   "error.quickUnlockExpired":
-    "Quick unlock expired. Unlock with your master password, then turn it on again in Settings.",
+    "Hızlı kilit açmanın süresi doldu. Ana parolanızla kilidi açın, sonra Ayarlar’dan yeniden açın.",
   "error.quickUnlockInvalidated":
-    "Quick unlock stopped working on this device and was turned off. Unlock with your master password.",
+    "Hızlı kilit açma bu aygıtta çalışmayı bıraktı ve kapatıldı. Ana parolanızla kilidi açın.",
   "error.passwordRequired":
-    "Enter your master password this time. Quick unlock works again after that.",
-  "error.hardwareKeyUnsupported": "This security key or system can't be used with Mosaic.",
-  "error.hardwareKeyNotFound": "No security key found. Insert it and try again.",
-  "error.hardwareKeyTimeout": "The key wasn't touched in time. Try again.",
-  "error.hardwareKeyPinRequired": "Enter your security key's PIN.",
-  "error.hardwareKeyPinInvalid": "Wrong PIN. After several wrong tries the key locks itself.",
+    "Bu sefer ana parolanızı girin. Hızlı kilit açma bundan sonra yeniden çalışır.",
+  "error.hardwareKeyUnsupported": "Bu güvenlik anahtarı veya sistem Mosaic ile kullanılamaz.",
+  "error.hardwareKeyNotFound": "Güvenlik anahtarı bulunamadı. Takın ve yeniden deneyin.",
+  "error.hardwareKeyTimeout": "Anahtara zamanında dokunulmadı. Yeniden deneyin.",
+  "error.hardwareKeyPinRequired": "Güvenlik anahtarınızın PIN’ini girin.",
+  "error.hardwareKeyPinInvalid": "Yanlış PIN. Birkaç yanlış denemeden sonra anahtar kendini kilitler.",
   "error.hardwareKeyPinBlocked":
-    "This key is locked after too many wrong PINs. Reset it with its maker's tool; its registrations are then lost.",
-  "error.hardwareKeyNoPin": "Set a PIN on this key first, with its maker's tool.",
+    "Bu anahtar çok fazla yanlış PIN nedeniyle kilitlendi. Üreticisinin aracıyla sıfırlayın; kayıtları bu durumda kaybolur.",
+  "error.hardwareKeyNoPin": "Önce bu anahtarda üreticisinin aracıyla bir PIN belirleyin.",
   "error.hardwareKeyNotRecognized":
-    "This key isn't registered here. Try another key or your master password.",
-  "error.hardwareKeyLimit": "You've registered the most keys allowed (8). Remove one first.",
+    "Bu anahtar burada kayıtlı değil. Başka bir anahtar veya ana parolanızı deneyin.",
+  "error.hardwareKeyLimit": "İzin verilen en fazla anahtarı (8) kaydettiniz. Önce birini kaldırın.",
   "error.hardwareKeyLast":
-    "This is the vault's only key. Register another one before you remove it.",
-  "error.itemTypeNotAllowed": "This vault holds one-time codes only.",
+    "Bu, kasanın tek anahtarı. Kaldırmadan önce bir tane daha kaydedin.",
+  "error.itemTypeNotAllowed": "Bu kasa yalnızca tek kullanımlık kodları tutar.",
   "error.otpScanUnsupported":
-    "Screen scanning isn't available on this system. Paste a screenshot instead.",
-  "error.otpQrNotFound": "No QR code found. Make sure the whole code is visible, then try again.",
+    "Ekran tarama bu sistemde kullanılamıyor. Bunun yerine bir ekran görüntüsü yapıştırın.",
+  "error.otpQrNotFound": "QR kodu bulunamadı. Kodun tamamının görünür olduğundan emin olun, sonra yeniden deneyin.",
   "error.otpQrNotOtp":
-    "This QR code isn't a two-factor setup code. Look for the code on the site's 2FA setup page.",
+    "Bu QR kodu bir iki adımlı doğrulama kurulum kodu değil. Kodu sitenin 2FA kurulum sayfasında arayın.",
   "error.otpQrMigration":
-    "This is a Google Authenticator export code, which Mosaic can't read yet. Set up each account again on its site, or enter its setup key.",
+    "Bu, Mosaic’in henüz okuyamadığı bir Google Authenticator dışa aktarma kodu. Her hesabı kendi sitesinde yeniden kurun veya kurulum anahtarını girin.",
   "error.otpQrMultiple":
-    "More than one setup code is visible. Show only the one you want, then try again.",
+    "Birden fazla kurulum kodu görünüyor. Yalnızca istediğinizi gösterin, sonra yeniden deneyin.",
   "error.otpQrInvalid":
-    "This setup code uses settings Mosaic doesn't support. Enter the setup key instead.",
-  "error.otpUriInvalid": "This isn't a valid otpauth:// link. Copy the whole link again.",
+    "Bu kurulum kodu Mosaic’in desteklemediği ayarlar kullanıyor. Bunun yerine kurulum anahtarını girin.",
+  "error.otpUriInvalid": "Bu geçerli bir otpauth:// bağlantısı değil. Bağlantının tamamını yeniden kopyalayın.",
   "error.otpKeyInvalid":
-    "This key isn't valid. It uses only the letters A to Z and the digits 2 to 7; check for typos.",
-  "error.otpImageUnreadable": "Mosaic can't read this image. Use a PNG or JPEG file.",
-  "error.otpImageTooLarge": "This image is too large. Use a screenshot of just the QR code.",
+    "Bu anahtar geçerli değil. Yalnızca A’dan Z’ye harfleri ve 2’den 7’ye rakamları kullanır; yazım hatalarını kontrol edin.",
+  "error.otpImageUnreadable": "Mosaic bu görseli okuyamıyor. Bir PNG veya JPEG dosyası kullanın.",
+  "error.otpImageTooLarge": "Bu görsel çok büyük. Yalnızca QR kodunun ekran görüntüsünü kullanın.",
   "error.otpClipboardNoImage":
-    "The clipboard has no image. Take a screenshot of the QR code, then paste it here.",
-  "error.otpPendingExpired": "The scanned code is no longer available. Scan it again.",
-  "error.syncNotConfigured": "Sync isn't set up on this device yet. Set it up in Settings first.",
+    "Panoda görsel yok. QR kodunun ekran görüntüsünü alın, sonra buraya yapıştırın.",
+  "error.otpPendingExpired": "Taranan kod artık kullanılamıyor. Yeniden tarayın.",
+  "error.syncNotConfigured": "Eşitleme bu aygıtta henüz kurulmadı. Önce Ayarlar’dan kurun.",
   "error.syncAlreadyConfigured":
-    "Sync is already set up. Disconnect first to use a different server or folder.",
+    "Eşitleme zaten kurulu. Farklı bir sunucu veya klasör kullanmak için önce bağlantıyı kesin.",
   "error.syncServerUnreachable":
-    "Mosaic couldn't reach the server. Check the address and your internet connection, then try again.",
+    "Mosaic sunucuya ulaşamadı. Adresi ve internet bağlantınızı kontrol edin, sonra yeniden deneyin.",
   "error.syncServerInvalid":
-    "This doesn't look like a Mosaic server. Check the address; it should look like https://sync.example.com.",
+    "Bu bir Mosaic sunucusuna benzemiyor. Adresi kontrol edin; https://sync.example.com gibi görünmelidir.",
   "error.syncServerInsecure":
-    "Mosaic only connects to servers over https, so nobody on the way can read or change your data. Use an https:// address.",
-  "error.syncServerMismatch": "This isn't the server this account syncs with. Check the address.",
+    "Mosaic sunuculara yalnızca https üzerinden bağlanır; böylece yoldaki kimse verilerinizi okuyamaz veya değiştiremez. https:// ile başlayan bir adres kullanın.",
+  "error.syncServerMismatch": "Bu, hesabın eşitlendiği sunucu değil. Adresi kontrol edin.",
   "error.syncServerIncompatible":
-    "This server runs a version that doesn't match your Mosaic. Update Mosaic or ask the server's owner to update it.",
+    "Bu sunucu Mosaic’inizle uyuşmayan bir sürüm çalıştırıyor. Mosaic’i güncelleyin veya sunucunun sahibinden güncellemesini isteyin.",
   "error.syncRegistrationClosed":
-    "This server isn't accepting new sync accounts. Sign in to an existing one or ask the server's owner.",
+    "Bu sunucu yeni eşitleme hesabı kabul etmiyor. Mevcut bir hesapta oturum açın veya sunucunun sahibine sorun.",
   "error.syncInviteInvalid":
-    "This invite code isn't valid or was already used. Check it or ask the server's owner for a new one.",
+    "Bu davet kodu geçerli değil veya zaten kullanılmış. Kontrol edin veya sunucunun sahibinden yenisini isteyin.",
   "error.syncAccountExists":
-    "You already have a sync account on this server. Choose Sign in instead.",
+    "Bu sunucuda zaten bir eşitleme hesabınız var. Bunun yerine Oturum aç’ı seçin.",
   "error.syncAccountMismatch":
-    "The sync account on that server belongs to a different Mosaic account. Check the address and your email.",
+    "O sunucudaki eşitleme hesabı farklı bir Mosaic hesabına ait. Adresi ve e-postanızı kontrol edin.",
   "error.syncTwoFactorRequired":
-    "This sync account needs a code from your authenticator app. Enter the 6-digit code.",
+    "Bu eşitleme hesabı kimlik doğrulayıcı uygulamanızdan bir kod gerektirir. 6 haneli kodu girin.",
   "error.syncTwoFactorInvalid":
-    "That code isn't right or has expired. Enter the current 6-digit code from your authenticator app.",
+    "Bu kod doğru değil veya süresi doldu. Kimlik doğrulayıcı uygulamanızdaki güncel 6 haneli kodu girin.",
   "error.syncSignedOut":
-    "The server signed this device out. Sign in again to keep syncing. Your changes are safe on this device.",
-  "error.syncRateLimited": "Too many attempts. Wait a few minutes, then try again.",
+    "Sunucu bu aygıtın oturumunu kapattı. Eşitlemeye devam etmek için yeniden oturum açın. Değişiklikleriniz bu aygıtta güvende.",
+  "error.syncRateLimited": "Çok fazla deneme. Birkaç dakika bekleyin, sonra yeniden deneyin.",
   "error.syncQuotaExceeded":
-    "The server or folder has no room left for your data. Free up space or ask the server's owner for more.",
+    "Sunucuda veya klasörde verileriniz için yer kalmadı. Yer açın veya sunucunun sahibinden daha fazlasını isteyin.",
   "error.syncFolderUnavailable":
-    "Mosaic can't use this folder. Check that it exists, that your cloud service has finished syncing it and that Mosaic may write to it.",
+    "Mosaic bu klasörü kullanamıyor. Var olduğunu, bulut hizmetinizin eşitlemeyi bitirdiğini ve Mosaic’in ona yazabildiğini kontrol edin.",
   "error.syncFolderNotEmpty":
-    "This folder holds other files, so Mosaic won't write there. Choose an empty folder or create a new one.",
+    "Bu klasörde başka dosyalar var, bu yüzden Mosaic oraya yazmaz. Boş bir klasör seçin veya yeni bir tane oluşturun.",
   "error.syncFolderNoAccount":
-    "This folder holds no sync data for this account. Choose the folder your other device syncs to.",
+    "Bu klasörde bu hesap için eşitleme verisi yok. Diğer aygıtınızın eşitlediği klasörü seçin.",
   "error.syncFolderDamaged":
-    "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.",
+    "Bu klasördeki bazı eşitleme dosyaları hasarlı. Bulut hizmetinizin eşitlemeyi bitirmesine izin verin veya klasörü bir yedekten geri yükleyin, sonra yeniden deneyin.",
   "error.syncPasswordOutcomeUnknown":
-    "We couldn't confirm whether the server changed your master password. Keep both passwords until sync confirms which one applies.",
+    "Sunucunun ana parolanızı değiştirip değiştirmediğini doğrulayamadık. Eşitleme hangisinin geçerli olduğunu doğrulayana kadar her iki parolayı da saklayın.",
   "error.syncWebauthnUnavailable":
-    "Your server can't use a security key for this right now, or this account has none. Use an authenticator-app code instead.",
+    "Sunucunuz şu anda bunun için bir güvenlik anahtarı kullanamıyor veya bu hesapta yok. Bunun yerine kimlik doğrulayıcı uygulama kodu kullanın.",
   "error.syncWebauthnLimit":
-    "This account already has the most security keys the server allows. Remove one you no longer use, then try again.",
-  "error.syncHandoffExpired": "The browser step ran out of time. Start it again.",
+    "Bu hesapta sunucunun izin verdiği en fazla güvenlik anahtarı zaten var. Artık kullanmadığınız birini kaldırın, sonra yeniden deneyin.",
+  "error.syncHandoffExpired": "Tarayıcı adımının süresi doldu. Yeniden başlatın.",
   "error.syncHandoffFailed":
-    "Too many wrong codes or failed checks in the browser. Start the step again.",
+    "Tarayıcıda çok fazla yanlış kod veya başarısız denetim oldu. Adımı yeniden başlatın.",
   "error.syncPasswordNeedsServer":
-    "Changing your master password needs your sync server, and it can't be reached. Check your internet connection and try again.",
-  "error.syncDeviceIsCurrent": "You can't remove the device you're using. Use Disconnect instead.",
-  "error.syncChoiceExpired": "The folder choice timed out. Choose the folder again.",
-  "error.syncFreshLoginExpired": "Your password check timed out. Enter your master password again.",
-  "error.syncPasswordRollback": "The server offered an older master password. Check the server.",
+    "Ana parolanızı değiştirmek eşitleme sunucunuzu gerektirir ve ona ulaşılamıyor. İnternet bağlantınızı kontrol edin ve yeniden deneyin.",
+  "error.syncDeviceIsCurrent": "Kullandığınız aygıtı kaldıramazsınız. Bunun yerine Bağlantıyı kes’i kullanın.",
+  "error.syncChoiceExpired": "Klasör seçiminin süresi doldu. Klasörü yeniden seçin.",
+  "error.syncFreshLoginExpired": "Parola denetiminizin süresi doldu. Ana parolanızı yeniden girin.",
+  "error.syncPasswordRollback": "Sunucu daha eski bir ana parola sundu. Sunucuyu kontrol edin.",
   "error.syncPasswordChanged":
-    "Your master password was changed on the server or in the folder. Enter the new one below.",
+    "Ana parolanız sunucuda veya klasörde değiştirildi. Yenisini aşağıya girin.",
   "error.sharingNotHosted":
-    "Sharing needs a Mosaic server. Connect one in the Sync settings first.",
-  "error.setupCodeNeedsServer": "A phone can only join an account that syncs.",
+    "Paylaşım bir Mosaic sunucusu gerektirir. Önce Eşitleme ayarlarından birini bağlayın.",
+  "error.setupCodeNeedsServer": "Bir telefon yalnızca eşitlenen bir hesaba katılabilir.",
   "error.sharingContactUnverified":
-    "Compare this person's safety code first. Mosaic only shares with people you verified.",
+    "Önce bu kişinin güvenlik kodunu karşılaştırın. Mosaic yalnızca doğruladığınız kişilerle paylaşır.",
   "error.sharingKeyChanged":
-    "This person's key changed, or the code doesn't match. Look them up again and compare the new code before you go on.",
+    "Bu kişinin anahtarı değişti veya kod eşleşmiyor. Devam etmeden önce onu yeniden arayın ve yeni kodu karşılaştırın.",
   "error.sharingRoleForbidden":
-    "Your role in this vault doesn't allow that. Ask the owner or a manager.",
+    "Bu kasadaki rolünüz buna izin vermiyor. Sahibine veya bir yöneticiye sorun.",
   "error.sharingInviteExists":
-    "An invite for this person and vault is waiting already. Withdraw it first if you want to send a new one.",
+    "Bu kişi ve kasa için bir davet zaten bekliyor. Yenisini göndermek istiyorsanız önce onu geri çekin.",
   "error.sharingInviteStale":
-    "The invite changed in the meantime, for example after a key change. Open it again.",
+    "Davet bu arada, örneğin bir anahtar değişikliğinden sonra, değişti. Yeniden açın.",
   "error.sharingInviteExpired":
-    "This invite ran out or was withdrawn. Ask the sender to invite you again.",
+    "Bu davetin süresi doldu veya geri çekildi. Gönderenden sizi yeniden davet etmesini isteyin.",
   "error.sharingInviteUnreadable":
-    "This invite can't be opened. It may be damaged or not meant for this account. Ask the sender to invite you again.",
+    "Bu davet açılamıyor. Hasarlı olabilir veya bu hesap için olmayabilir. Gönderenden sizi yeniden davet etmesini isteyin.",
   "error.sharingInviteNotInRoster":
-    "The vault's member list doesn't match this invite, so Mosaic didn't open it. Ask the sender to invite you again.",
+    "Kasanın üye listesi bu davetle eşleşmiyor, bu yüzden Mosaic onu açmadı. Gönderenden sizi yeniden davet etmesini isteyin.",
   "error.sharingOwnerCannotLeave":
-    "The owner can't leave a vault. Remove the other people instead.",
-  "error.sharingAlreadyMember": "This person is a member of the vault already.",
+    "Sahip bir kasadan ayrılamaz. Bunun yerine diğer kişileri kaldırın.",
+  "error.sharingAlreadyMember": "Bu kişi zaten kasanın bir üyesi.",
   "error.sharingReinviteBlocked":
-    "You removed this person recently. You can invite them again once the vault key has changed. Sync, then try again.",
-  "error.sharingInviteLimit": "Too many invites are waiting. Wait for answers or withdraw some.",
+    "Bu kişiyi kısa süre önce kaldırdınız. Kasa anahtarı değiştikten sonra yeniden davet edebilirsiniz. Eşitleyin, sonra yeniden deneyin.",
+  "error.sharingInviteLimit": "Çok fazla davet bekliyor. Yanıtları bekleyin veya bazılarını geri çekin.",
   "error.sharingVaultKnown":
-    "This device has that vault already, so Mosaic didn't accept a key for it. Ask the sender which vault they shared.",
+    "Bu aygıtta o kasa zaten var, bu yüzden Mosaic onun için bir anahtar kabul etmedi. Gönderene hangi kasayı paylaştığını sorun.",
   "error.syncHasSharedVaults":
-    "You can't switch servers while shared vaults are on this device. Leave the shared vaults, or have their owners remove you, first.",
+    "Bu aygıtta paylaşılan kasalar varken sunucu değiştiremezsiniz. Önce paylaşılan kasalardan ayrılın veya sahiplerinin sizi kaldırmasını sağlayın.",
   "error.emergencyWaiting":
-    "A request is waiting, so this can't change now. Refuse it or wait for it.",
+    "Bir istek bekliyor, bu yüzden bu şimdi değiştirilemez. Onu reddedin veya bekleyin.",
   "error.emergencyCooldown":
-    "Your last request was refused. You can ask again after the waiting period of one day.",
+    "Son isteğiniz reddedildi. Bir günlük bekleme süresinden sonra yeniden isteyebilirsiniz.",
   "error.emergencyNotGranted":
-    "There is nothing to claim: no request is open, or the person didn't grant you access.",
+    "Talep edilecek bir şey yok: açık bir istek yok veya kişi size erişim vermedi.",
   "error.shortcutUnavailable":
-    "Another program already uses this shortcut, or Mosaic can't register it. Choose a different combination.",
+    "Başka bir program bu kısayolu zaten kullanıyor veya Mosaic onu kaydedemiyor. Farklı bir birleşim seçin.",
   "error.shortcutUnsupported":
-    "Your system doesn't let apps set a global shortcut. Open Mosaic from its window instead.",
+    "Sisteminiz uygulamaların genel bir kısayol ayarlamasına izin vermiyor. Bunun yerine Mosaic’i penceresinden açın.",
 } satisfies Record<keyof typeof en, string>;

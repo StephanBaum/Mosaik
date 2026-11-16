@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: ssh. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -6,34 +5,34 @@
 import type { ssh as en } from "../en/ssh.ts";
 
 export const ssh = {
-  "ssh.title": "An app wants to use your SSH key",
-  "ssh.key": "Key",
-  "ssh.fingerprint": "Fingerprint",
-  "ssh.client": "Requested by",
-  "ssh.client.unknown": "An unknown program",
-  "ssh.expires": "Refused automatically in {seconds, plural, one {# second} other {# seconds}}",
-  "ssh.deny": "Deny",
-  "ssh.allowOnce": "Allow once",
-  "ssh.allowFor15Minutes": "Allow for 15 minutes",
-  "ssh.queue": "{count, plural, one {# more request waiting} other {# more requests waiting}}",
+  "ssh.title": "Bir uygulama SSH anahtarınızı kullanmak istiyor",
+  "ssh.key": "Anahtar",
+  "ssh.fingerprint": "Parmak izi",
+  "ssh.client": "İsteyen",
+  "ssh.client.unknown": "Bilinmeyen bir program",
+  "ssh.expires": "{seconds, plural, one {# saniye} other {# saniye}} içinde otomatik olarak reddedilecek",
+  "ssh.deny": "Reddet",
+  "ssh.allowOnce": "Bir kez izin ver",
+  "ssh.allowFor15Minutes": "15 dakika izin ver",
+  "ssh.queue": "{count, plural, one {Bekleyen # istek daha var} other {Bekleyen # istek daha var}}",
   "ssh.signFailed.passphraseRequired":
-    "The key is encrypted, but the item has no passphrase. Add it in the item's Password field.",
+    "Anahtar şifreli ama öğede parola yok. Öğenin Parola alanına ekleyin.",
   "ssh.signFailed.wrongPassphrase":
-    "The passphrase in the item doesn't unlock the key. Correct it in the item's Password field.",
+    "Öğedeki parola anahtarın kilidini açmıyor. Öğenin Parola alanında düzeltin.",
   "ssh.signFailed.keyMalformed":
-    "The private key in this item can't be read. Paste it again in OpenSSH format.",
+    "Bu öğedeki özel anahtar okunamıyor. OpenSSH biçiminde yeniden yapıştırın.",
   "ssh.signFailed.kdfTooExpensive":
-    "The key's passphrase protection uses more rounds than Mosaic allows. Re-encrypt it with \"ssh-keygen -p -a 64\".",
+    "Anahtarın parola koruması, Mosaic’in izin verdiğinden daha fazla tur kullanıyor. \"ssh-keygen -p -a 64\" ile yeniden şifreleyin.",
   "ssh.signFailed.publicKeyMismatch":
-    "The private key doesn't match the item's public key. Check both fields.",
-  "ssh.signFailed.unsupported": "Mosaic signs only with Ed25519 and ECDSA P-256 keys.",
-  "ssh.signFailed.internal": "Signing failed. Try again.",
-  "ssh.skip.unsupported": "Not served: Mosaic signs only with Ed25519 and ECDSA P-256 keys.",
-  "ssh.skip.malformed": "Not served: the key can't be read.",
-  "ssh.skip.duplicate": "Not served: another item has the same key.",
-  "ssh.description": "An app asked the Mosaic SSH agent to sign in with this key.",
-  "ssh.origin.forwarded": "A server you are connected to asks to use this key.",
+    "Özel anahtar, öğenin genel anahtarıyla eşleşmiyor. Her iki alanı da kontrol edin.",
+  "ssh.signFailed.unsupported": "Mosaic yalnızca Ed25519 ve ECDSA P-256 anahtarlarıyla imzalar.",
+  "ssh.signFailed.internal": "İmzalama başarısız oldu. Yeniden deneyin.",
+  "ssh.skip.unsupported": "Sunulmadı: Mosaic yalnızca Ed25519 ve ECDSA P-256 anahtarlarıyla imzalar.",
+  "ssh.skip.malformed": "Sunulmadı: anahtar okunamıyor.",
+  "ssh.skip.duplicate": "Sunulmadı: başka bir öğede aynı anahtar var.",
+  "ssh.description": "Bir uygulama, Mosaic SSH aracısından bu anahtarla oturum açmasını istedi.",
+  "ssh.origin.forwarded": "Bağlı olduğunuz bir sunucu bu anahtarı kullanmak istiyor.",
   "ssh.origin.bindFailed":
-    "Mosaic can't tell where this request comes from: the connection's host check failed. Only allow it if you expect it.",
-  "ssh.escDenies": "to deny",
+    "Mosaic bu isteğin nereden geldiğini bilemiyor: bağlantının ana makine denetimi başarısız oldu. Yalnızca beklediğiniz bir istekse izin verin.",
+  "ssh.escDenies": "reddetmek için",
 } satisfies Record<keyof typeof en, string>;

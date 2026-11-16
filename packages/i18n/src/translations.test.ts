@@ -14,9 +14,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { locales, type Locale } from "./index.ts";
 
-const TRANSLATIONS_PENDING: readonly Locale[] = [
-  "tr",
-];
+const TRANSLATIONS_PENDING: readonly Locale[] = [];
 
 const MARKER = "// UNTRANSLATED: copy of English, replace every value";
 const catalogDir = join(import.meta.dirname, "catalog");

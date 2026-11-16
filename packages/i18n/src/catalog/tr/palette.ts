@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: palette. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -6,21 +5,21 @@
 import type { palette as en } from "../en/palette.ts";
 
 export const palette = {
-  "palette.title": "Command palette",
-  "palette.search": "Search items and commands",
-  "palette.items": "Items",
-  "palette.commands": "Commands",
-  "palette.empty": "Nothing matches. Try another word.",
-  "palette.cmd.newItem": "New item",
-  "palette.cmd.generator": "Open the generator",
-  "palette.cmd.security": "Open the security report",
-  "palette.cmd.settings": "Open settings",
-  "palette.cmd.import": "Import from another app",
-  "palette.cmd.share": "Share vault…",
-  "palette.cmd.invites": "Invites",
-  "palette.cmd.lock": "Lock Mosaic",
-  "palette.open": "Open command palette",
-  "palette.hint.move": "to move",
-  "palette.hint.open": "to open",
-  "palette.hint.close": "to close",
+  "palette.title": "Komut paleti",
+  "palette.search": "Öğeleri ve komutları ara",
+  "palette.items": "Öğeler",
+  "palette.commands": "Komutlar",
+  "palette.empty": "Eşleşen bir şey yok. Başka bir sözcük deneyin.",
+  "palette.cmd.newItem": "Yeni öğe",
+  "palette.cmd.generator": "Oluşturucuyu aç",
+  "palette.cmd.security": "Güvenlik raporunu aç",
+  "palette.cmd.settings": "Ayarları aç",
+  "palette.cmd.import": "Başka bir uygulamadan içe aktar",
+  "palette.cmd.share": "Kasayı paylaş…",
+  "palette.cmd.invites": "Davetler",
+  "palette.cmd.lock": "Mosaic’i kilitle",
+  "palette.open": "Komut paletini aç",
+  "palette.hint.move": "gezinmek için",
+  "palette.hint.open": "açmak için",
+  "palette.hint.close": "kapatmak için",
 } satisfies Record<keyof typeof en, string>;

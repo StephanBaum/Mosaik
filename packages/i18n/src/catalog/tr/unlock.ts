@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: unlock. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -6,34 +5,34 @@
 import type { unlock as en } from "../en/unlock.ts";
 
 export const unlock = {
-  "lock.unlockTitle": "Unlock Mosaic",
-  "lock.masterPassword": "Master password",
+  "lock.unlockTitle": "Mosaic’in kilidini aç",
+  "lock.masterPassword": "Ana parola",
   "lock.wrongPassword":
-    "That master password didn't work. Check Caps Lock and your keyboard layout, then try again.",
-  "lock.locked": "Mosaic is locked.",
-  "session.unlocked": "Mosaic is unlocked.",
-  "lock.secretKey": "Secret Key",
+    "Bu ana parola çalışmadı. Caps Lock’u ve klavye düzeninizi kontrol edin, sonra yeniden deneyin.",
+  "lock.locked": "Mosaic kilitli.",
+  "session.unlocked": "Mosaic’in kilidi açık.",
+  "lock.secretKey": "Gizli Anahtar",
   "lock.secretKeyHint":
-    "This device doesn't have your Secret Key yet. Type it from your Emergency Kit, and Mosaic remembers it on this device.",
-  "lock.submit": "Unlock",
-  "lock.working": "Unlocking…",
-  "lock.reason.manual": "You locked Mosaic.",
-  "lock.reason.idle": "Mosaic locked itself after a while without activity.",
-  "lock.reason.sleep": "Mosaic locked when the computer went to sleep.",
-  "lock.reason.screenLock": "Mosaic locked together with your screen.",
-  "lock.or": "or",
-  "lock.quick.biometricWindows": "Use Windows Hello",
-  "lock.quick.biometricMac": "Use Touch ID",
-  "lock.quick.biometricLinux": "Use biometrics",
-  "lock.quick.hardwareKey": "Use security key",
-  "lock.autoLockInfo": "Auto-locks after {minutes, plural, one {# minute} other {# minutes}} idle.",
-  "lock.forgot.title": "Forgot your master password?",
+    "Bu aygıtta Gizli Anahtarınız henüz yok. Acil Durum Kitinizden yazın; Mosaic onu bu aygıtta hatırlar.",
+  "lock.submit": "Kilidi aç",
+  "lock.working": "Kilit açılıyor…",
+  "lock.reason.manual": "Mosaic’i kilitlediniz.",
+  "lock.reason.idle": "Mosaic, bir süre hareketsiz kalınca kendini kilitledi.",
+  "lock.reason.sleep": "Bilgisayar uyku moduna geçince Mosaic kilitlendi.",
+  "lock.reason.screenLock": "Mosaic, ekranınızla birlikte kilitlendi.",
+  "lock.or": "veya",
+  "lock.quick.biometricWindows": "Windows Hello’yu kullan",
+  "lock.quick.biometricMac": "Touch ID’yi kullan",
+  "lock.quick.biometricLinux": "Biyometriyi kullan",
+  "lock.quick.hardwareKey": "Güvenlik anahtarını kullan",
+  "lock.autoLockInfo": "{minutes, plural, one {# dakika} other {# dakika}} hareketsiz kalınca otomatik kilitlenir.",
+  "lock.forgot.title": "Ana parolanızı mı unuttunuz?",
   "lock.forgot.body":
-    "Mosaic can't reset it, because only you know it. Check whether you wrote it on your Emergency Kit. Otherwise, start a new account.",
-  "lock.quick.waitingWindows": "Waiting for Windows Hello…",
-  "lock.quick.waitingMac": "Waiting for Touch ID…",
-  "lock.quick.touchKey": "Insert your key and touch it when it blinks.",
-  "lock.quick.pin": "Security key PIN",
-  "lock.quick.pinSubmit": "Continue",
-  "lock.quick.cancel": "Cancel",
+    "Mosaic onu sıfırlayamaz, çünkü yalnızca siz biliyorsunuz. Acil Durum Kitinize yazıp yazmadığınızı kontrol edin. Aksi halde yeni bir hesap başlatın.",
+  "lock.quick.waitingWindows": "Windows Hello bekleniyor…",
+  "lock.quick.waitingMac": "Touch ID bekleniyor…",
+  "lock.quick.touchKey": "Anahtarınızı takın ve yanıp sönünce dokunun.",
+  "lock.quick.pin": "Güvenlik anahtarı PIN’i",
+  "lock.quick.pinSubmit": "Devam",
+  "lock.quick.cancel": "İptal",
 } satisfies Record<keyof typeof en, string>;

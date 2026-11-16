@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: breach. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -6,37 +5,37 @@
 import type { breach as en } from "../en/breach.ts";
 
 export const breach = {
-  "breach.card.title": "Breach check",
-  "breach.card.off": "Off. Mosaic never contacts Have I Been Pwned unless you turn this on.",
+  "breach.card.title": "Veri ihlali kontrolü",
+  "breach.card.off": "Kapalı. Siz açmadıkça Mosaic, Have I Been Pwned ile hiç iletişim kurmaz.",
   "breach.card.about":
-    "Checks your passwords against known data breaches. Only a 5-character piece of a scrambled code per password leaves this device.",
-  "breach.mode.label": "Check against known data breaches",
-  "breach.mode.off": "Off",
-  "breach.mode.manual": "Only when I choose",
-  "breach.mode.weekly": "Weekly, after unlock",
-  "breach.card.checkNow": "Check now",
-  "breach.card.stop": "Stop check",
-  "breach.card.turnOff": "Turn off",
-  "breach.progress.starting": "Checking your passwords…",
-  "breach.progress.step": "Checking… {done} of {total}",
-  "breach.result.never": "Not checked yet.",
+    "Parolalarınızı bilinen veri ihlallerine karşı kontrol eder. Her parola için karıştırılmış bir kodun yalnızca 5 karakterlik bir parçası bu aygıttan çıkar.",
+  "breach.mode.label": "Bilinen veri ihlallerine karşı kontrol et",
+  "breach.mode.off": "Kapalı",
+  "breach.mode.manual": "Yalnızca ben istediğimde",
+  "breach.mode.weekly": "Haftalık, kilit açıldıktan sonra",
+  "breach.card.checkNow": "Şimdi kontrol et",
+  "breach.card.stop": "Kontrolü durdur",
+  "breach.card.turnOff": "Kapat",
+  "breach.progress.starting": "Parolalarınız kontrol ediliyor…",
+  "breach.progress.step": "Kontrol ediliyor… {done} / {total}",
+  "breach.result.never": "Henüz kontrol edilmedi.",
   "breach.result.last":
-    "Last checked {date, date, medium}. {found, plural, =0 {No password was found in a breach.} one {# password was found in a breach.} other {# passwords were found in a breach.}}",
+    "Son kontrol: {date, date, medium}. {found, plural, =0 {Hiçbir parola bir veri ihlalinde bulunmadı.} one {# parola bir veri ihlalinde bulundu.} other {# parola bir veri ihlalinde bulundu.}}",
   "breach.result.finished":
-    "Checked {checked, plural, one {# password} other {# passwords}}. {found, plural, =0 {None was found in a breach.} one {# was found in a breach.} other {# were found in a breach.}}",
-  "breach.result.upToDate": "Everything was checked recently. Nothing new to look up.",
+    "{checked, plural, one {# parola} other {# parola}} kontrol edildi. {found, plural, =0 {Hiçbiri bir veri ihlalinde bulunmadı.} one {# tanesi bir veri ihlalinde bulundu.} other {# tanesi bir veri ihlalinde bulundu.}}",
+  "breach.result.upToDate": "Her şey kısa süre önce kontrol edildi. Sorgulanacak yeni bir şey yok.",
   "breach.error.offline":
-    "Couldn't reach Have I Been Pwned. The last results are shown. Try again when you're online.",
+    "Have I Been Pwned’e ulaşılamadı. Son sonuçlar gösteriliyor. Çevrimiçi olduğunuzda yeniden deneyin.",
   "breach.error.rateLimited":
-    "Have I Been Pwned asked Mosaic to slow down. Try again in a few minutes.",
+    "Have I Been Pwned, Mosaic’ten yavaşlamasını istedi. Birkaç dakika sonra yeniden deneyin.",
   "breach.error.protocol":
-    "Have I Been Pwned sent an answer Mosaic doesn't trust, so some passwords weren't checked. Try again later.",
-  "breach.error.cancelled": "The check was stopped. Results that were finished are kept.",
-  "breach.consent.title": "Check your passwords against known data breaches?",
+    "Have I Been Pwned, Mosaic’in güvenmediği bir yanıt gönderdi; bu yüzden bazı parolalar kontrol edilmedi. Daha sonra yeniden deneyin.",
+  "breach.error.cancelled": "Kontrol durduruldu. Tamamlanan sonuçlar korunur.",
+  "breach.consent.title": "Parolalarınız bilinen veri ihlallerine karşı kontrol edilsin mi?",
   "breach.consent.body":
-    "Mosaic turns each password into a scrambled code that can't be turned back (a hash) and sends only the first 5 characters of that code to Have I Been Pwned (api.pwnedpasswords.com). The service learns your IP address and those 5-character pieces. It never sees a password, your email address or which site a password is for. Results stay on this device.",
+    "Mosaic her parolayı geri döndürülemeyen karıştırılmış bir koda (hash) çevirir ve bu kodun yalnızca ilk 5 karakterini Have I Been Pwned’e (api.pwnedpasswords.com) gönderir. Hizmet IP adresinizi ve bu 5 karakterlik parçaları öğrenir. Hiçbir parolayı, e-posta adresinizi veya bir parolanın hangi site için olduğunu asla görmez. Sonuçlar bu aygıtta kalır.",
   "breach.consent.detail":
-    "Many other passwords share each 5-character piece, so the answer doesn't reveal yours. It is still a request to another service, so it stays off until you agree. You can turn it off at any time.",
-  "breach.consent.agree": "Turn on and check now",
-  "breach.consent.decline": "Not now",
+    "Her 5 karakterlik parçayı çok sayıda başka parola paylaşır; bu yüzden yanıt sizinkini açığa çıkarmaz. Yine de başka bir hizmete yapılan bir istektir, bu nedenle siz onaylayana kadar kapalı kalır. İstediğiniz zaman kapatabilirsiniz.",
+  "breach.consent.agree": "Aç ve şimdi kontrol et",
+  "breach.consent.decline": "Şimdi değil",
 } satisfies Record<keyof typeof en, string>;

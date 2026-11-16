@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: import. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -7,97 +6,97 @@ import type { importMessages as en } from "../en/import.ts";
 
 export const importMessages = {
   "import.format.enpass": "Enpass (.json)",
-  "import.format.bitwarden": "Bitwarden (.json, unencrypted)",
+  "import.format.bitwarden": "Bitwarden (.json, şifrelenmemiş)",
   "import.format.keepass": "KeePass (.kdbx)",
   "import.format.onePassword": "1Password (.1pux)",
-  "import.format.cxf": "FIDO Credential Exchange (.json): passkeys and passwords",
+  "import.format.cxf": "FIDO Credential Exchange (.json): geçiş anahtarları ve parolalar",
   "import.format.dashlane": "Dashlane (.zip)",
   "import.format.keeper": "Keeper (.json)",
   "import.format.keeperCsv": "Keeper (.csv)",
-  "import.format.protonPass": "Proton Pass (.zip or .json, unencrypted)",
-  "import.format.csv": "CSV file (.csv)",
-  "import.keepassPassword": "Password of the KeePass database",
+  "import.format.protonPass": "Proton Pass (.zip veya .json, şifrelenmemiş)",
+  "import.format.csv": "CSV dosyası (.csv)",
+  "import.keepassPassword": "KeePass veritabanının parolası",
   "import.preview.ready":
-    "{count, plural, one {# item is ready to import.} other {# items are ready to import.}}",
-  "import.preview.attachments": "{count, plural, one {# attachment} other {# attachments}}",
+    "{count, plural, one {# öğe içe aktarmaya hazır.} other {# öğe içe aktarmaya hazır.}}",
+  "import.preview.attachments": "{count, plural, one {# ek} other {# ek}}",
   "import.preview.duplicate":
-    "You already have an item like this. It's unticked, so it won't be imported twice.",
-  "import.preview.duplicateInFile": "This file has the same item twice. The copy is unticked.",
+    "Buna benzer bir öğeniz zaten var. İşareti kaldırıldı, bu yüzden iki kez içe aktarılmayacak.",
+  "import.preview.duplicateInFile": "Bu dosyada aynı öğe iki kez var. Kopyanın işareti kaldırıldı.",
   "import.warning.unmappedFields":
-    "Some fields have no matching field in Mosaic. They were kept as custom fields.",
+    "Bazı alanların Mosaic’te karşılığı yok. Özel alan olarak korundular.",
   "import.warning.attachmentsSkipped":
-    "Some attachments are larger than 50 MiB, don't fit your 1 GiB of attachment storage, or are missing from the export. Add them by hand after the import.",
+    "Bazı ekler 50 MiB’den büyük, 1 GiB’lik ek depolama alanınıza sığmıyor veya dışa aktarmada eksik. İçe aktarmadan sonra elle ekleyin.",
   "import.warning.entriesSkipped":
-    "Some entries couldn't be read and will be left out. Check them in your old password manager.",
+    "Bazı kayıtlar okunamadı ve dışarıda bırakılacak. Eski parola yöneticinizde kontrol edin.",
   "import.warning.otpUnreadable":
-    "Some one-time code settings weren't recognized. They were kept as hidden fields, so set up the code again from them.",
+    "Bazı tek kullanımlık kod ayarları tanınmadı. Gizli alan olarak korundular; kodu bunlardan yeniden kurun.",
   "import.warning.otpWeak":
-    "Some one-time codes have a secret shorter than 80 bits, so the codes are easier to guess. They were imported anyway; set them up again with a new secret when you can.",
+    "Bazı tek kullanımlık kodların gizli anahtarı 80 bitten kısa, bu yüzden kodların tahmin edilmesi daha kolay. Yine de içe aktarıldılar; mümkün olduğunda yeni bir gizli anahtarla yeniden kurun.",
   "import.warning.passkeysNotImported":
-    "This export format doesn't contain the private keys of passkeys, so they can't be imported. The rest of those items is imported.",
-  "import.warning.passkeyUnreadable": "Some passkeys couldn't be read and were left out.",
+    "Bu dışa aktarma biçimi geçiş anahtarlarının özel anahtarlarını içermiyor, bu yüzden içe aktarılamazlar. Bu öğelerin geri kalanı içe aktarılır.",
+  "import.warning.passkeyUnreadable": "Bazı geçiş anahtarları okunamadı ve dışarıda bırakıldı.",
   "import.warning.passkeyUnsupported":
-    "Some passkeys use a key type Mosaic doesn't support (only ES256 works) and were left out.",
+    "Bazı geçiş anahtarları Mosaic’in desteklemediği bir anahtar türü kullanıyor (yalnızca ES256 çalışır) ve dışarıda bırakıldı.",
   "import.warning.passkeysSkipped":
-    "Some passkeys were left out because there are too many (at most 100 per item and 10,000 per file).",
-  "import.warning.passkeysKeepOldApp": "Keep your old app until you've moved the passkeys.",
+    "Bazı geçiş anahtarları çok fazla oldukları için dışarıda bırakıldı (öğe başına en fazla 100, dosya başına 10.000).",
+  "import.warning.passkeysKeepOldApp": "Geçiş anahtarlarını taşıyana kadar eski uygulamanızı saklayın.",
   "import.entry.unmappedFields":
-    "Some fields have no matching field in Mosaic. They were kept as custom fields.",
+    "Bazı alanların Mosaic’te karşılığı yok. Özel alan olarak korundular.",
   "import.entry.otpUnreadable":
-    "The one-time code setting wasn't recognized. It was kept as a hidden field, so set up the code again from it.",
+    "Tek kullanımlık kod ayarı tanınmadı. Gizli alan olarak korundu; kodu ondan yeniden kurun.",
   "import.entry.otpWeak":
-    "The one-time code secret is shorter than 80 bits, so the code is easier to guess. It was imported anyway; set it up again with a new secret when you can.",
+    "Tek kullanımlık kodun gizli anahtarı 80 bitten kısa, bu yüzden kodun tahmin edilmesi daha kolay. Yine de içe aktarıldı; mümkün olduğunda yeni bir gizli anahtarla yeniden kurun.",
   "import.entry.attachmentTooLarge":
-    "An attachment is larger than 50 MiB and was left out. Add it by hand after the import.",
+    "Bir ek 50 MiB’den büyük ve dışarıda bırakıldı. İçe aktarmadan sonra elle ekleyin.",
   "import.entry.attachmentMissing":
-    "An attachment is missing from the export. Add it by hand after the import.",
+    "Bir ek dışa aktarmada eksik. İçe aktarmadan sonra elle ekleyin.",
   "import.entry.attachmentQuota":
-    "An attachment doesn't fit your 1 GiB of attachment storage and was left out.",
+    "Bir ek 1 GiB’lik ek depolama alanınıza sığmıyor ve dışarıda bırakıldı.",
   "import.entry.passkeysNotImported":
-    "This export format doesn't contain the private key of this item's passkey, so it can't be imported. Keep your old app until you've moved it.",
+    "Bu dışa aktarma biçimi bu öğenin geçiş anahtarının özel anahtarını içermiyor, bu yüzden içe aktarılamaz. Taşıyana kadar eski uygulamanızı saklayın.",
   "import.entry.passkeyUnreadable":
-    "A passkey of this item couldn't be read and was left out. Keep your old app until you've moved it.",
+    "Bu öğenin bir geçiş anahtarı okunamadı ve dışarıda bırakıldı. Taşıyana kadar eski uygulamanızı saklayın.",
   "import.entry.passkeyUnsupported":
-    "A passkey of this item uses a key type Mosaic doesn't support (only ES256 works) and was left out. Keep your old app until you've moved it.",
-  "import.entry.historyTruncated": "Only the 32 most recent old passwords were kept.",
-  "import.entry.tagsDropped": "Empty or overlong tags were left out.",
-  "import.entry.archived": "Archived in your old app. It gets the tag \"archived\".",
-  "import.entry.unknownCategory": "Unknown item type. It's imported as a secure note.",
+    "Bu öğenin bir geçiş anahtarı Mosaic’in desteklemediği bir anahtar türü kullanıyor (yalnızca ES256 çalışır) ve dışarıda bırakıldı. Taşıyana kadar eski uygulamanızı saklayın.",
+  "import.entry.historyTruncated": "Yalnızca en son 32 eski parola korundu.",
+  "import.entry.tagsDropped": "Boş veya aşırı uzun etiketler dışarıda bırakıldı.",
+  "import.entry.archived": "Eski uygulamanızda arşivlenmişti. \"archived\" etiketini alır.",
+  "import.entry.unknownCategory": "Bilinmeyen öğe türü. Güvenli not olarak içe aktarılır.",
   "import.entry.titleCleaned":
-    "The title had invisible or text-reversing characters. They were removed.",
+    "Başlıkta görünmez veya metni ters çeviren karakterler vardı. Kaldırıldılar.",
   "import.entry.passkeysLimit":
-    "This item has more passkeys than one import takes (100 per item, 10,000 per file). The extra passkeys were left out. Keep your old app until you've moved them.",
+    "Bu öğede tek bir içe aktarmanın alabileceğinden fazla geçiş anahtarı var (öğe başına 100, dosya başına 10.000). Fazla geçiş anahtarları dışarıda bırakıldı. Taşıyana kadar eski uygulamanızı saklayın.",
   "import.entry.fieldsDropped":
-    "This item has more fields than Mosaic keeps. The extra fields are left out.",
+    "Bu öğede Mosaic’in koruyabileceğinden fazla alan var. Fazla alanlar dışarıda bırakıldı.",
   "import.entry.notesTruncated":
-    "This item's notes are longer than one item can hold. The part that didn't fit was left out.",
+    "Bu öğenin notları, bir öğenin alabileceğinden uzun. Sığmayan kısım dışarıda bırakıldı.",
   "import.entry.idnHost":
-    "This address uses special characters in its domain name and may look like another site. Check it before you rely on it.",
-  "import.entry.urlKeptAsText": "This web address couldn't be used as a link. It was kept as text.",
-  "import.skip.malformed": "This entry is damaged and can't be read.",
-  "import.skip.empty": "This entry is empty.",
-  "import.skip.tooLarge": "This entry is larger than 1 MiB, the most one item can hold.",
+    "Bu adres alan adında özel karakterler kullanıyor ve başka bir siteye benzeyebilir. Güvenmeden önce kontrol edin.",
+  "import.entry.urlKeptAsText": "Bu web adresi bağlantı olarak kullanılamadı. Metin olarak korundu.",
+  "import.skip.malformed": "Bu kayıt hasarlı ve okunamıyor.",
+  "import.skip.empty": "Bu kayıt boş.",
+  "import.skip.tooLarge": "Bu kayıt, bir öğenin alabileceği en büyük boyut olan 1 MiB’den büyük.",
   "import.result":
-    "{imported, plural, one {# item imported.} other {# items imported.}} {skipped, plural, =0 {} one {# left out.} other {# left out.}}",
-  "import.flow.title": "Import",
-  "import.flow.formatStep": "Where are you importing from?",
-  "import.flow.chooseFile": "Choose the export file",
-  "import.flow.fileChosen": "File: {name}",
-  "import.flow.password": "Password of the KeePass database",
-  "import.flow.preview": "Preview",
-  "import.flow.previewBusy": "Reading the file. This can take a moment.",
-  "import.flow.selectAll": "Select all",
-  "import.flow.target": "Import into",
-  "import.flow.commit": "Import {count, plural, one {# item} other {# items}}",
-  "import.flow.entries": "Entries",
-  "import.flow.skipped": "Left out",
-  "import.flow.attachments": "{count, plural, one {# attachment} other {# attachments}}",
-  "import.flow.cancel": "Cancel import",
-  "import.flow.noneSelected": "Select at least one item to import.",
+    "{imported, plural, one {# öğe içe aktarıldı.} other {# öğe içe aktarıldı.}} {skipped, plural, =0 {} one {# dışarıda bırakıldı.} other {# dışarıda bırakıldı.}}",
+  "import.flow.title": "İçe aktar",
+  "import.flow.formatStep": "Nereden içe aktarıyorsunuz?",
+  "import.flow.chooseFile": "Dışa aktarma dosyasını seçin",
+  "import.flow.fileChosen": "Dosya: {name}",
+  "import.flow.password": "KeePass veritabanının parolası",
+  "import.flow.preview": "Önizleme",
+  "import.flow.previewBusy": "Dosya okunuyor. Bu biraz sürebilir.",
+  "import.flow.selectAll": "Tümünü seç",
+  "import.flow.target": "Şuraya aktar",
+  "import.flow.commit": "{count, plural, one {# öğeyi} other {# öğeyi}} içe aktar",
+  "import.flow.entries": "Kayıtlar",
+  "import.flow.skipped": "Dışarıda bırakılan",
+  "import.flow.attachments": "{count, plural, one {# ek} other {# ek}}",
+  "import.flow.cancel": "İçe aktarmayı iptal et",
+  "import.flow.noneSelected": "İçe aktarmak için en az bir öğe seçin.",
   "import.flow.resultFailed":
-    "{failed, plural, =0 {} one {# item could not be saved.} other {# items could not be saved.}}",
+    "{failed, plural, =0 {} one {# öğe kaydedilemedi.} other {# öğe kaydedilemedi.}}",
   "import.flow.deleteReminder":
-    "Delete the export file now. It holds your passwords in plain text.",
+    "Dışa aktarma dosyasını şimdi silin. Parolalarınızı düz metin olarak içerir.",
   "import.flow.dropHint":
-    "Choose your export file. Everything is read and encrypted on this device.",
+    "Dışa aktarma dosyanızı seçin. Her şey bu aygıtta okunur ve şifrelenir.",
 } satisfies Record<keyof typeof en, string>;

@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: files. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -6,30 +5,30 @@
 import type { files as en } from "../en/files.ts";
 
 export const files = {
-  "files.title": "Files",
-  "files.add": "Add file…",
-  "files.empty": "No files yet.",
-  "files.previewLoading": "Preparing preview…",
+  "files.title": "Dosyalar",
+  "files.add": "Dosya ekle…",
+  "files.empty": "Henüz dosya yok.",
+  "files.previewLoading": "Önizleme hazırlanıyor…",
   "files.size.b": "{value} B",
   "files.size.kb": "{value} KB",
   "files.size.mb": "{value} MB",
-  "files.addedAt": "Added {at, date, medium}",
-  "files.preview": "Preview {name}",
-  "files.saveAs": "Save {name} as…",
-  "files.saveAsShort": "Save as…",
-  "files.remove": "Remove {name}",
-  "files.close": "Close",
-  "files.previewAlt": "Preview of {name}",
+  "files.addedAt": "Eklenme: {at, date, medium}",
+  "files.preview": "{name} önizlemesi",
+  "files.saveAs": "{name} dosyasını farklı kaydet…",
+  "files.saveAsShort": "Farklı kaydet…",
+  "files.remove": "{name} dosyasını kaldır",
+  "files.close": "Kapat",
+  "files.previewAlt": "{name} önizlemesi",
   "files.previewOnlyImages":
-    "Preview works for PNG and JPEG images. Use Save as to open other files.",
-  "files.notDownloaded": "This file isn't on this device yet.",
-  "files.editorNote": "Files are saved as soon as you add or remove them.",
-  "files.removeConfirm.title": "Remove {name}?",
+    "Önizleme PNG ve JPEG görselleri için çalışır. Diğer dosyaları açmak için Farklı kaydet’i kullanın.",
+  "files.notDownloaded": "Bu dosya henüz bu aygıtta değil.",
+  "files.editorNote": "Dosyalar, ekler veya kaldırmanızla birlikte kaydedilir.",
+  "files.removeConfirm.title": "{name} dosyası kaldırılsın mı?",
   "files.removeConfirm.body":
-    "The file is deleted from this item on every device that syncs it. You can't undo this.",
-  "files.removeConfirm.confirm": "Remove file",
-  "files.removeConfirm.keep": "Keep file",
-  "toast.fileAdded": "File added.",
-  "toast.fileSaved": "File saved.",
-  "toast.fileRemoved": "File removed.",
+    "Dosya, bu öğeyi eşitleyen tüm aygıtlardan silinir. Bu işlem geri alınamaz.",
+  "files.removeConfirm.confirm": "Dosyayı kaldır",
+  "files.removeConfirm.keep": "Dosyayı tut",
+  "toast.fileAdded": "Dosya eklendi.",
+  "toast.fileSaved": "Dosya kaydedildi.",
+  "toast.fileRemoved": "Dosya kaldırıldı.",
 } satisfies Record<keyof typeof en, string>;

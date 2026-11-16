@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Turkish UI strings: mobileUx. Same keys as English (checked by the type).
  * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
@@ -6,29 +5,29 @@
 import type { mobileUx as en } from "../en/mobileUx.ts";
 
 export const mobileUx = {
-  "mobile.sync.warningsBanner": "Sync found a problem. Open Settings to check it.",
-  "mobile.provider.errorTitle": "Mosaic can't continue",
+  "mobile.sync.warningsBanner": "Eşitleme bir sorun buldu. Kontrol etmek için Ayarlar’ı açın.",
+  "mobile.provider.errorTitle": "Mosaic devam edemiyor",
   "mobile.onboarding.details.keyWiped":
-    "Mosaic removed the scanned Secret Key when you left the app. Scan the code again or type the key.",
-  "mobile.common.showField": "Show {field}",
-  "mobile.common.hideField": "Hide {field}",
+    "Uygulamadan ayrıldığınızda Mosaic taranan Gizli Anahtar’ı sildi. Kodu yeniden tarayın veya anahtarı yazın.",
+  "mobile.common.showField": "{field} alanını göster",
+  "mobile.common.hideField": "{field} alanını gizle",
   "mobile.error.storeInUse":
-    "Mosaic is busy elsewhere on this phone. Wait a moment, then try again.",
-  "mobile.error.noAccount": "Mosaic isn't set up on this phone yet. Open Mosaic to set it up.",
+    "Mosaic bu telefonda başka bir yerde meşgul. Biraz bekleyin, sonra yeniden deneyin.",
+  "mobile.error.noAccount": "Mosaic bu telefonda henüz kurulmadı. Kurmak için Mosaic’i açın.",
   "mobile.error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check for typos and the keyboard language, then try again.",
+    "Bu ana parola veya Gizli Anahtar çalışmadı. Yazım hatalarını ve klavye dilini kontrol edin, sonra yeniden deneyin.",
   "mobile.error.invalidInput":
-    "Something you entered isn't valid. Check your entries and try again.",
+    "Girdiğiniz bir şey geçerli değil. Girdilerinizi kontrol edin ve yeniden deneyin.",
   "mobile.error.vaultUnavailable":
-    "This vault can't be opened right now. Sync and try again, or unlock Mosaic again.",
-  "mobile.unlock.quickOptionTouchId": "Unlock with Touch ID next time",
-  "mobile.detail.readCode": "Read code",
+    "Bu kasa şu anda açılamıyor. Eşitleyip yeniden deneyin veya Mosaic’in kilidini yeniden açın.",
+  "mobile.unlock.quickOptionTouchId": "Bir sonraki sefer Touch ID ile kilidi aç",
+  "mobile.detail.readCode": "Kodu oku",
   "mobile.detail.labelValue": "{label}: {value}",
-  "mobile.autofill.warningWithName": "Check the address first | {name}",
-  "mobile.autofill.linkEntry": "Link {login} and fill",
-  "mobile.link.imported": "Imported for this app",
-  "mobile.link.confirmTitle": "Link {login} to {app}?",
-  "mobile.link.confirmSubtitle": "App ID {appId} · Signature {fingerprint}",
-  "mobile.link.confirmFallbackHint": "After linking, tap the field again to fill it.",
-  "mobile.link.importedNotVerified": "Imported login. The website has not confirmed this app.",
+  "mobile.autofill.warningWithName": "Önce adresi kontrol edin | {name}",
+  "mobile.autofill.linkEntry": "{login} girişini bağla ve doldur",
+  "mobile.link.imported": "Bu uygulama için içe aktarıldı",
+  "mobile.link.confirmTitle": "{login} girişi {app} uygulamasına bağlansın mı?",
+  "mobile.link.confirmSubtitle": "Uygulama kimliği {appId} · İmza {fingerprint}",
+  "mobile.link.confirmFallbackHint": "Bağladıktan sonra doldurmak için alana yeniden dokunun.",
+  "mobile.link.importedNotVerified": "İçe aktarılan giriş. Web sitesi bu uygulamayı doğrulamadı.",
 } satisfies Record<keyof typeof en, string>;
