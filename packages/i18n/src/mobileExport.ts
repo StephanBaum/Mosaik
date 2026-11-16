@@ -227,14 +227,26 @@ function androidText(variant: Variant, entry: MobileEntry, formatted: boolean): 
   return /^[@?]/.test(text) ? `\\${text}` : text;
 }
 
+/**
+ * Locales whose CLDR `one` covers more than one number (fr and pt: 0 and 1). Android lint
+ * (ImplicitQuantity) wants the count in such a `one` text; a label like "Site web" is correct
+ * for 0 and 1 there, so those plurals tell lint to skip that check.
+ */
+const ONE_SPANS_ZERO: ReadonlySet<ExportLocale> = new Set<ExportLocale>(["fr", "pt"]);
+
 function androidResource(entry: MobileEntry, locale: ExportLocale): string {
   const message = messageOf(entry, locale);
   const name = androidName(entry.key);
   if (entry.plural !== null) {
-    const items = localeVariants(message, locale).map(
+    const variants = localeVariants(message, locale);
+    const items = variants.map(
       (v) => `    <item quantity="${v.selector}">${androidText(v, entry, true)}</item>`,
     );
-    return `  <plurals name="${name}">\n${items.join("\n")}\n  </plurals>`;
+    const one = variants.find((v) => v.selector === "one");
+    const implicit =
+      ONE_SPANS_ZERO.has(locale) && one !== undefined && !androidText(one, entry, true).includes("$d");
+    const ignore = implicit ? ' tools:ignore="ImplicitQuantity"' : "";
+    return `  <plurals name="${name}"${ignore}>\n${items.join("\n")}\n  </plurals>`;
   }
   const variant = message.variants[0] as Variant;
   const formatted = entry.args.length > 0;
@@ -251,7 +263,8 @@ function androidResource(entry: MobileEntry, locale: ExportLocale): string {
 export function androidStrings(entries: readonly MobileEntry[], locale: ExportLocale): string {
   const body = entries.map((e) => androidResource(e, locale)).join("\n");
   const own = `  <string name="${localeResource}">${locale}</string>`;
-  return `<?xml version="1.0" encoding="utf-8"?>\n<!-- ${generated} -->\n<resources>\n${own}\n${body}\n</resources>\n`;
+  const tools = body.includes("tools:ignore=") ? ' xmlns:tools="http://schemas.android.com/tools"' : "";
+  return `<?xml version="1.0" encoding="utf-8"?>\n<!-- ${generated} -->\n<resources${tools}>\n${own}\n${body}\n</resources>\n`;
 }
 
 /** `res/xml/locales_config.xml`: the languages Android offers in the per-app language setting. */
