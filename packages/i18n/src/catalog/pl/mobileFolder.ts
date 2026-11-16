@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Polish UI strings: mobileFolder. Same keys as English (checked by the type).
  * ICU plural categories of Polish: one, few, many, other (CLDR; `other` is required).
@@ -6,84 +5,85 @@
 import type { mobileFolder as en } from "../en/mobileFolder.ts";
 
 export const mobileFolder = {
-  "mobile.sync.never": "Not synced yet",
-  "mobile.sync.last": "Synced {time}",
-  "mobile.sync.localOnly": "This vault is only on this phone. Sync is not set up.",
+  "mobile.sync.never": "Jeszcze nie zsynchronizowano",
+  "mobile.sync.last": "Zsynchronizowano {time}",
+  "mobile.sync.localOnly":
+    "Ten sejf jest tylko na tym telefonie. Synchronizacja nie jest skonfigurowana.",
   "mobile.sync.pending":
-    "{count, plural, one {# change waiting to upload} other {# changes waiting to upload}}",
-  "mobile.sync.now": "Sync now",
-  "mobile.sync.working": "Syncing",
-  "mobile.sync.warnings": "Sync warnings",
+    "{count, plural, one {# zmiana czeka na wysłanie} few {# zmiany czekają na wysłanie} many {# zmian czeka na wysłanie} other {# zmiany czeka na wysłanie}}",
+  "mobile.sync.now": "Synchronizuj teraz",
+  "mobile.sync.working": "Synchronizowanie",
+  "mobile.sync.warnings": "Ostrzeżenia synchronizacji",
   "mobile.sync.warning.freezeSuspected":
-    "Changes from another device have not arrived for a while. Check that the other device is on and online.",
+    "Zmiany z innego urządzenia nie docierają od jakiegoś czasu. Sprawdź, czy drugie urządzenie jest włączone i online.",
   "mobile.sync.warning.noCommonView":
-    "This phone and another device haven't seen the same server data for two days. The server may be showing them different versions. Sync your other device, then sync here.",
+    "Ten telefon i inne urządzenie nie widziały tych samych danych serwera od dwóch dni. Serwer może pokazywać im różne wersje. Zsynchronizuj drugie urządzenie, a potem tutaj.",
   "mobile.sync.warning.rollbackDetected":
-    "Your sync data looks older than this phone. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+    "Dane synchronizacji wyglądają na starsze niż na tym telefonie. Otwórz Mosaic na innym urządzeniu i sprawdź, czy są tam Twoje najnowsze zmiany. Potem wybierz „Sprawdzono”.",
   "mobile.sync.warning.identityDuplicated":
-    "Another copy of Mosaic is writing under this phone's identity, for example after a backup was restored. Syncing is paused. Make sure only one copy is in use, then choose “I've checked”.",
+    "Inna kopia Mosaic zapisuje dane pod tożsamością tego telefonu, na przykład po przywróceniu kopii zapasowej. Synchronizacja jest wstrzymana. Upewnij się, że używana jest tylko jedna kopia, a potem wybierz „Sprawdzono”.",
   "mobile.sync.warning.serverInconsistent":
-    "The server showed this phone different data than another device. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+    "Serwer pokazał temu telefonowi inne dane niż innemu urządzeniu. Otwórz Mosaic na innym urządzeniu i sprawdź, czy są tam Twoje najnowsze zmiany. Potem wybierz „Sprawdzono”.",
   "mobile.sync.warning.serverRollback":
-    "The server's copy of one of your vaults is older than this phone's. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+    "Kopia jednego z Twoich sejfów na serwerze jest starsza niż ta na telefonie. Otwórz Mosaic na innym urządzeniu i sprawdź, czy są tam Twoje najnowsze zmiany. Potem wybierz „Sprawdzono”.",
   "mobile.sync.warning.sharingAttention":
-    "A shared vault needs attention: a key change is waiting, or a member could not be checked. Open Mosaic on your computer to see which one. Then choose “I've checked”.",
+    "Udostępniony sejf wymaga uwagi: czeka zmiana klucza lub nie można było sprawdzić członka. Otwórz Mosaic na komputerze, aby zobaczyć, o co chodzi. Potem wybierz „Sprawdzono”.",
   "mobile.sync.warning.undecryptable":
-    "{count, plural, one {# received item} other {# received items}} couldn't be read on this phone. Update Mosaic on all your devices, then sync again.",
+    "Nie można było odczytać na tym telefonie: {count, plural, one {# odebrany element} few {# odebrane elementy} many {# odebranych elementów} other {# odebranego elementu}}. Zaktualizuj Mosaic na wszystkich urządzeniach, a potem zsynchronizuj ponownie.",
   "mobile.sync.warning.accountRollback":
-    "The server shows an older account key than this phone has. Nothing was changed. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
-  "mobile.sync.acknowledge": "I've checked…",
-  "mobile.sync.acknowledgeTitle": "Clear the sync warnings?",
+    "Serwer pokazuje starszy klucz konta niż ten na telefonie. Nic nie zostało zmienione. Otwórz Mosaic na innym urządzeniu i sprawdź, czy są tam Twoje najnowsze zmiany. Potem wybierz „Sprawdzono”.",
+  "mobile.sync.acknowledge": "Sprawdzono…",
+  "mobile.sync.acknowledgeTitle": "Wyczyścić ostrzeżenia synchronizacji?",
   "mobile.sync.acknowledgeBody":
-    "Only go on after you have checked the server yourself. This clears every warning, and syncing continues. If your data really was rolled back or changed, Mosaic can't tell afterwards. Do this on each of your devices.",
-  "mobile.sync.acknowledgeConfirm": "I've checked",
-  "mobile.folder.intro": "This account syncs through your {provider} folder.",
-  "mobile.folder.signIn": "Sign in to {provider}",
+    "Kontynuuj dopiero po samodzielnym sprawdzeniu serwera. To czyści wszystkie ostrzeżenia, a synchronizacja jest kontynuowana. Jeśli Twoje dane naprawdę zostały cofnięte lub zmienione, Mosaic nie będzie potem w stanie tego stwierdzić. Zrób to na każdym ze swoich urządzeń.",
+  "mobile.sync.acknowledgeConfirm": "Sprawdzono",
+  "mobile.folder.intro": "To konto synchronizuje się przez Twój folder {provider}.",
+  "mobile.folder.signIn": "Zaloguj się do {provider}",
   "mobile.folder.scope":
-    "{provider} will ask for access to all your files. Mosaic only opens the folder you choose and never touches anything else.",
-  "mobile.folder.waiting": "Finish signing in in your browser, then come back here.",
-  "mobile.folder.serverLabel": "Nextcloud or WebDAV address",
+    "{provider} poprosi o dostęp do wszystkich Twoich plików. Mosaic otwiera tylko wybrany folder i niczego innego nie dotyka.",
+  "mobile.folder.waiting": "Dokończ logowanie w przeglądarce, a potem wróć tutaj.",
+  "mobile.folder.serverLabel": "Adres Nextcloud lub WebDAV",
   "mobile.folder.serverHint": "https://cloud.example.com",
   "mobile.folder.serverConfirm":
-    "Mosaic will sign in at {server}. Only continue if this is your own server.",
-  "mobile.folder.locating": "Looking for your Mosaic folder…",
-  "mobile.folder.browseTitle": "Choose your Mosaic folder",
+    "Mosaic zaloguje się na {server}. Kontynuuj tylko wtedy, gdy to Twój własny serwer.",
+  "mobile.folder.locating": "Szukanie folderu Mosaic…",
+  "mobile.folder.browseTitle": "Wybierz folder Mosaic",
   "mobile.folder.browseHint":
-    "It's the folder your computer syncs, with a file named mosaic-sync.json.",
-  "mobile.folder.currentFolder": "Current folder: {path}",
-  "mobile.folder.noSubfolders": "There are no folders here.",
-  "mobile.folder.useThis": "Use this folder",
-  "mobile.folder.up": "Up one level",
-  "mobile.folder.chooseProvider": "Where does your account sync?",
+    "To folder, który synchronizuje Twój komputer, z plikiem o nazwie mosaic-sync.json.",
+  "mobile.folder.currentFolder": "Bieżący folder: {path}",
+  "mobile.folder.noSubfolders": "Tu nie ma folderów.",
+  "mobile.folder.useThis": "Użyj tego folderu",
+  "mobile.folder.up": "Poziom wyżej",
+  "mobile.folder.chooseProvider": "Gdzie synchronizuje się Twoje konto?",
   "mobile.folder.noDrive":
-    "Google Drive and iCloud Drive don't work on Android yet. Use Dropbox, OneDrive, Nextcloud or Mosaic sync.",
-  "mobile.folder.useFolder": "Sync through a cloud folder instead",
+    "Google Drive i iCloud Drive nie działają jeszcze na Androidzie. Użyj Dropbox, OneDrive, Nextcloud lub synchronizacji Mosaic.",
+  "mobile.folder.useFolder": "Synchronizuj zamiast tego przez folder w chmurze",
   "mobile.folder.providerDropbox": "Dropbox",
   "mobile.folder.providerOneDrive": "OneDrive",
-  "mobile.folder.providerWebDav": "Nextcloud or WebDAV",
-  "mobile.folder.appPasswordToggle": "Use an app password instead",
-  "mobile.folder.davLabel": "WebDAV folder address",
-  "mobile.folder.loginLabel": "Username",
-  "mobile.folder.appPasswordLabel": "App password",
+  "mobile.folder.providerWebDav": "Nextcloud lub WebDAV",
+  "mobile.folder.appPasswordToggle": "Użyj zamiast tego hasła aplikacji",
+  "mobile.folder.davLabel": "Adres folderu WebDAV",
+  "mobile.folder.loginLabel": "Nazwa użytkownika",
+  "mobile.folder.appPasswordLabel": "Hasło aplikacji",
   "mobile.folder.appPasswordHint":
-    "Create an app password in your server's security settings. Don't use your main password.",
-  "mobile.folder.appPasswordAction": "Sign in with the app password",
-  "mobile.folder.pickAccount": "Which account is this phone joining?",
-  "mobile.folder.accountOption": "Account {id}",
-  "mobile.folder.linked": "Signed in. Syncing again.",
-  "mobile.folder.settingsLine": "Syncs through {provider}: {path}",
-  "mobile.folder.relink": "Sign in again",
+    "Utwórz hasło aplikacji w ustawieniach zabezpieczeń serwera. Nie używaj hasła głównego.",
+  "mobile.folder.appPasswordAction": "Zaloguj się hasłem aplikacji",
+  "mobile.folder.pickAccount": "Do którego konta dołącza ten telefon?",
+  "mobile.folder.accountOption": "Konto {id}",
+  "mobile.folder.linked": "Zalogowano. Synchronizacja działa ponownie.",
+  "mobile.folder.settingsLine": "Synchronizuje przez {provider}: {path}",
+  "mobile.folder.relink": "Zaloguj się ponownie",
   "mobile.folder.msRevokeHint":
-    "To remove Mosaic's access completely, remove it on your Microsoft account page under Apps.",
+    "Aby całkowicie usunąć dostęp Mosaic, usuń go na stronie konta Microsoft w sekcji Aplikacje.",
   "mobile.reset.revokeDropbox":
-    "The account was removed. We could not end Mosaic's access at Dropbox: remove it in Dropbox under Settings, Connected apps.",
+    "Konto zostało usunięte. Nie udało się zakończyć dostępu Mosaic w Dropbox: usuń go w Dropbox w Ustawienia, Połączone aplikacje.",
   "mobile.reset.revokeWebdav":
-    "The account was removed. We could not delete the app password on your server: remove it there under Settings, Security, Devices and sessions.",
-  "mobile.reset.title": "Remove this account from this phone",
+    "Konto zostało usunięte. Nie udało się usunąć hasła aplikacji na Twoim serwerze: usuń je tam w Ustawienia, Bezpieczeństwo, Urządzenia i sesje.",
+  "mobile.reset.title": "Usuń to konto z tego telefonu",
   "mobile.reset.body":
-    "This deletes the vault copy, the Secret Key and the cloud sign-in stored on this phone. Your data in the cloud folder or on the server stays. You can join again later with your Secret Key and master password.",
-  "mobile.reset.action": "Remove account…",
-  "mobile.reset.confirm": "Remove account",
-  "mobile.reset.phraseLabel": "Confirmation",
-  "mobile.reset.typePhrase": "Type {phrase} to confirm",
+    "To usuwa kopię sejfu, Klucz tajny i logowanie do chmury zapisane na tym telefonie. Twoje dane w folderze w chmurze lub na serwerze pozostają. Możesz później dołączyć ponownie z Kluczem tajnym i hasłem głównym.",
+  "mobile.reset.action": "Usuń konto…",
+  "mobile.reset.confirm": "Usuń konto",
+  "mobile.reset.phraseLabel": "Potwierdzenie",
+  "mobile.reset.typePhrase": "Wpisz {phrase}, aby potwierdzić",
 } satisfies Record<keyof typeof en, string>;

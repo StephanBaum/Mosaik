@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Japanese UI strings: import. Same keys as English (checked by the type).
  * ICU plural categories of Japanese: other (CLDR; `other` is required).
@@ -7,95 +6,95 @@ import type { importMessages as en } from "../en/import.ts";
 
 export const importMessages = {
   "import.format.enpass": "Enpass (.json)",
-  "import.format.bitwarden": "Bitwarden (.json, unencrypted)",
+  "import.format.bitwarden": "Bitwarden (.json、暗号化なし)",
   "import.format.keepass": "KeePass (.kdbx)",
   "import.format.onePassword": "1Password (.1pux)",
-  "import.format.cxf": "FIDO Credential Exchange (.json): passkeys and passwords",
+  "import.format.cxf": "FIDO Credential Exchange (.json): パスキーとパスワード",
   "import.format.dashlane": "Dashlane (.zip)",
   "import.format.keeper": "Keeper (.json)",
   "import.format.keeperCsv": "Keeper (.csv)",
-  "import.format.protonPass": "Proton Pass (.zip or .json, unencrypted)",
-  "import.format.csv": "CSV file (.csv)",
-  "import.keepassPassword": "Password of the KeePass database",
-  "import.preview.ready": "{count, plural, other {# items are ready to import.}}",
-  "import.preview.attachments": "{count, plural, other {# attachments}}",
+  "import.format.protonPass": "Proton Pass (.zip または .json、暗号化なし)",
+  "import.format.csv": "CSV ファイル (.csv)",
+  "import.keepassPassword": "KeePass データベースのパスワード",
+  "import.preview.ready": "{count, plural, other {#件の項目を読み込めます。}}",
+  "import.preview.attachments": "{count, plural, other {#件の添付ファイル}}",
   "import.preview.duplicate":
-    "You already have an item like this. It's unticked, so it won't be imported twice.",
-  "import.preview.duplicateInFile": "This file has the same item twice. The copy is unticked.",
+    "これと同じ項目がすでにあります。二重に読み込まれないよう、チェックを外してあります。",
+  "import.preview.duplicateInFile": "このファイル内に同じ項目が2つあります。コピーはチェックを外してあります。",
   "import.warning.unmappedFields":
-    "Some fields have no matching field in Mosaic. They were kept as custom fields.",
+    "Mosaic に対応するフィールドがないものがあります。カスタムフィールドとして保持されました。",
   "import.warning.attachmentsSkipped":
-    "Some attachments are larger than 50 MiB, don't fit your 1 GiB of attachment storage, or are missing from the export. Add them by hand after the import.",
+    "50 MiB を超える、1 GiB の添付ファイル保存容量に収まらない、またはエクスポートに含まれていない添付ファイルがあります。読み込み後に手動で追加してください。",
   "import.warning.entriesSkipped":
-    "Some entries couldn't be read and will be left out. Check them in your old password manager.",
+    "読み取れなかったエントリがあり、除外されます。以前のパスワードマネージャーで確認してください。",
   "import.warning.otpUnreadable":
-    "Some one-time code settings weren't recognized. They were kept as hidden fields, so set up the code again from them.",
+    "認識できなかったワンタイムコードの設定があります。非表示フィールドとして保持されたので、そこからコードをもう一度設定してください。",
   "import.warning.otpWeak":
-    "Some one-time codes have a secret shorter than 80 bits, so the codes are easier to guess. They were imported anyway; set them up again with a new secret when you can.",
+    "シークレットが80ビットより短いワンタイムコードがあり、コードが推測されやすくなっています。そのまま読み込まれました。可能なときに、新しいシークレットで設定し直してください。",
   "import.warning.passkeysNotImported":
-    "This export format doesn't contain the private keys of passkeys, so they can't be imported. The rest of those items is imported.",
-  "import.warning.passkeyUnreadable": "Some passkeys couldn't be read and were left out.",
+    "このエクスポート形式にはパスキーの秘密鍵が含まれていないため、読み込めません。それらの項目のその他の内容は読み込まれます。",
+  "import.warning.passkeyUnreadable": "読み取れなかったパスキーがあり、除外されました。",
   "import.warning.passkeyUnsupported":
-    "Some passkeys use a key type Mosaic doesn't support (only ES256 works) and were left out.",
+    "Mosaic が対応していない鍵タイプ（ES256 のみ対応）のパスキーがあり、除外されました。",
   "import.warning.passkeysSkipped":
-    "Some passkeys were left out because there are too many (at most 100 per item and 10,000 per file).",
-  "import.warning.passkeysKeepOldApp": "Keep your old app until you've moved the passkeys.",
+    "数が多すぎるため、除外されたパスキーがあります（1項目あたり最大100個、1ファイルあたり最大10,000個）。",
+  "import.warning.passkeysKeepOldApp": "パスキーを移し終えるまで、以前のアプリは残しておいてください。",
   "import.entry.unmappedFields":
-    "Some fields have no matching field in Mosaic. They were kept as custom fields.",
+    "Mosaic に対応するフィールドがないものがあります。カスタムフィールドとして保持されました。",
   "import.entry.otpUnreadable":
-    "The one-time code setting wasn't recognized. It was kept as a hidden field, so set up the code again from it.",
+    "ワンタイムコードの設定を認識できませんでした。非表示フィールドとして保持されたので、そこからコードをもう一度設定してください。",
   "import.entry.otpWeak":
-    "The one-time code secret is shorter than 80 bits, so the code is easier to guess. It was imported anyway; set it up again with a new secret when you can.",
+    "ワンタイムコードのシークレットが80ビットより短く、コードが推測されやすくなっています。そのまま読み込まれました。可能なときに、新しいシークレットで設定し直してください。",
   "import.entry.attachmentTooLarge":
-    "An attachment is larger than 50 MiB and was left out. Add it by hand after the import.",
+    "50 MiB を超える添付ファイルがあり、除外されました。読み込み後に手動で追加してください。",
   "import.entry.attachmentMissing":
-    "An attachment is missing from the export. Add it by hand after the import.",
+    "エクスポートに含まれていない添付ファイルがあります。読み込み後に手動で追加してください。",
   "import.entry.attachmentQuota":
-    "An attachment doesn't fit your 1 GiB of attachment storage and was left out.",
+    "1 GiB の添付ファイル保存容量に収まらない添付ファイルがあり、除外されました。",
   "import.entry.passkeysNotImported":
-    "This export format doesn't contain the private key of this item's passkey, so it can't be imported. Keep your old app until you've moved it.",
+    "このエクスポート形式にはこの項目のパスキーの秘密鍵が含まれていないため、読み込めません。移し終えるまで、以前のアプリは残しておいてください。",
   "import.entry.passkeyUnreadable":
-    "A passkey of this item couldn't be read and was left out. Keep your old app until you've moved it.",
+    "この項目のパスキーを読み取れず、除外されました。移し終えるまで、以前のアプリは残しておいてください。",
   "import.entry.passkeyUnsupported":
-    "A passkey of this item uses a key type Mosaic doesn't support (only ES256 works) and was left out. Keep your old app until you've moved it.",
-  "import.entry.historyTruncated": "Only the 32 most recent old passwords were kept.",
-  "import.entry.tagsDropped": "Empty or overlong tags were left out.",
-  "import.entry.archived": "Archived in your old app. It gets the tag \"archived\".",
-  "import.entry.unknownCategory": "Unknown item type. It's imported as a secure note.",
+    "この項目のパスキーは Mosaic が対応していない鍵タイプ（ES256 のみ対応）のため、除外されました。移し終えるまで、以前のアプリは残しておいてください。",
+  "import.entry.historyTruncated": "古いパスワードは、最新の32件のみ保持されました。",
+  "import.entry.tagsDropped": "空のタグや長すぎるタグは除外されました。",
+  "import.entry.archived": "以前のアプリではアーカイブ済みです。「archived」タグが付きます。",
+  "import.entry.unknownCategory": "不明な項目タイプです。セキュアノートとして読み込まれます。",
   "import.entry.titleCleaned":
-    "The title had invisible or text-reversing characters. They were removed.",
+    "タイトルに、不可視文字またはテキストの向きを反転させる文字が含まれていたため、削除されました。",
   "import.entry.passkeysLimit":
-    "This item has more passkeys than one import takes (100 per item, 10,000 per file). The extra passkeys were left out. Keep your old app until you've moved them.",
+    "この項目のパスキーが、1回の読み込みで扱える数（1項目あたり100個、1ファイルあたり10,000個）を超えています。超過分のパスキーは除外されました。移し終えるまで、以前のアプリは残しておいてください。",
   "import.entry.fieldsDropped":
-    "This item has more fields than Mosaic keeps. The extra fields are left out.",
+    "この項目には、Mosaic が保持できる数より多くのフィールドがあります。超過分のフィールドは除外されます。",
   "import.entry.notesTruncated":
-    "This item's notes are longer than one item can hold. The part that didn't fit was left out.",
+    "この項目のメモは、1つの項目に収まる長さを超えています。収まらなかった部分は除外されました。",
   "import.entry.idnHost":
-    "This address uses special characters in its domain name and may look like another site. Check it before you rely on it.",
-  "import.entry.urlKeptAsText": "This web address couldn't be used as a link. It was kept as text.",
-  "import.skip.malformed": "This entry is damaged and can't be read.",
-  "import.skip.empty": "This entry is empty.",
-  "import.skip.tooLarge": "This entry is larger than 1 MiB, the most one item can hold.",
+    "このアドレスはドメイン名に特殊な文字を使っており、別のサイトに見える可能性があります。信頼する前に確認してください。",
+  "import.entry.urlKeptAsText": "このウェブアドレスはリンクとして使用できませんでした。テキストとして保持されました。",
+  "import.skip.malformed": "このエントリは破損しており、読み取れません。",
+  "import.skip.empty": "このエントリは空です。",
+  "import.skip.tooLarge": "このエントリは、1つの項目に収まる上限の 1 MiB を超えています。",
   "import.result":
-    "{imported, plural, other {# items imported.}} {skipped, plural, =0 {} other {# left out.}}",
-  "import.flow.title": "Import",
-  "import.flow.formatStep": "Where are you importing from?",
-  "import.flow.chooseFile": "Choose the export file",
-  "import.flow.fileChosen": "File: {name}",
-  "import.flow.password": "Password of the KeePass database",
-  "import.flow.preview": "Preview",
-  "import.flow.previewBusy": "Reading the file. This can take a moment.",
-  "import.flow.selectAll": "Select all",
-  "import.flow.target": "Import into",
-  "import.flow.commit": "Import {count, plural, other {# items}}",
-  "import.flow.entries": "Entries",
-  "import.flow.skipped": "Left out",
-  "import.flow.attachments": "{count, plural, other {# attachments}}",
-  "import.flow.cancel": "Cancel import",
-  "import.flow.noneSelected": "Select at least one item to import.",
-  "import.flow.resultFailed": "{failed, plural, =0 {} other {# items could not be saved.}}",
+    "{imported, plural, other {#件の項目を読み込みました。}} {skipped, plural, =0 {} other {#件は除外されました。}}",
+  "import.flow.title": "読み込み",
+  "import.flow.formatStep": "どこから読み込みますか？",
+  "import.flow.chooseFile": "エクスポートしたファイルを選択",
+  "import.flow.fileChosen": "ファイル: {name}",
+  "import.flow.password": "KeePass データベースのパスワード",
+  "import.flow.preview": "プレビュー",
+  "import.flow.previewBusy": "ファイルを読み取っています。少し時間がかかる場合があります。",
+  "import.flow.selectAll": "すべて選択",
+  "import.flow.target": "読み込み先",
+  "import.flow.commit": "{count, plural, other {#件の項目}}を読み込む",
+  "import.flow.entries": "エントリ",
+  "import.flow.skipped": "除外",
+  "import.flow.attachments": "{count, plural, other {#件の添付ファイル}}",
+  "import.flow.cancel": "読み込みをキャンセル",
+  "import.flow.noneSelected": "読み込む項目を1つ以上選択してください。",
+  "import.flow.resultFailed": "{failed, plural, =0 {} other {#件の項目を保存できませんでした。}}",
   "import.flow.deleteReminder":
-    "Delete the export file now. It holds your passwords in plain text.",
+    "エクスポートしたファイルは今すぐ削除してください。パスワードが平文で含まれています。",
   "import.flow.dropHint":
-    "Choose your export file. Everything is read and encrypted on this device.",
+    "エクスポートしたファイルを選択してください。すべてこのデバイス上で読み取られ、暗号化されます。",
 } satisfies Record<keyof typeof en, string>;

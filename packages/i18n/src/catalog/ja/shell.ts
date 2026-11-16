@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Japanese UI strings: shell. Same keys as English (checked by the type).
  * ICU plural categories of Japanese: other (CLDR; `other` is required).
@@ -6,21 +5,21 @@
 import type { shell as en } from "../en/shell.ts";
 
 export const shell = {
-  "shell.emergencyKit.title": "Mosaic Emergency Kit",
+  "shell.emergencyKit.title": "Mosaic 緊急キット",
   "shell.emergencyKit.intro":
-    "Keep this page somewhere safe, such as a locked drawer. Your Secret Key and your master password together unlock your vault on a new device. Nobody, not even Mosaic, can recover either of them for you.",
-  "shell.emergencyKit.email": "Account email",
-  "shell.emergencyKit.accountId": "Account ID",
-  "shell.emergencyKit.signInUrl": "Sign-in address",
-  "shell.emergencyKit.signInUrlLocal": "This device only (no sync server set up yet)",
-  "shell.emergencyKit.secretKey": "Secret Key",
-  "shell.emergencyKit.masterPassword": "Master password",
+    "このページは、鍵のかかる引き出しなど安全な場所に保管してください。新しいデバイスで保管庫のロックを解除するには、シークレットキーとマスターパスワードの両方が必要です。どちらも、Mosaic を含め誰にも復元できません。",
+  "shell.emergencyKit.email": "アカウントのメールアドレス",
+  "shell.emergencyKit.accountId": "アカウント ID",
+  "shell.emergencyKit.signInUrl": "サインイン用アドレス",
+  "shell.emergencyKit.signInUrlLocal": "このデバイスのみ（同期サーバーは未設定）",
+  "shell.emergencyKit.secretKey": "シークレットキー",
+  "shell.emergencyKit.masterPassword": "マスターパスワード",
   "shell.emergencyKit.masterPasswordHint":
-    "Write it on the line by hand only if this page stays somewhere safe. Otherwise keep it in your head.",
+    "このページを安全な場所に保管できる場合にのみ、線の上に手書きしてください。そうでなければ、記憶にとどめてください。",
   "shell.emergencyKit.footer":
-    "Mosaic is pre-audit software: it has not yet been reviewed by an external security auditor.",
+    "Mosaic は監査前のソフトウェアです。外部のセキュリティ監査機関によるレビューはまだ受けていません。",
   "shell.shortcut.conflict":
-    "Another app already uses {shortcut}. Close that app or change its shortcut, then restart Mosaic to use quick search.",
+    "{shortcut} は別のアプリですでに使われています。そのアプリを終了するかショートカットを変更してから Mosaic を再起動すると、クイック検索を使えます。",
   "keys.ctrl": "Ctrl",
   "keys.shift": "Shift",
   "keys.alt": "Alt",

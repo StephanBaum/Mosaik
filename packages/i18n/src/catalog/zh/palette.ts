@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Simplified Chinese UI strings: palette. Same keys as English (checked by the type).
  * ICU plural categories of Simplified Chinese: other (CLDR; `other` is required).
@@ -6,21 +5,21 @@
 import type { palette as en } from "../en/palette.ts";
 
 export const palette = {
-  "palette.title": "Command palette",
-  "palette.search": "Search items and commands",
-  "palette.items": "Items",
-  "palette.commands": "Commands",
-  "palette.empty": "Nothing matches. Try another word.",
-  "palette.cmd.newItem": "New item",
-  "palette.cmd.generator": "Open the generator",
-  "palette.cmd.security": "Open the security report",
-  "palette.cmd.settings": "Open settings",
-  "palette.cmd.import": "Import from another app",
-  "palette.cmd.share": "Share vault…",
-  "palette.cmd.invites": "Invites",
-  "palette.cmd.lock": "Lock Mosaic",
-  "palette.open": "Open command palette",
-  "palette.hint.move": "to move",
-  "palette.hint.open": "to open",
-  "palette.hint.close": "to close",
+  "palette.title": "命令面板",
+  "palette.search": "搜索项目和命令",
+  "palette.items": "项目",
+  "palette.commands": "命令",
+  "palette.empty": "没有匹配的结果。换个词试试。",
+  "palette.cmd.newItem": "新建项目",
+  "palette.cmd.generator": "打开生成器",
+  "palette.cmd.security": "打开安全报告",
+  "palette.cmd.settings": "打开设置",
+  "palette.cmd.import": "从其他应用导入",
+  "palette.cmd.share": "共享保险库…",
+  "palette.cmd.invites": "邀请",
+  "palette.cmd.lock": "锁定 Mosaic",
+  "palette.open": "打开命令面板",
+  "palette.hint.move": "移动",
+  "palette.hint.open": "打开",
+  "palette.hint.close": "关闭",
 } satisfies Record<keyof typeof en, string>;

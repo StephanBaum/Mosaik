@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Japanese UI strings: mobileFolder. Same keys as English (checked by the type).
  * ICU plural categories of Japanese: other (CLDR; `other` is required).
@@ -6,83 +5,83 @@
 import type { mobileFolder as en } from "../en/mobileFolder.ts";
 
 export const mobileFolder = {
-  "mobile.sync.never": "Not synced yet",
-  "mobile.sync.last": "Synced {time}",
-  "mobile.sync.localOnly": "This vault is only on this phone. Sync is not set up.",
-  "mobile.sync.pending": "{count, plural, other {# changes waiting to upload}}",
-  "mobile.sync.now": "Sync now",
-  "mobile.sync.working": "Syncing",
-  "mobile.sync.warnings": "Sync warnings",
+  "mobile.sync.never": "まだ同期していません",
+  "mobile.sync.last": "同期日時: {time}",
+  "mobile.sync.localOnly": "この保管庫はこのスマートフォンにのみあります。同期は設定されていません。",
+  "mobile.sync.pending": "{count, plural, other {#件の変更がアップロード待ちです}}",
+  "mobile.sync.now": "今すぐ同期",
+  "mobile.sync.working": "同期中",
+  "mobile.sync.warnings": "同期の警告",
   "mobile.sync.warning.freezeSuspected":
-    "Changes from another device have not arrived for a while. Check that the other device is on and online.",
+    "他のデバイスからの変更がしばらく届いていません。他のデバイスの電源が入っていて、オンラインになっているか確認してください。",
   "mobile.sync.warning.noCommonView":
-    "This phone and another device haven't seen the same server data for two days. The server may be showing them different versions. Sync your other device, then sync here.",
+    "このスマートフォンと他のデバイスが、2日間、同じサーバーデータを確認できていません。サーバーが異なるバージョンを表示している可能性があります。先に他のデバイスで同期してから、こちらで同期してください。",
   "mobile.sync.warning.rollbackDetected":
-    "Your sync data looks older than this phone. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+    "同期データがこのスマートフォンより古いようです。他のデバイスで Mosaic を開き、最新の変更があるか確認してください。その後、「確認しました」を選んでください。",
   "mobile.sync.warning.identityDuplicated":
-    "Another copy of Mosaic is writing under this phone's identity, for example after a backup was restored. Syncing is paused. Make sure only one copy is in use, then choose “I've checked”.",
+    "バックアップの復元後などに、別の Mosaic がこのスマートフォンの ID で書き込みを行っています。同期は一時停止中です。使用しているコピーが1つだけであることを確認し、「確認しました」を選んでください。",
   "mobile.sync.warning.serverInconsistent":
-    "The server showed this phone different data than another device. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+    "サーバーが、このスマートフォンと他のデバイスに異なるデータを表示しました。他のデバイスで Mosaic を開き、最新の変更があるか確認してください。その後、「確認しました」を選んでください。",
   "mobile.sync.warning.serverRollback":
-    "The server's copy of one of your vaults is older than this phone's. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
+    "サーバーにある保管庫のコピーの1つが、このスマートフォンのものより古くなっています。他のデバイスで Mosaic を開き、最新の変更があるか確認してください。その後、「確認しました」を選んでください。",
   "mobile.sync.warning.sharingAttention":
-    "A shared vault needs attention: a key change is waiting, or a member could not be checked. Open Mosaic on your computer to see which one. Then choose “I've checked”.",
+    "共有保管庫の確認が必要です。鍵の変更が待機中か、メンバーを確認できませんでした。どちらかは、パソコンで Mosaic を開くと確認できます。その後、「確認しました」を選んでください。",
   "mobile.sync.warning.undecryptable":
-    "{count, plural, other {# received items}} couldn't be read on this phone. Update Mosaic on all your devices, then sync again.",
+    "受信した{count, plural, other {#件の項目}}を、このスマートフォンでは読み取れませんでした。すべてのデバイスで Mosaic を更新してから、もう一度同期してください。",
   "mobile.sync.warning.accountRollback":
-    "The server shows an older account key than this phone has. Nothing was changed. Open Mosaic on another device and check that your latest changes are there. Then choose “I've checked”.",
-  "mobile.sync.acknowledge": "I've checked…",
-  "mobile.sync.acknowledgeTitle": "Clear the sync warnings?",
+    "サーバーが、このスマートフォンにあるものより古いアカウントの鍵を表示しています。何も変更されていません。他のデバイスで Mosaic を開き、最新の変更があるか確認してください。その後、「確認しました」を選んでください。",
+  "mobile.sync.acknowledge": "確認しました…",
+  "mobile.sync.acknowledgeTitle": "同期の警告を消去しますか？",
   "mobile.sync.acknowledgeBody":
-    "Only go on after you have checked the server yourself. This clears every warning, and syncing continues. If your data really was rolled back or changed, Mosaic can't tell afterwards. Do this on each of your devices.",
-  "mobile.sync.acknowledgeConfirm": "I've checked",
-  "mobile.folder.intro": "This account syncs through your {provider} folder.",
-  "mobile.folder.signIn": "Sign in to {provider}",
+    "ご自身でサーバーを確認してから進めてください。すべての警告が消去され、同期が再開されます。データが実際に巻き戻された、または改ざんされていた場合でも、Mosaic には後から判断できません。この操作は、お使いのデバイスごとに行ってください。",
+  "mobile.sync.acknowledgeConfirm": "確認しました",
+  "mobile.folder.intro": "このアカウントは、{provider} のフォルダ経由で同期します。",
+  "mobile.folder.signIn": "{provider} にサインイン",
   "mobile.folder.scope":
-    "{provider} will ask for access to all your files. Mosaic only opens the folder you choose and never touches anything else.",
-  "mobile.folder.waiting": "Finish signing in in your browser, then come back here.",
-  "mobile.folder.serverLabel": "Nextcloud or WebDAV address",
+    "{provider} は、すべてのファイルへのアクセスを求めます。Mosaic は選択したフォルダのみを開き、それ以外には一切触れません。",
+  "mobile.folder.waiting": "ブラウザでサインインを完了してから、ここに戻ってください。",
+  "mobile.folder.serverLabel": "Nextcloud または WebDAV のアドレス",
   "mobile.folder.serverHint": "https://cloud.example.com",
   "mobile.folder.serverConfirm":
-    "Mosaic will sign in at {server}. Only continue if this is your own server.",
-  "mobile.folder.locating": "Looking for your Mosaic folder…",
-  "mobile.folder.browseTitle": "Choose your Mosaic folder",
+    "Mosaic は {server} にサインインします。ご自身のサーバーである場合にのみ続けてください。",
+  "mobile.folder.locating": "Mosaic のフォルダを探しています…",
+  "mobile.folder.browseTitle": "Mosaic のフォルダを選択",
   "mobile.folder.browseHint":
-    "It's the folder your computer syncs, with a file named mosaic-sync.json.",
-  "mobile.folder.currentFolder": "Current folder: {path}",
-  "mobile.folder.noSubfolders": "There are no folders here.",
-  "mobile.folder.useThis": "Use this folder",
-  "mobile.folder.up": "Up one level",
-  "mobile.folder.chooseProvider": "Where does your account sync?",
+    "パソコンが同期しているフォルダで、mosaic-sync.json というファイルがあります。",
+  "mobile.folder.currentFolder": "現在のフォルダ: {path}",
+  "mobile.folder.noSubfolders": "ここにはフォルダがありません。",
+  "mobile.folder.useThis": "このフォルダを使用",
+  "mobile.folder.up": "1つ上へ",
+  "mobile.folder.chooseProvider": "アカウントはどこで同期しますか？",
   "mobile.folder.noDrive":
-    "Google Drive and iCloud Drive don't work on Android yet. Use Dropbox, OneDrive, Nextcloud or Mosaic sync.",
-  "mobile.folder.useFolder": "Sync through a cloud folder instead",
+    "Google ドライブと iCloud Drive は、まだ Android では使えません。Dropbox、OneDrive、Nextcloud、または Mosaic の同期を使用してください。",
+  "mobile.folder.useFolder": "代わりにクラウドフォルダで同期",
   "mobile.folder.providerDropbox": "Dropbox",
   "mobile.folder.providerOneDrive": "OneDrive",
-  "mobile.folder.providerWebDav": "Nextcloud or WebDAV",
-  "mobile.folder.appPasswordToggle": "Use an app password instead",
-  "mobile.folder.davLabel": "WebDAV folder address",
-  "mobile.folder.loginLabel": "Username",
-  "mobile.folder.appPasswordLabel": "App password",
+  "mobile.folder.providerWebDav": "Nextcloud または WebDAV",
+  "mobile.folder.appPasswordToggle": "代わりにアプリパスワードを使用",
+  "mobile.folder.davLabel": "WebDAV フォルダのアドレス",
+  "mobile.folder.loginLabel": "ユーザー名",
+  "mobile.folder.appPasswordLabel": "アプリパスワード",
   "mobile.folder.appPasswordHint":
-    "Create an app password in your server's security settings. Don't use your main password.",
-  "mobile.folder.appPasswordAction": "Sign in with the app password",
-  "mobile.folder.pickAccount": "Which account is this phone joining?",
-  "mobile.folder.accountOption": "Account {id}",
-  "mobile.folder.linked": "Signed in. Syncing again.",
-  "mobile.folder.settingsLine": "Syncs through {provider}: {path}",
-  "mobile.folder.relink": "Sign in again",
+    "サーバーのセキュリティ設定でアプリパスワードを作成してください。メインのパスワードは使用しないでください。",
+  "mobile.folder.appPasswordAction": "アプリパスワードでサインイン",
+  "mobile.folder.pickAccount": "このスマートフォンはどのアカウントに参加しますか？",
+  "mobile.folder.accountOption": "アカウント {id}",
+  "mobile.folder.linked": "サインインしました。同期を再開します。",
+  "mobile.folder.settingsLine": "{provider} 経由で同期: {path}",
+  "mobile.folder.relink": "もう一度サインイン",
   "mobile.folder.msRevokeHint":
-    "To remove Mosaic's access completely, remove it on your Microsoft account page under Apps.",
+    "Mosaic のアクセスを完全に削除するには、Microsoft アカウントのページの「アプリ」から削除してください。",
   "mobile.reset.revokeDropbox":
-    "The account was removed. We could not end Mosaic's access at Dropbox: remove it in Dropbox under Settings, Connected apps.",
+    "アカウントを削除しました。Dropbox での Mosaic のアクセスを終了できませんでした。Dropbox の「設定」の「接続済みアプリ」から削除してください。",
   "mobile.reset.revokeWebdav":
-    "The account was removed. We could not delete the app password on your server: remove it there under Settings, Security, Devices and sessions.",
-  "mobile.reset.title": "Remove this account from this phone",
+    "アカウントを削除しました。サーバー上のアプリパスワードを削除できませんでした。サーバーの「設定」、「セキュリティ」、「デバイスとセッション」から削除してください。",
+  "mobile.reset.title": "このスマートフォンからアカウントを削除",
   "mobile.reset.body":
-    "This deletes the vault copy, the Secret Key and the cloud sign-in stored on this phone. Your data in the cloud folder or on the server stays. You can join again later with your Secret Key and master password.",
-  "mobile.reset.action": "Remove account…",
-  "mobile.reset.confirm": "Remove account",
-  "mobile.reset.phraseLabel": "Confirmation",
-  "mobile.reset.typePhrase": "Type {phrase} to confirm",
+    "このスマートフォンに保存されている保管庫のコピー、シークレットキー、クラウドへのサインイン情報を削除します。クラウドフォルダやサーバーにあるデータは残ります。後からシークレットキーとマスターパスワードで、もう一度参加できます。",
+  "mobile.reset.action": "アカウントを削除…",
+  "mobile.reset.confirm": "アカウントを削除",
+  "mobile.reset.phraseLabel": "確認",
+  "mobile.reset.typePhrase": "確認のため {phrase} と入力してください",
 } satisfies Record<keyof typeof en, string>;

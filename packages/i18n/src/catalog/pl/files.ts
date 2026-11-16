@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Polish UI strings: files. Same keys as English (checked by the type).
  * ICU plural categories of Polish: one, few, many, other (CLDR; `other` is required).
@@ -6,30 +5,30 @@
 import type { files as en } from "../en/files.ts";
 
 export const files = {
-  "files.title": "Files",
-  "files.add": "Add file…",
-  "files.empty": "No files yet.",
-  "files.previewLoading": "Preparing preview…",
+  "files.title": "Pliki",
+  "files.add": "Dodaj plik…",
+  "files.empty": "Brak plików.",
+  "files.previewLoading": "Przygotowywanie podglądu…",
   "files.size.b": "{value} B",
   "files.size.kb": "{value} KB",
   "files.size.mb": "{value} MB",
-  "files.addedAt": "Added {at, date, medium}",
-  "files.preview": "Preview {name}",
-  "files.saveAs": "Save {name} as…",
-  "files.saveAsShort": "Save as…",
-  "files.remove": "Remove {name}",
-  "files.close": "Close",
-  "files.previewAlt": "Preview of {name}",
+  "files.addedAt": "Dodano {at, date, medium}",
+  "files.preview": "Podgląd: {name}",
+  "files.saveAs": "Zapisz {name} jako…",
+  "files.saveAsShort": "Zapisz jako…",
+  "files.remove": "Usuń {name}",
+  "files.close": "Zamknij",
+  "files.previewAlt": "Podgląd: {name}",
   "files.previewOnlyImages":
-    "Preview works for PNG and JPEG images. Use Save as to open other files.",
-  "files.notDownloaded": "This file isn't on this device yet.",
-  "files.editorNote": "Files are saved as soon as you add or remove them.",
-  "files.removeConfirm.title": "Remove {name}?",
+    "Podgląd działa dla obrazów PNG i JPEG. Użyj Zapisz jako, aby otworzyć inne pliki.",
+  "files.notDownloaded": "Tego pliku nie ma jeszcze na tym urządzeniu.",
+  "files.editorNote": "Pliki są zapisywane od razu po dodaniu lub usunięciu.",
+  "files.removeConfirm.title": "Usunąć {name}?",
   "files.removeConfirm.body":
-    "The file is deleted from this item on every device that syncs it. You can't undo this.",
-  "files.removeConfirm.confirm": "Remove file",
-  "files.removeConfirm.keep": "Keep file",
-  "toast.fileAdded": "File added.",
-  "toast.fileSaved": "File saved.",
-  "toast.fileRemoved": "File removed.",
+    "Plik zostanie usunięty z tego elementu na każdym urządzeniu, które go synchronizuje. Nie można tego cofnąć.",
+  "files.removeConfirm.confirm": "Usuń plik",
+  "files.removeConfirm.keep": "Zachowaj plik",
+  "toast.fileAdded": "Dodano plik.",
+  "toast.fileSaved": "Zapisano plik.",
+  "toast.fileRemoved": "Usunięto plik.",
 } satisfies Record<keyof typeof en, string>;

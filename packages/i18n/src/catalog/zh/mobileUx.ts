@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Simplified Chinese UI strings: mobileUx. Same keys as English (checked by the type).
  * ICU plural categories of Simplified Chinese: other (CLDR; `other` is required).
@@ -6,29 +5,24 @@
 import type { mobileUx as en } from "../en/mobileUx.ts";
 
 export const mobileUx = {
-  "mobile.sync.warningsBanner": "Sync found a problem. Open Settings to check it.",
-  "mobile.provider.errorTitle": "Mosaic can't continue",
-  "mobile.onboarding.details.keyWiped":
-    "Mosaic removed the scanned Secret Key when you left the app. Scan the code again or type the key.",
-  "mobile.common.showField": "Show {field}",
-  "mobile.common.hideField": "Hide {field}",
-  "mobile.error.storeInUse":
-    "Mosaic is busy elsewhere on this phone. Wait a moment, then try again.",
-  "mobile.error.noAccount": "Mosaic isn't set up on this phone yet. Open Mosaic to set it up.",
-  "mobile.error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check for typos and the keyboard language, then try again.",
-  "mobile.error.invalidInput":
-    "Something you entered isn't valid. Check your entries and try again.",
-  "mobile.error.vaultUnavailable":
-    "This vault can't be opened right now. Sync and try again, or unlock Mosaic again.",
-  "mobile.unlock.quickOptionTouchId": "Unlock with Touch ID next time",
-  "mobile.detail.readCode": "Read code",
-  "mobile.detail.labelValue": "{label}: {value}",
-  "mobile.autofill.warningWithName": "Check the address first | {name}",
-  "mobile.autofill.linkEntry": "Link {login} and fill",
-  "mobile.link.imported": "Imported for this app",
-  "mobile.link.confirmTitle": "Link {login} to {app}?",
-  "mobile.link.confirmSubtitle": "App ID {appId} · Signature {fingerprint}",
-  "mobile.link.confirmFallbackHint": "After linking, tap the field again to fill it.",
-  "mobile.link.importedNotVerified": "Imported login. The website has not confirmed this app.",
+  "mobile.sync.warningsBanner": "同步时发现问题。请打开“设置”查看。",
+  "mobile.provider.errorTitle": "Mosaic 无法继续",
+  "mobile.onboarding.details.keyWiped": "你离开应用时，Mosaic 已清除扫描到的机密密钥。请重新扫描二维码，或手动输入密钥。",
+  "mobile.common.showField": "显示{field}",
+  "mobile.common.hideField": "隐藏{field}",
+  "mobile.error.storeInUse": "Mosaic 正在这部手机的其他位置运行。请稍等片刻，然后重试。",
+  "mobile.error.noAccount": "这部手机上还没有设置 Mosaic。请打开 Mosaic 进行设置。",
+  "mobile.error.wrongCredentials": "主密码或机密密钥不正确。请检查是否输错，以及键盘语言，然后重试。",
+  "mobile.error.invalidInput": "你输入的内容有误。请检查后重试。",
+  "mobile.error.vaultUnavailable": "目前无法打开此保险库。请同步后重试，或重新解锁 Mosaic。",
+  "mobile.unlock.quickOptionTouchId": "下次使用触控 ID 解锁",
+  "mobile.detail.readCode": "读取验证码",
+  "mobile.detail.labelValue": "{label}：{value}",
+  "mobile.autofill.warningWithName": "请先核对网址 | {name}",
+  "mobile.autofill.linkEntry": "关联 {login} 并填充",
+  "mobile.link.imported": "已为此应用导入",
+  "mobile.link.confirmTitle": "将 {login} 关联到 {app}？",
+  "mobile.link.confirmSubtitle": "应用 ID {appId} · 签名 {fingerprint}",
+  "mobile.link.confirmFallbackHint": "关联后，请再次点按该输入框进行填充。",
+  "mobile.link.importedNotVerified": "已导入的登录信息。网站尚未确认此应用。",
 } satisfies Record<keyof typeof en, string>;

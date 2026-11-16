@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Japanese UI strings: breach. Same keys as English (checked by the type).
  * ICU plural categories of Japanese: other (CLDR; `other` is required).
@@ -6,37 +5,37 @@
 import type { breach as en } from "../en/breach.ts";
 
 export const breach = {
-  "breach.card.title": "Breach check",
-  "breach.card.off": "Off. Mosaic never contacts Have I Been Pwned unless you turn this on.",
+  "breach.card.title": "漏えいチェック",
+  "breach.card.off": "オフです。オンにしない限り、Mosaic が Have I Been Pwned に接続することはありません。",
   "breach.card.about":
-    "Checks your passwords against known data breaches. Only a 5-character piece of a scrambled code per password leaves this device.",
-  "breach.mode.label": "Check against known data breaches",
-  "breach.mode.off": "Off",
-  "breach.mode.manual": "Only when I choose",
-  "breach.mode.weekly": "Weekly, after unlock",
-  "breach.card.checkNow": "Check now",
-  "breach.card.stop": "Stop check",
-  "breach.card.turnOff": "Turn off",
-  "breach.progress.starting": "Checking your passwords…",
-  "breach.progress.step": "Checking… {done} of {total}",
-  "breach.result.never": "Not checked yet.",
+    "パスワードが既知のデータ漏えいに含まれていないか確認します。パスワードごとに、変換したコードのうち先頭5文字だけがこのデバイスから送信されます。",
+  "breach.mode.label": "既知のデータ漏えいと照合",
+  "breach.mode.off": "オフ",
+  "breach.mode.manual": "手動で実行したときのみ",
+  "breach.mode.weekly": "ロック解除後に週1回",
+  "breach.card.checkNow": "今すぐチェック",
+  "breach.card.stop": "チェックを停止",
+  "breach.card.turnOff": "オフにする",
+  "breach.progress.starting": "パスワードをチェックしています…",
+  "breach.progress.step": "チェック中… {done} / {total}",
+  "breach.result.never": "まだチェックしていません。",
   "breach.result.last":
-    "Last checked {date, date, medium}. {found, plural, =0 {No password was found in a breach.} other {# passwords were found in a breach.}}",
+    "最終チェック: {date, date, medium}。{found, plural, =0 {漏えいで見つかったパスワードはありません。} other {漏えいで見つかったパスワードが#件あります。}}",
   "breach.result.finished":
-    "Checked {checked, plural, other {# passwords}}. {found, plural, =0 {None was found in a breach.} other {# were found in a breach.}}",
-  "breach.result.upToDate": "Everything was checked recently. Nothing new to look up.",
+    "{checked, plural, other {#件のパスワード}}をチェックしました。{found, plural, =0 {漏えいで見つかったものはありません。} other {#件が漏えいで見つかりました。}}",
+  "breach.result.upToDate": "すべて最近チェック済みです。新たに調べる項目はありません。",
   "breach.error.offline":
-    "Couldn't reach Have I Been Pwned. The last results are shown. Try again when you're online.",
+    "Have I Been Pwned に接続できませんでした。前回の結果を表示しています。オンラインになってからもう一度お試しください。",
   "breach.error.rateLimited":
-    "Have I Been Pwned asked Mosaic to slow down. Try again in a few minutes.",
+    "Have I Been Pwned から、アクセスの間隔をあけるよう求められました。数分後にもう一度お試しください。",
   "breach.error.protocol":
-    "Have I Been Pwned sent an answer Mosaic doesn't trust, so some passwords weren't checked. Try again later.",
-  "breach.error.cancelled": "The check was stopped. Results that were finished are kept.",
-  "breach.consent.title": "Check your passwords against known data breaches?",
+    "Have I Been Pwned から Mosaic が信頼できない応答が返ったため、一部のパスワードはチェックされていません。しばらくしてからもう一度お試しください。",
+  "breach.error.cancelled": "チェックを停止しました。完了した結果は保持されます。",
+  "breach.consent.title": "パスワードを既知のデータ漏えいと照合しますか？",
   "breach.consent.body":
-    "Mosaic turns each password into a scrambled code that can't be turned back (a hash) and sends only the first 5 characters of that code to Have I Been Pwned (api.pwnedpasswords.com). The service learns your IP address and those 5-character pieces. It never sees a password, your email address or which site a password is for. Results stay on this device.",
+    "Mosaic は各パスワードを元に戻せないコード（ハッシュ）に変換し、そのコードの先頭5文字だけを Have I Been Pwned (api.pwnedpasswords.com) に送信します。このサービスが把握するのは、IP アドレスとその5文字の断片のみです。パスワード、メールアドレス、パスワードを使うサイトが知られることはありません。結果はこのデバイスにのみ保存されます。",
   "breach.consent.detail":
-    "Many other passwords share each 5-character piece, so the answer doesn't reveal yours. It is still a request to another service, so it stays off until you agree. You can turn it off at any time.",
-  "breach.consent.agree": "Turn on and check now",
-  "breach.consent.decline": "Not now",
+    "同じ5文字の断片を持つパスワードは他にも多数あるため、回答からあなたのパスワードが分かることはありません。ただし、別のサービスへのリクエストであることに変わりはないため、同意するまではオフのままです。いつでもオフにできます。",
+  "breach.consent.agree": "オンにして今すぐチェック",
+  "breach.consent.decline": "今はしない",
 } satisfies Record<keyof typeof en, string>;

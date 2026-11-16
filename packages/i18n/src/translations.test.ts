@@ -15,11 +15,7 @@ import { describe, expect, it } from "vitest";
 import { locales, type Locale } from "./index.ts";
 
 const TRANSLATIONS_PENDING: readonly Locale[] = [
-  "pl",
   "tr",
-  "ja",
-  "ko",
-  "zh",
 ];
 
 const MARKER = "// UNTRANSLATED: copy of English, replace every value";

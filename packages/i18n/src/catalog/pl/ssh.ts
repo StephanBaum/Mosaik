@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Polish UI strings: ssh. Same keys as English (checked by the type).
  * ICU plural categories of Polish: one, few, many, other (CLDR; `other` is required).
@@ -6,34 +5,36 @@
 import type { ssh as en } from "../en/ssh.ts";
 
 export const ssh = {
-  "ssh.title": "An app wants to use your SSH key",
-  "ssh.key": "Key",
-  "ssh.fingerprint": "Fingerprint",
-  "ssh.client": "Requested by",
-  "ssh.client.unknown": "An unknown program",
-  "ssh.expires": "Refused automatically in {seconds, plural, one {# second} other {# seconds}}",
-  "ssh.deny": "Deny",
-  "ssh.allowOnce": "Allow once",
-  "ssh.allowFor15Minutes": "Allow for 15 minutes",
-  "ssh.queue": "{count, plural, one {# more request waiting} other {# more requests waiting}}",
+  "ssh.title": "Aplikacja chce użyć Twojego klucza SSH",
+  "ssh.key": "Klucz",
+  "ssh.fingerprint": "Odcisk klucza",
+  "ssh.client": "Żąda",
+  "ssh.client.unknown": "Nieznany program",
+  "ssh.expires":
+    "Zostanie odrzucone automatycznie za {seconds, plural, one {# sekundę} few {# sekundy} many {# sekund} other {# sekundy}}",
+  "ssh.deny": "Odmów",
+  "ssh.allowOnce": "Zezwól jednorazowo",
+  "ssh.allowFor15Minutes": "Zezwól na 15 minut",
+  "ssh.queue":
+    "{count, plural, one {# kolejne żądanie czeka} few {# kolejne żądania czekają} many {# kolejnych żądań czeka} other {# kolejnego żądania czeka}}",
   "ssh.signFailed.passphraseRequired":
-    "The key is encrypted, but the item has no passphrase. Add it in the item's Password field.",
+    "Klucz jest zaszyfrowany, ale element nie ma frazy hasłowej. Dodaj ją w polu Hasło elementu.",
   "ssh.signFailed.wrongPassphrase":
-    "The passphrase in the item doesn't unlock the key. Correct it in the item's Password field.",
+    "Fraza hasłowa w elemencie nie odblokowuje klucza. Popraw ją w polu Hasło elementu.",
   "ssh.signFailed.keyMalformed":
-    "The private key in this item can't be read. Paste it again in OpenSSH format.",
+    "Nie można odczytać klucza prywatnego w tym elemencie. Wklej go ponownie w formacie OpenSSH.",
   "ssh.signFailed.kdfTooExpensive":
-    "The key's passphrase protection uses more rounds than Mosaic allows. Re-encrypt it with \"ssh-keygen -p -a 64\".",
+    "Ochrona frazą hasłową tego klucza używa więcej rund, niż dopuszcza Mosaic. Zaszyfruj go ponownie poleceniem „ssh-keygen -p -a 64”.",
   "ssh.signFailed.publicKeyMismatch":
-    "The private key doesn't match the item's public key. Check both fields.",
-  "ssh.signFailed.unsupported": "Mosaic signs only with Ed25519 and ECDSA P-256 keys.",
-  "ssh.signFailed.internal": "Signing failed. Try again.",
-  "ssh.skip.unsupported": "Not served: Mosaic signs only with Ed25519 and ECDSA P-256 keys.",
-  "ssh.skip.malformed": "Not served: the key can't be read.",
-  "ssh.skip.duplicate": "Not served: another item has the same key.",
-  "ssh.description": "An app asked the Mosaic SSH agent to sign in with this key.",
-  "ssh.origin.forwarded": "A server you are connected to asks to use this key.",
+    "Klucz prywatny nie pasuje do klucza publicznego elementu. Sprawdź oba pola.",
+  "ssh.signFailed.unsupported": "Mosaic podpisuje tylko kluczami Ed25519 i ECDSA P-256.",
+  "ssh.signFailed.internal": "Podpisywanie nie powiodło się. Spróbuj ponownie.",
+  "ssh.skip.unsupported": "Nieudostępniany: Mosaic podpisuje tylko kluczami Ed25519 i ECDSA P-256.",
+  "ssh.skip.malformed": "Nieudostępniany: nie można odczytać klucza.",
+  "ssh.skip.duplicate": "Nieudostępniany: inny element ma ten sam klucz.",
+  "ssh.description": "Aplikacja poprosiła agenta SSH Mosaic o zalogowanie tym kluczem.",
+  "ssh.origin.forwarded": "Serwer, z którym jesteś połączony, prosi o użycie tego klucza.",
   "ssh.origin.bindFailed":
-    "Mosaic can't tell where this request comes from: the connection's host check failed. Only allow it if you expect it.",
-  "ssh.escDenies": "to deny",
+    "Mosaic nie może ustalić, skąd pochodzi to żądanie: sprawdzenie hosta połączenia nie powiodło się. Zezwól tylko wtedy, gdy się go spodziewasz.",
+  "ssh.escDenies": "aby odmówić",
 } satisfies Record<keyof typeof en, string>;

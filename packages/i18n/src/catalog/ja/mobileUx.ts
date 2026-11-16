@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Japanese UI strings: mobileUx. Same keys as English (checked by the type).
  * ICU plural categories of Japanese: other (CLDR; `other` is required).
@@ -6,29 +5,29 @@
 import type { mobileUx as en } from "../en/mobileUx.ts";
 
 export const mobileUx = {
-  "mobile.sync.warningsBanner": "Sync found a problem. Open Settings to check it.",
-  "mobile.provider.errorTitle": "Mosaic can't continue",
+  "mobile.sync.warningsBanner": "同期で問題が見つかりました。設定を開いて確認してください。",
+  "mobile.provider.errorTitle": "Mosaic は続行できません",
   "mobile.onboarding.details.keyWiped":
-    "Mosaic removed the scanned Secret Key when you left the app. Scan the code again or type the key.",
-  "mobile.common.showField": "Show {field}",
-  "mobile.common.hideField": "Hide {field}",
+    "アプリを離れたため、Mosaic はスキャンしたシークレットキーを削除しました。もう一度コードをスキャンするか、キーを入力してください。",
+  "mobile.common.showField": "{field} を表示",
+  "mobile.common.hideField": "{field} を非表示",
   "mobile.error.storeInUse":
-    "Mosaic is busy elsewhere on this phone. Wait a moment, then try again.",
-  "mobile.error.noAccount": "Mosaic isn't set up on this phone yet. Open Mosaic to set it up.",
+    "このスマートフォンの別の場所で Mosaic が使用中です。しばらく待ってから、もう一度お試しください。",
+  "mobile.error.noAccount": "このスマートフォンでは Mosaic がまだ設定されていません。Mosaic を開いて設定してください。",
   "mobile.error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check for typos and the keyboard language, then try again.",
+    "マスターパスワードまたはシークレットキーが正しくありません。入力ミスやキーボードの言語を確認して、もう一度お試しください。",
   "mobile.error.invalidInput":
-    "Something you entered isn't valid. Check your entries and try again.",
+    "入力内容に無効なものがあります。入力を確認して、もう一度お試しください。",
   "mobile.error.vaultUnavailable":
-    "This vault can't be opened right now. Sync and try again, or unlock Mosaic again.",
-  "mobile.unlock.quickOptionTouchId": "Unlock with Touch ID next time",
-  "mobile.detail.readCode": "Read code",
+    "現在この保管庫を開けません。同期してからもう一度お試しいただくか、Mosaic のロックをもう一度解除してください。",
+  "mobile.unlock.quickOptionTouchId": "次回から Touch ID でロック解除",
+  "mobile.detail.readCode": "コードを読み取る",
   "mobile.detail.labelValue": "{label}: {value}",
-  "mobile.autofill.warningWithName": "Check the address first | {name}",
-  "mobile.autofill.linkEntry": "Link {login} and fill",
-  "mobile.link.imported": "Imported for this app",
-  "mobile.link.confirmTitle": "Link {login} to {app}?",
-  "mobile.link.confirmSubtitle": "App ID {appId} · Signature {fingerprint}",
-  "mobile.link.confirmFallbackHint": "After linking, tap the field again to fill it.",
-  "mobile.link.importedNotVerified": "Imported login. The website has not confirmed this app.",
+  "mobile.autofill.warningWithName": "先にアドレスを確認してください | {name}",
+  "mobile.autofill.linkEntry": "{login} をリンクして入力",
+  "mobile.link.imported": "このアプリ用に読み込み済み",
+  "mobile.link.confirmTitle": "{login} を {app} にリンクしますか？",
+  "mobile.link.confirmSubtitle": "アプリ ID {appId} · 署名 {fingerprint}",
+  "mobile.link.confirmFallbackHint": "リンク後、もう一度フィールドをタップして入力してください。",
+  "mobile.link.importedNotVerified": "読み込んだログインです。このアプリはウェブサイトに確認されていません。",
 } satisfies Record<keyof typeof en, string>;

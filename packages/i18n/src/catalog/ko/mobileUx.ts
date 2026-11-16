@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Korean UI strings: mobileUx. Same keys as English (checked by the type).
  * ICU plural categories of Korean: other (CLDR; `other` is required).
@@ -6,29 +5,29 @@
 import type { mobileUx as en } from "../en/mobileUx.ts";
 
 export const mobileUx = {
-  "mobile.sync.warningsBanner": "Sync found a problem. Open Settings to check it.",
-  "mobile.provider.errorTitle": "Mosaic can't continue",
+  "mobile.sync.warningsBanner": "동기화에서 문제를 발견했어요. 설정을 열어 확인하세요.",
+  "mobile.provider.errorTitle": "Mosaic이 계속할 수 없어요",
   "mobile.onboarding.details.keyWiped":
-    "Mosaic removed the scanned Secret Key when you left the app. Scan the code again or type the key.",
-  "mobile.common.showField": "Show {field}",
-  "mobile.common.hideField": "Hide {field}",
+    "앱을 나가면서 Mosaic이 스캔한 비밀 키를 제거했어요. 코드를 다시 스캔하거나 키를 직접 입력하세요.",
+  "mobile.common.showField": "{field} 표시",
+  "mobile.common.hideField": "{field} 숨기기",
   "mobile.error.storeInUse":
-    "Mosaic is busy elsewhere on this phone. Wait a moment, then try again.",
-  "mobile.error.noAccount": "Mosaic isn't set up on this phone yet. Open Mosaic to set it up.",
+    "이 휴대폰의 다른 곳에서 Mosaic이 사용 중이에요. 잠시 기다린 다음 다시 시도하세요.",
+  "mobile.error.noAccount": "이 휴대폰에는 아직 Mosaic이 설정되어 있지 않아요. Mosaic을 열어 설정하세요.",
   "mobile.error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check for typos and the keyboard language, then try again.",
+    "마스터 비밀번호 또는 비밀 키가 올바르지 않아요. 오타와 키보드 언어를 확인한 다음 다시 시도하세요.",
   "mobile.error.invalidInput":
-    "Something you entered isn't valid. Check your entries and try again.",
+    "입력한 내용 중 올바르지 않은 것이 있어요. 입력 내용을 확인하고 다시 시도하세요.",
   "mobile.error.vaultUnavailable":
-    "This vault can't be opened right now. Sync and try again, or unlock Mosaic again.",
-  "mobile.unlock.quickOptionTouchId": "Unlock with Touch ID next time",
-  "mobile.detail.readCode": "Read code",
+    "지금은 이 보관함을 열 수 없어요. 동기화한 다음 다시 시도하거나 Mosaic을 다시 잠금 해제하세요.",
+  "mobile.unlock.quickOptionTouchId": "다음부터 Touch ID로 잠금 해제",
+  "mobile.detail.readCode": "코드 읽기",
   "mobile.detail.labelValue": "{label}: {value}",
-  "mobile.autofill.warningWithName": "Check the address first | {name}",
-  "mobile.autofill.linkEntry": "Link {login} and fill",
-  "mobile.link.imported": "Imported for this app",
-  "mobile.link.confirmTitle": "Link {login} to {app}?",
-  "mobile.link.confirmSubtitle": "App ID {appId} · Signature {fingerprint}",
-  "mobile.link.confirmFallbackHint": "After linking, tap the field again to fill it.",
-  "mobile.link.importedNotVerified": "Imported login. The website has not confirmed this app.",
+  "mobile.autofill.warningWithName": "먼저 주소를 확인하세요 | {name}",
+  "mobile.autofill.linkEntry": "{login} 연결하고 자동 입력",
+  "mobile.link.imported": "이 앱용으로 가져옴",
+  "mobile.link.confirmTitle": "{login}을(를) {app}에 연결할까요?",
+  "mobile.link.confirmSubtitle": "앱 ID {appId} · 서명 {fingerprint}",
+  "mobile.link.confirmFallbackHint": "연결한 후 입력란을 다시 탭하면 자동으로 입력돼요.",
+  "mobile.link.importedNotVerified": "가져온 로그인이에요. 웹사이트가 이 앱을 확인하지 않았어요.",
 } satisfies Record<keyof typeof en, string>;

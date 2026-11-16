@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Japanese UI strings: errors. Same keys as English (checked by the type).
  * ICU plural categories of Japanese: other (CLDR; `other` is required).
@@ -6,296 +5,296 @@
 import type { errors as en } from "../en/errors.ts";
 
 export const errors = {
-  "error.notImplemented": "This isn't available yet. It's coming in a later version of Mosaic.",
+  "error.notImplemented": "この機能はまだ利用できません。Mosaic の今後のバージョンで提供予定です。",
   "error.noAccount":
-    "There's no account on this device yet. Create one, or sign in with your Emergency Kit.",
-  "error.accountExists": "This device already has a Mosaic account. Unlock it instead.",
-  "error.locked": "Mosaic is locked. Unlock it to continue.",
-  "error.alreadyUnlocked": "Mosaic is already unlocked. You can continue where you left off.",
+    "このデバイスには、まだアカウントがありません。アカウントを作成するか、緊急キットでサインインしてください。",
+  "error.accountExists": "このデバイスには、すでに Mosaic のアカウントがあります。ロックを解除してください。",
+  "error.locked": "Mosaic はロックされています。続けるには、ロックを解除してください。",
+  "error.alreadyUnlocked": "Mosaic はすでにロック解除されています。中断したところから続けられます。",
   "error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check Caps Lock and your keyboard layout, then try again.",
+    "マスターパスワードまたはシークレットキーが正しくありません。Caps Lock とキーボードの配列を確認して、もう一度お試しください。",
   "error.secretKeyRequired":
-    "This device doesn't have your Secret Key. Type it from your Emergency Kit.",
+    "このデバイスにはシークレットキーがありません。緊急キットを見ながら入力してください。",
   "error.secretKeyMalformed":
-    "That isn't a Secret Key. Yours starts with “M1-” and is on your Emergency Kit.",
+    "シークレットキーの形式ではありません。シークレットキーは「M1-」で始まり、緊急キットに記載されています。",
   "error.secretKeyMistyped":
-    "That Secret Key has a typo. Compare it with your Emergency Kit, character by character.",
-  "error.emptyPassword": "The master password is empty. Enter it to continue.",
+    "シークレットキーに入力ミスがあります。緊急キットと1文字ずつ照らし合わせてください。",
+  "error.emptyPassword": "マスターパスワードが空です。続けるには入力してください。",
   "error.quickUnlockUnavailable":
-    "Quick unlock isn't set up on this device. Unlock with your master password.",
+    "このデバイスではクイックロック解除が設定されていません。マスターパスワードでロックを解除してください。",
   "error.storeInUse":
-    "Mosaic is already open on this computer. Close the other window, then try again.",
+    "このコンピューターで、すでに Mosaic が開かれています。もう一方のウィンドウを閉じてから、もう一度お試しください。",
   "error.storeUnavailable":
-    "Mosaic couldn't open your vault file on this device. Check that the disk is available and has free space, then restart Mosaic.",
-  "error.vaultNotFound": "That vault no longer exists. It may have been deleted on another device.",
+    "Mosaic は、このデバイスの保管庫ファイルを開けませんでした。ディスクが使用可能で空き容量があるか確認してから、Mosaic を再起動してください。",
+  "error.vaultNotFound": "その保管庫はもう存在しません。別のデバイスで削除された可能性があります。",
   "error.vaultUnavailable":
-    "This vault can't be opened in this session. Unlock it with its hardware key, or sync and try again.",
+    "この保管庫は、このセッションでは開けません。ハードウェアキーでロックを解除するか、同期してからもう一度お試しください。",
   "error.itemNotFound":
-    "That item no longer exists. It may have been moved or deleted on another device.",
+    "その項目はもう存在しません。別のデバイスで移動または削除された可能性があります。",
   "error.itemDeleted":
-    "That item was deleted for good, so it can't be opened. Choose another item.",
-  "error.sameVault": "The item is already in that vault. Choose a different vault.",
-  "error.noOtp": "This item has no one-time code. Edit the item to add one.",
+    "その項目は完全に削除されたため、開けません。別の項目を選んでください。",
+  "error.sameVault": "その項目は、すでにその保管庫にあります。別の保管庫を選んでください。",
+  "error.noOtp": "この項目にはワンタイムコードがありません。項目を編集して追加してください。",
   "error.fieldEmpty":
-    "That field is empty, so there's nothing to copy or show. Edit the item to fill it in.",
+    "その欄は空のため、コピーや表示するものがありません。項目を編集して入力してください。",
   "error.invalidInput":
-    "Something in this form isn't valid. Check the highlighted fields and try again.",
+    "このフォームに無効な内容があります。強調表示されている欄を確認して、もう一度お試しください。",
   "error.sshKeyInvalid":
-    "This isn't an OpenSSH private key. Paste the whole key, including the BEGIN and END lines.",
-  "error.reauthRequired": "This change needs your master password. Enter it to confirm.",
-  "error.attachmentTooLarge": "That file is larger than 50 MiB. Choose a smaller file.",
+    "OpenSSH の秘密鍵ではありません。BEGIN と END の行を含め、キー全体を貼り付けてください。",
+  "error.reauthRequired": "この変更にはマスターパスワードが必要です。確認のため入力してください。",
+  "error.attachmentTooLarge": "そのファイルは 50 MiB を超えています。もっと小さいファイルを選んでください。",
   "error.attachmentQuota":
-    "Your files would use more than the 1 GiB available. Remove some attachments, then try again.",
-  "error.attachmentNotFound": "This file is no longer part of the item. Reload the item.",
+    "ファイルの合計が、利用できる 1 GiB を超えてしまいます。添付ファイルをいくつか削除してから、もう一度お試しください。",
+  "error.attachmentNotFound": "このファイルは、もうこの項目に含まれていません。項目を再読み込みしてください。",
   "error.attachmentUnavailable":
-    "This file can't be opened on this device. It may not be synced yet or may be damaged.",
-  "error.attachmentFileUnreadable": "That file can't be read. Choose another file.",
-  "error.attachmentSaveFailed": "The file couldn't be saved there. Choose another folder.",
-  "error.attachmentPreviewUnsupported": "There's no preview for this file. Use Save as to open it.",
-  "error.attachmentPreviewTooLarge": "This image is too large to preview. Use Save as to open it.",
+    "このファイルは、このデバイスでは開けません。まだ同期されていないか、破損している可能性があります。",
+  "error.attachmentFileUnreadable": "そのファイルを読み取れません。別のファイルを選んでください。",
+  "error.attachmentSaveFailed": "ファイルをそこに保存できませんでした。別のフォルダを選んでください。",
+  "error.attachmentPreviewUnsupported": "このファイルはプレビューできません。「別名で保存」から開いてください。",
+  "error.attachmentPreviewTooLarge": "この画像は大きすぎてプレビューできません。「別名で保存」から開いてください。",
   "error.clipboardUnavailable":
-    "Mosaic couldn't use the clipboard. Close apps that might be holding it, then try again.",
+    "Mosaic はクリップボードを使用できませんでした。クリップボードを使用している可能性のあるアプリを閉じてから、もう一度お試しください。",
   "error.importFileUnreadable":
-    "Mosaic couldn't read that file. Check that it still exists and isn't open in another app, then try again.",
+    "Mosaic はそのファイルを読み取れませんでした。ファイルが存在し、他のアプリで開かれていないか確認してから、もう一度お試しください。",
   "error.importDeleteNotAllowed":
-    "Import the file first. Mosaic only deletes an export after its items are in your vault.",
+    "先にファイルを読み込んでください。Mosaic は、項目が保管庫に入った後でのみ、エクスポートしたファイルを削除します。",
   "error.importDeleteFailed":
-    "The file couldn't be deleted. It may be open in another app or read-only. Delete it yourself, then empty the recycle bin.",
+    "ファイルを削除できませんでした。他のアプリで開かれているか、読み取り専用の可能性があります。ご自身で削除してから、ゴミ箱を空にしてください。",
   "error.importFormatInvalid":
-    "That file isn't in the format you chose. Choose the matching format, or export the file again.",
-  "error.importPreviewExpired": "This import was cancelled. Choose the file again to start over.",
+    "そのファイルは、選択した形式ではありません。合う形式を選ぶか、ファイルをもう一度エクスポートしてください。",
+  "error.importPreviewExpired": "この読み込みはキャンセルされました。最初からやり直すには、もう一度ファイルを選択してください。",
   "error.sshRequestExpired":
-    "That SSH request has already ended. Run the command again if you still need it.",
+    "その SSH リクエストはすでに終了しています。まだ必要な場合は、コマンドをもう一度実行してください。",
   "error.sshAgentUnavailable":
-    "The SSH agent couldn't start. Check that no other SSH agent is running, then turn it on again.",
-  "error.unlockDelayed": "Too many wrong attempts in a row. Wait a few seconds, then try again.",
+    "SSH エージェントを起動できませんでした。他の SSH エージェントが動作していないか確認してから、もう一度オンにしてください。",
+  "error.unlockDelayed": "続けて間違えた回数が多すぎます。数秒待ってから、もう一度お試しください。",
   "error.tooManyAttempts":
-    "Too many wrong answers. Mosaic locked. Unlock it with your master password to continue.",
+    "間違いが多すぎたため、Mosaic をロックしました。続けるには、マスターパスワードでロックを解除してください。",
   "error.sshAllowTooSoon":
-    "That was too quick to read the request. Check the key and the program, then choose Allow again.",
+    "リクエストを確認するには操作が早すぎました。キーとプログラムを確認してから、もう一度「許可」を選んでください。",
   "error.browserRequestExpired":
-    "That browser request has already ended. Ask again from the extension if you still need it.",
+    "そのブラウザのリクエストはすでに終了しています。まだ必要な場合は、拡張機能からもう一度リクエストしてください。",
   "error.browserAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
+    "リクエストを確認するには操作が早すぎました。詳細を確認してから、もう一度選んでください。",
   "error.browserPairingNotFound":
-    "That browser is no longer connected. Reopen Settings to see the current list.",
+    "そのブラウザは、もう接続されていません。設定を開き直して、現在の一覧を確認してください。",
   "error.browserHostMissing":
-    "This copy of Mosaic has no browser connector installed, so there is nothing to repair. Install Mosaic with its installer to connect a browser.",
+    "この Mosaic にはブラウザコネクタがインストールされていないため、修復するものがありません。ブラウザを接続するには、インストーラーで Mosaic をインストールしてください。",
   "error.agentOriginInvalid":
-    "Agents can send a key only to a site that starts with https:// and names just the site, like https://api.example.com. Check the address.",
+    "エージェントがキーを送信できるのは、https:// で始まり、サイトのみを示すアドレス（例: https://api.example.com）に対してだけです。アドレスを確認してください。",
   "error.agentBindingInvalid":
-    "Mosaic can't use this setting for agents. Check the field, the sites and how the key is sent.",
+    "Mosaic は、この設定をエージェント用に使用できません。欄、サイト、キーの送信方法を確認してください。",
   "error.agentValueUnusable":
-    "This value is too short or has a line break in it, so agents can't use it. A key needs at least 12 characters on one line.",
+    "この値は短すぎるか、改行を含んでいるため、エージェントは使用できません。キーは、1行で12文字以上必要です。",
   "error.agentVaultShared":
-    "Agents can only use items in a vault that belongs to you and isn't shared. Move the item to one of your own vaults first.",
-  "error.agentAccessOff": "Agent access is switched off. Turn it on in Settings, under Agents.",
+    "エージェントが使えるのは、自分のもので共有されていない保管庫にある項目のみです。先に項目を自分の保管庫に移動してください。",
+  "error.agentAccessOff": "エージェントのアクセスはオフです。「設定」の「エージェント」でオンにしてください。",
   "error.agentRequestExpired":
-    "That agent request has already ended. The agent can ask again if it still needs it.",
+    "そのエージェントのリクエストはすでに終了しています。まだ必要な場合は、エージェントがもう一度リクエストできます。",
   "error.agentAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
+    "リクエストを確認するには操作が早すぎました。詳細を確認してから、もう一度選んでください。",
   "error.agentPairingNotFound":
-    "That agent is no longer connected. Reopen Settings to see the current list.",
+    "そのエージェントは、もう接続されていません。設定を開き直して、現在の一覧を確認してください。",
   "error.agentEndpointUnavailable":
-    "Mosaic could not open the connection agents use. Close other copies of Mosaic and try again.",
+    "Mosaic はエージェントが使用する接続を開けませんでした。他の Mosaic を閉じてから、もう一度お試しください。",
   "error.kitNotVerified":
-    "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
+    "先に新しい緊急キットを保存し、その最後のグループを確認してください。それまで、Mosaic は何も変更しません。",
   "error.kitGroupMismatch":
-    "That is not the last group of the new Secret Key. Check the new Emergency Kit.",
+    "新しいシークレットキーの最後のグループではありません。新しい緊急キットを確認してください。",
   "error.rotationInProgress":
-    "Another key change is still open. Finish it with Continue key rotation, or discard it first.",
-  "error.rotationNone": "There is no key change to continue.",
+    "別の鍵の変更がまだ開いています。「鍵の更新を続行」で完了するか、先に破棄してください。",
+  "error.rotationNone": "続行する鍵の変更はありません。",
   "error.rotationNotFound":
-    "That password change is no longer open. It may have been closed on another device or in the browser. Reopen the item to see where it stands.",
+    "そのパスワード変更はもう開いていません。別のデバイスまたはブラウザで閉じられた可能性があります。項目を開き直して、状況を確認してください。",
   "error.rotationLimit":
-    "Four password changes of this item are open already. Finish or close one in the item first.",
+    "この項目のパスワード変更が、すでに4件開いています。先に項目内で1件を完了するか閉じてください。",
   "error.rotationOpen":
-    "This login has an open password change. Restore it from the trash, then choose It worked or It didn't work on the item. After that you can delete it forever.",
+    "このログインには、開いているパスワード変更があります。ゴミ箱から復元し、項目で「うまくいった」または「うまくいかなかった」を選んでください。その後で完全に削除できます。",
   "error.rotationNotSupported":
-    "Mosaic can't guide this change. It needs a login with an https address. Change the password on the site yourself.",
+    "Mosaic はこの変更を案内できません。https のアドレスがあるログインが必要です。サイトで、ご自身でパスワードを変更してください。",
   "error.historyNotFound":
-    "That earlier password isn't in the history any more. Reopen the item to see the current list.",
+    "その以前のパスワードは、もう履歴にありません。項目を開き直して、現在の一覧を確認してください。",
   "error.originNotRelated":
-    "That page doesn't belong to this login's site, so Mosaic didn't add it. Edit the item's addresses if it should.",
+    "そのページはこのログインのサイトに属していないため、Mosaic は追加しませんでした。追加すべき場合は、項目のアドレスを編集してください。",
   "error.breachConsentRequired":
-    "The breach check is off. Turn it on and agree to what it sends first.",
+    "漏えいチェックはオフです。先にオンにして、送信される内容に同意してください。",
   "error.breachRunning":
-    "A breach check is already running. Wait for it to finish, or stop it first.",
+    "漏えいチェックがすでに実行中です。完了を待つか、先に停止してください。",
   "error.rotationTooFar":
-    "This change already reached your account, so it can't be discarded. Continue it to finish.",
+    "この変更はすでにアカウントに反映されているため、破棄できません。続行して完了してください。",
   "error.rotationJumpTooLarge":
-    "This device is too far behind the other devices to catch up. Set it up again: remove the account from this device and join again with your Emergency Kit.",
+    "このデバイスは他のデバイスから遅れすぎていて、追いつけません。設定し直してください。このデバイスからアカウントを削除し、緊急キットでもう一度参加してください。",
   "error.rotationNotApplied":
-    "The change never reached your account, so nothing was changed. Start again or discard it.",
+    "この変更はアカウントに反映されなかったため、何も変更されていません。やり直すか、破棄してください。",
   "error.secretKeyUnchanged":
-    "That Secret Key no longer works. Use the one from the Emergency Kit you saved on the device that made the change.",
-  "error.passwordUnchanged": "The new master password has to be different from the current one.",
+    "そのシークレットキーは、もう使えません。変更を行ったデバイスで保存した緊急キットのキーを使用してください。",
+  "error.passwordUnchanged": "新しいマスターパスワードは、現在のものと異なる必要があります。",
   "error.profileDowngrade":
-    "That level is not stronger than what your account uses now. Pick a higher one.",
+    "そのレベルは、アカウントが現在使っているものより強くありません。より高いレベルを選んでください。",
   "error.profileTooSlow":
-    "Unlocking with that level would take this device more than two seconds. Pick a lower level, or upgrade anyway.",
+    "そのレベルでは、このデバイスでのロック解除に2秒以上かかります。より低いレベルを選ぶか、そのままアップグレードしてください。",
   "error.rekeyNeedsCleanSync":
-    "A re-key needs sync to be up to date and free of warnings. Sync now, look at any warning, then try again.",
+    "鍵の再作成には、同期が最新で、警告がない状態であることが必要です。今すぐ同期し、警告があれば確認してから、もう一度お試しください。",
   "error.rekeyMemberKeyMismatch":
-    "You have not compared the safety code of everyone in a shared vault yet, so that vault can't be renewed. Compare their codes in the vault's sharing settings, then try again.",
-  "error.rekeyBusy": "Your vaults kept changing while Mosaic worked. Wait a moment and try again.",
+    "共有保管庫の全員の安全コードをまだ照合していないため、その保管庫は更新できません。保管庫の共有設定で全員のコードを照合してから、もう一度お試しください。",
+  "error.rekeyBusy": "Mosaic の処理中に、保管庫が変更され続けました。少し待ってから、もう一度お試しください。",
   "error.rekeyOutcomeUnknown":
-    "Mosaic couldn't confirm whether your account accepted the new keys. Choose Continue key rotation to find out.",
+    "アカウントが新しい鍵を受け付けたか、Mosaic は確認できませんでした。「鍵の更新を続行」を選んで確認してください。",
   "error.rekeyNeedsServer":
-    "Re-keying needs your sync server or folder, and it can't be reached. Check the connection and try again.",
+    "鍵の再作成には同期サーバーまたはフォルダが必要ですが、接続できません。接続を確認して、もう一度お試しください。",
   "error.rekeyNoAccountFile":
-    "Nothing in your sync folder opens with this password and Secret Key. Check the new Emergency Kit.",
+    "このパスワードとシークレットキーで開けるものが、同期フォルダにありません。新しい緊急キットを確認してください。",
   "error.syncAccountRekeyed":
-    "Your account's keys were renewed on another device. Use the Secret Key from the new Emergency Kit to continue.",
+    "アカウントの鍵が別のデバイスで更新されました。続けるには、新しい緊急キットのシークレットキーを使用してください。",
   "error.syncEpochRollback":
-    "Your sync backend shows older account keys than this device has. Nothing was changed.",
+    "同期先が、このデバイスが持っているものより古いアカウントの鍵を表示しています。何も変更されていません。",
   "error.syncRekeyRefused":
-    "The keys your sync backend offers are not the next ones after this device's. Nothing was changed. Check your other devices.",
-  "error.pickerStale": "This list is out of date. Click the field again.",
-  "error.pickerTooSoon": "Wait a moment, then confirm again.",
-  "error.programFillUnavailable": "Filling in programs isn't available on this device.",
-  "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
+    "同期先が示す鍵は、このデバイスの鍵の次のものではありません。何も変更されていません。他のデバイスを確認してください。",
+  "error.pickerStale": "このリストは古くなっています。もう一度欄をクリックしてください。",
+  "error.pickerTooSoon": "少し待ってから、もう一度確認してください。",
+  "error.programFillUnavailable": "このデバイスでは、プログラムへの入力は利用できません。",
+  "error.busy": "Mosaic が直前のステップをまだ完了していません。少し待ってから、もう一度お試しください。",
   "error.internal":
-    "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",
+    "予期しない問題でこの操作が停止しました。もう一度お試しください。繰り返される場合は、Mosaic を再起動してください。",
   "error.importTooLarge":
-    "This file is too large or too complex to import. Export fewer items at a time, then try again.",
+    "このファイルは大きすぎるか複雑すぎて、読み込めません。一度にエクスポートする項目を減らしてから、もう一度お試しください。",
   "error.importUnsupported":
-    "Mosaic can't read this version of the format. Export again in a current format (for KeePass: KDBX 4 with AES or ChaCha20), then try again.",
+    "Mosaic はこの形式のバージョンを読み取れません。最新の形式でもう一度エクスポートしてから、お試しください（KeePass の場合: AES または ChaCha20 を使った KDBX 4）。",
   "error.importEncrypted":
-    "This export is password-protected. Export again without encryption, import it, then delete the file.",
+    "このエクスポートはパスワードで保護されています。暗号化なしでもう一度エクスポートし、読み込んでから、ファイルを削除してください。",
   "error.sshAgentEndpointInUse":
-    "Another SSH agent is already running (on Windows, the OpenSSH Authentication Agent service). Stop it, then turn on Mosaic's SSH agent again.",
-  "error.cancelled": "Cancelled. Nothing changed.",
+    "別の SSH エージェントがすでに動作しています（Windows では、OpenSSH Authentication Agent サービス）。それを停止してから、Mosaic の SSH エージェントをもう一度オンにしてください。",
+  "error.cancelled": "キャンセルしました。何も変更されていません。",
   "error.quickUnlockExpired":
-    "Quick unlock expired. Unlock with your master password, then turn it on again in Settings.",
+    "クイックロック解除の有効期限が切れました。マスターパスワードでロックを解除し、「設定」でもう一度オンにしてください。",
   "error.quickUnlockInvalidated":
-    "Quick unlock stopped working on this device and was turned off. Unlock with your master password.",
+    "このデバイスでクイックロック解除が動作しなくなり、オフになりました。マスターパスワードでロックを解除してください。",
   "error.passwordRequired":
-    "Enter your master password this time. Quick unlock works again after that.",
-  "error.hardwareKeyUnsupported": "This security key or system can't be used with Mosaic.",
-  "error.hardwareKeyNotFound": "No security key found. Insert it and try again.",
-  "error.hardwareKeyTimeout": "The key wasn't touched in time. Try again.",
-  "error.hardwareKeyPinRequired": "Enter your security key's PIN.",
-  "error.hardwareKeyPinInvalid": "Wrong PIN. After several wrong tries the key locks itself.",
+    "今回は、マスターパスワードを入力してください。その後、クイックロック解除が再び使えます。",
+  "error.hardwareKeyUnsupported": "このセキュリティキーまたはシステムは、Mosaic では使用できません。",
+  "error.hardwareKeyNotFound": "セキュリティキーが見つかりません。挿入してから、もう一度お試しください。",
+  "error.hardwareKeyTimeout": "時間内にキーに触れませんでした。もう一度お試しください。",
+  "error.hardwareKeyPinRequired": "セキュリティキーの PIN を入力してください。",
+  "error.hardwareKeyPinInvalid": "PIN が正しくありません。何度か間違えると、キーが自動的にロックされます。",
   "error.hardwareKeyPinBlocked":
-    "This key is locked after too many wrong PINs. Reset it with its maker's tool; its registrations are then lost.",
-  "error.hardwareKeyNoPin": "Set a PIN on this key first, with its maker's tool.",
+    "PIN の誤りが多すぎたため、このキーはロックされました。製造元のツールでリセットしてください。ただし、登録内容は失われます。",
+  "error.hardwareKeyNoPin": "先に、製造元のツールでこのキーに PIN を設定してください。",
   "error.hardwareKeyNotRecognized":
-    "This key isn't registered here. Try another key or your master password.",
-  "error.hardwareKeyLimit": "You've registered the most keys allowed (8). Remove one first.",
+    "このキーは、ここには登録されていません。別のキーまたはマスターパスワードをお試しください。",
+  "error.hardwareKeyLimit": "登録できるキーの上限（8個）に達しています。先に1つ削除してください。",
   "error.hardwareKeyLast":
-    "This is the vault's only key. Register another one before you remove it.",
-  "error.itemTypeNotAllowed": "This vault holds one-time codes only.",
+    "これは保管庫の唯一のキーです。削除する前に、別のキーを登録してください。",
+  "error.itemTypeNotAllowed": "この保管庫に保存できるのは、ワンタイムコードのみです。",
   "error.otpScanUnsupported":
-    "Screen scanning isn't available on this system. Paste a screenshot instead.",
-  "error.otpQrNotFound": "No QR code found. Make sure the whole code is visible, then try again.",
+    "このシステムでは画面のスキャンは利用できません。代わりにスクリーンショットを貼り付けてください。",
+  "error.otpQrNotFound": "QR コードが見つかりません。コード全体が見えていることを確認してから、もう一度お試しください。",
   "error.otpQrNotOtp":
-    "This QR code isn't a two-factor setup code. Look for the code on the site's 2FA setup page.",
+    "この QR コードは、2段階認証のセットアップコードではありません。サイトの2段階認証設定ページにあるコードを探してください。",
   "error.otpQrMigration":
-    "This is a Google Authenticator export code, which Mosaic can't read yet. Set up each account again on its site, or enter its setup key.",
+    "これは Google Authenticator のエクスポートコードで、Mosaic ではまだ読み取れません。各アカウントを、それぞれのサイトで設定し直すか、セットアップキーを入力してください。",
   "error.otpQrMultiple":
-    "More than one setup code is visible. Show only the one you want, then try again.",
+    "複数のセットアップコードが見えています。使いたいものだけを表示してから、もう一度お試しください。",
   "error.otpQrInvalid":
-    "This setup code uses settings Mosaic doesn't support. Enter the setup key instead.",
-  "error.otpUriInvalid": "This isn't a valid otpauth:// link. Copy the whole link again.",
+    "このセットアップコードは、Mosaic が対応していない設定を使用しています。代わりにセットアップキーを入力してください。",
+  "error.otpUriInvalid": "有効な otpauth:// リンクではありません。リンク全体をもう一度コピーしてください。",
   "error.otpKeyInvalid":
-    "This key isn't valid. It uses only the letters A to Z and the digits 2 to 7; check for typos.",
-  "error.otpImageUnreadable": "Mosaic can't read this image. Use a PNG or JPEG file.",
-  "error.otpImageTooLarge": "This image is too large. Use a screenshot of just the QR code.",
+    "このキーは無効です。使えるのは、英字の A〜Z と、数字の 2〜7 のみです。入力ミスがないか確認してください。",
+  "error.otpImageUnreadable": "Mosaic はこの画像を読み取れません。PNG または JPEG のファイルを使用してください。",
+  "error.otpImageTooLarge": "この画像は大きすぎます。QR コードだけのスクリーンショットを使用してください。",
   "error.otpClipboardNoImage":
-    "The clipboard has no image. Take a screenshot of the QR code, then paste it here.",
-  "error.otpPendingExpired": "The scanned code is no longer available. Scan it again.",
-  "error.syncNotConfigured": "Sync isn't set up on this device yet. Set it up in Settings first.",
+    "クリップボードに画像がありません。QR コードのスクリーンショットを撮って、ここに貼り付けてください。",
+  "error.otpPendingExpired": "スキャンしたコードは、もう利用できません。もう一度スキャンしてください。",
+  "error.syncNotConfigured": "このデバイスでは、まだ同期が設定されていません。先に「設定」で設定してください。",
   "error.syncAlreadyConfigured":
-    "Sync is already set up. Disconnect first to use a different server or folder.",
+    "同期はすでに設定されています。別のサーバーやフォルダを使うには、先に接続を解除してください。",
   "error.syncServerUnreachable":
-    "Mosaic couldn't reach the server. Check the address and your internet connection, then try again.",
+    "Mosaic はサーバーに接続できませんでした。アドレスとインターネット接続を確認してから、もう一度お試しください。",
   "error.syncServerInvalid":
-    "This doesn't look like a Mosaic server. Check the address; it should look like https://sync.example.com.",
+    "Mosaic のサーバーではないようです。アドレスを確認してください。https://sync.example.com のような形式です。",
   "error.syncServerInsecure":
-    "Mosaic only connects to servers over https, so nobody on the way can read or change your data. Use an https:// address.",
-  "error.syncServerMismatch": "This isn't the server this account syncs with. Check the address.",
+    "Mosaic は、途中で誰にもデータを読み取られたり変更されたりしないよう、https のサーバーにのみ接続します。https:// のアドレスを使用してください。",
+  "error.syncServerMismatch": "これは、このアカウントが同期しているサーバーではありません。アドレスを確認してください。",
   "error.syncServerIncompatible":
-    "This server runs a version that doesn't match your Mosaic. Update Mosaic or ask the server's owner to update it.",
+    "このサーバーのバージョンは、お使いの Mosaic と合いません。Mosaic を更新するか、サーバーの管理者に更新を依頼してください。",
   "error.syncRegistrationClosed":
-    "This server isn't accepting new sync accounts. Sign in to an existing one or ask the server's owner.",
+    "このサーバーは、新しい同期アカウントを受け付けていません。既存のアカウントでサインインするか、サーバーの管理者に問い合わせてください。",
   "error.syncInviteInvalid":
-    "This invite code isn't valid or was already used. Check it or ask the server's owner for a new one.",
+    "この招待コードは無効か、すでに使用されています。コードを確認するか、サーバーの管理者に新しいコードを依頼してください。",
   "error.syncAccountExists":
-    "You already have a sync account on this server. Choose Sign in instead.",
+    "このサーバーには、すでに同期アカウントがあります。代わりに「サインイン」を選んでください。",
   "error.syncAccountMismatch":
-    "The sync account on that server belongs to a different Mosaic account. Check the address and your email.",
+    "そのサーバーの同期アカウントは、別の Mosaic アカウントのものです。アドレスとメールアドレスを確認してください。",
   "error.syncTwoFactorRequired":
-    "This sync account needs a code from your authenticator app. Enter the 6-digit code.",
+    "この同期アカウントには、認証アプリのコードが必要です。6桁のコードを入力してください。",
   "error.syncTwoFactorInvalid":
-    "That code isn't right or has expired. Enter the current 6-digit code from your authenticator app.",
+    "そのコードは正しくないか、有効期限が切れています。認証アプリに表示されている現在の6桁のコードを入力してください。",
   "error.syncSignedOut":
-    "The server signed this device out. Sign in again to keep syncing. Your changes are safe on this device.",
-  "error.syncRateLimited": "Too many attempts. Wait a few minutes, then try again.",
+    "サーバーがこのデバイスをサインアウトさせました。同期を続けるには、もう一度サインインしてください。変更はこのデバイスに安全に保存されています。",
+  "error.syncRateLimited": "試行回数が多すぎます。数分待ってから、もう一度お試しください。",
   "error.syncQuotaExceeded":
-    "The server or folder has no room left for your data. Free up space or ask the server's owner for more.",
+    "サーバーまたはフォルダに、データを保存する空きがありません。空き容量を確保するか、サーバーの管理者に増量を依頼してください。",
   "error.syncFolderUnavailable":
-    "Mosaic can't use this folder. Check that it exists, that your cloud service has finished syncing it and that Mosaic may write to it.",
+    "Mosaic はこのフォルダを使用できません。フォルダが存在すること、クラウドサービスの同期が完了していること、Mosaic が書き込めることを確認してください。",
   "error.syncFolderNotEmpty":
-    "This folder holds other files, so Mosaic won't write there. Choose an empty folder or create a new one.",
+    "このフォルダには他のファイルがあるため、Mosaic はそこに書き込みません。空のフォルダを選ぶか、新しく作成してください。",
   "error.syncFolderNoAccount":
-    "This folder holds no sync data for this account. Choose the folder your other device syncs to.",
+    "このフォルダには、このアカウントの同期データがありません。もう一方のデバイスが同期しているフォルダを選んでください。",
   "error.syncFolderDamaged":
-    "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.",
+    "このフォルダ内の同期ファイルの一部が破損しています。クラウドサービスの同期が完了するのを待つか、バックアップからフォルダを復元してから、もう一度お試しください。",
   "error.syncPasswordOutcomeUnknown":
-    "We couldn't confirm whether the server changed your master password. Keep both passwords until sync confirms which one applies.",
+    "サーバーがマスターパスワードを変更したか、確認できませんでした。どちらが有効か同期で確認できるまで、両方のパスワードを保管してください。",
   "error.syncWebauthnUnavailable":
-    "Your server can't use a security key for this right now, or this account has none. Use an authenticator-app code instead.",
+    "お使いのサーバーでは、現在この操作にセキュリティキーを使用できないか、このアカウントにキーがありません。代わりに認証アプリのコードを使用してください。",
   "error.syncWebauthnLimit":
-    "This account already has the most security keys the server allows. Remove one you no longer use, then try again.",
-  "error.syncHandoffExpired": "The browser step ran out of time. Start it again.",
+    "このアカウントには、サーバーが許可する上限のセキュリティキーがすでに登録されています。使っていないものを1つ削除してから、もう一度お試しください。",
+  "error.syncHandoffExpired": "ブラウザでのステップがタイムアウトしました。もう一度開始してください。",
   "error.syncHandoffFailed":
-    "Too many wrong codes or failed checks in the browser. Start the step again.",
+    "ブラウザで、誤ったコードまたは失敗した確認が多すぎました。ステップをもう一度開始してください。",
   "error.syncPasswordNeedsServer":
-    "Changing your master password needs your sync server, and it can't be reached. Check your internet connection and try again.",
-  "error.syncDeviceIsCurrent": "You can't remove the device you're using. Use Disconnect instead.",
-  "error.syncChoiceExpired": "The folder choice timed out. Choose the folder again.",
-  "error.syncFreshLoginExpired": "Your password check timed out. Enter your master password again.",
-  "error.syncPasswordRollback": "The server offered an older master password. Check the server.",
+    "マスターパスワードの変更には同期サーバーが必要ですが、接続できません。インターネット接続を確認して、もう一度お試しください。",
+  "error.syncDeviceIsCurrent": "使用中のデバイスは削除できません。代わりに「接続を解除」を使用してください。",
+  "error.syncChoiceExpired": "フォルダの選択がタイムアウトしました。もう一度フォルダを選んでください。",
+  "error.syncFreshLoginExpired": "パスワードの確認がタイムアウトしました。もう一度マスターパスワードを入力してください。",
+  "error.syncPasswordRollback": "サーバーが、より古いマスターパスワードを提示しました。サーバーを確認してください。",
   "error.syncPasswordChanged":
-    "Your master password was changed on the server or in the folder. Enter the new one below.",
+    "マスターパスワードが、サーバー上またはフォルダ内で変更されました。下に新しいものを入力してください。",
   "error.sharingNotHosted":
-    "Sharing needs a Mosaic server. Connect one in the Sync settings first.",
-  "error.setupCodeNeedsServer": "A phone can only join an account that syncs.",
+    "共有には Mosaic サーバーが必要です。先に「同期」設定でサーバーを接続してください。",
+  "error.setupCodeNeedsServer": "スマートフォンが参加できるのは、同期しているアカウントのみです。",
   "error.sharingContactUnverified":
-    "Compare this person's safety code first. Mosaic only shares with people you verified.",
+    "先にこの人の安全コードを照合してください。Mosaic は、確認済みの人とのみ共有します。",
   "error.sharingKeyChanged":
-    "This person's key changed, or the code doesn't match. Look them up again and compare the new code before you go on.",
+    "この人の鍵が変更されたか、コードが一致しません。もう一度この人を検索し、新しいコードを照合してから進んでください。",
   "error.sharingRoleForbidden":
-    "Your role in this vault doesn't allow that. Ask the owner or a manager.",
+    "この保管庫でのあなたの役割では、その操作はできません。オーナーまたは管理者に依頼してください。",
   "error.sharingInviteExists":
-    "An invite for this person and vault is waiting already. Withdraw it first if you want to send a new one.",
+    "この人とこの保管庫への招待が、すでに待機中です。新しく送る場合は、先に取り消してください。",
   "error.sharingInviteStale":
-    "The invite changed in the meantime, for example after a key change. Open it again.",
+    "鍵の変更などにより、その間に招待が変更されました。もう一度開いてください。",
   "error.sharingInviteExpired":
-    "This invite ran out or was withdrawn. Ask the sender to invite you again.",
+    "この招待は期限切れか、取り消されました。送信者に、もう一度招待を依頼してください。",
   "error.sharingInviteUnreadable":
-    "This invite can't be opened. It may be damaged or not meant for this account. Ask the sender to invite you again.",
+    "この招待を開けません。破損しているか、このアカウント宛てではない可能性があります。送信者に、もう一度招待を依頼してください。",
   "error.sharingInviteNotInRoster":
-    "The vault's member list doesn't match this invite, so Mosaic didn't open it. Ask the sender to invite you again.",
+    "保管庫のメンバーリストがこの招待と一致しないため、Mosaic は開きませんでした。送信者に、もう一度招待を依頼してください。",
   "error.sharingOwnerCannotLeave":
-    "The owner can't leave a vault. Remove the other people instead.",
-  "error.sharingAlreadyMember": "This person is a member of the vault already.",
+    "オーナーは保管庫から退出できません。代わりに、他の人を削除してください。",
+  "error.sharingAlreadyMember": "この人は、すでにこの保管庫のメンバーです。",
   "error.sharingReinviteBlocked":
-    "You removed this person recently. You can invite them again once the vault key has changed. Sync, then try again.",
-  "error.sharingInviteLimit": "Too many invites are waiting. Wait for answers or withdraw some.",
+    "この人を最近削除しました。保管庫の鍵が変更された後に、もう一度招待できます。同期してから、もう一度お試しください。",
+  "error.sharingInviteLimit": "待機中の招待が多すぎます。返事を待つか、いくつか取り消してください。",
   "error.sharingVaultKnown":
-    "This device has that vault already, so Mosaic didn't accept a key for it. Ask the sender which vault they shared.",
+    "このデバイスには、その保管庫がすでにあるため、Mosaic はその鍵を受け付けませんでした。送信者に、どの保管庫を共有したか確認してください。",
   "error.syncHasSharedVaults":
-    "You can't switch servers while shared vaults are on this device. Leave the shared vaults, or have their owners remove you, first.",
+    "このデバイスに共有保管庫がある間は、サーバーを切り替えられません。先に共有保管庫から退出するか、オーナーに削除してもらってください。",
   "error.emergencyWaiting":
-    "A request is waiting, so this can't change now. Refuse it or wait for it.",
+    "リクエストが待機中のため、今は変更できません。リクエストを拒否するか、待ってください。",
   "error.emergencyCooldown":
-    "Your last request was refused. You can ask again after the waiting period of one day.",
+    "前回のリクエストは拒否されました。1日の待機期間が過ぎれば、もう一度リクエストできます。",
   "error.emergencyNotGranted":
-    "There is nothing to claim: no request is open, or the person didn't grant you access.",
+    "申請するものがありません。開いているリクエストがないか、相手があなたにアクセスを許可していません。",
   "error.shortcutUnavailable":
-    "Another program already uses this shortcut, or Mosaic can't register it. Choose a different combination.",
+    "このショートカットは、別のプログラムがすでに使用しているか、Mosaic が登録できません。別の組み合わせを選んでください。",
   "error.shortcutUnsupported":
-    "Your system doesn't let apps set a global shortcut. Open Mosaic from its window instead.",
+    "お使いのシステムでは、アプリがグローバルショートカットを設定できません。代わりに、ウィンドウから Mosaic を開いてください。",
 } satisfies Record<keyof typeof en, string>;

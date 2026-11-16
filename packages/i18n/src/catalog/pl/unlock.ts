@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Polish UI strings: unlock. Same keys as English (checked by the type).
  * ICU plural categories of Polish: one, few, many, other (CLDR; `other` is required).
@@ -6,34 +5,35 @@
 import type { unlock as en } from "../en/unlock.ts";
 
 export const unlock = {
-  "lock.unlockTitle": "Unlock Mosaic",
-  "lock.masterPassword": "Master password",
+  "lock.unlockTitle": "Odblokuj Mosaic",
+  "lock.masterPassword": "Hasło główne",
   "lock.wrongPassword":
-    "That master password didn't work. Check Caps Lock and your keyboard layout, then try again.",
-  "lock.locked": "Mosaic is locked.",
-  "session.unlocked": "Mosaic is unlocked.",
-  "lock.secretKey": "Secret Key",
+    "Hasło główne nie zadziałało. Sprawdź Caps Lock i układ klawiatury, a potem spróbuj ponownie.",
+  "lock.locked": "Mosaic jest zablokowany.",
+  "session.unlocked": "Mosaic jest odblokowany.",
+  "lock.secretKey": "Klucz tajny",
   "lock.secretKeyHint":
-    "This device doesn't have your Secret Key yet. Type it from your Emergency Kit, and Mosaic remembers it on this device.",
-  "lock.submit": "Unlock",
-  "lock.working": "Unlocking…",
-  "lock.reason.manual": "You locked Mosaic.",
-  "lock.reason.idle": "Mosaic locked itself after a while without activity.",
-  "lock.reason.sleep": "Mosaic locked when the computer went to sleep.",
-  "lock.reason.screenLock": "Mosaic locked together with your screen.",
-  "lock.or": "or",
-  "lock.quick.biometricWindows": "Use Windows Hello",
-  "lock.quick.biometricMac": "Use Touch ID",
-  "lock.quick.biometricLinux": "Use biometrics",
-  "lock.quick.hardwareKey": "Use security key",
-  "lock.autoLockInfo": "Auto-locks after {minutes, plural, one {# minute} other {# minutes}} idle.",
-  "lock.forgot.title": "Forgot your master password?",
+    "To urządzenie nie ma jeszcze Twojego Klucza tajnego. Wpisz go z Zestawu awaryjnego, a Mosaic zapamięta go na tym urządzeniu.",
+  "lock.submit": "Odblokuj",
+  "lock.working": "Odblokowywanie…",
+  "lock.reason.manual": "Mosaic został zablokowany.",
+  "lock.reason.idle": "Mosaic zablokował się sam po pewnym czasie bez aktywności.",
+  "lock.reason.sleep": "Mosaic zablokował się, gdy komputer przeszedł w stan uśpienia.",
+  "lock.reason.screenLock": "Mosaic zablokował się razem z ekranem.",
+  "lock.or": "lub",
+  "lock.quick.biometricWindows": "Użyj Windows Hello",
+  "lock.quick.biometricMac": "Użyj Touch ID",
+  "lock.quick.biometricLinux": "Użyj biometrii",
+  "lock.quick.hardwareKey": "Użyj klucza bezpieczeństwa",
+  "lock.autoLockInfo":
+    "Blokuje się automatycznie po {minutes, plural, one {# minucie} few {# minutach} many {# minutach} other {# minuty}} bezczynności.",
+  "lock.forgot.title": "Nie pamiętasz hasła głównego?",
   "lock.forgot.body":
-    "Mosaic can't reset it, because only you know it. Check whether you wrote it on your Emergency Kit. Otherwise, start a new account.",
-  "lock.quick.waitingWindows": "Waiting for Windows Hello…",
-  "lock.quick.waitingMac": "Waiting for Touch ID…",
-  "lock.quick.touchKey": "Insert your key and touch it when it blinks.",
-  "lock.quick.pin": "Security key PIN",
-  "lock.quick.pinSubmit": "Continue",
-  "lock.quick.cancel": "Cancel",
+    "Mosaic nie może go zresetować, ponieważ zna je tylko Twoja osoba. Sprawdź, czy zapisano je w Zestawie awaryjnym. W przeciwnym razie załóż nowe konto.",
+  "lock.quick.waitingWindows": "Czekanie na Windows Hello…",
+  "lock.quick.waitingMac": "Czekanie na Touch ID…",
+  "lock.quick.touchKey": "Włóż klucz i dotknij go, gdy zacznie migać.",
+  "lock.quick.pin": "PIN klucza bezpieczeństwa",
+  "lock.quick.pinSubmit": "Dalej",
+  "lock.quick.cancel": "Anuluj",
 } satisfies Record<keyof typeof en, string>;

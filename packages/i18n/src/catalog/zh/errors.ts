@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Simplified Chinese UI strings: errors. Same keys as English (checked by the type).
  * ICU plural categories of Simplified Chinese: other (CLDR; `other` is required).
@@ -6,296 +5,175 @@
 import type { errors as en } from "../en/errors.ts";
 
 export const errors = {
-  "error.notImplemented": "This isn't available yet. It's coming in a later version of Mosaic.",
-  "error.noAccount":
-    "There's no account on this device yet. Create one, or sign in with your Emergency Kit.",
-  "error.accountExists": "This device already has a Mosaic account. Unlock it instead.",
-  "error.locked": "Mosaic is locked. Unlock it to continue.",
-  "error.alreadyUnlocked": "Mosaic is already unlocked. You can continue where you left off.",
-  "error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check Caps Lock and your keyboard layout, then try again.",
-  "error.secretKeyRequired":
-    "This device doesn't have your Secret Key. Type it from your Emergency Kit.",
-  "error.secretKeyMalformed":
-    "That isn't a Secret Key. Yours starts with “M1-” and is on your Emergency Kit.",
-  "error.secretKeyMistyped":
-    "That Secret Key has a typo. Compare it with your Emergency Kit, character by character.",
-  "error.emptyPassword": "The master password is empty. Enter it to continue.",
-  "error.quickUnlockUnavailable":
-    "Quick unlock isn't set up on this device. Unlock with your master password.",
-  "error.storeInUse":
-    "Mosaic is already open on this computer. Close the other window, then try again.",
-  "error.storeUnavailable":
-    "Mosaic couldn't open your vault file on this device. Check that the disk is available and has free space, then restart Mosaic.",
-  "error.vaultNotFound": "That vault no longer exists. It may have been deleted on another device.",
-  "error.vaultUnavailable":
-    "This vault can't be opened in this session. Unlock it with its hardware key, or sync and try again.",
-  "error.itemNotFound":
-    "That item no longer exists. It may have been moved or deleted on another device.",
-  "error.itemDeleted":
-    "That item was deleted for good, so it can't be opened. Choose another item.",
-  "error.sameVault": "The item is already in that vault. Choose a different vault.",
-  "error.noOtp": "This item has no one-time code. Edit the item to add one.",
-  "error.fieldEmpty":
-    "That field is empty, so there's nothing to copy or show. Edit the item to fill it in.",
-  "error.invalidInput":
-    "Something in this form isn't valid. Check the highlighted fields and try again.",
-  "error.sshKeyInvalid":
-    "This isn't an OpenSSH private key. Paste the whole key, including the BEGIN and END lines.",
-  "error.reauthRequired": "This change needs your master password. Enter it to confirm.",
-  "error.attachmentTooLarge": "That file is larger than 50 MiB. Choose a smaller file.",
-  "error.attachmentQuota":
-    "Your files would use more than the 1 GiB available. Remove some attachments, then try again.",
-  "error.attachmentNotFound": "This file is no longer part of the item. Reload the item.",
-  "error.attachmentUnavailable":
-    "This file can't be opened on this device. It may not be synced yet or may be damaged.",
-  "error.attachmentFileUnreadable": "That file can't be read. Choose another file.",
-  "error.attachmentSaveFailed": "The file couldn't be saved there. Choose another folder.",
-  "error.attachmentPreviewUnsupported": "There's no preview for this file. Use Save as to open it.",
-  "error.attachmentPreviewTooLarge": "This image is too large to preview. Use Save as to open it.",
-  "error.clipboardUnavailable":
-    "Mosaic couldn't use the clipboard. Close apps that might be holding it, then try again.",
-  "error.importFileUnreadable":
-    "Mosaic couldn't read that file. Check that it still exists and isn't open in another app, then try again.",
-  "error.importDeleteNotAllowed":
-    "Import the file first. Mosaic only deletes an export after its items are in your vault.",
-  "error.importDeleteFailed":
-    "The file couldn't be deleted. It may be open in another app or read-only. Delete it yourself, then empty the recycle bin.",
-  "error.importFormatInvalid":
-    "That file isn't in the format you chose. Choose the matching format, or export the file again.",
-  "error.importPreviewExpired": "This import was cancelled. Choose the file again to start over.",
-  "error.sshRequestExpired":
-    "That SSH request has already ended. Run the command again if you still need it.",
-  "error.sshAgentUnavailable":
-    "The SSH agent couldn't start. Check that no other SSH agent is running, then turn it on again.",
-  "error.unlockDelayed": "Too many wrong attempts in a row. Wait a few seconds, then try again.",
-  "error.tooManyAttempts":
-    "Too many wrong answers. Mosaic locked. Unlock it with your master password to continue.",
-  "error.sshAllowTooSoon":
-    "That was too quick to read the request. Check the key and the program, then choose Allow again.",
-  "error.browserRequestExpired":
-    "That browser request has already ended. Ask again from the extension if you still need it.",
-  "error.browserAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
-  "error.browserPairingNotFound":
-    "That browser is no longer connected. Reopen Settings to see the current list.",
-  "error.browserHostMissing":
-    "This copy of Mosaic has no browser connector installed, so there is nothing to repair. Install Mosaic with its installer to connect a browser.",
-  "error.agentOriginInvalid":
-    "Agents can send a key only to a site that starts with https:// and names just the site, like https://api.example.com. Check the address.",
-  "error.agentBindingInvalid":
-    "Mosaic can't use this setting for agents. Check the field, the sites and how the key is sent.",
-  "error.agentValueUnusable":
-    "This value is too short or has a line break in it, so agents can't use it. A key needs at least 12 characters on one line.",
-  "error.agentVaultShared":
-    "Agents can only use items in a vault that belongs to you and isn't shared. Move the item to one of your own vaults first.",
-  "error.agentAccessOff": "Agent access is switched off. Turn it on in Settings, under Agents.",
-  "error.agentRequestExpired":
-    "That agent request has already ended. The agent can ask again if it still needs it.",
-  "error.agentAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
-  "error.agentPairingNotFound":
-    "That agent is no longer connected. Reopen Settings to see the current list.",
-  "error.agentEndpointUnavailable":
-    "Mosaic could not open the connection agents use. Close other copies of Mosaic and try again.",
-  "error.kitNotVerified":
-    "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
-  "error.kitGroupMismatch":
-    "That is not the last group of the new Secret Key. Check the new Emergency Kit.",
-  "error.rotationInProgress":
-    "Another key change is still open. Finish it with Continue key rotation, or discard it first.",
-  "error.rotationNone": "There is no key change to continue.",
-  "error.rotationNotFound":
-    "That password change is no longer open. It may have been closed on another device or in the browser. Reopen the item to see where it stands.",
-  "error.rotationLimit":
-    "Four password changes of this item are open already. Finish or close one in the item first.",
-  "error.rotationOpen":
-    "This login has an open password change. Restore it from the trash, then choose It worked or It didn't work on the item. After that you can delete it forever.",
-  "error.rotationNotSupported":
-    "Mosaic can't guide this change. It needs a login with an https address. Change the password on the site yourself.",
-  "error.historyNotFound":
-    "That earlier password isn't in the history any more. Reopen the item to see the current list.",
-  "error.originNotRelated":
-    "That page doesn't belong to this login's site, so Mosaic didn't add it. Edit the item's addresses if it should.",
-  "error.breachConsentRequired":
-    "The breach check is off. Turn it on and agree to what it sends first.",
-  "error.breachRunning":
-    "A breach check is already running. Wait for it to finish, or stop it first.",
-  "error.rotationTooFar":
-    "This change already reached your account, so it can't be discarded. Continue it to finish.",
-  "error.rotationJumpTooLarge":
-    "This device is too far behind the other devices to catch up. Set it up again: remove the account from this device and join again with your Emergency Kit.",
-  "error.rotationNotApplied":
-    "The change never reached your account, so nothing was changed. Start again or discard it.",
-  "error.secretKeyUnchanged":
-    "That Secret Key no longer works. Use the one from the Emergency Kit you saved on the device that made the change.",
-  "error.passwordUnchanged": "The new master password has to be different from the current one.",
-  "error.profileDowngrade":
-    "That level is not stronger than what your account uses now. Pick a higher one.",
-  "error.profileTooSlow":
-    "Unlocking with that level would take this device more than two seconds. Pick a lower level, or upgrade anyway.",
-  "error.rekeyNeedsCleanSync":
-    "A re-key needs sync to be up to date and free of warnings. Sync now, look at any warning, then try again.",
-  "error.rekeyMemberKeyMismatch":
-    "You have not compared the safety code of everyone in a shared vault yet, so that vault can't be renewed. Compare their codes in the vault's sharing settings, then try again.",
-  "error.rekeyBusy": "Your vaults kept changing while Mosaic worked. Wait a moment and try again.",
-  "error.rekeyOutcomeUnknown":
-    "Mosaic couldn't confirm whether your account accepted the new keys. Choose Continue key rotation to find out.",
-  "error.rekeyNeedsServer":
-    "Re-keying needs your sync server or folder, and it can't be reached. Check the connection and try again.",
-  "error.rekeyNoAccountFile":
-    "Nothing in your sync folder opens with this password and Secret Key. Check the new Emergency Kit.",
-  "error.syncAccountRekeyed":
-    "Your account's keys were renewed on another device. Use the Secret Key from the new Emergency Kit to continue.",
-  "error.syncEpochRollback":
-    "Your sync backend shows older account keys than this device has. Nothing was changed.",
-  "error.syncRekeyRefused":
-    "The keys your sync backend offers are not the next ones after this device's. Nothing was changed. Check your other devices.",
-  "error.pickerStale": "This list is out of date. Click the field again.",
-  "error.pickerTooSoon": "Wait a moment, then confirm again.",
-  "error.programFillUnavailable": "Filling in programs isn't available on this device.",
-  "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
-  "error.internal":
-    "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",
-  "error.importTooLarge":
-    "This file is too large or too complex to import. Export fewer items at a time, then try again.",
-  "error.importUnsupported":
-    "Mosaic can't read this version of the format. Export again in a current format (for KeePass: KDBX 4 with AES or ChaCha20), then try again.",
-  "error.importEncrypted":
-    "This export is password-protected. Export again without encryption, import it, then delete the file.",
-  "error.sshAgentEndpointInUse":
-    "Another SSH agent is already running (on Windows, the OpenSSH Authentication Agent service). Stop it, then turn on Mosaic's SSH agent again.",
-  "error.cancelled": "Cancelled. Nothing changed.",
-  "error.quickUnlockExpired":
-    "Quick unlock expired. Unlock with your master password, then turn it on again in Settings.",
-  "error.quickUnlockInvalidated":
-    "Quick unlock stopped working on this device and was turned off. Unlock with your master password.",
-  "error.passwordRequired":
-    "Enter your master password this time. Quick unlock works again after that.",
-  "error.hardwareKeyUnsupported": "This security key or system can't be used with Mosaic.",
-  "error.hardwareKeyNotFound": "No security key found. Insert it and try again.",
-  "error.hardwareKeyTimeout": "The key wasn't touched in time. Try again.",
-  "error.hardwareKeyPinRequired": "Enter your security key's PIN.",
-  "error.hardwareKeyPinInvalid": "Wrong PIN. After several wrong tries the key locks itself.",
-  "error.hardwareKeyPinBlocked":
-    "This key is locked after too many wrong PINs. Reset it with its maker's tool; its registrations are then lost.",
-  "error.hardwareKeyNoPin": "Set a PIN on this key first, with its maker's tool.",
-  "error.hardwareKeyNotRecognized":
-    "This key isn't registered here. Try another key or your master password.",
-  "error.hardwareKeyLimit": "You've registered the most keys allowed (8). Remove one first.",
-  "error.hardwareKeyLast":
-    "This is the vault's only key. Register another one before you remove it.",
-  "error.itemTypeNotAllowed": "This vault holds one-time codes only.",
-  "error.otpScanUnsupported":
-    "Screen scanning isn't available on this system. Paste a screenshot instead.",
-  "error.otpQrNotFound": "No QR code found. Make sure the whole code is visible, then try again.",
-  "error.otpQrNotOtp":
-    "This QR code isn't a two-factor setup code. Look for the code on the site's 2FA setup page.",
-  "error.otpQrMigration":
-    "This is a Google Authenticator export code, which Mosaic can't read yet. Set up each account again on its site, or enter its setup key.",
-  "error.otpQrMultiple":
-    "More than one setup code is visible. Show only the one you want, then try again.",
-  "error.otpQrInvalid":
-    "This setup code uses settings Mosaic doesn't support. Enter the setup key instead.",
-  "error.otpUriInvalid": "This isn't a valid otpauth:// link. Copy the whole link again.",
-  "error.otpKeyInvalid":
-    "This key isn't valid. It uses only the letters A to Z and the digits 2 to 7; check for typos.",
-  "error.otpImageUnreadable": "Mosaic can't read this image. Use a PNG or JPEG file.",
-  "error.otpImageTooLarge": "This image is too large. Use a screenshot of just the QR code.",
-  "error.otpClipboardNoImage":
-    "The clipboard has no image. Take a screenshot of the QR code, then paste it here.",
-  "error.otpPendingExpired": "The scanned code is no longer available. Scan it again.",
-  "error.syncNotConfigured": "Sync isn't set up on this device yet. Set it up in Settings first.",
-  "error.syncAlreadyConfigured":
-    "Sync is already set up. Disconnect first to use a different server or folder.",
-  "error.syncServerUnreachable":
-    "Mosaic couldn't reach the server. Check the address and your internet connection, then try again.",
-  "error.syncServerInvalid":
-    "This doesn't look like a Mosaic server. Check the address; it should look like https://sync.example.com.",
-  "error.syncServerInsecure":
-    "Mosaic only connects to servers over https, so nobody on the way can read or change your data. Use an https:// address.",
-  "error.syncServerMismatch": "This isn't the server this account syncs with. Check the address.",
-  "error.syncServerIncompatible":
-    "This server runs a version that doesn't match your Mosaic. Update Mosaic or ask the server's owner to update it.",
-  "error.syncRegistrationClosed":
-    "This server isn't accepting new sync accounts. Sign in to an existing one or ask the server's owner.",
-  "error.syncInviteInvalid":
-    "This invite code isn't valid or was already used. Check it or ask the server's owner for a new one.",
-  "error.syncAccountExists":
-    "You already have a sync account on this server. Choose Sign in instead.",
-  "error.syncAccountMismatch":
-    "The sync account on that server belongs to a different Mosaic account. Check the address and your email.",
-  "error.syncTwoFactorRequired":
-    "This sync account needs a code from your authenticator app. Enter the 6-digit code.",
-  "error.syncTwoFactorInvalid":
-    "That code isn't right or has expired. Enter the current 6-digit code from your authenticator app.",
-  "error.syncSignedOut":
-    "The server signed this device out. Sign in again to keep syncing. Your changes are safe on this device.",
-  "error.syncRateLimited": "Too many attempts. Wait a few minutes, then try again.",
-  "error.syncQuotaExceeded":
-    "The server or folder has no room left for your data. Free up space or ask the server's owner for more.",
-  "error.syncFolderUnavailable":
-    "Mosaic can't use this folder. Check that it exists, that your cloud service has finished syncing it and that Mosaic may write to it.",
-  "error.syncFolderNotEmpty":
-    "This folder holds other files, so Mosaic won't write there. Choose an empty folder or create a new one.",
-  "error.syncFolderNoAccount":
-    "This folder holds no sync data for this account. Choose the folder your other device syncs to.",
-  "error.syncFolderDamaged":
-    "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.",
-  "error.syncPasswordOutcomeUnknown":
-    "We couldn't confirm whether the server changed your master password. Keep both passwords until sync confirms which one applies.",
-  "error.syncWebauthnUnavailable":
-    "Your server can't use a security key for this right now, or this account has none. Use an authenticator-app code instead.",
-  "error.syncWebauthnLimit":
-    "This account already has the most security keys the server allows. Remove one you no longer use, then try again.",
-  "error.syncHandoffExpired": "The browser step ran out of time. Start it again.",
-  "error.syncHandoffFailed":
-    "Too many wrong codes or failed checks in the browser. Start the step again.",
-  "error.syncPasswordNeedsServer":
-    "Changing your master password needs your sync server, and it can't be reached. Check your internet connection and try again.",
-  "error.syncDeviceIsCurrent": "You can't remove the device you're using. Use Disconnect instead.",
-  "error.syncChoiceExpired": "The folder choice timed out. Choose the folder again.",
-  "error.syncFreshLoginExpired": "Your password check timed out. Enter your master password again.",
-  "error.syncPasswordRollback": "The server offered an older master password. Check the server.",
-  "error.syncPasswordChanged":
-    "Your master password was changed on the server or in the folder. Enter the new one below.",
-  "error.sharingNotHosted":
-    "Sharing needs a Mosaic server. Connect one in the Sync settings first.",
-  "error.setupCodeNeedsServer": "A phone can only join an account that syncs.",
-  "error.sharingContactUnverified":
-    "Compare this person's safety code first. Mosaic only shares with people you verified.",
-  "error.sharingKeyChanged":
-    "This person's key changed, or the code doesn't match. Look them up again and compare the new code before you go on.",
-  "error.sharingRoleForbidden":
-    "Your role in this vault doesn't allow that. Ask the owner or a manager.",
-  "error.sharingInviteExists":
-    "An invite for this person and vault is waiting already. Withdraw it first if you want to send a new one.",
-  "error.sharingInviteStale":
-    "The invite changed in the meantime, for example after a key change. Open it again.",
-  "error.sharingInviteExpired":
-    "This invite ran out or was withdrawn. Ask the sender to invite you again.",
-  "error.sharingInviteUnreadable":
-    "This invite can't be opened. It may be damaged or not meant for this account. Ask the sender to invite you again.",
-  "error.sharingInviteNotInRoster":
-    "The vault's member list doesn't match this invite, so Mosaic didn't open it. Ask the sender to invite you again.",
-  "error.sharingOwnerCannotLeave":
-    "The owner can't leave a vault. Remove the other people instead.",
-  "error.sharingAlreadyMember": "This person is a member of the vault already.",
-  "error.sharingReinviteBlocked":
-    "You removed this person recently. You can invite them again once the vault key has changed. Sync, then try again.",
-  "error.sharingInviteLimit": "Too many invites are waiting. Wait for answers or withdraw some.",
-  "error.sharingVaultKnown":
-    "This device has that vault already, so Mosaic didn't accept a key for it. Ask the sender which vault they shared.",
-  "error.syncHasSharedVaults":
-    "You can't switch servers while shared vaults are on this device. Leave the shared vaults, or have their owners remove you, first.",
-  "error.emergencyWaiting":
-    "A request is waiting, so this can't change now. Refuse it or wait for it.",
-  "error.emergencyCooldown":
-    "Your last request was refused. You can ask again after the waiting period of one day.",
-  "error.emergencyNotGranted":
-    "There is nothing to claim: no request is open, or the person didn't grant you access.",
-  "error.shortcutUnavailable":
-    "Another program already uses this shortcut, or Mosaic can't register it. Choose a different combination.",
-  "error.shortcutUnsupported":
-    "Your system doesn't let apps set a global shortcut. Open Mosaic from its window instead.",
+  "error.notImplemented": "此功能暂不可用，将在 Mosaic 的后续版本中推出。",
+  "error.noAccount": "这台设备上还没有账户。请创建一个，或使用紧急工具包登录。",
+  "error.accountExists": "这台设备上已有 Mosaic 账户。请直接解锁。",
+  "error.locked": "Mosaic 已锁定。请解锁后继续。",
+  "error.alreadyUnlocked": "Mosaic 已经解锁。你可以从上次停下的地方继续。",
+  "error.wrongCredentials": "主密码或机密密钥不正确。请检查大写锁定和键盘布局，然后重试。",
+  "error.secretKeyRequired": "这台设备上没有你的机密密钥。请从紧急工具包中输入。",
+  "error.secretKeyMalformed": "这不是机密密钥。你的机密密钥以“M1-”开头，印在紧急工具包上。",
+  "error.secretKeyMistyped": "该机密密钥有输入错误。请逐个字符与紧急工具包对照。",
+  "error.emptyPassword": "主密码为空。请输入后继续。",
+  "error.quickUnlockUnavailable": "此设备尚未设置快速解锁。请使用主密码解锁。",
+  "error.storeInUse": "Mosaic 已在这台电脑上打开。请关闭另一个窗口，然后重试。",
+  "error.storeUnavailable": "Mosaic 无法在这台设备上打开你的保险库文件。请确认磁盘可用且有剩余空间，然后重启 Mosaic。",
+  "error.vaultNotFound": "该保险库已不存在。它可能已在另一台设备上被删除。",
+  "error.vaultUnavailable": "本次会话无法打开此保险库。请用它的硬件密钥解锁，或同步后重试。",
+  "error.itemNotFound": "该项目已不存在。它可能已在另一台设备上被移动或删除。",
+  "error.itemDeleted": "该项目已被永久删除，无法打开。请选择其他项目。",
+  "error.sameVault": "该项目已在那个保险库中。请选择其他保险库。",
+  "error.noOtp": "此项目没有一次性验证码。请编辑项目来添加。",
+  "error.fieldEmpty": "该字段为空，没有可复制或显示的内容。请编辑项目来填写。",
+  "error.invalidInput": "此表单中有内容无效。请检查高亮的字段，然后重试。",
+  "error.sshKeyInvalid": "这不是 OpenSSH 私钥。请粘贴完整的密钥，包括 BEGIN 和 END 两行。",
+  "error.reauthRequired": "此更改需要你的主密码。请输入以确认。",
+  "error.attachmentTooLarge": "该文件超过 50 MiB。请选择更小的文件。",
+  "error.attachmentQuota": "你的文件将超过可用的 1 GiB。请移除一些附件，然后重试。",
+  "error.attachmentNotFound": "此文件已不属于该项目。请重新加载项目。",
+  "error.attachmentUnavailable": "此设备无法打开该文件。它可能尚未同步，或已损坏。",
+  "error.attachmentFileUnreadable": "无法读取该文件。请选择其他文件。",
+  "error.attachmentSaveFailed": "无法将文件保存到那里。请选择其他文件夹。",
+  "error.attachmentPreviewUnsupported": "此文件无法预览。请用“另存为”打开。",
+  "error.attachmentPreviewTooLarge": "此图片太大，无法预览。请用“另存为”打开。",
+  "error.clipboardUnavailable": "Mosaic 无法使用剪贴板。请关闭可能占用剪贴板的应用，然后重试。",
+  "error.importFileUnreadable": "Mosaic 无法读取该文件。请确认它仍然存在且没有在其他应用中打开，然后重试。",
+  "error.importDeleteNotAllowed": "请先导入该文件。只有在其中的项目进入你的保险库后，Mosaic 才会删除导出文件。",
+  "error.importDeleteFailed": "无法删除该文件。它可能在其他应用中打开，或是只读的。请自行删除，然后清空回收站。",
+  "error.importFormatInvalid": "该文件不是你所选的格式。请选择匹配的格式，或重新导出该文件。",
+  "error.importPreviewExpired": "此次导入已取消。请重新选择文件以重新开始。",
+  "error.sshRequestExpired": "该 SSH 请求已结束。如果你仍需要，请重新运行该命令。",
+  "error.sshAgentUnavailable": "SSH 代理无法启动。请确认没有运行其他 SSH 代理，然后重新开启。",
+  "error.unlockDelayed": "连续输错次数过多。请等待几秒，然后重试。",
+  "error.tooManyAttempts": "错误回答次数过多，Mosaic 已锁定。请用主密码解锁后继续。",
+  "error.sshAllowTooSoon": "操作太快，来不及阅读请求。请检查密钥和程序，然后再次选择“允许”。",
+  "error.browserRequestExpired": "该浏览器请求已结束。如果你仍需要，请在扩展中重新发起。",
+  "error.browserAllowTooSoon": "操作太快，来不及阅读请求。请检查详情，然后重新选择。",
+  "error.browserPairingNotFound": "该浏览器已不再连接。请重新打开“设置”查看当前列表。",
+  "error.browserHostMissing": "这份 Mosaic 没有安装浏览器连接组件，所以没有可修复的内容。请使用安装程序安装 Mosaic，以连接浏览器。",
+  "error.agentOriginInvalid": "智能体只能把密钥发送到以 https:// 开头、且只包含网站名称的地址，例如 https://api.example.com。请检查地址。",
+  "error.agentBindingInvalid": "Mosaic 无法将此设置用于智能体。请检查字段、网站以及密钥的发送方式。",
+  "error.agentValueUnusable": "该值太短，或包含换行，因此智能体无法使用。密钥必须在一行内，且至少有 12 个字符。",
+  "error.agentVaultShared": "智能体只能使用属于你且未共享的保险库中的项目。请先把该项目移到你自己的保险库。",
+  "error.agentAccessOff": "智能体访问已关闭。请在“设置”的“智能体”中开启。",
+  "error.agentRequestExpired": "该智能体请求已结束。如果仍需要，智能体可以再次请求。",
+  "error.agentAllowTooSoon": "操作太快，来不及阅读请求。请检查详情，然后重新选择。",
+  "error.agentPairingNotFound": "该智能体已不再连接。请重新打开“设置”查看当前列表。",
+  "error.agentEndpointUnavailable": "Mosaic 无法打开智能体使用的连接。请关闭其他 Mosaic 窗口后重试。",
+  "error.kitNotVerified": "请先保存新的紧急工具包，并确认它的最后一组字符。在此之前，Mosaic 不会更改任何内容。",
+  "error.kitGroupMismatch": "这不是新机密密钥的最后一组。请检查新的紧急工具包。",
+  "error.rotationInProgress": "另一个密钥更换仍未完成。请用“继续密钥轮换”完成它，或先放弃它。",
+  "error.rotationNone": "没有可继续的密钥更换。",
+  "error.rotationNotFound": "该密码更改已不再打开。它可能已在另一台设备上或浏览器中被关闭。请重新打开该项目，查看当前状态。",
+  "error.rotationLimit": "此项目已有四个未完成的密码更改。请先在项目中完成或关闭其中一个。",
+  "error.rotationOpen": "此登录信息有一个未完成的密码更改。请先从回收站恢复它，并在项目上选择“成功了”或“没成功”。之后你才可以永久删除它。",
+  "error.rotationNotSupported": "Mosaic 无法引导此更改。它需要带有 https 地址的登录信息。请自行在网站上更改密码。",
+  "error.historyNotFound": "该旧密码已不在历史记录中。请重新打开该项目，查看当前列表。",
+  "error.originNotRelated": "该页面不属于此登录信息所在的网站，因此 Mosaic 没有添加它。如果应当添加，请编辑项目的地址。",
+  "error.breachConsentRequired": "泄露检查已关闭。请先开启它，并同意它会发送的内容。",
+  "error.breachRunning": "泄露检查正在运行。请等待它完成，或先停止它。",
+  "error.rotationTooFar": "此更改已作用到你的账户，无法放弃。请继续并完成它。",
+  "error.rotationJumpTooLarge": "这台设备落后其他设备太多，无法追上。请重新设置：从此设备移除该账户，然后使用紧急工具包重新加入。",
+  "error.rotationNotApplied": "此更改从未作用到你的账户，所以没有任何内容被更改。请重新开始或放弃它。",
+  "error.secretKeyUnchanged": "该机密密钥已失效。请使用你在进行更改的那台设备上保存的紧急工具包中的密钥。",
+  "error.passwordUnchanged": "新的主密码必须与当前的不同。",
+  "error.profileDowngrade": "该级别并不比你的账户当前使用的更强。请选择更高的级别。",
+  "error.profileTooSlow": "使用该级别解锁，这台设备需要超过两秒。请选择较低的级别，或仍然升级。",
+  "error.rekeyNeedsCleanSync": "重置密钥需要同步是最新的，并且没有警告。请先同步，查看所有警告，然后重试。",
+  "error.rekeyMemberKeyMismatch": "你还没有与共享保险库中的每个人比对安全码，因此无法更新该保险库。请在该保险库的共享设置中比对他们的安全码，然后重试。",
+  "error.rekeyBusy": "Mosaic 处理期间，你的保险库一直在变化。请稍等片刻后重试。",
+  "error.rekeyOutcomeUnknown": "Mosaic 无法确认你的账户是否接受了新密钥。请选择“继续密钥轮换”来查明。",
+  "error.rekeyNeedsServer": "重置密钥需要你的同步服务器或文件夹，但目前无法连接。请检查连接后重试。",
+  "error.rekeyNoAccountFile": "你的同步文件夹中没有任何内容能用此密码和机密密钥打开。请检查新的紧急工具包。",
+  "error.syncAccountRekeyed": "你账户的密钥已在另一台设备上更新。请使用新紧急工具包中的机密密钥继续。",
+  "error.syncEpochRollback": "你的同步后端显示的账户密钥比这台设备上的更旧。没有任何内容被更改。",
+  "error.syncRekeyRefused": "你的同步后端提供的密钥不是这台设备上密钥的下一代。没有任何内容被更改。请检查你的其他设备。",
+  "error.pickerStale": "此列表已过期。请再次点击该输入框。",
+  "error.pickerTooSoon": "请稍等片刻，然后再次确认。",
+  "error.programFillUnavailable": "此设备不支持在程序中填充。",
+  "error.busy": "Mosaic 仍在完成上一步。请稍等片刻，然后重试。",
+  "error.internal": "出现意外情况，此操作已中止。请重试；如果问题持续出现，请重启 Mosaic。",
+  "error.importTooLarge": "该文件太大或太复杂，无法导入。请每次导出更少的项目，然后重试。",
+  "error.importUnsupported": "Mosaic 无法读取此版本的格式。请用当前格式重新导出（KeePass：使用 AES 或 ChaCha20 的 KDBX 4），然后重试。",
+  "error.importEncrypted": "此导出文件受密码保护。请不加密重新导出，导入后再删除该文件。",
+  "error.sshAgentEndpointInUse": "另一个 SSH 代理已在运行（在 Windows 上是 OpenSSH Authentication Agent 服务）。请先停止它，然后重新开启 Mosaic 的 SSH 代理。",
+  "error.cancelled": "已取消。没有任何更改。",
+  "error.quickUnlockExpired": "快速解锁已过期。请用主密码解锁，然后在“设置”中重新开启。",
+  "error.quickUnlockInvalidated": "快速解锁在这台设备上失效并已关闭。请用主密码解锁。",
+  "error.passwordRequired": "这次请输入你的主密码。之后快速解锁将恢复可用。",
+  "error.hardwareKeyUnsupported": "此安全密钥或系统无法与 Mosaic 一起使用。",
+  "error.hardwareKeyNotFound": "没有找到安全密钥。请插入后重试。",
+  "error.hardwareKeyTimeout": "没有在规定时间内触碰密钥。请重试。",
+  "error.hardwareKeyPinRequired": "请输入你的安全密钥的 PIN。",
+  "error.hardwareKeyPinInvalid": "PIN 不正确。连续输错几次后，密钥会自行锁定。",
+  "error.hardwareKeyPinBlocked": "此密钥因 PIN 输错次数过多而被锁定。请用其制造商的工具重置；重置后它的注册信息将丢失。",
+  "error.hardwareKeyNoPin": "请先用其制造商的工具为此密钥设置 PIN。",
+  "error.hardwareKeyNotRecognized": "此密钥未在这里注册。请换一个密钥，或使用主密码。",
+  "error.hardwareKeyLimit": "你已注册了允许的最大数量（8 个）的密钥。请先移除一个。",
+  "error.hardwareKeyLast": "这是此保险库唯一的密钥。请先注册另一个，再移除它。",
+  "error.itemTypeNotAllowed": "此保险库只存放一次性验证码。",
+  "error.otpScanUnsupported": "此系统不支持扫描屏幕。请改为粘贴截图。",
+  "error.otpQrNotFound": "没有找到二维码。请确保整个二维码都可见，然后重试。",
+  "error.otpQrNotOtp": "这个二维码不是两步验证的设置码。请在网站的两步验证设置页面中查找。",
+  "error.otpQrMigration": "这是 Google Authenticator 的导出码，Mosaic 暂时无法读取。请在各网站上重新设置每个账户，或输入它的设置密钥。",
+  "error.otpQrMultiple": "屏幕上有多个设置码可见。请只显示你要用的那个，然后重试。",
+  "error.otpQrInvalid": "此设置码使用了 Mosaic 不支持的设置。请改为输入设置密钥。",
+  "error.otpUriInvalid": "这不是有效的 otpauth:// 链接。请重新复制完整的链接。",
+  "error.otpKeyInvalid": "此密钥无效。它只使用字母 A 到 Z 和数字 2 到 7；请检查是否输错。",
+  "error.otpImageUnreadable": "Mosaic 无法读取此图片。请使用 PNG 或 JPEG 文件。",
+  "error.otpImageTooLarge": "此图片太大。请只截取二维码的截图。",
+  "error.otpClipboardNoImage": "剪贴板中没有图片。请截取二维码的截图，然后粘贴到这里。",
+  "error.otpPendingExpired": "扫描到的验证码已不可用。请重新扫描。",
+  "error.syncNotConfigured": "这台设备尚未设置同步。请先在“设置”中设置。",
+  "error.syncAlreadyConfigured": "已设置同步。如要使用其他服务器或文件夹，请先断开连接。",
+  "error.syncServerUnreachable": "Mosaic 无法连接到服务器。请检查地址和你的网络连接，然后重试。",
+  "error.syncServerInvalid": "这看起来不是 Mosaic 服务器。请检查地址；它应类似 https://sync.example.com。",
+  "error.syncServerInsecure": "Mosaic 只通过 https 连接服务器，这样途中无人能读取或更改你的数据。请使用 https:// 地址。",
+  "error.syncServerMismatch": "这不是此账户所同步的服务器。请检查地址。",
+  "error.syncServerIncompatible": "此服务器运行的版本与你的 Mosaic 不匹配。请更新 Mosaic，或请服务器的所有者更新服务器。",
+  "error.syncRegistrationClosed": "此服务器不接受新的同步账户。请登录已有的账户，或联系服务器的所有者。",
+  "error.syncInviteInvalid": "此邀请码无效或已被使用。请检查，或请服务器的所有者提供新的邀请码。",
+  "error.syncAccountExists": "你在此服务器上已有同步账户。请改为选择“登录”。",
+  "error.syncAccountMismatch": "该服务器上的同步账户属于另一个 Mosaic 账户。请检查地址和你的电子邮件。",
+  "error.syncTwoFactorRequired": "此同步账户需要来自验证器应用的验证码。请输入 6 位验证码。",
+  "error.syncTwoFactorInvalid": "该验证码不正确或已过期。请输入验证器应用中当前的 6 位验证码。",
+  "error.syncSignedOut": "服务器已将这台设备退出登录。请重新登录以继续同步。你的更改仍安全地保存在这台设备上。",
+  "error.syncRateLimited": "尝试次数过多。请等待几分钟，然后重试。",
+  "error.syncQuotaExceeded": "服务器或文件夹已没有空间存放你的数据。请释放空间，或请服务器的所有者提供更多空间。",
+  "error.syncFolderUnavailable": "Mosaic 无法使用此文件夹。请确认它存在、你的云服务已同步完成，并且 Mosaic 有权写入。",
+  "error.syncFolderNotEmpty": "此文件夹中有其他文件，因此 Mosaic 不会写入。请选择空文件夹，或新建一个。",
+  "error.syncFolderNoAccount": "此文件夹中没有此账户的同步数据。请选择你的其他设备所同步的文件夹。",
+  "error.syncFolderDamaged": "此文件夹中的部分同步文件已损坏。请等待你的云服务同步完成，或从备份中恢复该文件夹，然后重试。",
+  "error.syncPasswordOutcomeUnknown": "我们无法确认服务器是否已更改你的主密码。在同步确认哪一个生效之前，请同时保留这两个密码。",
+  "error.syncWebauthnUnavailable": "你的服务器目前无法为此使用安全密钥，或此账户没有安全密钥。请改用验证器应用的验证码。",
+  "error.syncWebauthnLimit": "此账户的安全密钥数量已达服务器允许的上限。请移除一个不再使用的，然后重试。",
+  "error.syncHandoffExpired": "浏览器中的步骤已超时。请重新开始。",
+  "error.syncHandoffFailed": "在浏览器中输错验证码或校验失败的次数过多。请重新开始该步骤。",
+  "error.syncPasswordNeedsServer": "更改主密码需要你的同步服务器，但目前无法连接。请检查网络连接后重试。",
+  "error.syncDeviceIsCurrent": "你不能移除正在使用的设备。请改用“断开连接”。",
+  "error.syncChoiceExpired": "文件夹选择已超时。请重新选择文件夹。",
+  "error.syncFreshLoginExpired": "密码验证已超时。请再次输入你的主密码。",
+  "error.syncPasswordRollback": "服务器提供了较旧的主密码。请检查服务器。",
+  "error.syncPasswordChanged": "你的主密码已在服务器上或文件夹中被更改。请在下方输入新密码。",
+  "error.sharingNotHosted": "共享需要 Mosaic 服务器。请先在“同步”设置中连接一个。",
+  "error.setupCodeNeedsServer": "手机只能加入启用了同步的账户。",
+  "error.sharingContactUnverified": "请先比对此人的安全码。Mosaic 只会与你已验证的人共享。",
+  "error.sharingKeyChanged": "此人的密钥已更改，或安全码不匹配。请重新查找此人，并在继续之前比对新的安全码。",
+  "error.sharingRoleForbidden": "你在此保险库中的角色不允许这样做。请联系所有者或管理员。",
+  "error.sharingInviteExists": "已有一个针对此人和此保险库的邀请在等待中。如果想发送新的邀请，请先撤回它。",
+  "error.sharingInviteStale": "该邀请在此期间已发生变化，例如密钥更改之后。请重新打开它。",
+  "error.sharingInviteExpired": "此邀请已过期或已被撤回。请让发送者重新邀请你。",
+  "error.sharingInviteUnreadable": "无法打开此邀请。它可能已损坏，或不是发给此账户的。请让发送者重新邀请你。",
+  "error.sharingInviteNotInRoster": "保险库的成员列表与此邀请不一致，因此 Mosaic 没有打开它。请让发送者重新邀请你。",
+  "error.sharingOwnerCannotLeave": "所有者不能退出保险库。请改为移除其他人。",
+  "error.sharingAlreadyMember": "此人已经是该保险库的成员。",
+  "error.sharingReinviteBlocked": "你最近移除了此人。保险库密钥更换后，你才能再次邀请他们。请先同步，然后重试。",
+  "error.sharingInviteLimit": "等待中的邀请过多。请等待回复，或撤回一些邀请。",
+  "error.sharingVaultKnown": "这台设备上已有该保险库，因此 Mosaic 没有接受它的密钥。请询问发送者他们共享的是哪个保险库。",
+  "error.syncHasSharedVaults": "这台设备上有共享保险库时，你不能切换服务器。请先退出这些共享保险库，或请它们的所有者把你移除。",
+  "error.emergencyWaiting": "有一个请求正在等待，因此现在无法更改。请拒绝它或等待它。",
+  "error.emergencyCooldown": "你上次的请求被拒绝了。等待一天之后，你可以再次申请。",
+  "error.emergencyNotGranted": "没有可领取的内容：没有未完成的请求，或对方没有授予你访问权限。",
+  "error.shortcutUnavailable": "另一个程序已在使用此快捷键，或 Mosaic 无法注册它。请选择其他组合。",
+  "error.shortcutUnsupported": "你的系统不允许应用设置全局快捷键。请改为从 Mosaic 窗口打开它。",
 } satisfies Record<keyof typeof en, string>;
