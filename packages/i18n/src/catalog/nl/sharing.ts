@@ -99,7 +99,7 @@ export const sharing = {
   "sharing.inbox.verifySender":
     "Vergelijk voordat je deelneemt de veiligheidscode van {email}.",
   "sharing.inbox.verifyOwner":
-    "{sender} is niet de eigenaar. Vergelijk voordat je deelneemt ook de veiligheidscode van de eigenaar: die kan de sleutel van de kluis wijzigen.",
+    "{sender} is niet de eigenaar. Vergelijk voordat je deelneemt ook de veiligheidscode van de eigenaar: de eigenaar kan de sleutel van de kluis wijzigen.",
   "sharing.inbox.ownerCode": "Code voor de eigenaar, {email}",
   "sharing.inbox.accept": "Deelnemen aan kluis",
   "sharing.inbox.readyTitle": "Alles gecontroleerd. Deelnemen aan deze kluis?",
@@ -224,7 +224,7 @@ export const sharing = {
   "emergency.grant.wait": "Wachttijd",
   "emergency.grant.wait.option": "{days, plural, one {# dag} other {# dagen}}",
   "emergency.grant.waitHint":
-    "Open Mosaic na een verzoek minstens één keer binnen deze tijd, zodat je het kunt zien en weigeren. Als de tijd om is, krijgt de persoon alleen-lezentoegang zonder verdere vraag aan jou.",
+    "Open Mosaic na een verzoek minstens één keer binnen deze tijd, zodat je het kunt zien en weigeren. Als de tijd om is, krijgt de persoon alleen-lezentoegang zonder dat jou nog iets wordt gevraagd.",
   "emergency.grant.serverTrust":
     "De server houdt de wachttijd bij. Als de persoon die je noemt en wie de server beheert samenwerken, kunnen ze hem overslaan. De server alleen kan je kluizen niet lezen.",
   "emergency.grant.vaultKeysOnly":

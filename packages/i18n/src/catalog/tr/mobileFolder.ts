@@ -26,7 +26,7 @@ export const mobileFolder = {
   "mobile.sync.warning.serverRollback":
     "Sunucudaki kasalarınızdan birinin kopyası bu telefonunkinden daha eski. Mosaic’i başka bir aygıtta açın ve en son değişikliklerinizin orada olduğunu kontrol edin. Sonra “Kontrol ettim”i seçin.",
   "mobile.sync.warning.sharingAttention":
-    "Paylaşılan bir kasanın ilgilenmeniz gerekiyor: bir anahtar değişikliği bekliyor veya bir üye denetlenemedi. Hangisi olduğunu görmek için Mosaic’i bilgisayarınızda açın. Sonra “Kontrol ettim”i seçin.",
+    "Paylaşılan bir kasayla ilgilenmeniz gerekiyor: bir anahtar değişikliği bekliyor veya bir üye denetlenemedi. Hangisi olduğunu görmek için Mosaic’i bilgisayarınızda açın. Sonra “Kontrol ettim”i seçin.",
   "mobile.sync.warning.undecryptable":
     "{count, plural, one {Alınan # öğe} other {Alınan # öğe}} bu telefonda okunamadı. Mosaic’i tüm aygıtlarınızda güncelleyin, sonra yeniden eşitleyin.",
   "mobile.sync.warning.accountRollback":

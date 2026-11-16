@@ -99,7 +99,7 @@ export const sharing = {
   "sharing.inbox.verifySender":
     "Avant de rejoindre, comparez le code de sécurité de {email}.",
   "sharing.inbox.verifyOwner":
-    "{sender} n’est pas le propriétaire. Avant de rejoindre, comparez aussi le code de sécurité du propriétaire : c’est lui qui peut changer la clé du coffre-fort.",
+    "{sender} n’est pas le propriétaire. Avant de rejoindre, comparez aussi le code de sécurité du propriétaire : c’est le propriétaire qui peut changer la clé du coffre-fort.",
   "sharing.inbox.ownerCode": "Code du propriétaire, {email}",
   "sharing.inbox.accept": "Rejoindre le coffre-fort",
   "sharing.inbox.readyTitle": "Tout est vérifié. Rejoindre ce coffre-fort ?",
@@ -224,7 +224,7 @@ export const sharing = {
   "emergency.grant.wait": "Délai d’attente",
   "emergency.grant.wait.option": "{days, plural, one {# jour} other {# jours}}",
   "emergency.grant.waitHint":
-    "Ouvrez Mosaic au moins une fois dans ce délai après une demande, pour pouvoir la voir et refuser. Une fois le délai écoulé, la personne obtient un accès en lecture seule sans autre question posée à vous.",
+    "Ouvrez Mosaic au moins une fois dans ce délai après une demande, pour pouvoir la voir et refuser. Une fois le délai écoulé, la personne obtient un accès en lecture seule sans qu’on vous redemande votre accord.",
   "emergency.grant.serverTrust":
     "Le serveur garde le délai d’attente. Si la personne que vous désignez et celle qui exploite le serveur s’entendent, elles pourraient le contourner. Le serveur seul ne peut pas lire vos coffres-forts.",
   "emergency.grant.vaultKeysOnly":

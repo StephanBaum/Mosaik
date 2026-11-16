@@ -24387,7 +24387,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Koppel alleen apps die je vertrouwt. Deze login heeft geen website die Mosaic kon controleren."
+            "value" : "Koppel alleen apps die je vertrouwt. Deze login heeft geen website die Mosaic kan controleren."
           }
         },
         "pl" : {
@@ -35286,7 +35286,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Paylaşılan bir kasanın ilgilenmeniz gerekiyor: bir anahtar değişikliği bekliyor veya bir üye denetlenemedi. Hangisi olduğunu görmek için Mosaic’i bilgisayarınızda açın. Sonra “Kontrol ettim”i seçin."
+            "value" : "Paylaşılan bir kasayla ilgilenmeniz gerekiyor: bir anahtar değişikliği bekliyor veya bir üye denetlenemedi. Hangisi olduğunu görmek için Mosaic’i bilgisayarınızda açın. Sonra “Kontrol ettim”i seçin."
           }
         },
         "zh-Hans" : {
@@ -38621,7 +38621,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yapay zekâ yardımıyla çevrildi. Yanlış okunan bir yer varsa bize söyleyin."
+            "value" : "Yapay zekâ yardımıyla çevrildi. Kulağa yanlış gelen bir yer varsa bize bildirin."
           }
         },
         "zh-Hans" : {

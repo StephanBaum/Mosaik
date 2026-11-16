@@ -234,7 +234,7 @@ export const rotation = {
   "rotation.recovery.secretKey": "新しい緊急キットのシークレットキー",
   "rotation.recovery.submit": "新しい鍵を使う",
   "rotation.recovery.warning":
-    "ご自身で鍵を更新していませんか？その場合、古いパスワードとシークレットキーを知る誰かが更新した可能性があります。ここには何も入力せず、先に他のデバイスを確認してください。",
+    "鍵を更新した覚えがない場合は、古いパスワードとシークレットキーを持つ誰かが更新した可能性があります。ここには何も入力せず、先に他のデバイスを確認してください。",
   "rotation.recovery.notice": "このデバイスでこの操作を行うまで、同期は一時停止されます。",
   "rotation.recovery.open": "新しい鍵を使う…",
   "rotation.recovery.keyHint":

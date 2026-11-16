@@ -94,7 +94,7 @@ export const rotation = {
   "rotation.review.rekey.hardwareVaults":
     "{count, plural, one {Donanımla korunan # kasa etkilenmez.} other {Donanımla korunan # kasa etkilenmez.}}",
   "rotation.review.rekey.attachments":
-    "{count, plural, one {# ek bu aygıtta değil.} other {# ek bu aygıtta değil.}} Yeniden korunabilmeleri için önce indirilirler. Ulaşılamayanlar eski anahtarını korur.",
+    "{count, plural, one {# ek bu aygıtta değil.} other {# ek bu aygıtta değil.}} Yeniden korunabilmeleri için önce indirilirler. Ulaşılamayanlar eski anahtarı korur.",
   "rotation.review.rekey.folder":
     "Eşitleme klasörünüz yeni bir hesap dosyası alır. Diğer aygıtlar orada anahtarların değiştiğine dair bir not bulur.",
   "rotation.review.rekey.unavailable": "Yeniden anahtarlama kullanılamıyor: eşitleme kurulmadı.",

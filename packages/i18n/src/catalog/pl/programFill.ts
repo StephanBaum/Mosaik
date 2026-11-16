@@ -17,7 +17,7 @@ export const programFill = {
   "programFill.list.block": "Nie proponuj dla tego programu",
   "programFill.link.packaged": "{name} · Aplikacja ze sklepu · Wydawca {publisher}",
   "programFill.link.packagedNoPublisher": "{name} · Aplikacja ze sklepu",
-  "programFill.link.signed": "{exe} · Podpisany przez {signer}, sprawdzone przez Windows",
+  "programFill.link.signed": "{exe} · Podpisany przez {signer}, sprawdzony przez Windows",
   "programFill.link.unsigned": "{exe} · Niepodpisany · {path}",
   "programFill.link.unsignedNote":
     "Mosaic wypełni tylko ten dokładny plik. Jeśli się zmieni, Mosaic zapyta ponownie.",

@@ -181,7 +181,7 @@ export const ext = {
   "ext.error.originMismatch":
     "Bu giriş bu web sitesi için kayıtlı değil, bu yüzden Mosaic burada doldurmaz.",
   "ext.error.insecureOrigin":
-    "Bu sayfa şifrelenmemiş ve giriş bunda doldurulmasına izin vermiyor. Hiçbir şey doldurulmadı.",
+    "Bu sayfa şifrelenmemiş ve giriş bu sayfada doldurmaya izin vermiyor. Hiçbir şey doldurulmadı.",
   "ext.error.crossOriginFrame":
     "Bu alan başka bir sitenin çerçevesinde. Mosaic orada doldurmaz.",
   "ext.error.itemNotFound": "Bu öğe artık yok. Taşınmış veya silinmiş olabilir.",

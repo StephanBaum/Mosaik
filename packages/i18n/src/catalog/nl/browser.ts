@@ -43,7 +43,7 @@ export const browser = {
   "browser.save.newOption": "Een nieuwe login",
   "browser.save.itemTitle": "Titel",
   "browser.save.vault": "Kluis",
-  "browser.save.allowHttp": "Invullen op deze onbeveiligde pagina toestaan",
+  "browser.save.allowHttp": "Invullen op deze onversleutelde pagina toestaan",
   "browser.save.allowHttpHint":
     "De site gebruikt geen HTTPS. Iedereen op het netwerk kan lezen wat je invult.",
   "browser.save.cancel": "Annuleren",

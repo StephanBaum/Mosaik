@@ -259,7 +259,7 @@ export const mobile = {
   "mobile.link.warning":
     "Koppel alleen apps die je vertrouwt. Mosaic kan niet bevestigen dat deze app bij {host} hoort.",
   "mobile.link.warningNoHost":
-    "Koppel alleen apps die je vertrouwt. Deze login heeft geen website die Mosaic kon controleren.",
+    "Koppel alleen apps die je vertrouwt. Deze login heeft geen website die Mosaic kan controleren.",
   "mobile.link.confirm": "{login} voortaan in deze app invullen",
   "mobile.link.done": "Gekoppeld. Mosaic vult {login} in deze app in.",
   "mobile.link.noApps": "Geen andere apps gevonden.",

@@ -29,7 +29,7 @@ export const unlock = {
     "Blokuje się automatycznie po {minutes, plural, one {# minucie} few {# minutach} many {# minutach} other {# minuty}} bezczynności.",
   "lock.forgot.title": "Nie pamiętasz hasła głównego?",
   "lock.forgot.body":
-    "Mosaic nie może go zresetować, ponieważ zna je tylko Twoja osoba. Sprawdź, czy zapisano je w Zestawie awaryjnym. W przeciwnym razie załóż nowe konto.",
+    "Mosaic nie może go zresetować, ponieważ znasz je tylko Ty. Sprawdź, czy zapisano je w Zestawie awaryjnym. W przeciwnym razie załóż nowe konto.",
   "lock.quick.waitingWindows": "Czekanie na Windows Hello…",
   "lock.quick.waitingMac": "Czekanie na Touch ID…",
   "lock.quick.touchKey": "Włóż klucz i dotknij go, gdy zacznie migać.",

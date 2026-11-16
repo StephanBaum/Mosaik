@@ -157,7 +157,7 @@ export const sharing = {
   "sharing.rotation.running":
     "Hay una eliminación esperando a que el dispositivo del propietario cambie la clave de la caja fuerte. Hasta que sincronice, solo el servidor mantiene fuera a la persona quitada.",
   "sharing.rotation.unprotected":
-    "{count, plural, one {# archivo conserva} other {# archivos conservan}} la protección anterior porque este dispositivo no {count, plural, one {lo tiene} other {los tiene}}. Una persona que quitaste aún puede abrir{count, plural, one {lo} other {los}} si conservó la clave anterior. Añade{count, plural, one {lo} other {los}} de nuevo desde un dispositivo que {count, plural, one {lo tenga} other {los tenga}}.",
+    "{count, plural, one {# archivo conserva} other {# archivos conservan}} la protección anterior porque este dispositivo no {count, plural, one {lo tiene} other {los tiene}}. Una persona que quitaste aún puede abrir{count, plural, one {lo} other {los}} si conservó la clave anterior. {count, plural, one {Añádelo} other {Añádelos}} de nuevo desde un dispositivo que {count, plural, one {lo tenga} other {los tenga}}.",
   "sharing.keyChanged.title": "El código de seguridad de {email} cambió",
   "sharing.keyChanged.body":
     "El servidor muestra ahora una clave distinta para {email}. Eso ocurre cuando la persona vuelve a configurar Mosaic, y también es lo que parecería un ataque al servidor. No se comparte nada con la clave nueva hasta que compares los códigos con ella, en persona o por teléfono.",

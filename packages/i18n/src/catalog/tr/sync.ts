@@ -156,7 +156,7 @@ export const sync = {
   "settings.sync.key.removeBody":
     "Tarayıcınızda bir güvenlik anahtarıyla bir kez onaylarsınız. Ondan sonra bu anahtar oturum açmak için çalışmaz.",
   "settings.sync.key.removeLast":
-    "Bu, son ikinci adımınız. İki adımlı doğrulama kapanır ve eşitleme hesabınız yalnızca ana parolanız ve Gizli Anahtarınızla korunur.",
+    "Bu, kalan son ikinci adım yönteminiz. İki adımlı doğrulama kapanır ve eşitleme hesabınız yalnızca ana parolanız ve Gizli Anahtarınızla korunur.",
   "settings.sync.key.removeCode": "Kimlik doğrulayıcı uygulama kodu",
   "settings.sync.key.removeCodeHint":
     "Anahtarı hemen kaldırmak için geçerli bir kod girin. Bunun yerine tarayıcınızda bir güvenlik anahtarıyla onaylamak için boş bırakın.",
@@ -187,14 +187,14 @@ export const sync = {
   "settings.sync.key.wait.reopen": "Tarayıcı sayfasını yeniden aç",
   "settings.sync.key.wait.retry": "Yeniden başla",
   "sync.warning.region": "Eşitleme uyarıları",
-  "sync.warning.unknownDevice": "başka bir aygıt",
-  "sync.warning.unknownVault": "kasalarınızdan biri",
+  "sync.warning.unknownDevice": "(bilinmeyen)",
+  "sync.warning.unknownVault": "(bilinmeyen)",
   "sync.warning.freezeSuspected":
     "{device} aygıtından gelen değişiklikler bir günden uzun süredir ulaşmadı. Diğer aygıtın açık ve çevrimiçi olduğunu kontrol edin.",
   "sync.warning.missingFiles":
     "{device} aygıtından gelen dosyalar klasörde eksik. Bulut hizmetinizin eşitlemeyi bitirmesine izin verin, sonra yeniden eşitleyin.",
   "sync.warning.noCommonView":
-    "Bu aygıt ve {device} iki gündür aynı sunucu verisini görmedi. Sunucu onlara farklı sürümler gösteriyor olabilir.",
+    "Bu aygıt ve {device} aygıtı iki gündür aynı sunucu verisini görmedi. Sunucu onlara farklı sürümler gösteriyor olabilir.",
   "sync.warning.rollbackDetected":
     "Eşitleme verileriniz bu aygıttan daha eski görünüyor. Sunucuyu veya klasörü kontrol edin, sonra “Kontrol ettim”i seçin.",
   "sync.warning.identityDuplicated":
@@ -202,7 +202,7 @@ export const sync = {
   "sync.warning.serverInconsistent":
     "Sunucu bu aygıta başka bir aygıttan farklı veriler gösterdi. Sunucuyu kontrol edin, sonra “Kontrol ettim”i seçin.",
   "sync.warning.serverRollback":
-    "Sunucudaki {vault} kopyası bu aygıtınkinden daha eski. Sunucuyu kontrol edin, sonra “Kontrol ettim”i seçin.",
+    "Sunucudaki {vault} kasasının kopyası bu aygıtınkinden daha eski. Sunucuyu kontrol edin, sonra “Kontrol ettim”i seçin.",
   "sync.warning.undecryptable":
     "{count, plural, one {Alınan # öğe} other {Alınan # öğe}} bu aygıtta okunamadı. Mosaic’i tüm aygıtlarınızda güncelleyin, sonra yeniden eşitleyin.",
   "sync.warning.hardwareVaultsLocal":

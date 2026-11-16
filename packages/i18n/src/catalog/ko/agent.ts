@@ -116,7 +116,7 @@ export const agent = {
   "agent.access.item": "항목",
   "agent.access.vault": "보관함",
   "agent.access.field": "키",
-  "agent.access.destinations": "전송 대상",
+  "agent.access.destinations": "다음 대상으로만",
   "agent.access.how": "전송 방식",
   "agent.access.inject.bearer": "Authorization 헤더의 Bearer 토큰으로",
   "agent.access.inject.header": "헤더에",

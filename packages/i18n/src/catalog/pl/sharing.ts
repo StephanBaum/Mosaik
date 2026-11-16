@@ -179,7 +179,7 @@ export const sharing = {
   "sharing.finding.shareUntrusted":
     "Odrzucono nowy klucz dla {vault}: wysłał go {sender}, ale ta osoba nie ma prawa zmieniać klucza tego sejfu. Sejf pozostaje na starym kluczu. Zapytaj właściciela, czy go zmieniał. Potem wybierz „Sprawdzono…”.",
   "sharing.finding.memberUnverified":
-    "{email} nie został zweryfikowany w {vault}. Mosaic nie wysyła tej osobie nowych kluczy, a następna zmiana klucza ją zablokuje. Porównaj jej kod bezpieczeństwa lub ją usuń.",
+    "Nie zweryfikowano {email} w {vault}. Mosaic nie wysyła tej osobie nowych kluczy, a następna zmiana klucza ją zablokuje. Porównaj jej kod bezpieczeństwa lub ją usuń.",
   "sharing.finding.memberDropped":
     "{email} jest na liście członków {vault}, ale serwer już tej osoby nie wymienia. Mogła odejść lub serwer ją usunął. Sprawdź, czy tego oczekiwano, a jeśli nie, usuń tę osobę.",
   "sharing.finding.memberKeyMismatch":
@@ -224,7 +224,7 @@ export const sharing = {
   "emergency.grant.wait.option":
     "{days, plural, one {# dzień} few {# dni} many {# dni} other {# dnia}}",
   "emergency.grant.waitHint":
-    "Otwórz Mosaic co najmniej raz w tym czasie po żądaniu, aby je zobaczyć i móc odmówić. Gdy czas minie, osoba otrzymuje dostęp tylko do odczytu, bez dalszego pytania do Ciebie.",
+    "Otwórz Mosaic co najmniej raz w tym czasie po żądaniu, aby je zobaczyć i móc odmówić. Gdy czas minie, osoba otrzymuje dostęp tylko do odczytu, bez ponownego pytania Cię o zgodę.",
   "emergency.grant.serverTrust":
     "Czas oczekiwania pilnuje serwer. Jeśli wskazana osoba i osoba zarządzająca serwerem będą współpracować, mogą go pominąć. Sam serwer nie może odczytać Twoich sejfów.",
   "emergency.grant.vaultKeysOnly":

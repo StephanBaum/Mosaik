@@ -321,7 +321,7 @@
   <string name="mobile_link_unavailable">Kon niet worden gecontroleerd</string>
   <string name="mobile_link_verified">Geverifieerd door %1$s</string>
   <string name="mobile_link_warning">Koppel alleen apps die je vertrouwt. Mosaic kan niet bevestigen dat deze app bij %1$s hoort.</string>
-  <string name="mobile_link_warningNoHost">Koppel alleen apps die je vertrouwt. Deze login heeft geen website die Mosaic kon controleren.</string>
+  <string name="mobile_link_warningNoHost">Koppel alleen apps die je vertrouwt. Deze login heeft geen website die Mosaic kan controleren.</string>
   <string name="mobile_lock_now">Nu vergrendelen</string>
   <string name="mobile_nav_search">Zoeken</string>
   <string name="mobile_nav_settings">Instellingen</string>

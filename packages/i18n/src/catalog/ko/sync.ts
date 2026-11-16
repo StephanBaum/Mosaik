@@ -156,7 +156,7 @@ export const sync = {
   "settings.sync.key.removeBody":
     "브라우저에서 보안 키로 한 번 확인해요. 그 후에는 이 키로 로그인할 수 없어요.",
   "settings.sync.key.removeLast":
-    "마지막 두 번째 단계예요. 2단계 인증이 꺼지고, 이후 동기화 계정은 마스터 비밀번호와 비밀 키만으로 보호돼요.",
+    "남아 있는 마지막 2단계 인증 수단이에요. 2단계 인증이 꺼지고, 이후 동기화 계정은 마스터 비밀번호와 비밀 키만으로 보호돼요.",
   "settings.sync.key.removeCode": "인증 앱 코드",
   "settings.sync.key.removeCodeHint":
     "키를 바로 제거하려면 현재 코드를 입력하세요. 비워 두면 대신 브라우저에서 보안 키로 확인해요.",

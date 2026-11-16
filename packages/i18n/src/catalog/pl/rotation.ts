@@ -240,7 +240,7 @@ export const rotation = {
   "rotation.recovery.secretKey": "Klucz tajny z nowego Zestawu awaryjnego",
   "rotation.recovery.submit": "Użyj nowych kluczy",
   "rotation.recovery.warning":
-    "Nie odnawiano kluczy samodzielnie? Wtedy mógł to zrobić ktoś, kto ma stare hasło i Klucz tajny. Nic tu nie wpisuj; najpierw sprawdź inne urządzenia.",
+    "Klucze nie zostały odnowione przez Ciebie? Wtedy mógł to zrobić ktoś, kto ma Twoje stare hasło i Klucz tajny. Nic tu nie wpisuj; najpierw sprawdź inne urządzenia.",
   "rotation.recovery.notice": "Synchronizacja jest wstrzymana, dopóki nie zrobisz tego na tym urządzeniu.",
   "rotation.recovery.open": "Użyj nowych kluczy…",
   "rotation.recovery.keyHint":

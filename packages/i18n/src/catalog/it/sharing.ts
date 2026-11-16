@@ -98,7 +98,7 @@ export const sharing = {
   "sharing.inbox.preview.owner": "La cassaforte appartiene a {email}.",
   "sharing.inbox.verifySender": "Prima di unirti, confronta il codice di sicurezza di {email}.",
   "sharing.inbox.verifyOwner":
-    "{sender} non è il proprietario. Prima di unirti, confronta anche il codice di sicurezza del proprietario: è quello che può cambiare la chiave della cassaforte.",
+    "{sender} non è il proprietario. Prima di unirti, confronta anche il codice di sicurezza del proprietario: è il proprietario che può cambiare la chiave della cassaforte.",
   "sharing.inbox.ownerCode": "Codice del proprietario, {email}",
   "sharing.inbox.accept": "Unisciti alla cassaforte",
   "sharing.inbox.readyTitle": "Tutto controllato. Unirti a questa cassaforte?",
@@ -223,7 +223,7 @@ export const sharing = {
   "emergency.grant.wait": "Tempo di attesa",
   "emergency.grant.wait.option": "{days, plural, one {# giorno} other {# giorni}}",
   "emergency.grant.waitHint":
-    "Dopo una richiesta, apri Mosaic almeno una volta entro questo tempo, così puoi vederla e rifiutare. Allo scadere del tempo, la persona ottiene accesso di sola lettura senza ulteriori domande a te.",
+    "Dopo una richiesta, apri Mosaic almeno una volta entro questo tempo, così puoi vederla e rifiutare. Allo scadere del tempo, la persona ottiene accesso di sola lettura senza che ti venga chiesto di nuovo.",
   "emergency.grant.serverTrust":
     "Il tempo di attesa è gestito dal server. Se la persona che indichi e chi gestisce il server si accordano, potrebbero saltarlo. Il server da solo non può leggere le tue casseforti.",
   "emergency.grant.vaultKeysOnly":

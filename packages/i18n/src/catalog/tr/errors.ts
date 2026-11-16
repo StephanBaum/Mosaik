@@ -102,7 +102,7 @@ export const errors = {
   "error.kitGroupMismatch":
     "Bu, yeni Gizli Anahtarın son grubu değil. Yeni Acil Durum Kitini kontrol edin.",
   "error.rotationInProgress":
-    "Başka bir anahtar değişikliği hâlâ açık. Anahtar yenilemeye devam et ile bitirin veya önce silin.",
+    "Başka bir anahtar değişikliği hâlâ açık. Anahtar yenilemeye devam et ile bitirin veya önce ondan vazgeçin.",
   "error.rotationNone": "Devam edilecek bir anahtar değişikliği yok.",
   "error.rotationNotFound":
     "Bu parola değişikliği artık açık değil. Başka bir aygıtta veya tarayıcıda kapatılmış olabilir. Durumunu görmek için öğeyi yeniden açın.",
@@ -125,7 +125,7 @@ export const errors = {
   "error.rotationJumpTooLarge":
     "Bu aygıt diğer aygıtlara yetişemeyecek kadar geride. Yeniden kurun: hesabı bu aygıttan kaldırın ve Acil Durum Kitinizle yeniden katılın.",
   "error.rotationNotApplied":
-    "Değişiklik hesabınıza hiç ulaşmadı, bu yüzden hiçbir şey değişmedi. Yeniden başlayın veya silin.",
+    "Değişiklik hesabınıza hiç ulaşmadı, bu yüzden hiçbir şey değişmedi. Yeniden başlayın veya değişiklikten vazgeçin.",
   "error.secretKeyUnchanged":
     "Bu Gizli Anahtar artık çalışmıyor. Değişikliği yapan aygıtta kaydettiğiniz Acil Durum Kitindekini kullanın.",
   "error.passwordUnchanged": "Yeni ana parola mevcut olandan farklı olmalıdır.",

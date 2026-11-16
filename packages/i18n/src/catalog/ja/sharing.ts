@@ -95,7 +95,7 @@ export const sharing = {
   "sharing.inbox.preview.owner": "この保管庫は {email} のものです。",
   "sharing.inbox.verifySender": "参加する前に、{email} の安全コードを照合してください。",
   "sharing.inbox.verifyOwner":
-    "{sender} はオーナーではありません。参加する前に、オーナーの安全コードも照合してください。保管庫の鍵を変更できるのは、オーナーのコードだからです。",
+    "{sender} はオーナーではありません。参加する前に、オーナーの安全コードも照合してください。保管庫の鍵を変更できるのはオーナーだからです。",
   "sharing.inbox.ownerCode": "オーナー {email} のコード",
   "sharing.inbox.accept": "保管庫に参加",
   "sharing.inbox.readyTitle": "すべて確認しました。この保管庫に参加しますか？",

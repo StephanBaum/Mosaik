@@ -465,7 +465,7 @@
   <string name="mobile_sync_warning_rollbackDetected">Eşitleme verileriniz bu telefondan daha eski görünüyor. Mosaic’i başka bir aygıtta açın ve en son değişikliklerinizin orada olduğunu kontrol edin. Sonra “Kontrol ettim”i seçin.</string>
   <string name="mobile_sync_warning_serverInconsistent">Sunucu bu telefona başka bir aygıttan farklı veriler gösterdi. Mosaic’i başka bir aygıtta açın ve en son değişikliklerinizin orada olduğunu kontrol edin. Sonra “Kontrol ettim”i seçin.</string>
   <string name="mobile_sync_warning_serverRollback">Sunucudaki kasalarınızdan birinin kopyası bu telefonunkinden daha eski. Mosaic’i başka bir aygıtta açın ve en son değişikliklerinizin orada olduğunu kontrol edin. Sonra “Kontrol ettim”i seçin.</string>
-  <string name="mobile_sync_warning_sharingAttention">Paylaşılan bir kasanın ilgilenmeniz gerekiyor: bir anahtar değişikliği bekliyor veya bir üye denetlenemedi. Hangisi olduğunu görmek için Mosaic’i bilgisayarınızda açın. Sonra “Kontrol ettim”i seçin.</string>
+  <string name="mobile_sync_warning_sharingAttention">Paylaşılan bir kasayla ilgilenmeniz gerekiyor: bir anahtar değişikliği bekliyor veya bir üye denetlenemedi. Hangisi olduğunu görmek için Mosaic’i bilgisayarınızda açın. Sonra “Kontrol ettim”i seçin.</string>
   <plurals name="mobile_sync_warning_undecryptable">
     <item quantity="one">Alınan %1$d öğe bu telefonda okunamadı. Mosaic’i tüm aygıtlarınızda güncelleyin, sonra yeniden eşitleyin.</item>
     <item quantity="other">Alınan %1$d öğe bu telefonda okunamadı. Mosaic’i tüm aygıtlarınızda güncelleyin, sonra yeniden eşitleyin.</item>
@@ -511,5 +511,5 @@
   <string name="mobile_vault_favorite">Favori</string>
   <string name="mobile_vault_title">Kasanız</string>
   <string name="mobile_vault_untitled">Başlıksız</string>
-  <string name="settings_language_machineNote">Yapay zekâ yardımıyla çevrildi. Yanlış okunan bir yer varsa bize söyleyin.</string>
+  <string name="settings_language_machineNote">Yapay zekâ yardımıyla çevrildi. Kulağa yanlış gelen bir yer varsa bize bildirin.</string>
 </resources>

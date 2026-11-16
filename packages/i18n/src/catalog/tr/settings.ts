@@ -26,7 +26,7 @@ export const settings = {
   "settings.theme.dark": "Koyu",
   "settings.language": "Dil",
   "settings.language.system": "Sistemi izle",
-  "settings.language.machineNote": "Yapay zekâ yardımıyla çevrildi. Yanlış okunan bir yer varsa bize söyleyin.",
+  "settings.language.machineNote": "Yapay zekâ yardımıyla çevrildi. Kulağa yanlış gelen bir yer varsa bize bildirin.",
   "settings.import": "İçe aktar",
   "settings.import.body":
     "Girişlerinizi bir tarayıcıdan veya başka bir parola yöneticisinden getirin. Mosaic dışa aktarma sürecinde size yol gösterir ve sonrasında dosyayı silmenize yardımcı olur.",

@@ -28,7 +28,7 @@ export const unlock = {
   "lock.autoLockInfo": "{minutes, plural, one {# dakika} other {# dakika}} hareketsiz kalınca otomatik kilitlenir.",
   "lock.forgot.title": "Ana parolanızı mı unuttunuz?",
   "lock.forgot.body":
-    "Mosaic onu sıfırlayamaz, çünkü yalnızca siz biliyorsunuz. Acil Durum Kitinize yazıp yazmadığınızı kontrol edin. Aksi halde yeni bir hesap başlatın.",
+    "Mosaic onu sıfırlayamaz, çünkü yalnızca siz biliyorsunuz. Acil Durum Kitinize yazıp yazmadığınızı kontrol edin. Aksi halde yeni bir hesap oluşturun.",
   "lock.quick.waitingWindows": "Windows Hello bekleniyor…",
   "lock.quick.waitingMac": "Touch ID bekleniyor…",
   "lock.quick.touchKey": "Anahtarınızı takın ve yanıp sönünce dokunun.",

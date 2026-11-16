@@ -98,7 +98,7 @@ export const sharing = {
   "sharing.inbox.preview.owner": "O cofre pertence a {email}.",
   "sharing.inbox.verifySender": "Antes de entrar, compare o código de segurança de {email}.",
   "sharing.inbox.verifyOwner":
-    "{sender} não é o proprietário. Antes de entrar, compare também o código de segurança do proprietário: é ele quem pode alterar a chave do cofre.",
+    "{sender} não é o proprietário. Antes de entrar, compare também o código de segurança do proprietário: é o proprietário quem pode alterar a chave do cofre.",
   "sharing.inbox.ownerCode": "Código do proprietário, {email}",
   "sharing.inbox.accept": "Entrar no cofre",
   "sharing.inbox.readyTitle": "Tudo verificado. Entrar neste cofre?",
@@ -223,7 +223,7 @@ export const sharing = {
   "emergency.grant.wait": "Tempo de espera",
   "emergency.grant.wait.option": "{days, plural, one {# dia} other {# dias}}",
   "emergency.grant.waitHint":
-    "Abra o Mosaic pelo menos uma vez dentro deste tempo após um pedido, para poder vê-lo e recusar. Quando o tempo acabar, a pessoa recebe acesso somente de leitura, sem mais nenhuma pergunta a você.",
+    "Abra o Mosaic pelo menos uma vez dentro deste tempo após um pedido, para poder vê-lo e recusar. Quando o tempo acabar, a pessoa recebe acesso somente de leitura, sem que ninguém pergunte a você de novo.",
   "emergency.grant.serverTrust":
     "O servidor controla o tempo de espera. Se a pessoa indicada e quem administra o servidor agirem em conjunto, poderiam pulá-lo. O servidor sozinho não consegue ler os seus cofres.",
   "emergency.grant.vaultKeysOnly":
