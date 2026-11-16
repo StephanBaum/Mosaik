@@ -6741,7 +6741,7 @@ them inside the chosen folder, and the provider client has a loopback `http` swi
 - **Metadata call before every Graph download.** Rejected: the download response carries its length, which is
   checked against the cap before the body is read.
 
-## ADR-0167: Change-aware CI for pull requests
+## ADR-0169: Change-aware CI for pull requests
 
 - Status: accepted
 - Date: 2026-11-16

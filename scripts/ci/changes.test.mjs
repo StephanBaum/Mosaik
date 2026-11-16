@@ -1,5 +1,5 @@
 /**
- * Self-test of the change detection (docs/CI.md, ADR-0167). The `Detect changes` job runs it before
+ * Self-test of the change detection (docs/CI.md, ADR-0169). The `Detect changes` job runs it before
  * it computes the plan, so a broken detection fails the required jobs.
  *
  *   node --test scripts/ci/changes.test.mjs
@@ -170,7 +170,7 @@ test("fuzz, supply chain, release and server image", () => {
   assert.equal(f.release, "true");
   assert.equal(f.rust_os, "ubuntu-latest");
   assert.equal(f.rust_args, "");
-  assert.equal(p(["crates/agent/fuzz/fuzz_targets/x.rs"]).fuzz, "[]"); // not in CI before ADR-0167 either
+  assert.equal(p(["crates/agent/fuzz/fuzz_targets/x.rs"]).fuzz, "[]"); // not in CI before ADR-0169 either
   assert.equal(p(["crates/sync/Cargo.toml"]).supply_chain, "true");
   assert.equal(p(["scripts/release/sign.sh"]).release, "true");
   assert.equal(p(["scripts/release/sign.sh"]).supply_chain, "false");

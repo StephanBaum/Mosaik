@@ -1,6 +1,6 @@
 name: CI
 
-# Change-aware (docs/CI.md, ADR-0167). A pull request runs what its changes can affect; pushes to
+# Change-aware (docs/CI.md, ADR-0169). A pull request runs what its changes can affect; pushes to
 # main, the nightly schedule and manual runs run everything. The required checks always run and end
 # green or red: an unaffected one finishes in seconds on a Linux runner, and every one of them fails
 # when the change detection fails (fail closed).

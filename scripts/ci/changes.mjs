@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Change detection for CI (docs/CI.md, ADR-0167): which jobs a pull request needs.
+ * Change detection for CI (docs/CI.md, ADR-0169): which jobs a pull request needs.
  *
  *   node scripts/ci/changes.mjs --base <sha> --head <sha> [--github-output <file>]
  *   node scripts/ci/changes.mjs --files <list, one path per line> [--github-output <file>]
@@ -22,7 +22,7 @@ export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const OSES = ["ubuntu-latest", "windows-latest", "macos-latest"];
 const LINUX_WINDOWS = ["ubuntu-latest", "windows-latest"];
 
-/** Coverage jobs (brief §8 and the crates held to the same bar), as in ci.yml before ADR-0167. */
+/** Coverage jobs (brief §8 and the crates held to the same bar), as in ci.yml before ADR-0169. */
 export const COVERAGE = [
   { crate: "mosaic-core" },
   { crate: "mosaic-totp" },
@@ -47,7 +47,7 @@ export const COVERAGE = [
   { crate: "mosaic-mobile" },
 ];
 
-/** Fuzz smoke directories, as in ci.yml before ADR-0167 (crates/agent/fuzz is not in CI). */
+/** Fuzz smoke directories, as in ci.yml before ADR-0169 (crates/agent/fuzz is not in CI). */
 export const FUZZ_DIRS = [
   "crates/core/fuzz",
   "crates/vault/fuzz",

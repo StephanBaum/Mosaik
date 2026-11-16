@@ -1,9 +1,9 @@
 # CI: what runs when
 
 A pull request runs only the jobs its changes can affect. Pushes to `main`, the nightly run
-(03:00 UTC) and manual runs run everything. Decision record: ADR-0167 in `docs/DECISIONS.md`.
+(03:00 UTC) and manual runs run everything. Decision record: ADR-0169 in `docs/DECISIONS.md`.
 
-The repository is on the free plan: 20 concurrent jobs, 5 of them macOS. Before ADR-0167, every pull
+The repository is on the free plan: 20 concurrent jobs, 5 of them macOS. Before ADR-0169, every pull
 request started about 55 jobs, and a Windows Rust build takes up to two hours, so a few open pull
 requests kept the queue busy for hours.
 
