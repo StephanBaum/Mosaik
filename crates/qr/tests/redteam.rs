@@ -166,3 +166,28 @@ proptest! {
         }
     }
 }
+
+/// The fuzz smoke's crash of 2026-11-15 (`scan_luma`): capstone corners that
+/// give no perspective made rqrr panic (`rotated perspective can't fail`), and a
+/// release build aborts on a panic. The input is replayed through the fuzz
+/// target's decoding of its bytes; the scan must return, not panic.
+#[test]
+fn a_degenerate_capstone_does_not_panic() {
+    let data: &[u8] = include_bytes!("../fuzz/seeds/scan_luma/degenerate-capstone.bin");
+    let (head, pixels) = data.split_at(3);
+    let layout = LAYOUTS[usize::from(head[0]) % LAYOUTS.len()];
+    let bpp = layout.bytes_per_pixel();
+    let width = usize::from(u16::from_le_bytes([head[1], head[2]])).clamp(21, 1024);
+    let stride = width * bpp;
+    let height = pixels.len() / stride;
+    assert!(height >= 21, "the seed is a real frame");
+    let frame = Frame::new(
+        u32::try_from(width).unwrap(),
+        u32::try_from(height).unwrap(),
+        stride,
+        layout,
+        pixels,
+    )
+    .unwrap();
+    let _ = scan_frames(&[frame]);
+}
