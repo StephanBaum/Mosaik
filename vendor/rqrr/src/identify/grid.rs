@@ -56,9 +56,10 @@ impl SkewedGridLocation {
         /* Rotate each capstone so that corner 0 is top-left with respect
          * to the grid.
          */
-        rotate_capstone(&mut group.0, &h0, &hd);
-        rotate_capstone(&mut group.1, &h0, &hd);
-        rotate_capstone(&mut group.2, &h0, &hd);
+        // Mosaic patch: a degenerate capstone ends this grouping instead of panicking.
+        rotate_capstone(&mut group.0, &h0, &hd)?;
+        rotate_capstone(&mut group.1, &h0, &hd)?;
+        rotate_capstone(&mut group.2, &h0, &hd)?;
 
         /* Check the timing pattern. This doesn't require a perspective
          * transform.
@@ -164,18 +165,19 @@ where
     Some(jiggle_perspective(img, initial, grid_size))
 }
 
-fn rotate_capstone(cap: &mut CapStone, h0: &Point, hd: &Point) {
+// Mosaic patch: returns None (no panic) when the rotated corners give no perspective; a hostile
+// image can produce such corners (fuzz smoke, scan_luma, 2026-11-15).
+fn rotate_capstone(cap: &mut CapStone, h0: &Point, hd: &Point) -> Option<()> {
     let (best_idx, _) = cap
         .corners
         .iter()
         .enumerate()
-        .min_by_key(|(_, a)| (a.x - h0.x) * (-hd.y) + (a.y - h0.y) * hd.x)
-        .expect("corners cannot be empty");
+        .min_by_key(|(_, a)| (a.x - h0.x) * (-hd.y) + (a.y - h0.y) * hd.x)?;
 
     /* Rotate the capstone */
     cap.corners.rotate_left(best_idx);
-    cap.c = geometry::Perspective::create(&cap.corners, 7.0, 7.0)
-        .expect("rotated perspective can't fail");
+    cap.c = geometry::Perspective::create(&cap.corners, 7.0, 7.0)?;
+    Some(())
 }
 
 //* Try the measure the timing pattern for a given QR code. This does

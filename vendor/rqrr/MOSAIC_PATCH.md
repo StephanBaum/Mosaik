@@ -40,3 +40,12 @@ image (Mosaic limits sides to 16384 px), so decoding of valid codes is
 unchanged. The vendored crate's own unit tests need upstream's `image`
 dev-dependency (removed), so the regression check is the `scan_luma` fuzz smoke
 that found it. Marked `// Mosaic patch:`.
+
+## Third patch: no panic on a degenerate capstone (2026-11-15)
+
+The CI fuzz smoke (`scan_luma`) hit `.expect("rotated perspective can't fail")` in
+`rotate_capstone` (`src/identify/grid.rs`): a hostile image can give capstone corners
+from which `Perspective::create` finds no transform. Mosaic's release builds abort on
+a panic, so scanning such a screenshot closed the app. `rotate_capstone` now returns
+`Option<()>` and `SkewedGridLocation::from_group` (which already returns `Option`)
+drops that grouping. Valid codes decode as before. Marked `// Mosaic patch:`.
