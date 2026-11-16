@@ -204,6 +204,19 @@ pub fn saved_origin(url: &str) -> Option<PageOrigin> {
     PageOrigin::from_url(&parsed).ok()
 }
 
+/// Whether `text` is a binding that only a device's own link step writes: any `winapp:` URL
+/// (ADR-0164) or an `androidapp:` URL with a query, the form that carries `?cert=` (ADR-0092).
+/// Imports and the item editors never store one as a login URL (cross-feature red team F1).
+/// Surrounding whitespace is ignored and the scheme compares ASCII case-insensitively.
+#[must_use]
+pub fn is_device_link_url(text: &str) -> bool {
+    let Some((scheme, rest)) = text.trim().split_once(':') else {
+        return false;
+    };
+    scheme.eq_ignore_ascii_case("winapp")
+        || (scheme.eq_ignore_ascii_case("androidapp") && rest.contains('?'))
+}
+
 /// The registrable domain (eTLD+1) of `host` from the public suffix list.
 /// `None` for IP addresses, single labels, bare public suffixes and hosts
 /// with a trailing dot.

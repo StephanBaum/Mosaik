@@ -317,7 +317,7 @@ impl Backend {
             }
             m.offer.as_ref().ok_or_else(invalid)?.identity.clone()
         };
-        let (login, proposed, old_hash) = {
+        let (login, proposed, old_hash, shared) = {
             let slot = self.slot()?;
             let session = slot.unlocked()?;
             let context = offer::link_context(session, vault, item, &identity)?;
@@ -329,7 +329,8 @@ impl Backend {
             }
             .map_err(|_| invalid())?;
             let login = offer::login_of(session, vault, item).ok_or_else(invalid)?;
-            (login, proposed, context.old_hash)
+            let shared = offer::shared_vault(session, vault);
+            (login, proposed, context.old_hash, shared)
         };
         let confirmations = match proposed.confirmations {
             Confirmations::One => 1,
@@ -352,7 +353,8 @@ impl Backend {
             confirmed: 0,
             lookalike_of,
             hash_change,
-            submit: self.settings_snapshot().program_fill_submit,
+            // A login of a shared vault never presses Enter (ADR-0164 amendment, F2).
+            submit: self.settings_snapshot().program_fill_submit && !shared,
         };
         let effects = {
             let mut m = svc.model();

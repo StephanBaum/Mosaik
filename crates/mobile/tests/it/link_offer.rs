@@ -312,16 +312,17 @@ fn link_app_in_fill_session_refuses_what_is_not_a_strong_candidate() {
 
 #[test]
 fn link_offer_is_empty_when_a_login_already_matches() {
-    let (phone, _) = Phone::android_with_account();
-    let seen = hook(&phone, |_| Ok(assetlinks_json("com.example.app", &CERT)));
-    login(
-        &phone,
+    let (phone, sk) = Phone::android_with_account();
+    phone.plant_login(
+        &sk,
         "Bound",
-        vec![url(&format!(
+        &[&format!(
             "androidapp://com.example.app?cert={}",
             b64url(&CERT)
-        ))],
+        )],
+        false,
     );
+    let seen = hook(&phone, |_| Ok(assetlinks_json("com.example.app", &CERT)));
     imported(&phone, "Old import", "com.example.app");
     login(&phone, "Site", vec![url("https://example.com")]);
     assert!(
