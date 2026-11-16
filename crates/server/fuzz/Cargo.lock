@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aead-stream",
  "argon2",
@@ -993,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-generator"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "serde_json",
@@ -1003,7 +1003,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-insights"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac 0.13.0",
  "mosaic-core",
@@ -1020,18 +1020,20 @@ dependencies = [
 
 [[package]]
 name = "mosaic-origin"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
+ "base64ct",
  "idna",
  "mosaic-core",
  "psl",
+ "serde_json",
  "thiserror",
  "url",
 ]
 
 [[package]]
 name = "mosaic-server"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "base64ct",
@@ -1039,6 +1041,8 @@ dependencies = [
  "getrandom 0.4.3",
  "hkdf 0.13.0",
  "hmac 0.13.0",
+ "hyper",
+ "hyper-util",
  "mosaic-core",
  "mosaic-sync",
  "mosaic-totp",
@@ -1073,7 +1077,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-sync"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "getrandom 0.4.3",
@@ -1092,7 +1096,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-totp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac 0.13.0",
  "sha1",
@@ -1104,7 +1108,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-vault"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "mosaic-core",
@@ -1114,7 +1118,9 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror",
+ "unicode-normalization",
  "zeroize",
 ]
 
@@ -1280,9 +1286,9 @@ dependencies = [
 
 [[package]]
 name = "psl"
-version = "2.1.248"
+version = "2.1.253"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db58c388e851a5e62d8b5373b0f41135edac0bd43009832ba362691089d7367c"
+checksum = "82576eafaa94759a92a0cf047f34d227665811d5cdf70f4b11e25cd813f3de54"
 dependencies = [
  "psl-types",
 ]
@@ -1736,9 +1742,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.8+spec-1.1.0"
+version = "1.2.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20489e00e4d8741d6be680764cc12e270655e375a20d1011e844a9c3379e678d"
+checksum = "d5755c51863cdac711f1956baf8eb9588e060755f7d3c4c979e70ea1e1f32cd7"
 dependencies = [
  "serde_core",
  "serde_spanned",
