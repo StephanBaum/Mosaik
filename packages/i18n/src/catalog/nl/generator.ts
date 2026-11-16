@@ -1,0 +1,35 @@
+// UNTRANSLATED: copy of English, replace every value
+/**
+ * Dutch UI strings: generator. Same keys as English (checked by the type).
+ * ICU plural categories of Dutch: one, other (CLDR; `other` is required).
+ */
+import type { generator as en } from "../en/generator.ts";
+
+export const generator = {
+  "generator.title": "Password generator",
+  "generator.mode": "Type",
+  "generator.mode.password": "Characters",
+  "generator.mode.passphrase": "Words",
+  "generator.length": "Length",
+  "generator.words": "Words",
+  "generator.lowercase": "Lowercase letters",
+  "generator.uppercase": "Uppercase letters",
+  "generator.digits": "Digits",
+  "generator.symbols": "Symbols",
+  "generator.excludeAmbiguous": "Leave out look-alike characters",
+  "generator.capitalize": "Capitalize words",
+  "generator.appendDigit": "Add a digit",
+  "generator.result": "Generated password",
+  "generator.entropy": "{bits} bits of entropy",
+  "generator.strength.veryWeak": "Very weak",
+  "generator.strength.weak": "Weak",
+  "generator.strength.fair": "Fair",
+  "generator.strength.strong": "Strong",
+  "generator.strength.veryStrong": "Very strong",
+  "generator.strengthLabel": "Strength: {strength}",
+  "generator.strengthShort": "{strength} · {bits} bits",
+  "generator.minorHint": "Digits and symbols in grey",
+  "generator.lengthValue": "{length} characters",
+  "generator.wordsValue": "{length} words",
+  "generator.characters": "Characters",
+} satisfies Record<keyof typeof en, string>;

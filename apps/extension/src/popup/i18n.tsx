@@ -1,6 +1,7 @@
 /** UI strings: every text comes from `@mosaic/i18n` (UX_GUIDELINES §6). */
 import {
   formatMessage,
+  isMachineTranslated,
   type Locale,
   type MessageKey,
   type MessageValues,
@@ -13,6 +14,11 @@ export interface I18n {
   t: (key: MessageKey, values?: MessageValues) => string;
   /** What happened and what to do, for any error code the extension can show. */
   errorText: (code: ErrorCode) => string;
+  /**
+   * "Translated with AI help…" when the popup's language was translated that way (ADR-0168);
+   * the popup follows the browser language, so the note goes under its "more" menu.
+   */
+  machineNote: string | undefined;
 }
 
 const I18nContext = createContext<I18n | null>(null);
@@ -23,6 +29,9 @@ export function I18nProvider({ locale, children }: { locale: Locale; children: R
       locale,
       t: (key, values) => formatMessage(locale, key, values),
       errorText: (code) => formatMessage(locale, `ext.error.${code}`),
+      machineNote: isMachineTranslated(locale)
+        ? formatMessage(locale, "settings.language.machineNote")
+        : undefined,
     }),
     [locale],
   );

@@ -1,0 +1,102 @@
+// UNTRANSLATED: copy of English, replace every value
+/**
+ * Spanish UI strings: onboarding. Same keys as English (checked by the type).
+ * ICU plural categories of Spanish: one, many, other (CLDR; `other` is required).
+ */
+import type { onboarding as en } from "../en/onboarding.ts";
+
+export const onboarding = {
+  "onboarding.secretKey.title": "Your Secret Key",
+  "onboarding.secretKey.body":
+    "Your Secret Key and master password together unlock your vault. We can't recover either of them.",
+  "onboarding.secretKey.verify": "Type the last group of your Secret Key to confirm you saved it.",
+  "onboarding.secretKey.mistyped":
+    "That doesn't match. Check the last group in your Emergency Kit.",
+  "onboarding.step": "Step {current} of {total}",
+  "onboarding.create.title": "Create your account",
+  "onboarding.create.body":
+    "Your master password and a Secret Key we generate on this device together unlock your vault. Neither is ever sent to the server.",
+  "onboarding.create.email": "Email",
+  "onboarding.create.password": "Master password",
+  "onboarding.create.passwordHint": "Four unrelated words work well. Use it only for Mosaic.",
+  "onboarding.create.confirm": "Confirm master password",
+  "onboarding.create.mismatch":
+    "The two passwords don't match. Type the same master password in both fields.",
+  "onboarding.create.submit": "Create account",
+  "onboarding.create.working": "Creating your account. This takes a few seconds.",
+  "onboarding.kit.accountId": "Account ID",
+  "onboarding.kit.secretKey": "Secret Key",
+  "onboarding.kit.lastGroup": "Last group of your Secret Key",
+  "onboarding.kit.confirm": "Confirm",
+  "kit.title": "Save your Emergency Kit",
+  "kit.body":
+    "The kit is a PDF with your Secret Key. Together with your master password it opens your vault on a new device. Keep it somewhere safe, away from this computer.",
+  "kit.secretKey": "Your Secret Key",
+  "kit.save": "Save Emergency Kit (PDF)",
+  "kit.saved": "Saved. Keep the file somewhere safe.",
+  "kit.cancelled": "Not saved yet. Save the kit to continue.",
+  "kit.recover.alreadySaved": "I already saved it",
+  "kit.recover.title": "Save your Emergency Kit again",
+  "kit.recover.body":
+    "You haven't confirmed your Emergency Kit yet. Enter your master password to save it again, then confirm the last group of your Secret Key.",
+  "onboarding.import.title": "Bring your passwords along",
+  "onboarding.import.body":
+    "From Chrome, Edge, Firefox, Safari and other browsers, or from 1Password, Bitwarden, LastPass, Dashlane, Keeper, NordPass, Proton Pass, RoboForm, KeePass and Enpass. It takes a few minutes. You can also do it later in Settings.",
+  "onboarding.import.start": "Import from another app",
+  "onboarding.import.skip": "Skip for now",
+  "onboarding.done.title": "You're all set",
+  "onboarding.done.body": "Your vault is ready. Lock it any time with the Lock button.",
+  "onboarding.browser.title": "Install the browser extension",
+  "onboarding.browser.body":
+    "Fill logins in your browser. The extension only fills when you click it or use its keyboard shortcut.",
+  "onboarding.browser.steps": "How to connect a browser",
+  "onboarding.browser.step1": "Install the Mosaic extension in your browser.",
+  "onboarding.browser.step2": "Open the extension and choose Connect.",
+  "onboarding.browser.step3":
+    "Check that the code matches, then choose Allow in the window that opens here.",
+  "onboarding.browser.notInStores":
+    "The extension isn't in the browser stores yet. You can connect it later in Settings → Browsers.",
+  "onboarding.browser.getFor": "Get for {browser}",
+  "onboarding.browser.connectedList": "Connected browsers",
+  "onboarding.browser.waiting": "Waiting for the extension. No browser is connected yet.",
+  "onboarding.browser.connected": "{name} connected",
+  "onboarding.browser.done": "Done",
+  "onboarding.browser.skip": "Skip for now",
+  "onboarding.progress": "Setup progress",
+  "onboarding.stepName.create": "Create account",
+  "onboarding.stepName.kit": "Emergency Kit",
+  "onboarding.stepName.verify": "Confirm your kit",
+  "onboarding.stepName.import": "Import (optional)",
+  "onboarding.stepName.browser": "Browser extension (optional)",
+  "kit.preview": "Emergency Kit preview",
+  "kit.continueHint": "Save the kit to continue.",
+  "kit.warning":
+    "Without this kit and your master password, nobody can recover your vault, not even us.",
+  "onboarding.join.link": "I already use Mosaic",
+  "onboarding.join.title": "Add this device to your account",
+  "onboarding.join.body":
+    "Sign in with your master password and the Secret Key from your Emergency Kit. Your vaults are then downloaded and decrypted on this device.",
+  "onboarding.join.tabs": "Where is your sync data?",
+  "onboarding.join.tab.server": "Mosaic server",
+  "onboarding.join.tab.folder": "Cloud folder",
+  "onboarding.join.serverUrl": "Server address",
+  "onboarding.join.email": "Sync account email",
+  "onboarding.join.password": "Master password",
+  "onboarding.join.secretKey": "Secret Key",
+  "onboarding.join.secretKeyHint": "From your Emergency Kit. It starts with M1.",
+  "onboarding.join.deviceName": "Name of this device",
+  "onboarding.join.chooseFolder": "Choose folder…",
+  "onboarding.join.folder": "Folder",
+  "onboarding.join.noAccounts":
+    "This folder holds no Mosaic account. Choose the folder your other device syncs to.",
+  "onboarding.join.account": "Account",
+  "onboarding.join.accountOption": "Account {id}",
+  "onboarding.join.submit": "Add this device",
+  "onboarding.join.working": "Signing in and downloading your vaults…",
+  "onboarding.join.twoFactor.title": "Enter your code",
+  "onboarding.join.twoFactor.body":
+    "Your sync account uses two-step verification. Enter the 6-digit code from your authenticator app.",
+  "onboarding.join.twoFactor.code": "6-digit code",
+  "onboarding.join.twoFactor.submit": "Verify",
+  "onboarding.join.back": "Create a new account instead",
+} satisfies Record<keyof typeof en, string>;

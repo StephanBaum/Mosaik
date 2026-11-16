@@ -6,13 +6,44 @@
 import { IntlMessageFormat } from "intl-messageformat";
 import { de } from "./de.ts";
 import { en, type MessageKey } from "./en.ts";
+import { es } from "./es.ts";
+import { fr } from "./fr.ts";
+import { it } from "./it.ts";
+import { ja } from "./ja.ts";
+import { ko } from "./ko.ts";
+import type { Locale } from "./locales.ts";
+import { nl } from "./nl.ts";
+import { pl } from "./pl.ts";
+import { pt } from "./pt.ts";
+import { tr } from "./tr.ts";
+import { zh } from "./zh.ts";
 
 export type { MessageKey };
+export {
+  isMachineTranslated,
+  localeNames,
+  localeOf,
+  locales,
+  negotiateLocale,
+  pluralCategories,
+  reviewedLocales,
+  type Locale,
+} from "./locales.ts";
 
-export const locales = ["en", "de"] as const;
-export type Locale = (typeof locales)[number];
-
-export const catalogs: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = { en, de };
+export const catalogs: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = {
+  en,
+  de,
+  es,
+  fr,
+  it,
+  pt,
+  nl,
+  pl,
+  tr,
+  ja,
+  ko,
+  zh,
+};
 
 /** Values for a message's ICU arguments. */
 export type MessageValues = Readonly<Record<string, string | number | Date>>;
@@ -34,40 +65,45 @@ export function formatMessage(locale: Locale, key: MessageKey, values?: MessageV
   return Array.isArray(result) ? result.join("") : String(result);
 }
 
-/** Pick the best supported locale for a BCP 47 preference list; English is the fallback. */
-export function negotiateLocale(preferred: readonly string[]): Locale {
-  for (const tag of preferred) {
-    const base = tag.toLowerCase().split("-")[0];
-    const match = locales.find((locale) => locale === base);
-    if (match) {
-      return match;
-    }
-  }
-  return "en";
-}
-
 /**
  * Names of all ICU arguments in a message, including arguments nested in plural/select
  * branches, e.g. `{n, plural, one {# for {who}}}` → `n`, `who`. `#` is not an argument.
  * Apostrophe quoting is not used in Mosaic catalogs and is not interpreted.
  */
 export function icuArguments(message: string): Set<string> {
-  const names = new Set<string>();
-  const end = parseMessage(message, 0, names, false);
+  return parseIcu(message).names;
+}
+
+/**
+ * The branch selectors of every `plural` in a message, at any depth, e.g.
+ * `{n, plural, =0 {none} one {#} other {#}}` → `[["=0", "one", "other"]]`.
+ */
+export function icuPluralSelectors(message: string): string[][] {
+  return parseIcu(message).plurals;
+}
+
+interface Found {
+  names: Set<string>;
+  plurals: string[][];
+}
+
+function parseIcu(message: string): Found {
+  const found: Found = { names: new Set<string>(), plurals: [] };
+  const end = parseMessage(message, 0, found, false);
   if (end !== message.length) {
     throw new Error(`Unbalanced "}" in message: ${message}`);
   }
-  return names;
+  return found;
 }
 
 const branchingTypes = new Set(["plural", "select", "selectordinal"]);
 
 // Parses message text from `i`; returns the index of the closing "}" (nested) or the end.
-function parseMessage(s: string, i: number, names: Set<string>, nested: boolean): number {
+function parseMessage(s: string, i: number, found: Found, nested: boolean): number {
   while (i < s.length) {
     const ch = s[i];
     if (ch === "{") {
-      i = parseArgument(s, i + 1, names);
+      i = parseArgument(s, i + 1, found);
     } else if (ch === "}") {
       if (nested) {
         return i;
@@ -114,8 +150,9 @@ function skipSpace(s: string, i: number): number {
   return j;
 }
 
-// Parses one `selector {message}` (or `offset:n`) at `i`; returns the index after it.
-function parseBranch(s: string, i: number, names: Set<string>): number {
+// Parses one `selector {message}` (or `offset:n`) at `i`; returns the index after it. The
+// selector goes to `selectors`.
+function parseBranch(s: string, i: number, found: Found, selectors: string[]): number {
   if (i >= s.length) {
     throw new Error(`Unbalanced "{" in message: ${s}`);
   }
@@ -130,28 +167,33 @@ function parseBranch(s: string, i: number, names: Set<string>): number {
   if (s[next] !== "{") {
     throw new Error(`Expected "{" after branch selector in message: ${s}`);
   }
-  return parseMessage(s, next + 1, names, true) + 1;
+  selectors.push(selector[0]);
+  return parseMessage(s, next + 1, found, true) + 1;
 }
 
-// Branches until the closing "}"; returns the index after it.
-function parseBranches(s: string, start: number, names: Set<string>): number {
+// Branches until the closing "}"; returns the index after it. A plural's selectors are recorded.
+function parseBranches(s: string, start: number, found: Found, plural: boolean): number {
+  const selectors: string[] = [];
+  if (plural) {
+    found.plurals.push(selectors);
+  }
   let i = skipSpace(s, start);
   while (s[i] !== "}") {
-    i = skipSpace(s, parseBranch(s, i, names));
+    i = skipSpace(s, parseBranch(s, i, found, selectors));
   }
   return i + 1;
 }
 
 // Parses `name[, type[, style | branches]]}` starting after "{"; returns the index after "}".
-function parseArgument(s: string, i: number, names: Set<string>): number {
+function parseArgument(s: string, i: number, found: Found): number {
   const header = parseHeader(s, i);
-  names.add(header.name);
+  found.names.add(header.name);
   const next = i + header.length;
   if (header.terminator === "}") {
     return next;
   }
   if (header.type !== undefined && branchingTypes.has(header.type)) {
-    return parseBranches(s, next, names);
+    return parseBranches(s, next, found, header.type === "plural");
   }
   // Simple style such as `{d, date, short}`: skip to the closing "}".
   const close = s.indexOf("}", next);

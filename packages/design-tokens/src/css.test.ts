@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cssVariables } from "./css.ts";
+import { cssVariables, languageFontRules } from "./css.ts";
 import { colors, fontSize, primaryAction, radius, space } from "./index.ts";
 
 describe("cssVariables", () => {
@@ -55,5 +55,27 @@ describe("cssVariables", () => {
 
   it("never references a remote resource", () => {
     expect(css).not.toMatch(/url\(|@import|https?:/);
+  });
+});
+
+describe("languageFontRules", () => {
+  const css = languageFontRules();
+
+  it("gives Japanese, Korean and Chinese a CJK system font after DM Sans", () => {
+    for (const [lang, font] of [
+      ["ja", "Yu Gothic UI"],
+      ["ko", "Malgun Gothic"],
+      ["zh", "Microsoft YaHei UI"],
+    ] as const) {
+      const rule = `:root:lang(${lang}) {\n  --font-ui: "DM Sans", `;
+      expect(css).toContain(rule);
+      const stack = css.slice(css.indexOf(rule)).split(";")[0] ?? "";
+      expect(stack).toContain(`"${font}"`);
+    }
+  });
+
+  it("loads nothing and leaves the shared token block alone", () => {
+    expect(css).not.toMatch(/url\(|@import|@font-face/);
+    expect(cssVariables()).not.toContain(":lang(");
   });
 });

@@ -15,6 +15,66 @@
             "state" : "translated",
             "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
           }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
         }
       }
     },
@@ -28,6 +88,66 @@
           }
         },
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
+          }
+        },
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."

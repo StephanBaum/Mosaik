@@ -1,0 +1,54 @@
+// UNTRANSLATED: copy of English, replace every value
+/**
+ * Spanish UI strings: app. Same keys as English (checked by the type).
+ * ICU plural categories of Spanish: one, many, other (CLDR; `other` is required).
+ */
+import type { app as en } from "../en/app.ts";
+
+export const app = {
+  "app.name": "Mosaic",
+  "app.preAudit": "Pre-audit software: not yet reviewed by an external security auditor.",
+  "app.previewTag": "Preview",
+  "app.previewBuild": "Preview build, not a release. Unsigned, pre-audit, for trying out only.",
+  "action.cancel": "Cancel",
+  "action.continue": "Continue",
+  "action.retry": "Retry",
+  "action.copy": "Copy",
+  "action.reveal": "Reveal",
+  "action.hide": "Hide",
+  "action.lock": "Lock",
+  "action.details": "Details",
+  "sync.offline":
+    "Couldn't reach your sync server. Your changes are saved on this device and will sync when you're back online.",
+  "app.loading": "Opening Mosaic…",
+  "app.skipToContent": "Skip to content",
+  "action.save": "Save",
+  "action.close": "Close",
+  "action.showPassword": "Show password",
+  "action.hidePassword": "Hide password",
+  "action.back": "Back",
+  "action.confirm": "Confirm",
+  "action.edit": "Edit",
+  "action.delete": "Move to Trash",
+  "action.restore": "Restore",
+  "action.purge": "Delete forever",
+  "action.generate": "Generate",
+  "action.useThis": "Use this",
+  "action.done": "Done",
+  "nav.main": "Main navigation",
+  "nav.vault": "Vault",
+  "nav.security": "Security",
+  "nav.generator": "Generator",
+  "nav.settings": "Settings",
+  "nav.trash": "Trash",
+  "nav.breadcrumb": "Breadcrumb",
+  "nav.securityCount": "{count, plural, one {# finding to review} other {# findings to review}}",
+  "sync.status.local": "Stored on this device",
+  "sync.status.upToDate": "Synced",
+  "sync.status.attention": "Needs attention",
+  "sync.status.syncing": "Syncing…",
+  "sync.status.offline": "Offline",
+  "sync.status.error": "Sync failed",
+  "action.moreActions": "More actions",
+  "action.regenerate": "Regenerate",
+} satisfies Record<keyof typeof en, string>;

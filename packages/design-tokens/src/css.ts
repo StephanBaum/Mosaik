@@ -12,6 +12,7 @@ import {
   colors,
   fontFamily,
   fontSize,
+  languageFontFamily,
   layer,
   motion,
   overlay,
@@ -75,4 +76,15 @@ export function cssVariables(): string {
     `:root[data-theme="dark"] {\n  color-scheme: dark;\n${dark}\n}`,
     `@media (prefers-reduced-motion: reduce) {\n  :root {\n    --motion-micro: 0ms;\n    --motion-panel: 0ms;\n  }\n}`,
   ].join("\n\n");
+}
+
+/**
+ * The CJK font stacks of `languageFontFamily` as `:root:lang(<lang>)` overrides of `--font-ui`,
+ * for the apps (desktop, extension) that set `lang` on the root element. Kept apart from
+ * `cssVariables`, whose output the security-key page embeds as is.
+ */
+export function languageFontRules(): string {
+  return Object.entries(languageFontFamily)
+    .map(([lang, stack]) => `:root:lang(${lang}) {\n  --font-ui: ${stack};\n}`)
+    .join("\n\n");
 }

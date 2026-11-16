@@ -23,8 +23,8 @@ export const settings = {
   "settings.theme.dark": "Dunkel",
   "settings.language": "Sprache",
   "settings.language.system": "Wie das System",
-  "settings.language.en": "Englisch",
-  "settings.language.de": "Deutsch",
+  "settings.language.machineNote":
+    "Mit KI-Hilfe übersetzt. Wenn etwas falsch klingt, sag uns Bescheid.",
   "settings.import": "Import",
   "settings.import.body":
     "Hol deine Zugangsdaten aus einem Browser oder einem anderen Passwortmanager. Mosaic führt dich durch den Export und hilft dir, die Datei danach zu löschen.",

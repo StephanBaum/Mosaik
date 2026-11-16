@@ -1,35 +1,101 @@
-//! CLI messages (spec §3.8, ADR-0075). The EN and DE texts live in `packages/i18n`
-//! (`catalog/{en,de}/cli.ts`); `pnpm --filter @mosaic/i18n export:cli` writes the JSON that is
+//! CLI messages (spec §3.8, ADR-0075, ADR-0168). The texts live in `packages/i18n`
+//! (`catalog/<lang>/cli.ts`); `pnpm --filter @mosaic/i18n export:cli` writes the JSON that is
 //! embedded here. Placeholders are plain `{name}`.
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-/// A message language.
+/// A message language, in the order of `locales` in `packages/i18n`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lang {
     /// English (the default).
     En,
     /// German, informal "du".
     De,
+    /// Spanish.
+    Es,
+    /// French.
+    Fr,
+    /// Italian.
+    It,
+    /// Portuguese, Brazilian (also for `pt-PT`).
+    Pt,
+    /// Dutch.
+    Nl,
+    /// Polish.
+    Pl,
+    /// Turkish.
+    Tr,
+    /// Japanese.
+    Ja,
+    /// Korean.
+    Ko,
+    /// Chinese, Simplified (`zh`, `zh-CN`, `zh-SG`, `zh-Hans`).
+    Zh,
 }
 
 impl Lang {
-    /// `en` or `de` (case-insensitive, region and encoding suffixes ignored).
+    /// Every language, in declaration order (`lang as usize` is the index).
+    pub const ALL: [Self; 12] = [
+        Self::En,
+        Self::De,
+        Self::Es,
+        Self::Fr,
+        Self::It,
+        Self::Pt,
+        Self::Nl,
+        Self::Pl,
+        Self::Tr,
+        Self::Ja,
+        Self::Ko,
+        Self::Zh,
+    ];
+
+    /// The catalog's code: `en`, `de`, …
     #[must_use]
-    pub fn parse(tag: &str) -> Option<Self> {
-        let lower = tag.to_ascii_lowercase();
-        if lower.starts_with("de") {
-            Some(Self::De)
-        } else if lower.starts_with("en") || lower == "c" || lower == "posix" {
-            Some(Self::En)
-        } else {
-            None
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::De => "de",
+            Self::Es => "es",
+            Self::Fr => "fr",
+            Self::It => "it",
+            Self::Pt => "pt",
+            Self::Nl => "nl",
+            Self::Pl => "pl",
+            Self::Tr => "tr",
+            Self::Ja => "ja",
+            Self::Ko => "ko",
+            Self::Zh => "zh",
         }
     }
 
-    /// `--lang`, then `MOSAIC_LANG`, then `LC_ALL`, `LC_MESSAGES`, `LANG` starting with `de`; else
-    /// English.
+    /// The language of a BCP 47 tag or POSIX locale name (`de-AT`, `pt_PT.UTF-8`, `zh-Hans-CN`;
+    /// case-insensitive). `C` and `POSIX` are English. Chinese in Traditional characters
+    /// (`zh-Hant`, `zh-TW`, `zh-HK`, `zh-MO`) is English too, never Simplified. `None`: a
+    /// language Mosaic does not have.
+    #[must_use]
+    pub fn parse(tag: &str) -> Option<Self> {
+        let lower = tag.trim().to_ascii_lowercase();
+        let name = lower.split(['.', '@']).next().unwrap_or_default();
+        let mut parts = name.split(['-', '_']);
+        let base = parts.next().unwrap_or_default();
+        if base == "c" || base == "posix" {
+            return Some(Self::En);
+        }
+        if base == "zh" {
+            let rest: Vec<&str> = parts.collect();
+            let traditional = match rest.iter().find(|part| part.len() == 4) {
+                Some(script) => *script != "hans",
+                None => rest.iter().any(|part| matches!(*part, "tw" | "hk" | "mo")),
+            };
+            return Some(if traditional { Self::En } else { Self::Zh });
+        }
+        Self::ALL.into_iter().find(|lang| lang.code() == base)
+    }
+
+    /// `--lang`, then `MOSAIC_LANG`, then the first set of `LC_ALL`, `LC_MESSAGES`, `LANG`; a
+    /// language Mosaic does not have is English.
     pub fn detect(flag: Option<&str>, env: &dyn Fn(&str) -> Option<String>) -> Self {
         if let Some(lang) = flag.and_then(Self::parse) {
             return lang;
@@ -196,13 +262,31 @@ fn load(json: &str) -> Catalog {
     serde_json::from_str(json).unwrap_or_default()
 }
 
-fn catalog(lang: Lang) -> &'static Catalog {
-    static EN: OnceLock<Catalog> = OnceLock::new();
-    static DE: OnceLock<Catalog> = OnceLock::new();
+/// The embedded JSON of `lang`.
+const fn source(lang: Lang) -> &'static str {
     match lang {
-        Lang::En => EN.get_or_init(|| load(include_str!("../i18n/en.json"))),
-        Lang::De => DE.get_or_init(|| load(include_str!("../i18n/de.json"))),
+        Lang::En => include_str!("../i18n/en.json"),
+        Lang::De => include_str!("../i18n/de.json"),
+        Lang::Es => include_str!("../i18n/es.json"),
+        Lang::Fr => include_str!("../i18n/fr.json"),
+        Lang::It => include_str!("../i18n/it.json"),
+        Lang::Pt => include_str!("../i18n/pt.json"),
+        Lang::Nl => include_str!("../i18n/nl.json"),
+        Lang::Pl => include_str!("../i18n/pl.json"),
+        Lang::Tr => include_str!("../i18n/tr.json"),
+        Lang::Ja => include_str!("../i18n/ja.json"),
+        Lang::Ko => include_str!("../i18n/ko.json"),
+        Lang::Zh => include_str!("../i18n/zh.json"),
     }
+}
+
+fn catalog(lang: Lang) -> &'static Catalog {
+    static CATALOGS: [OnceLock<Catalog>; Lang::ALL.len()] =
+        [const { OnceLock::new() }; Lang::ALL.len()];
+    static EMPTY: Catalog = BTreeMap::new();
+    CATALOGS
+        .get(lang as usize)
+        .map_or(&EMPTY, |cell| cell.get_or_init(|| load(source(lang))))
 }
 
 /// The text of `msg` in `lang` with `{name}` placeholders filled from `args` (one pass, so a value
@@ -254,20 +338,73 @@ mod tests {
     }
 
     #[test]
-    fn every_message_key_exists_in_both_catalogs_with_the_same_placeholders() {
-        let (en, de) = (catalog(Lang::En), catalog(Lang::De));
-        assert_eq!(en.keys().collect::<Vec<_>>(), de.keys().collect::<Vec<_>>());
-        for msg in Msg::ALL {
-            let (e, d) = (en.get(msg.key()), de.get(msg.key()));
-            assert!(e.is_some() && d.is_some(), "{} missing", msg.key());
-            assert_eq!(
-                placeholders(e.map_or("", String::as_str)),
-                placeholders(d.map_or("", String::as_str)),
-                "{}",
-                msg.key()
-            );
-        }
+    fn every_message_key_exists_in_every_catalog_with_the_same_placeholders() {
+        let en = catalog(Lang::En);
         assert_eq!(Msg::ALL.len(), en.len(), "a catalog key has no Msg");
+        for lang in Lang::ALL {
+            let other = catalog(lang);
+            let code = lang.code();
+            assert_eq!(
+                en.keys().collect::<Vec<_>>(),
+                other.keys().collect::<Vec<_>>(),
+                "{code}"
+            );
+            for msg in Msg::ALL {
+                let (e, o) = (en.get(msg.key()), other.get(msg.key()));
+                assert!(e.is_some() && o.is_some(), "{code} {} missing", msg.key());
+                assert_eq!(
+                    placeholders(e.map_or("", String::as_str)),
+                    placeholders(o.map_or("", String::as_str)),
+                    "{code} {}",
+                    msg.key()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_language_has_its_index_code_and_catalog() {
+        for (index, lang) in Lang::ALL.into_iter().enumerate() {
+            assert_eq!(lang as usize, index, "{lang:?}");
+            assert_eq!(Lang::parse(lang.code()), Some(lang));
+            assert_eq!(catalog(lang).len(), Msg::ALL.len(), "{lang:?}");
+        }
+    }
+
+    #[test]
+    fn tags_and_posix_names_map_to_languages() {
+        for (tag, lang) in [
+            ("de_AT.UTF-8", Lang::De),
+            ("EN-gb", Lang::En),
+            ("C", Lang::En),
+            ("POSIX", Lang::En),
+            ("C.UTF-8", Lang::En),
+            ("es_MX", Lang::Es),
+            ("fr-CA", Lang::Fr),
+            ("it_IT@euro", Lang::It),
+            ("pt_BR", Lang::Pt),
+            ("pt-PT", Lang::Pt),
+            ("nl_BE", Lang::Nl),
+            ("pl_PL.UTF-8", Lang::Pl),
+            ("tr", Lang::Tr),
+            ("ja_JP.UTF-8", Lang::Ja),
+            ("ko-KR", Lang::Ko),
+            ("zh", Lang::Zh),
+            ("zh_CN.UTF-8", Lang::Zh),
+            ("zh-SG", Lang::Zh),
+            ("zh-Hans", Lang::Zh),
+            ("zh-Hans-HK", Lang::Zh),
+            ("zh_TW.UTF-8", Lang::En),
+            ("zh-HK", Lang::En),
+            ("zh-MO", Lang::En),
+            ("zh-Hant", Lang::En),
+            ("zh-Hant-CN", Lang::En),
+        ] {
+            assert_eq!(Lang::parse(tag), Some(lang), "{tag}");
+        }
+        for tag in ["ru_RU.UTF-8", "sv", "dev", ""] {
+            assert_eq!(Lang::parse(tag), None, "{tag}");
+        }
     }
 
     #[test]
@@ -284,6 +421,11 @@ mod tests {
         };
         assert_eq!(Lang::detect(None, &env), Lang::De);
         assert_eq!(Lang::detect(Some("en"), &env), Lang::En);
+        assert_eq!(Lang::detect(Some("ja"), &env), Lang::Ja);
         assert_eq!(Lang::detect(None, &|_| None), Lang::En);
+        let taiwan = |name: &str| (name == "LANG").then(|| "zh_TW.UTF-8".to_owned());
+        assert_eq!(Lang::detect(None, &taiwan), Lang::En);
+        let russian = |name: &str| (name == "LC_ALL").then(|| "ru_RU.UTF-8".to_owned());
+        assert_eq!(Lang::detect(None, &russian), Lang::En);
     }
 }

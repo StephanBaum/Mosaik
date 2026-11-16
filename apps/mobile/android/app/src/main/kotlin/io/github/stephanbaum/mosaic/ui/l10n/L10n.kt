@@ -81,6 +81,10 @@ object L10n {
             else -> null
         }
 
+    /** Whether the strings on screen were translated with AI help (ADR-0168): the settings say so. */
+    fun isMachineTranslated(r: Resources): Boolean =
+        r.getString(R.string.l10n_locale) !in listOf("en", "de")
+
     fun errorAccountExists(r: Resources): String =
         r.getString(R.string.error_accountExists)
 
@@ -1508,4 +1512,7 @@ object L10n {
 
     fun vaultUntitled(r: Resources): String =
         r.getString(R.string.mobile_vault_untitled)
+
+    fun settingsLanguageMachineNote(r: Resources): String =
+        r.getString(R.string.settings_language_machineNote)
 }

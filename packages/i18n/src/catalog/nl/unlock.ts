@@ -1,0 +1,39 @@
+// UNTRANSLATED: copy of English, replace every value
+/**
+ * Dutch UI strings: unlock. Same keys as English (checked by the type).
+ * ICU plural categories of Dutch: one, other (CLDR; `other` is required).
+ */
+import type { unlock as en } from "../en/unlock.ts";
+
+export const unlock = {
+  "lock.unlockTitle": "Unlock Mosaic",
+  "lock.masterPassword": "Master password",
+  "lock.wrongPassword":
+    "That master password didn't work. Check Caps Lock and your keyboard layout, then try again.",
+  "lock.locked": "Mosaic is locked.",
+  "session.unlocked": "Mosaic is unlocked.",
+  "lock.secretKey": "Secret Key",
+  "lock.secretKeyHint":
+    "This device doesn't have your Secret Key yet. Type it from your Emergency Kit, and Mosaic remembers it on this device.",
+  "lock.submit": "Unlock",
+  "lock.working": "Unlocking…",
+  "lock.reason.manual": "You locked Mosaic.",
+  "lock.reason.idle": "Mosaic locked itself after a while without activity.",
+  "lock.reason.sleep": "Mosaic locked when the computer went to sleep.",
+  "lock.reason.screenLock": "Mosaic locked together with your screen.",
+  "lock.or": "or",
+  "lock.quick.biometricWindows": "Use Windows Hello",
+  "lock.quick.biometricMac": "Use Touch ID",
+  "lock.quick.biometricLinux": "Use biometrics",
+  "lock.quick.hardwareKey": "Use security key",
+  "lock.autoLockInfo": "Auto-locks after {minutes, plural, one {# minute} other {# minutes}} idle.",
+  "lock.forgot.title": "Forgot your master password?",
+  "lock.forgot.body":
+    "Mosaic can't reset it, because only you know it. Check whether you wrote it on your Emergency Kit. Otherwise, start a new account.",
+  "lock.quick.waitingWindows": "Waiting for Windows Hello…",
+  "lock.quick.waitingMac": "Waiting for Touch ID…",
+  "lock.quick.touchKey": "Insert your key and touch it when it blinks.",
+  "lock.quick.pin": "Security key PIN",
+  "lock.quick.pinSubmit": "Continue",
+  "lock.quick.cancel": "Cancel",
+} satisfies Record<keyof typeof en, string>;
