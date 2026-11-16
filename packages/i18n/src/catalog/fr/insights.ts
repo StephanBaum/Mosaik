@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * French UI strings: insights. Same keys as English (checked by the type).
  * ICU plural categories of French: one, many, other (CLDR; `other` is required).
@@ -6,44 +5,49 @@
 import type { insights as en } from "../en/insights.ts";
 
 export const insights = {
-  "insights.title": "Security",
+  "insights.title": "Sécurité",
   "insights.intro":
-    "Checks run on this device. Last checked {checkedAt, date, medium} at {checkedAt, time, short} across {count, plural, one {# item} other {# items}}.",
-  "insights.checkAgain": "Check again",
-  "insights.summary": "Summary",
-  "insights.fixFirst": "Fix these first",
-  "insights.showAll": "Show all {count, plural, one {# finding} other {# findings}}",
-  "insights.empty": "No issues found. Mosaic checks again whenever you open this page.",
-  "insights.kind.weak": "Weak",
-  "insights.kind.weak.description": "Easy to guess",
-  "insights.kind.reused": "Reused",
-  "insights.kind.reused.description": "{groups, plural, one {# group} other {# groups}}",
-  "insights.kind.old": "Old (over 1 year)",
-  "insights.kind.old.description": "Not changed in over a year",
-  "insights.kind.missingTotp": "Missing 2FA",
-  "insights.kind.missingTotp.description": "The site supports it, but you haven't set it up",
-  "insights.kind.insecureUrl": "Unsecured HTTP",
-  "insights.kind.insecureUrl.description": "Sends your password unencrypted",
-  "insights.kind.breached": "In a breach",
-  "insights.kind.breached.description": "Found by the opt-in breach check",
+    "Les vérifications s’effectuent sur cet appareil. Dernière vérification le {checkedAt, date, medium} à {checkedAt, time, short} sur {count, plural, one {# élément} other {# éléments}}.",
+  "insights.checkAgain": "Vérifier à nouveau",
+  "insights.summary": "Résumé",
+  "insights.fixFirst": "À corriger en premier",
+  "insights.showAll":
+    "Afficher {count, plural, one {le # point} other {les # points}}",
+  "insights.empty":
+    "Aucun problème détecté. Mosaic vérifie de nouveau chaque fois que vous ouvrez cette page.",
+  "insights.kind.weak": "Faibles",
+  "insights.kind.weak.description": "Faciles à deviner",
+  "insights.kind.reused": "Réutilisés",
+  "insights.kind.reused.description": "{groups, plural, one {# groupe} other {# groupes}}",
+  "insights.kind.old": "Anciens (plus d’un an)",
+  "insights.kind.old.description": "Inchangés depuis plus d’un an",
+  "insights.kind.missingTotp": "2FA manquante",
+  "insights.kind.missingTotp.description": "Le site la propose, mais vous ne l’avez pas configurée",
+  "insights.kind.insecureUrl": "HTTP non sécurisé",
+  "insights.kind.insecureUrl.description": "Envoie votre mot de passe sans chiffrement",
+  "insights.kind.breached": "Dans une fuite",
+  "insights.kind.breached.description": "Trouvé par la vérification de fuites, activée sur option",
   "insights.finding.breached":
-    "This password appears in a known data breach. Change it now, everywhere you used it.",
-  "insights.finding.weak": "Easy to guess. Change it to a generated password.",
+    "Ce mot de passe apparaît dans une fuite de données connue. Changez-le dès maintenant, partout où vous l’avez utilisé.",
+  "insights.finding.weak": "Facile à deviner. Remplacez-le par un mot de passe généré.",
   "insights.finding.reused":
-    "Also used by {count, plural, one {# other item} other {# other items}}. Give each site its own password.",
-  "insights.finding.old": "Not changed in over a year. Change it if you still use this account.",
+    "Également utilisé par {count, plural, one {# autre élément} other {# autres éléments}}. Donnez à chaque site son propre mot de passe.",
+  "insights.finding.old":
+    "Inchangé depuis plus d’un an. Changez-le si vous utilisez toujours ce compte.",
   "insights.finding.missingTotp":
-    "{site} offers two-factor codes. Turn them on there and save the code in Mosaic.",
+    "{site} propose des codes à deux facteurs. Activez-les sur le site et enregistrez le code dans Mosaic.",
   "insights.finding.insecureUrl":
-    "Uses plain HTTP: {url}. Switch to https:// if the site supports it.",
-  "insights.severity.high": "High",
-  "insights.severity.medium": "Medium",
-  "insights.severity.low": "Low",
-  "insights.action.changePassword": "Change password",
-  "insights.action.setUpTotp": "Set up 2FA",
-  "insights.action.reviewUrl": "Review",
-  "insights.attribution.twoFactor": "2FA data: 2FA Directory (2fa.directory), MIT license.",
-  "insights.counts": "{count, plural, =0 {No issues} one {# issue} other {# issues}}",
-  "insights.documentation": "How to turn it on: {url}",
-  "insights.actionFor": "{action}: {title}",
+    "Utilise du HTTP simple : {url}. Passez à https:// si le site le permet.",
+  "insights.severity.high": "Élevée",
+  "insights.severity.medium": "Moyenne",
+  "insights.severity.low": "Faible",
+  "insights.action.changePassword": "Changer le mot de passe",
+  "insights.action.setUpTotp": "Configurer la 2FA",
+  "insights.action.reviewUrl": "Examiner",
+  "insights.attribution.twoFactor":
+    "Données 2FA : 2FA Directory (2fa.directory), licence MIT.",
+  "insights.counts":
+    "{count, plural, =0 {Aucun problème} one {# problème} other {# problèmes}}",
+  "insights.documentation": "Comment l’activer : {url}",
+  "insights.actionFor": "{action} : {title}",
 } satisfies Record<keyof typeof en, string>;

@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Italian UI strings: import. Same keys as English (checked by the type).
  * ICU plural categories of Italian: one, many, other (CLDR; `other` is required).
@@ -7,97 +6,103 @@ import type { importMessages as en } from "../en/import.ts";
 
 export const importMessages = {
   "import.format.enpass": "Enpass (.json)",
-  "import.format.bitwarden": "Bitwarden (.json, unencrypted)",
+  "import.format.bitwarden": "Bitwarden (.json, non cifrato)",
   "import.format.keepass": "KeePass (.kdbx)",
   "import.format.onePassword": "1Password (.1pux)",
-  "import.format.cxf": "FIDO Credential Exchange (.json): passkeys and passwords",
+  "import.format.cxf": "FIDO Credential Exchange (.json): passkey e password",
   "import.format.dashlane": "Dashlane (.zip)",
   "import.format.keeper": "Keeper (.json)",
   "import.format.keeperCsv": "Keeper (.csv)",
-  "import.format.protonPass": "Proton Pass (.zip or .json, unencrypted)",
-  "import.format.csv": "CSV file (.csv)",
-  "import.keepassPassword": "Password of the KeePass database",
+  "import.format.protonPass": "Proton Pass (.zip o .json, non cifrato)",
+  "import.format.csv": "File CSV (.csv)",
+  "import.keepassPassword": "Password del database KeePass",
   "import.preview.ready":
-    "{count, plural, one {# item is ready to import.} other {# items are ready to import.}}",
-  "import.preview.attachments": "{count, plural, one {# attachment} other {# attachments}}",
+    "{count, plural, one {# elemento è pronto da importare.} other {# elementi sono pronti da importare.}}",
+  "import.preview.attachments": "{count, plural, one {# allegato} other {# allegati}}",
   "import.preview.duplicate":
-    "You already have an item like this. It's unticked, so it won't be imported twice.",
-  "import.preview.duplicateInFile": "This file has the same item twice. The copy is unticked.",
+    "Hai già un elemento simile. Non è selezionato, così non verrà importato due volte.",
+  "import.preview.duplicateInFile":
+    "Questo file contiene due volte lo stesso elemento. La copia non è selezionata.",
   "import.warning.unmappedFields":
-    "Some fields have no matching field in Mosaic. They were kept as custom fields.",
+    "Alcuni campi non hanno un campo corrispondente in Mosaic. Sono stati conservati come campi personalizzati.",
   "import.warning.attachmentsSkipped":
-    "Some attachments are larger than 50 MiB, don't fit your 1 GiB of attachment storage, or are missing from the export. Add them by hand after the import.",
+    "Alcuni allegati superano i 50 MiB, non rientrano nel tuo spazio di 1 GiB per gli allegati oppure mancano nell'esportazione. Aggiungili a mano dopo l'importazione.",
   "import.warning.entriesSkipped":
-    "Some entries couldn't be read and will be left out. Check them in your old password manager.",
+    "Alcune voci non sono state lette e verranno escluse. Controllale nel tuo vecchio gestore di password.",
   "import.warning.otpUnreadable":
-    "Some one-time code settings weren't recognized. They were kept as hidden fields, so set up the code again from them.",
+    "Alcune impostazioni dei codici monouso non sono state riconosciute. Sono state conservate come campi nascosti: configura di nuovo il codice a partire da quelli.",
   "import.warning.otpWeak":
-    "Some one-time codes have a secret shorter than 80 bits, so the codes are easier to guess. They were imported anyway; set them up again with a new secret when you can.",
+    "Alcuni codici monouso hanno un segreto più corto di 80 bit, quindi i codici sono più facili da indovinare. Sono stati importati comunque; configurali di nuovo con un nuovo segreto appena puoi.",
   "import.warning.passkeysNotImported":
-    "This export format doesn't contain the private keys of passkeys, so they can't be imported. The rest of those items is imported.",
-  "import.warning.passkeyUnreadable": "Some passkeys couldn't be read and were left out.",
+    "Questo formato di esportazione non contiene le chiavi private delle passkey, quindi non possono essere importate. Il resto di questi elementi viene importato.",
+  "import.warning.passkeyUnreadable":
+    "Alcune passkey non sono state lette e sono state escluse.",
   "import.warning.passkeyUnsupported":
-    "Some passkeys use a key type Mosaic doesn't support (only ES256 works) and were left out.",
+    "Alcune passkey usano un tipo di chiave che Mosaic non supporta (funziona solo ES256) e sono state escluse.",
   "import.warning.passkeysSkipped":
-    "Some passkeys were left out because there are too many (at most 100 per item and 10,000 per file).",
-  "import.warning.passkeysKeepOldApp": "Keep your old app until you've moved the passkeys.",
+    "Alcune passkey sono state escluse perché sono troppe (al massimo 100 per elemento e 10.000 per file).",
+  "import.warning.passkeysKeepOldApp":
+    "Conserva la tua vecchia app finché non hai spostato le passkey.",
   "import.entry.unmappedFields":
-    "Some fields have no matching field in Mosaic. They were kept as custom fields.",
+    "Alcuni campi non hanno un campo corrispondente in Mosaic. Sono stati conservati come campi personalizzati.",
   "import.entry.otpUnreadable":
-    "The one-time code setting wasn't recognized. It was kept as a hidden field, so set up the code again from it.",
+    "L'impostazione del codice monouso non è stata riconosciuta. È stata conservata come campo nascosto: configura di nuovo il codice a partire da essa.",
   "import.entry.otpWeak":
-    "The one-time code secret is shorter than 80 bits, so the code is easier to guess. It was imported anyway; set it up again with a new secret when you can.",
+    "Il segreto del codice monouso è più corto di 80 bit, quindi il codice è più facile da indovinare. È stato importato comunque; configuralo di nuovo con un nuovo segreto appena puoi.",
   "import.entry.attachmentTooLarge":
-    "An attachment is larger than 50 MiB and was left out. Add it by hand after the import.",
+    "Un allegato supera i 50 MiB ed è stato escluso. Aggiungilo a mano dopo l'importazione.",
   "import.entry.attachmentMissing":
-    "An attachment is missing from the export. Add it by hand after the import.",
+    "Un allegato manca nell'esportazione. Aggiungilo a mano dopo l'importazione.",
   "import.entry.attachmentQuota":
-    "An attachment doesn't fit your 1 GiB of attachment storage and was left out.",
+    "Un allegato non rientra nel tuo spazio di 1 GiB per gli allegati ed è stato escluso.",
   "import.entry.passkeysNotImported":
-    "This export format doesn't contain the private key of this item's passkey, so it can't be imported. Keep your old app until you've moved it.",
+    "Questo formato di esportazione non contiene la chiave privata della passkey di questo elemento, quindi non può essere importata. Conserva la tua vecchia app finché non l'hai spostata.",
   "import.entry.passkeyUnreadable":
-    "A passkey of this item couldn't be read and was left out. Keep your old app until you've moved it.",
+    "Una passkey di questo elemento non è stata letta ed è stata esclusa. Conserva la tua vecchia app finché non l'hai spostata.",
   "import.entry.passkeyUnsupported":
-    "A passkey of this item uses a key type Mosaic doesn't support (only ES256 works) and was left out. Keep your old app until you've moved it.",
-  "import.entry.historyTruncated": "Only the 32 most recent old passwords were kept.",
-  "import.entry.tagsDropped": "Empty or overlong tags were left out.",
-  "import.entry.archived": "Archived in your old app. It gets the tag \"archived\".",
-  "import.entry.unknownCategory": "Unknown item type. It's imported as a secure note.",
+    "Una passkey di questo elemento usa un tipo di chiave che Mosaic non supporta (funziona solo ES256) ed è stata esclusa. Conserva la tua vecchia app finché non l'hai spostata.",
+  "import.entry.historyTruncated": "Sono state conservate solo le 32 vecchie password più recenti.",
+  "import.entry.tagsDropped": "I tag vuoti o troppo lunghi sono stati esclusi.",
+  "import.entry.archived": "Archiviato nella tua vecchia app. Riceve il tag \"archived\".",
+  "import.entry.unknownCategory":
+    "Tipo di elemento sconosciuto. Viene importato come nota sicura.",
   "import.entry.titleCleaned":
-    "The title had invisible or text-reversing characters. They were removed.",
+    "Il titolo conteneva caratteri invisibili o che invertono il testo. Sono stati rimossi.",
   "import.entry.passkeysLimit":
-    "This item has more passkeys than one import takes (100 per item, 10,000 per file). The extra passkeys were left out. Keep your old app until you've moved them.",
+    "Questo elemento ha più passkey di quante ne accetti una sola importazione (100 per elemento, 10.000 per file). Le passkey in più sono state escluse. Conserva la tua vecchia app finché non le hai spostate.",
   "import.entry.fieldsDropped":
-    "This item has more fields than Mosaic keeps. The extra fields are left out.",
+    "Questo elemento ha più campi di quelli che Mosaic conserva. I campi in più sono esclusi.",
   "import.entry.notesTruncated":
-    "This item's notes are longer than one item can hold. The part that didn't fit was left out.",
+    "Le note di questo elemento sono più lunghe di quanto un elemento possa contenere. La parte che non entrava è stata esclusa.",
   "import.entry.idnHost":
-    "This address uses special characters in its domain name and may look like another site. Check it before you rely on it.",
-  "import.entry.urlKeptAsText": "This web address couldn't be used as a link. It was kept as text.",
-  "import.skip.malformed": "This entry is damaged and can't be read.",
-  "import.skip.empty": "This entry is empty.",
-  "import.skip.tooLarge": "This entry is larger than 1 MiB, the most one item can hold.",
+    "Questo indirizzo usa caratteri speciali nel nome di dominio e può sembrare un altro sito. Controllalo prima di fidarti.",
+  "import.entry.urlKeptAsText":
+    "Questo indirizzo web non ha potuto essere usato come link. È stato conservato come testo.",
+  "import.skip.malformed": "Questa voce è danneggiata e non può essere letta.",
+  "import.skip.empty": "Questa voce è vuota.",
+  "import.skip.tooLarge":
+    "Questa voce supera 1 MiB, il massimo che un elemento può contenere.",
   "import.result":
-    "{imported, plural, one {# item imported.} other {# items imported.}} {skipped, plural, =0 {} one {# left out.} other {# left out.}}",
-  "import.flow.title": "Import",
-  "import.flow.formatStep": "Where are you importing from?",
-  "import.flow.chooseFile": "Choose the export file",
+    "{imported, plural, one {# elemento importato.} other {# elementi importati.}} {skipped, plural, =0 {} one {# escluso.} other {# esclusi.}}",
+  "import.flow.title": "Importa",
+  "import.flow.formatStep": "Da dove stai importando?",
+  "import.flow.chooseFile": "Scegli il file di esportazione",
   "import.flow.fileChosen": "File: {name}",
-  "import.flow.password": "Password of the KeePass database",
-  "import.flow.preview": "Preview",
-  "import.flow.previewBusy": "Reading the file. This can take a moment.",
-  "import.flow.selectAll": "Select all",
-  "import.flow.target": "Import into",
-  "import.flow.commit": "Import {count, plural, one {# item} other {# items}}",
-  "import.flow.entries": "Entries",
-  "import.flow.skipped": "Left out",
-  "import.flow.attachments": "{count, plural, one {# attachment} other {# attachments}}",
-  "import.flow.cancel": "Cancel import",
-  "import.flow.noneSelected": "Select at least one item to import.",
+  "import.flow.password": "Password del database KeePass",
+  "import.flow.preview": "Anteprima",
+  "import.flow.previewBusy": "Lettura del file. Può richiedere un momento.",
+  "import.flow.selectAll": "Seleziona tutto",
+  "import.flow.target": "Importa in",
+  "import.flow.commit": "Importa {count, plural, one {# elemento} other {# elementi}}",
+  "import.flow.entries": "Voci",
+  "import.flow.skipped": "Esclusi",
+  "import.flow.attachments": "{count, plural, one {# allegato} other {# allegati}}",
+  "import.flow.cancel": "Annulla importazione",
+  "import.flow.noneSelected": "Seleziona almeno un elemento da importare.",
   "import.flow.resultFailed":
-    "{failed, plural, =0 {} one {# item could not be saved.} other {# items could not be saved.}}",
+    "{failed, plural, =0 {} one {# elemento non ha potuto essere salvato.} other {# elementi non hanno potuto essere salvati.}}",
   "import.flow.deleteReminder":
-    "Delete the export file now. It holds your passwords in plain text.",
+    "Elimina subito il file di esportazione. Contiene le tue password in chiaro.",
   "import.flow.dropHint":
-    "Choose your export file. Everything is read and encrypted on this device.",
+    "Scegli il tuo file di esportazione. Tutto viene letto e cifrato su questo dispositivo.",
 } satisfies Record<keyof typeof en, string>;

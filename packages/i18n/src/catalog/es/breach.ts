@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Spanish UI strings: breach. Same keys as English (checked by the type).
  * ICU plural categories of Spanish: one, many, other (CLDR; `other` is required).
@@ -6,37 +5,39 @@
 import type { breach as en } from "../en/breach.ts";
 
 export const breach = {
-  "breach.card.title": "Breach check",
-  "breach.card.off": "Off. Mosaic never contacts Have I Been Pwned unless you turn this on.",
+  "breach.card.title": "Comprobación de filtraciones",
+  "breach.card.off":
+    "Desactivada. Mosaic nunca se conecta con Have I Been Pwned a menos que lo actives.",
   "breach.card.about":
-    "Checks your passwords against known data breaches. Only a 5-character piece of a scrambled code per password leaves this device.",
-  "breach.mode.label": "Check against known data breaches",
-  "breach.mode.off": "Off",
-  "breach.mode.manual": "Only when I choose",
-  "breach.mode.weekly": "Weekly, after unlock",
-  "breach.card.checkNow": "Check now",
-  "breach.card.stop": "Stop check",
-  "breach.card.turnOff": "Turn off",
-  "breach.progress.starting": "Checking your passwords…",
-  "breach.progress.step": "Checking… {done} of {total}",
-  "breach.result.never": "Not checked yet.",
+    "Comprueba tus contraseñas con filtraciones de datos conocidas. De cada contraseña solo sale de este dispositivo un fragmento de 5 caracteres de un código codificado.",
+  "breach.mode.label": "Comprobar con filtraciones de datos conocidas",
+  "breach.mode.off": "Desactivada",
+  "breach.mode.manual": "Solo cuando yo lo decida",
+  "breach.mode.weekly": "Cada semana, tras desbloquear",
+  "breach.card.checkNow": "Comprobar ahora",
+  "breach.card.stop": "Detener comprobación",
+  "breach.card.turnOff": "Desactivar",
+  "breach.progress.starting": "Comprobando tus contraseñas…",
+  "breach.progress.step": "Comprobando… {done} de {total}",
+  "breach.result.never": "Aún no se ha comprobado.",
   "breach.result.last":
-    "Last checked {date, date, medium}. {found, plural, =0 {No password was found in a breach.} one {# password was found in a breach.} other {# passwords were found in a breach.}}",
+    "Última comprobación: {date, date, medium}. {found, plural, =0 {No se encontró ninguna contraseña en una filtración.} one {Se encontró # contraseña en una filtración.} other {Se encontraron # contraseñas en una filtración.}}",
   "breach.result.finished":
-    "Checked {checked, plural, one {# password} other {# passwords}}. {found, plural, =0 {None was found in a breach.} one {# was found in a breach.} other {# were found in a breach.}}",
-  "breach.result.upToDate": "Everything was checked recently. Nothing new to look up.",
+    "Se {checked, plural, one {comprobó # contraseña} other {comprobaron # contraseñas}}. {found, plural, =0 {No se encontró ninguna en una filtración.} one {Se encontró # en una filtración.} other {Se encontraron # en una filtración.}}",
+  "breach.result.upToDate": "Todo se comprobó hace poco. No hay nada nuevo que consultar.",
   "breach.error.offline":
-    "Couldn't reach Have I Been Pwned. The last results are shown. Try again when you're online.",
+    "No se pudo conectar con Have I Been Pwned. Se muestran los últimos resultados. Vuelve a intentarlo cuando tengas conexión.",
   "breach.error.rateLimited":
-    "Have I Been Pwned asked Mosaic to slow down. Try again in a few minutes.",
+    "Have I Been Pwned pidió a Mosaic que vaya más despacio. Vuelve a intentarlo en unos minutos.",
   "breach.error.protocol":
-    "Have I Been Pwned sent an answer Mosaic doesn't trust, so some passwords weren't checked. Try again later.",
-  "breach.error.cancelled": "The check was stopped. Results that were finished are kept.",
-  "breach.consent.title": "Check your passwords against known data breaches?",
+    "Have I Been Pwned envió una respuesta en la que Mosaic no confía, así que algunas contraseñas no se comprobaron. Vuelve a intentarlo más tarde.",
+  "breach.error.cancelled":
+    "Se detuvo la comprobación. Los resultados ya terminados se conservan.",
+  "breach.consent.title": "¿Comprobar tus contraseñas con filtraciones de datos conocidas?",
   "breach.consent.body":
-    "Mosaic turns each password into a scrambled code that can't be turned back (a hash) and sends only the first 5 characters of that code to Have I Been Pwned (api.pwnedpasswords.com). The service learns your IP address and those 5-character pieces. It never sees a password, your email address or which site a password is for. Results stay on this device.",
+    "Mosaic convierte cada contraseña en un código codificado que no se puede revertir (un hash) y envía solo los primeros 5 caracteres de ese código a Have I Been Pwned (api.pwnedpasswords.com). El servicio conoce tu dirección IP y esos fragmentos de 5 caracteres. Nunca ve una contraseña, tu correo ni para qué sitio es cada contraseña. Los resultados se quedan en este dispositivo.",
   "breach.consent.detail":
-    "Many other passwords share each 5-character piece, so the answer doesn't reveal yours. It is still a request to another service, so it stays off until you agree. You can turn it off at any time.",
-  "breach.consent.agree": "Turn on and check now",
-  "breach.consent.decline": "Not now",
+    "Muchas otras contraseñas comparten cada fragmento de 5 caracteres, así que la respuesta no revela la tuya. Aun así, es una solicitud a otro servicio, por eso queda desactivada hasta que aceptes. Puedes desactivarla en cualquier momento.",
+  "breach.consent.agree": "Activar y comprobar ahora",
+  "breach.consent.decline": "Ahora no",
 } satisfies Record<keyof typeof en, string>;

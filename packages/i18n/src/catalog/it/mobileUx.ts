@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Italian UI strings: mobileUx. Same keys as English (checked by the type).
  * ICU plural categories of Italian: one, many, other (CLDR; `other` is required).
@@ -6,29 +5,32 @@
 import type { mobileUx as en } from "../en/mobileUx.ts";
 
 export const mobileUx = {
-  "mobile.sync.warningsBanner": "Sync found a problem. Open Settings to check it.",
-  "mobile.provider.errorTitle": "Mosaic can't continue",
+  "mobile.sync.warningsBanner":
+    "La sincronizzazione ha trovato un problema. Apri le Impostazioni per controllarlo.",
+  "mobile.provider.errorTitle": "Mosaic non può continuare",
   "mobile.onboarding.details.keyWiped":
-    "Mosaic removed the scanned Secret Key when you left the app. Scan the code again or type the key.",
-  "mobile.common.showField": "Show {field}",
-  "mobile.common.hideField": "Hide {field}",
+    "Mosaic ha rimosso la Chiave segreta scansionata quando hai lasciato l'app. Scansiona di nuovo il codice o digita la chiave.",
+  "mobile.common.showField": "Mostra {field}",
+  "mobile.common.hideField": "Nascondi {field}",
   "mobile.error.storeInUse":
-    "Mosaic is busy elsewhere on this phone. Wait a moment, then try again.",
-  "mobile.error.noAccount": "Mosaic isn't set up on this phone yet. Open Mosaic to set it up.",
+    "Mosaic è occupato altrove su questo telefono. Attendi un momento, poi riprova.",
+  "mobile.error.noAccount":
+    "Mosaic non è ancora configurato su questo telefono. Apri Mosaic per configurarlo.",
   "mobile.error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check for typos and the keyboard language, then try again.",
+    "La password principale o la Chiave segreta non ha funzionato. Controlla eventuali errori di battitura e la lingua della tastiera, poi riprova.",
   "mobile.error.invalidInput":
-    "Something you entered isn't valid. Check your entries and try again.",
+    "Qualcosa di ciò che hai inserito non è valido. Controlla i dati e riprova.",
   "mobile.error.vaultUnavailable":
-    "This vault can't be opened right now. Sync and try again, or unlock Mosaic again.",
-  "mobile.unlock.quickOptionTouchId": "Unlock with Touch ID next time",
-  "mobile.detail.readCode": "Read code",
+    "Questa cassaforte non può essere aperta in questo momento. Sincronizza e riprova, oppure sblocca di nuovo Mosaic.",
+  "mobile.unlock.quickOptionTouchId": "La prossima volta sblocca con Touch ID",
+  "mobile.detail.readCode": "Leggi il codice",
   "mobile.detail.labelValue": "{label}: {value}",
-  "mobile.autofill.warningWithName": "Check the address first | {name}",
-  "mobile.autofill.linkEntry": "Link {login} and fill",
-  "mobile.link.imported": "Imported for this app",
-  "mobile.link.confirmTitle": "Link {login} to {app}?",
-  "mobile.link.confirmSubtitle": "App ID {appId} · Signature {fingerprint}",
-  "mobile.link.confirmFallbackHint": "After linking, tap the field again to fill it.",
-  "mobile.link.importedNotVerified": "Imported login. The website has not confirmed this app.",
+  "mobile.autofill.warningWithName": "Controlla prima l'indirizzo | {name}",
+  "mobile.autofill.linkEntry": "Collega {login} e compila",
+  "mobile.link.imported": "Importato per questa app",
+  "mobile.link.confirmTitle": "Collegare {login} a {app}?",
+  "mobile.link.confirmSubtitle": "ID app {appId} · Firma {fingerprint}",
+  "mobile.link.confirmFallbackHint": "Dopo il collegamento, tocca di nuovo il campo per compilarlo.",
+  "mobile.link.importedNotVerified":
+    "Accesso importato. Il sito web non ha confermato questa app.",
 } satisfies Record<keyof typeof en, string>;

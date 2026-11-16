@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Spanish UI strings: errors. Same keys as English (checked by the type).
  * ICU plural categories of Spanish: one, many, other (CLDR; `other` is required).
@@ -6,296 +5,315 @@
 import type { errors as en } from "../en/errors.ts";
 
 export const errors = {
-  "error.notImplemented": "This isn't available yet. It's coming in a later version of Mosaic.",
+  "error.notImplemented": "Esto aún no está disponible. Llegará en una versión posterior de Mosaic.",
   "error.noAccount":
-    "There's no account on this device yet. Create one, or sign in with your Emergency Kit.",
-  "error.accountExists": "This device already has a Mosaic account. Unlock it instead.",
-  "error.locked": "Mosaic is locked. Unlock it to continue.",
-  "error.alreadyUnlocked": "Mosaic is already unlocked. You can continue where you left off.",
+    "Aún no hay ninguna cuenta en este dispositivo. Crea una o inicia sesión con tu Kit de emergencia.",
+  "error.accountExists": "Este dispositivo ya tiene una cuenta de Mosaic. Desbloquéala.",
+  "error.locked": "Mosaic está bloqueado. Desbloquéalo para continuar.",
+  "error.alreadyUnlocked": "Mosaic ya está desbloqueado. Puedes seguir donde lo dejaste.",
   "error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check Caps Lock and your keyboard layout, then try again.",
+    "Esa contraseña maestra o Clave secreta no funcionó. Revisa las mayúsculas y la distribución del teclado y vuelve a intentarlo.",
   "error.secretKeyRequired":
-    "This device doesn't have your Secret Key. Type it from your Emergency Kit.",
+    "Este dispositivo no tiene tu Clave secreta. Escríbela desde tu Kit de emergencia.",
   "error.secretKeyMalformed":
-    "That isn't a Secret Key. Yours starts with “M1-” and is on your Emergency Kit.",
+    "Eso no es una Clave secreta. La tuya empieza por “M1-” y está en tu Kit de emergencia.",
   "error.secretKeyMistyped":
-    "That Secret Key has a typo. Compare it with your Emergency Kit, character by character.",
-  "error.emptyPassword": "The master password is empty. Enter it to continue.",
+    "Esa Clave secreta tiene una errata. Compárala con tu Kit de emergencia, carácter por carácter.",
+  "error.emptyPassword": "La contraseña maestra está vacía. Escríbela para continuar.",
   "error.quickUnlockUnavailable":
-    "Quick unlock isn't set up on this device. Unlock with your master password.",
+    "El desbloqueo rápido no está configurado en este dispositivo. Desbloquea con tu contraseña maestra.",
   "error.storeInUse":
-    "Mosaic is already open on this computer. Close the other window, then try again.",
+    "Mosaic ya está abierto en este equipo. Cierra la otra ventana y vuelve a intentarlo.",
   "error.storeUnavailable":
-    "Mosaic couldn't open your vault file on this device. Check that the disk is available and has free space, then restart Mosaic.",
-  "error.vaultNotFound": "That vault no longer exists. It may have been deleted on another device.",
+    "Mosaic no pudo abrir el archivo de tu caja fuerte en este dispositivo. Comprueba que el disco esté disponible y tenga espacio libre, y reinicia Mosaic.",
+  "error.vaultNotFound":
+    "Esa caja fuerte ya no existe. Puede que se haya eliminado en otro dispositivo.",
   "error.vaultUnavailable":
-    "This vault can't be opened in this session. Unlock it with its hardware key, or sync and try again.",
+    "Esta caja fuerte no se puede abrir en esta sesión. Desbloquéala con su llave de hardware o sincroniza e inténtalo de nuevo.",
   "error.itemNotFound":
-    "That item no longer exists. It may have been moved or deleted on another device.",
+    "Ese elemento ya no existe. Puede que se haya movido o eliminado en otro dispositivo.",
   "error.itemDeleted":
-    "That item was deleted for good, so it can't be opened. Choose another item.",
-  "error.sameVault": "The item is already in that vault. Choose a different vault.",
-  "error.noOtp": "This item has no one-time code. Edit the item to add one.",
+    "Ese elemento se eliminó definitivamente, así que no se puede abrir. Elige otro elemento.",
+  "error.sameVault": "El elemento ya está en esa caja fuerte. Elige otra caja fuerte.",
+  "error.noOtp": "Este elemento no tiene ningún código de un solo uso. Edítalo para añadir uno.",
   "error.fieldEmpty":
-    "That field is empty, so there's nothing to copy or show. Edit the item to fill it in.",
+    "Ese campo está vacío, así que no hay nada que copiar ni mostrar. Edita el elemento para rellenarlo.",
   "error.invalidInput":
-    "Something in this form isn't valid. Check the highlighted fields and try again.",
+    "Algo de este formulario no es válido. Revisa los campos resaltados y vuelve a intentarlo.",
   "error.sshKeyInvalid":
-    "This isn't an OpenSSH private key. Paste the whole key, including the BEGIN and END lines.",
-  "error.reauthRequired": "This change needs your master password. Enter it to confirm.",
-  "error.attachmentTooLarge": "That file is larger than 50 MiB. Choose a smaller file.",
+    "Esto no es una clave privada de OpenSSH. Pega la clave completa, incluidas las líneas BEGIN y END.",
+  "error.reauthRequired": "Este cambio necesita tu contraseña maestra. Escríbela para confirmar.",
+  "error.attachmentTooLarge": "Ese archivo supera los 50 MiB. Elige un archivo más pequeño.",
   "error.attachmentQuota":
-    "Your files would use more than the 1 GiB available. Remove some attachments, then try again.",
-  "error.attachmentNotFound": "This file is no longer part of the item. Reload the item.",
+    "Tus archivos usarían más del 1 GiB disponible. Quita algunos adjuntos y vuelve a intentarlo.",
+  "error.attachmentNotFound": "Este archivo ya no forma parte del elemento. Vuelve a cargar el elemento.",
   "error.attachmentUnavailable":
-    "This file can't be opened on this device. It may not be synced yet or may be damaged.",
-  "error.attachmentFileUnreadable": "That file can't be read. Choose another file.",
-  "error.attachmentSaveFailed": "The file couldn't be saved there. Choose another folder.",
-  "error.attachmentPreviewUnsupported": "There's no preview for this file. Use Save as to open it.",
-  "error.attachmentPreviewTooLarge": "This image is too large to preview. Use Save as to open it.",
+    "Este archivo no se puede abrir en este dispositivo. Puede que aún no esté sincronizado o que esté dañado.",
+  "error.attachmentFileUnreadable": "No se puede leer ese archivo. Elige otro archivo.",
+  "error.attachmentSaveFailed": "No se pudo guardar el archivo allí. Elige otra carpeta.",
+  "error.attachmentPreviewUnsupported":
+    "Este archivo no tiene vista previa. Usa Guardar como para abrirlo.",
+  "error.attachmentPreviewTooLarge":
+    "Esta imagen es demasiado grande para la vista previa. Usa Guardar como para abrirla.",
   "error.clipboardUnavailable":
-    "Mosaic couldn't use the clipboard. Close apps that might be holding it, then try again.",
+    "Mosaic no pudo usar el portapapeles. Cierra las apps que puedan estar usándolo y vuelve a intentarlo.",
   "error.importFileUnreadable":
-    "Mosaic couldn't read that file. Check that it still exists and isn't open in another app, then try again.",
+    "Mosaic no pudo leer ese archivo. Comprueba que aún exista y que no esté abierto en otra app, y vuelve a intentarlo.",
   "error.importDeleteNotAllowed":
-    "Import the file first. Mosaic only deletes an export after its items are in your vault.",
+    "Importa primero el archivo. Mosaic solo elimina una exportación después de que sus elementos estén en tu caja fuerte.",
   "error.importDeleteFailed":
-    "The file couldn't be deleted. It may be open in another app or read-only. Delete it yourself, then empty the recycle bin.",
+    "No se pudo eliminar el archivo. Puede que esté abierto en otra app o sea de solo lectura. Elimínalo tú mismo y vacía la papelera de reciclaje.",
   "error.importFormatInvalid":
-    "That file isn't in the format you chose. Choose the matching format, or export the file again.",
-  "error.importPreviewExpired": "This import was cancelled. Choose the file again to start over.",
+    "Ese archivo no tiene el formato que elegiste. Elige el formato correspondiente o vuelve a exportar el archivo.",
+  "error.importPreviewExpired":
+    "Se canceló esta importación. Elige el archivo de nuevo para empezar otra vez.",
   "error.sshRequestExpired":
-    "That SSH request has already ended. Run the command again if you still need it.",
+    "Esa solicitud de SSH ya terminó. Vuelve a ejecutar el comando si aún lo necesitas.",
   "error.sshAgentUnavailable":
-    "The SSH agent couldn't start. Check that no other SSH agent is running, then turn it on again.",
-  "error.unlockDelayed": "Too many wrong attempts in a row. Wait a few seconds, then try again.",
+    "No se pudo iniciar el agente SSH. Comprueba que no se esté ejecutando otro agente SSH y vuelve a activarlo.",
+  "error.unlockDelayed":
+    "Demasiados intentos incorrectos seguidos. Espera unos segundos y vuelve a intentarlo.",
   "error.tooManyAttempts":
-    "Too many wrong answers. Mosaic locked. Unlock it with your master password to continue.",
+    "Demasiadas respuestas incorrectas. Mosaic se bloqueó. Desbloquéalo con tu contraseña maestra para continuar.",
   "error.sshAllowTooSoon":
-    "That was too quick to read the request. Check the key and the program, then choose Allow again.",
+    "Fue demasiado rápido para leer la solicitud. Revisa la clave y el programa y elige Permitir de nuevo.",
   "error.browserRequestExpired":
-    "That browser request has already ended. Ask again from the extension if you still need it.",
+    "Esa solicitud del navegador ya terminó. Vuelve a pedirla desde la extensión si aún la necesitas.",
   "error.browserAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
+    "Fue demasiado rápido para leer la solicitud. Revisa los detalles y elige de nuevo.",
   "error.browserPairingNotFound":
-    "That browser is no longer connected. Reopen Settings to see the current list.",
+    "Ese navegador ya no está conectado. Vuelve a abrir Ajustes para ver la lista actual.",
   "error.browserHostMissing":
-    "This copy of Mosaic has no browser connector installed, so there is nothing to repair. Install Mosaic with its installer to connect a browser.",
+    "Esta copia de Mosaic no tiene instalado ningún conector de navegador, así que no hay nada que reparar. Instala Mosaic con su instalador para conectar un navegador.",
   "error.agentOriginInvalid":
-    "Agents can send a key only to a site that starts with https:// and names just the site, like https://api.example.com. Check the address.",
+    "Los agentes solo pueden enviar una clave a un sitio que empiece por https:// y nombre solo el sitio, como https://api.example.com. Revisa la dirección.",
   "error.agentBindingInvalid":
-    "Mosaic can't use this setting for agents. Check the field, the sites and how the key is sent.",
+    "Mosaic no puede usar este ajuste para agentes. Revisa el campo, los sitios y cómo se envía la clave.",
   "error.agentValueUnusable":
-    "This value is too short or has a line break in it, so agents can't use it. A key needs at least 12 characters on one line.",
+    "Este valor es demasiado corto o tiene un salto de línea, así que los agentes no pueden usarlo. Una clave necesita al menos 12 caracteres en una sola línea.",
   "error.agentVaultShared":
-    "Agents can only use items in a vault that belongs to you and isn't shared. Move the item to one of your own vaults first.",
-  "error.agentAccessOff": "Agent access is switched off. Turn it on in Settings, under Agents.",
+    "Los agentes solo pueden usar elementos de una caja fuerte que te pertenezca y no esté compartida. Mueve primero el elemento a una de tus propias cajas fuertes.",
+  "error.agentAccessOff":
+    "El acceso de agentes está desactivado. Actívalo en Ajustes, en Agentes.",
   "error.agentRequestExpired":
-    "That agent request has already ended. The agent can ask again if it still needs it.",
+    "Esa solicitud del agente ya terminó. El agente puede volver a pedirla si aún la necesita.",
   "error.agentAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
+    "Fue demasiado rápido para leer la solicitud. Revisa los detalles y elige de nuevo.",
   "error.agentPairingNotFound":
-    "That agent is no longer connected. Reopen Settings to see the current list.",
+    "Ese agente ya no está conectado. Vuelve a abrir Ajustes para ver la lista actual.",
   "error.agentEndpointUnavailable":
-    "Mosaic could not open the connection agents use. Close other copies of Mosaic and try again.",
+    "Mosaic no pudo abrir la conexión que usan los agentes. Cierra otras copias de Mosaic y vuelve a intentarlo.",
   "error.kitNotVerified":
-    "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
+    "Guarda primero el nuevo Kit de emergencia y confirma su último grupo. Mosaic no cambia nada antes de eso.",
   "error.kitGroupMismatch":
-    "That is not the last group of the new Secret Key. Check the new Emergency Kit.",
+    "Ese no es el último grupo de la nueva Clave secreta. Revisa el nuevo Kit de emergencia.",
   "error.rotationInProgress":
-    "Another key change is still open. Finish it with Continue key rotation, or discard it first.",
-  "error.rotationNone": "There is no key change to continue.",
+    "Otro cambio de claves sigue abierto. Termínalo con Continuar la rotación de claves o descártalo primero.",
+  "error.rotationNone": "No hay ningún cambio de claves que continuar.",
   "error.rotationNotFound":
-    "That password change is no longer open. It may have been closed on another device or in the browser. Reopen the item to see where it stands.",
+    "Ese cambio de contraseña ya no está abierto. Puede que se haya cerrado en otro dispositivo o en el navegador. Vuelve a abrir el elemento para ver cómo está.",
   "error.rotationLimit":
-    "Four password changes of this item are open already. Finish or close one in the item first.",
+    "Ya hay cuatro cambios de contraseña abiertos de este elemento. Termina o cierra uno en el elemento primero.",
   "error.rotationOpen":
-    "This login has an open password change. Restore it from the trash, then choose It worked or It didn't work on the item. After that you can delete it forever.",
+    "Este inicio de sesión tiene un cambio de contraseña abierto. Restáuralo desde la papelera y elige Funcionó o No funcionó en el elemento. Después podrás eliminarlo definitivamente.",
   "error.rotationNotSupported":
-    "Mosaic can't guide this change. It needs a login with an https address. Change the password on the site yourself.",
+    "Mosaic no puede guiar este cambio. Necesita un inicio de sesión con una dirección https. Cambia tú mismo la contraseña en el sitio.",
   "error.historyNotFound":
-    "That earlier password isn't in the history any more. Reopen the item to see the current list.",
+    "Esa contraseña anterior ya no está en el historial. Vuelve a abrir el elemento para ver la lista actual.",
   "error.originNotRelated":
-    "That page doesn't belong to this login's site, so Mosaic didn't add it. Edit the item's addresses if it should.",
+    "Esa página no pertenece al sitio de este inicio de sesión, así que Mosaic no la añadió. Edita las direcciones del elemento si debería.",
   "error.breachConsentRequired":
-    "The breach check is off. Turn it on and agree to what it sends first.",
+    "La comprobación de filtraciones está desactivada. Actívala y acepta primero lo que envía.",
   "error.breachRunning":
-    "A breach check is already running. Wait for it to finish, or stop it first.",
+    "Ya hay una comprobación de filtraciones en curso. Espera a que termine o detenla primero.",
   "error.rotationTooFar":
-    "This change already reached your account, so it can't be discarded. Continue it to finish.",
+    "Este cambio ya llegó a tu cuenta, así que no se puede descartar. Continúalo para terminarlo.",
   "error.rotationJumpTooLarge":
-    "This device is too far behind the other devices to catch up. Set it up again: remove the account from this device and join again with your Emergency Kit.",
+    "Este dispositivo está demasiado atrasado respecto a los demás para ponerse al día. Vuelve a configurarlo: quita la cuenta de este dispositivo y vuelve a unirte con tu Kit de emergencia.",
   "error.rotationNotApplied":
-    "The change never reached your account, so nothing was changed. Start again or discard it.",
+    "El cambio nunca llegó a tu cuenta, así que no se cambió nada. Empieza de nuevo o descártalo.",
   "error.secretKeyUnchanged":
-    "That Secret Key no longer works. Use the one from the Emergency Kit you saved on the device that made the change.",
-  "error.passwordUnchanged": "The new master password has to be different from the current one.",
+    "Esa Clave secreta ya no funciona. Usa la del Kit de emergencia que guardaste en el dispositivo que hizo el cambio.",
+  "error.passwordUnchanged":
+    "La contraseña maestra nueva tiene que ser distinta de la actual.",
   "error.profileDowngrade":
-    "That level is not stronger than what your account uses now. Pick a higher one.",
+    "Ese nivel no es más fuerte que el que usa tu cuenta ahora. Elige uno más alto.",
   "error.profileTooSlow":
-    "Unlocking with that level would take this device more than two seconds. Pick a lower level, or upgrade anyway.",
+    "Con ese nivel, desbloquear tardaría a este dispositivo más de dos segundos. Elige un nivel más bajo o mejora de todos modos.",
   "error.rekeyNeedsCleanSync":
-    "A re-key needs sync to be up to date and free of warnings. Sync now, look at any warning, then try again.",
+    "Renovar todas las claves necesita que la sincronización esté al día y sin avisos. Sincroniza ahora, revisa los avisos que haya y vuelve a intentarlo.",
   "error.rekeyMemberKeyMismatch":
-    "You have not compared the safety code of everyone in a shared vault yet, so that vault can't be renewed. Compare their codes in the vault's sharing settings, then try again.",
-  "error.rekeyBusy": "Your vaults kept changing while Mosaic worked. Wait a moment and try again.",
+    "Aún no has comparado el código de seguridad de todas las personas de una caja fuerte compartida, así que esa caja fuerte no se puede renovar. Compara sus códigos en los ajustes de compartición de la caja fuerte y vuelve a intentarlo.",
+  "error.rekeyBusy":
+    "Tus cajas fuertes siguieron cambiando mientras Mosaic trabajaba. Espera un momento y vuelve a intentarlo.",
   "error.rekeyOutcomeUnknown":
-    "Mosaic couldn't confirm whether your account accepted the new keys. Choose Continue key rotation to find out.",
+    "Mosaic no pudo confirmar si tu cuenta aceptó las claves nuevas. Elige Continuar la rotación de claves para averiguarlo.",
   "error.rekeyNeedsServer":
-    "Re-keying needs your sync server or folder, and it can't be reached. Check the connection and try again.",
+    "Renovar todas las claves necesita tu servidor o carpeta de sincronización, y no se puede acceder a él. Comprueba la conexión y vuelve a intentarlo.",
   "error.rekeyNoAccountFile":
-    "Nothing in your sync folder opens with this password and Secret Key. Check the new Emergency Kit.",
+    "Nada de tu carpeta de sincronización se abre con esta contraseña y Clave secreta. Revisa el nuevo Kit de emergencia.",
   "error.syncAccountRekeyed":
-    "Your account's keys were renewed on another device. Use the Secret Key from the new Emergency Kit to continue.",
+    "Las claves de tu cuenta se renovaron en otro dispositivo. Usa la Clave secreta del nuevo Kit de emergencia para continuar.",
   "error.syncEpochRollback":
-    "Your sync backend shows older account keys than this device has. Nothing was changed.",
+    "Tu sistema de sincronización muestra claves de cuenta más antiguas que las de este dispositivo. No se cambió nada.",
   "error.syncRekeyRefused":
-    "The keys your sync backend offers are not the next ones after this device's. Nothing was changed. Check your other devices.",
-  "error.pickerStale": "This list is out of date. Click the field again.",
-  "error.pickerTooSoon": "Wait a moment, then confirm again.",
-  "error.programFillUnavailable": "Filling in programs isn't available on this device.",
-  "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
+    "Las claves que ofrece tu sistema de sincronización no son las siguientes a las de este dispositivo. No se cambió nada. Revisa tus otros dispositivos.",
+  "error.pickerStale": "Esta lista está desactualizada. Haz clic en el campo de nuevo.",
+  "error.pickerTooSoon": "Espera un momento y confirma de nuevo.",
+  "error.programFillUnavailable": "Rellenar en programas no está disponible en este dispositivo.",
+  "error.busy": "Mosaic aún está terminando el último paso. Espera un momento y vuelve a intentarlo.",
   "error.internal":
-    "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",
+    "Algo inesperado detuvo esta acción. Vuelve a intentarlo y reinicia Mosaic si sigue ocurriendo.",
   "error.importTooLarge":
-    "This file is too large or too complex to import. Export fewer items at a time, then try again.",
+    "Este archivo es demasiado grande o complejo para importarlo. Exporta menos elementos a la vez y vuelve a intentarlo.",
   "error.importUnsupported":
-    "Mosaic can't read this version of the format. Export again in a current format (for KeePass: KDBX 4 with AES or ChaCha20), then try again.",
+    "Mosaic no puede leer esta versión del formato. Vuelve a exportar en un formato actual (para KeePass: KDBX 4 con AES o ChaCha20) y vuelve a intentarlo.",
   "error.importEncrypted":
-    "This export is password-protected. Export again without encryption, import it, then delete the file.",
+    "Esta exportación está protegida con contraseña. Vuelve a exportar sin cifrado, impórtala y elimina el archivo.",
   "error.sshAgentEndpointInUse":
-    "Another SSH agent is already running (on Windows, the OpenSSH Authentication Agent service). Stop it, then turn on Mosaic's SSH agent again.",
-  "error.cancelled": "Cancelled. Nothing changed.",
+    "Ya se está ejecutando otro agente SSH (en Windows, el servicio OpenSSH Authentication Agent). Deténlo y vuelve a activar el agente SSH de Mosaic.",
+  "error.cancelled": "Cancelado. No cambió nada.",
   "error.quickUnlockExpired":
-    "Quick unlock expired. Unlock with your master password, then turn it on again in Settings.",
+    "El desbloqueo rápido caducó. Desbloquea con tu contraseña maestra y vuelve a activarlo en Ajustes.",
   "error.quickUnlockInvalidated":
-    "Quick unlock stopped working on this device and was turned off. Unlock with your master password.",
+    "El desbloqueo rápido dejó de funcionar en este dispositivo y se desactivó. Desbloquea con tu contraseña maestra.",
   "error.passwordRequired":
-    "Enter your master password this time. Quick unlock works again after that.",
-  "error.hardwareKeyUnsupported": "This security key or system can't be used with Mosaic.",
-  "error.hardwareKeyNotFound": "No security key found. Insert it and try again.",
-  "error.hardwareKeyTimeout": "The key wasn't touched in time. Try again.",
-  "error.hardwareKeyPinRequired": "Enter your security key's PIN.",
-  "error.hardwareKeyPinInvalid": "Wrong PIN. After several wrong tries the key locks itself.",
+    "Escribe tu contraseña maestra esta vez. Después, el desbloqueo rápido vuelve a funcionar.",
+  "error.hardwareKeyUnsupported":
+    "Esta llave de seguridad o este sistema no se puede usar con Mosaic.",
+  "error.hardwareKeyNotFound": "No se encontró ninguna llave de seguridad. Insértala y vuelve a intentarlo.",
+  "error.hardwareKeyTimeout": "No se tocó la llave a tiempo. Vuelve a intentarlo.",
+  "error.hardwareKeyPinRequired": "Escribe el PIN de tu llave de seguridad.",
+  "error.hardwareKeyPinInvalid":
+    "PIN incorrecto. Tras varios intentos fallidos, la llave se bloquea sola.",
   "error.hardwareKeyPinBlocked":
-    "This key is locked after too many wrong PINs. Reset it with its maker's tool; its registrations are then lost.",
-  "error.hardwareKeyNoPin": "Set a PIN on this key first, with its maker's tool.",
+    "Esta llave está bloqueada por demasiados PIN incorrectos. Restablécela con la herramienta de su fabricante; sus registros se perderán.",
+  "error.hardwareKeyNoPin":
+    "Primero establece un PIN en esta llave con la herramienta de su fabricante.",
   "error.hardwareKeyNotRecognized":
-    "This key isn't registered here. Try another key or your master password.",
-  "error.hardwareKeyLimit": "You've registered the most keys allowed (8). Remove one first.",
+    "Esta llave no está registrada aquí. Prueba con otra llave o con tu contraseña maestra.",
+  "error.hardwareKeyLimit": "Registraste el máximo de llaves permitido (8). Quita una primero.",
   "error.hardwareKeyLast":
-    "This is the vault's only key. Register another one before you remove it.",
-  "error.itemTypeNotAllowed": "This vault holds one-time codes only.",
+    "Esta es la única llave de la caja fuerte. Registra otra antes de quitarla.",
+  "error.itemTypeNotAllowed": "Esta caja fuerte solo guarda códigos de un solo uso.",
   "error.otpScanUnsupported":
-    "Screen scanning isn't available on this system. Paste a screenshot instead.",
-  "error.otpQrNotFound": "No QR code found. Make sure the whole code is visible, then try again.",
+    "El escaneo de pantalla no está disponible en este sistema. Pega una captura de pantalla.",
+  "error.otpQrNotFound":
+    "No se encontró ningún código QR. Asegúrate de que todo el código sea visible y vuelve a intentarlo.",
   "error.otpQrNotOtp":
-    "This QR code isn't a two-factor setup code. Look for the code on the site's 2FA setup page.",
+    "Este código QR no es un código de configuración de verificación en dos pasos. Busca el código en la página de configuración de 2FA del sitio.",
   "error.otpQrMigration":
-    "This is a Google Authenticator export code, which Mosaic can't read yet. Set up each account again on its site, or enter its setup key.",
+    "Este es un código de exportación de Google Authenticator, que Mosaic aún no puede leer. Vuelve a configurar cada cuenta en su sitio o escribe su clave de configuración.",
   "error.otpQrMultiple":
-    "More than one setup code is visible. Show only the one you want, then try again.",
+    "Hay más de un código de configuración visible. Muestra solo el que quieras y vuelve a intentarlo.",
   "error.otpQrInvalid":
-    "This setup code uses settings Mosaic doesn't support. Enter the setup key instead.",
-  "error.otpUriInvalid": "This isn't a valid otpauth:// link. Copy the whole link again.",
+    "Este código de configuración usa ajustes que Mosaic no admite. Escribe la clave de configuración.",
+  "error.otpUriInvalid": "Este no es un enlace otpauth:// válido. Vuelve a copiar el enlace completo.",
   "error.otpKeyInvalid":
-    "This key isn't valid. It uses only the letters A to Z and the digits 2 to 7; check for typos.",
-  "error.otpImageUnreadable": "Mosaic can't read this image. Use a PNG or JPEG file.",
-  "error.otpImageTooLarge": "This image is too large. Use a screenshot of just the QR code.",
+    "Esta clave no es válida. Solo usa las letras de la A a la Z y los dígitos del 2 al 7; comprueba que no haya erratas.",
+  "error.otpImageUnreadable": "Mosaic no puede leer esta imagen. Usa un archivo PNG o JPEG.",
+  "error.otpImageTooLarge":
+    "Esta imagen es demasiado grande. Usa una captura de pantalla solo del código QR.",
   "error.otpClipboardNoImage":
-    "The clipboard has no image. Take a screenshot of the QR code, then paste it here.",
-  "error.otpPendingExpired": "The scanned code is no longer available. Scan it again.",
-  "error.syncNotConfigured": "Sync isn't set up on this device yet. Set it up in Settings first.",
+    "El portapapeles no tiene ninguna imagen. Haz una captura de pantalla del código QR y pégala aquí.",
+  "error.otpPendingExpired": "El código escaneado ya no está disponible. Escanéalo de nuevo.",
+  "error.syncNotConfigured":
+    "La sincronización aún no está configurada en este dispositivo. Configúrala primero en Ajustes.",
   "error.syncAlreadyConfigured":
-    "Sync is already set up. Disconnect first to use a different server or folder.",
+    "La sincronización ya está configurada. Desconecta primero para usar otro servidor u otra carpeta.",
   "error.syncServerUnreachable":
-    "Mosaic couldn't reach the server. Check the address and your internet connection, then try again.",
+    "Mosaic no pudo conectar con el servidor. Comprueba la dirección y tu conexión a internet y vuelve a intentarlo.",
   "error.syncServerInvalid":
-    "This doesn't look like a Mosaic server. Check the address; it should look like https://sync.example.com.",
+    "Esto no parece un servidor de Mosaic. Comprueba la dirección; debería ser como https://sync.example.com.",
   "error.syncServerInsecure":
-    "Mosaic only connects to servers over https, so nobody on the way can read or change your data. Use an https:// address.",
-  "error.syncServerMismatch": "This isn't the server this account syncs with. Check the address.",
+    "Mosaic solo se conecta a servidores mediante https, para que nadie por el camino pueda leer ni cambiar tus datos. Usa una dirección https://.",
+  "error.syncServerMismatch":
+    "Este no es el servidor con el que se sincroniza esta cuenta. Comprueba la dirección.",
   "error.syncServerIncompatible":
-    "This server runs a version that doesn't match your Mosaic. Update Mosaic or ask the server's owner to update it.",
+    "Este servidor ejecuta una versión que no coincide con tu Mosaic. Actualiza Mosaic o pide al propietario del servidor que lo actualice.",
   "error.syncRegistrationClosed":
-    "This server isn't accepting new sync accounts. Sign in to an existing one or ask the server's owner.",
+    "Este servidor no acepta cuentas de sincronización nuevas. Inicia sesión en una existente o consulta al propietario del servidor.",
   "error.syncInviteInvalid":
-    "This invite code isn't valid or was already used. Check it or ask the server's owner for a new one.",
+    "Este código de invitación no es válido o ya se usó. Compruébalo o pide uno nuevo al propietario del servidor.",
   "error.syncAccountExists":
-    "You already have a sync account on this server. Choose Sign in instead.",
+    "Ya tienes una cuenta de sincronización en este servidor. Elige Iniciar sesión.",
   "error.syncAccountMismatch":
-    "The sync account on that server belongs to a different Mosaic account. Check the address and your email.",
+    "La cuenta de sincronización de ese servidor pertenece a otra cuenta de Mosaic. Comprueba la dirección y tu correo.",
   "error.syncTwoFactorRequired":
-    "This sync account needs a code from your authenticator app. Enter the 6-digit code.",
+    "Esta cuenta de sincronización necesita un código de tu app de autenticación. Escribe el código de 6 dígitos.",
   "error.syncTwoFactorInvalid":
-    "That code isn't right or has expired. Enter the current 6-digit code from your authenticator app.",
+    "Ese código no es correcto o ha caducado. Escribe el código actual de 6 dígitos de tu app de autenticación.",
   "error.syncSignedOut":
-    "The server signed this device out. Sign in again to keep syncing. Your changes are safe on this device.",
-  "error.syncRateLimited": "Too many attempts. Wait a few minutes, then try again.",
+    "El servidor cerró la sesión de este dispositivo. Inicia sesión de nuevo para seguir sincronizando. Tus cambios están a salvo en este dispositivo.",
+  "error.syncRateLimited": "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.",
   "error.syncQuotaExceeded":
-    "The server or folder has no room left for your data. Free up space or ask the server's owner for more.",
+    "El servidor o la carpeta no tiene espacio para tus datos. Libera espacio o pide más al propietario del servidor.",
   "error.syncFolderUnavailable":
-    "Mosaic can't use this folder. Check that it exists, that your cloud service has finished syncing it and that Mosaic may write to it.",
+    "Mosaic no puede usar esta carpeta. Comprueba que exista, que tu servicio en la nube haya terminado de sincronizarla y que Mosaic pueda escribir en ella.",
   "error.syncFolderNotEmpty":
-    "This folder holds other files, so Mosaic won't write there. Choose an empty folder or create a new one.",
+    "Esta carpeta contiene otros archivos, así que Mosaic no escribirá allí. Elige una carpeta vacía o crea una nueva.",
   "error.syncFolderNoAccount":
-    "This folder holds no sync data for this account. Choose the folder your other device syncs to.",
+    "Esta carpeta no contiene datos de sincronización de esta cuenta. Elige la carpeta con la que se sincroniza tu otro dispositivo.",
   "error.syncFolderDamaged":
-    "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.",
+    "Algunos archivos de sincronización de esta carpeta están dañados. Deja que tu servicio en la nube termine de sincronizar o restaura la carpeta desde una copia de seguridad y vuelve a intentarlo.",
   "error.syncPasswordOutcomeUnknown":
-    "We couldn't confirm whether the server changed your master password. Keep both passwords until sync confirms which one applies.",
+    "No pudimos confirmar si el servidor cambió tu contraseña maestra. Conserva ambas contraseñas hasta que la sincronización confirme cuál se aplica.",
   "error.syncWebauthnUnavailable":
-    "Your server can't use a security key for this right now, or this account has none. Use an authenticator-app code instead.",
+    "Tu servidor no puede usar una llave de seguridad para esto ahora, o esta cuenta no tiene ninguna. Usa un código de una app de autenticación.",
   "error.syncWebauthnLimit":
-    "This account already has the most security keys the server allows. Remove one you no longer use, then try again.",
-  "error.syncHandoffExpired": "The browser step ran out of time. Start it again.",
+    "Esta cuenta ya tiene el máximo de llaves de seguridad que permite el servidor. Quita una que ya no uses y vuelve a intentarlo.",
+  "error.syncHandoffExpired": "El paso en el navegador agotó su tiempo. Vuelve a empezar.",
   "error.syncHandoffFailed":
-    "Too many wrong codes or failed checks in the browser. Start the step again.",
+    "Demasiados códigos incorrectos o comprobaciones fallidas en el navegador. Vuelve a empezar el paso.",
   "error.syncPasswordNeedsServer":
-    "Changing your master password needs your sync server, and it can't be reached. Check your internet connection and try again.",
-  "error.syncDeviceIsCurrent": "You can't remove the device you're using. Use Disconnect instead.",
-  "error.syncChoiceExpired": "The folder choice timed out. Choose the folder again.",
-  "error.syncFreshLoginExpired": "Your password check timed out. Enter your master password again.",
-  "error.syncPasswordRollback": "The server offered an older master password. Check the server.",
+    "Cambiar tu contraseña maestra necesita tu servidor de sincronización, y no se puede acceder a él. Comprueba tu conexión a internet y vuelve a intentarlo.",
+  "error.syncDeviceIsCurrent":
+    "No puedes quitar el dispositivo que estás usando. Usa Desconectar.",
+  "error.syncChoiceExpired": "La elección de carpeta caducó. Elige la carpeta de nuevo.",
+  "error.syncFreshLoginExpired":
+    "La comprobación de tu contraseña caducó. Escribe de nuevo tu contraseña maestra.",
+  "error.syncPasswordRollback":
+    "El servidor ofreció una contraseña maestra más antigua. Revisa el servidor.",
   "error.syncPasswordChanged":
-    "Your master password was changed on the server or in the folder. Enter the new one below.",
+    "Tu contraseña maestra se cambió en el servidor o en la carpeta. Escribe la nueva abajo.",
   "error.sharingNotHosted":
-    "Sharing needs a Mosaic server. Connect one in the Sync settings first.",
-  "error.setupCodeNeedsServer": "A phone can only join an account that syncs.",
+    "Compartir necesita un servidor de Mosaic. Conecta uno primero en los ajustes de sincronización.",
+  "error.setupCodeNeedsServer": "Un teléfono solo puede unirse a una cuenta que se sincroniza.",
   "error.sharingContactUnverified":
-    "Compare this person's safety code first. Mosaic only shares with people you verified.",
+    "Compara primero el código de seguridad de esta persona. Mosaic solo comparte con personas que hayas verificado.",
   "error.sharingKeyChanged":
-    "This person's key changed, or the code doesn't match. Look them up again and compare the new code before you go on.",
+    "La clave de esta persona cambió o el código no coincide. Búscala de nuevo y compara el código nuevo antes de continuar.",
   "error.sharingRoleForbidden":
-    "Your role in this vault doesn't allow that. Ask the owner or a manager.",
+    "Tu rol en esta caja fuerte no permite eso. Pregunta al propietario o a un administrador.",
   "error.sharingInviteExists":
-    "An invite for this person and vault is waiting already. Withdraw it first if you want to send a new one.",
+    "Ya hay una invitación en espera para esta persona y esta caja fuerte. Retírala primero si quieres enviar una nueva.",
   "error.sharingInviteStale":
-    "The invite changed in the meantime, for example after a key change. Open it again.",
+    "La invitación cambió entretanto, por ejemplo tras un cambio de clave. Ábrela de nuevo.",
   "error.sharingInviteExpired":
-    "This invite ran out or was withdrawn. Ask the sender to invite you again.",
+    "Esta invitación caducó o se retiró. Pide al remitente que te invite de nuevo.",
   "error.sharingInviteUnreadable":
-    "This invite can't be opened. It may be damaged or not meant for this account. Ask the sender to invite you again.",
+    "No se puede abrir esta invitación. Puede estar dañada o no ser para esta cuenta. Pide al remitente que te invite de nuevo.",
   "error.sharingInviteNotInRoster":
-    "The vault's member list doesn't match this invite, so Mosaic didn't open it. Ask the sender to invite you again.",
+    "La lista de miembros de la caja fuerte no coincide con esta invitación, así que Mosaic no la abrió. Pide al remitente que te invite de nuevo.",
   "error.sharingOwnerCannotLeave":
-    "The owner can't leave a vault. Remove the other people instead.",
-  "error.sharingAlreadyMember": "This person is a member of the vault already.",
+    "El propietario no puede salir de una caja fuerte. Quita a las demás personas en su lugar.",
+  "error.sharingAlreadyMember": "Esta persona ya es miembro de la caja fuerte.",
   "error.sharingReinviteBlocked":
-    "You removed this person recently. You can invite them again once the vault key has changed. Sync, then try again.",
-  "error.sharingInviteLimit": "Too many invites are waiting. Wait for answers or withdraw some.",
+    "Quitaste a esta persona hace poco. Podrás invitarla de nuevo cuando la clave de la caja fuerte haya cambiado. Sincroniza y vuelve a intentarlo.",
+  "error.sharingInviteLimit":
+    "Hay demasiadas invitaciones en espera. Espera las respuestas o retira algunas.",
   "error.sharingVaultKnown":
-    "This device has that vault already, so Mosaic didn't accept a key for it. Ask the sender which vault they shared.",
+    "Este dispositivo ya tiene esa caja fuerte, así que Mosaic no aceptó una clave para ella. Pregunta al remitente qué caja fuerte compartió.",
   "error.syncHasSharedVaults":
-    "You can't switch servers while shared vaults are on this device. Leave the shared vaults, or have their owners remove you, first.",
+    "No puedes cambiar de servidor mientras haya cajas fuertes compartidas en este dispositivo. Sal primero de las cajas fuertes compartidas o pide a sus propietarios que te quiten.",
   "error.emergencyWaiting":
-    "A request is waiting, so this can't change now. Refuse it or wait for it.",
+    "Hay una solicitud en espera, así que esto no se puede cambiar ahora. Recházala o espera.",
   "error.emergencyCooldown":
-    "Your last request was refused. You can ask again after the waiting period of one day.",
+    "Tu última solicitud fue rechazada. Podrás volver a pedir acceso tras el periodo de espera de un día.",
   "error.emergencyNotGranted":
-    "There is nothing to claim: no request is open, or the person didn't grant you access.",
+    "No hay nada que reclamar: no hay ninguna solicitud abierta o la persona no te concedió acceso.",
   "error.shortcutUnavailable":
-    "Another program already uses this shortcut, or Mosaic can't register it. Choose a different combination.",
+    "Otro programa ya usa este atajo o Mosaic no puede registrarlo. Elige otra combinación.",
   "error.shortcutUnsupported":
-    "Your system doesn't let apps set a global shortcut. Open Mosaic from its window instead.",
+    "Tu sistema no permite que las apps definan un atajo global. Abre Mosaic desde su ventana.",
 } satisfies Record<keyof typeof en, string>;

@@ -15,11 +15,6 @@ import { describe, expect, it } from "vitest";
 import { locales, type Locale } from "./index.ts";
 
 const TRANSLATIONS_PENDING: readonly Locale[] = [
-  "es",
-  "fr",
-  "it",
-  "pt",
-  "nl",
   "pl",
   "tr",
   "ja",

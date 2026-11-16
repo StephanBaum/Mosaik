@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * French UI strings: clipboard. Same keys as English (checked by the type).
  * ICU plural categories of French: one, many, other (CLDR; `other` is required).
@@ -6,16 +5,16 @@
 import type { clipboard as en } from "../en/clipboard.ts";
 
 export const clipboard = {
-  "clipboard.copied": "Copied. Clears in {seconds, plural, one {# second} other {# seconds}}.",
-  "clipboard.cleared": "Clipboard cleared.",
-  "toast.copied": "Copied. Clears in {seconds, plural, one {# second} other {# seconds}}.",
-  "toast.copiedKept": "Copied. Mosaic won't clear the clipboard.",
-  "toast.clipboardCleared": "Clipboard cleared.",
-  "toast.saved": "Saved.",
-  "toast.trashed": "Moved to Trash.",
-  "toast.restored": "Restored.",
-  "toast.purged": "Deleted for good.",
-  "clipboard.clearNow": "Clear now",
-  "toast.dismiss": "Dismiss",
+  "clipboard.copied": "Copié. Effacement dans {seconds, plural, one {# seconde} other {# secondes}}.",
+  "clipboard.cleared": "Presse-papiers effacé.",
+  "toast.copied": "Copié. Effacement dans {seconds, plural, one {# seconde} other {# secondes}}.",
+  "toast.copiedKept": "Copié. Mosaic n’effacera pas le presse-papiers.",
+  "toast.clipboardCleared": "Presse-papiers effacé.",
+  "toast.saved": "Enregistré.",
+  "toast.trashed": "Déplacé dans la corbeille.",
+  "toast.restored": "Restauré.",
+  "toast.purged": "Supprimé définitivement.",
+  "clipboard.clearNow": "Effacer maintenant",
+  "toast.dismiss": "Fermer",
   "toast.region": "Notifications",
 } satisfies Record<keyof typeof en, string>;

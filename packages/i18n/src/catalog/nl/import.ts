@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Dutch UI strings: import. Same keys as English (checked by the type).
  * ICU plural categories of Dutch: one, other (CLDR; `other` is required).
@@ -7,97 +6,101 @@ import type { importMessages as en } from "../en/import.ts";
 
 export const importMessages = {
   "import.format.enpass": "Enpass (.json)",
-  "import.format.bitwarden": "Bitwarden (.json, unencrypted)",
+  "import.format.bitwarden": "Bitwarden (.json, niet versleuteld)",
   "import.format.keepass": "KeePass (.kdbx)",
   "import.format.onePassword": "1Password (.1pux)",
-  "import.format.cxf": "FIDO Credential Exchange (.json): passkeys and passwords",
+  "import.format.cxf": "FIDO Credential Exchange (.json): passkeys en wachtwoorden",
   "import.format.dashlane": "Dashlane (.zip)",
   "import.format.keeper": "Keeper (.json)",
   "import.format.keeperCsv": "Keeper (.csv)",
-  "import.format.protonPass": "Proton Pass (.zip or .json, unencrypted)",
-  "import.format.csv": "CSV file (.csv)",
-  "import.keepassPassword": "Password of the KeePass database",
+  "import.format.protonPass": "Proton Pass (.zip of .json, niet versleuteld)",
+  "import.format.csv": "CSV-bestand (.csv)",
+  "import.keepassPassword": "Wachtwoord van de KeePass-database",
   "import.preview.ready":
-    "{count, plural, one {# item is ready to import.} other {# items are ready to import.}}",
-  "import.preview.attachments": "{count, plural, one {# attachment} other {# attachments}}",
+    "{count, plural, one {# item is klaar om te importeren.} other {# items zijn klaar om te importeren.}}",
+  "import.preview.attachments": "{count, plural, one {# bijlage} other {# bijlagen}}",
   "import.preview.duplicate":
-    "You already have an item like this. It's unticked, so it won't be imported twice.",
-  "import.preview.duplicateInFile": "This file has the same item twice. The copy is unticked.",
+    "Je hebt al een soortgelijk item. Het is uitgevinkt, zodat het niet dubbel wordt geïmporteerd.",
+  "import.preview.duplicateInFile":
+    "Dit bestand bevat hetzelfde item twee keer. De kopie is uitgevinkt.",
   "import.warning.unmappedFields":
-    "Some fields have no matching field in Mosaic. They were kept as custom fields.",
+    "Sommige velden hebben geen overeenkomstig veld in Mosaic. Ze zijn als eigen velden bewaard.",
   "import.warning.attachmentsSkipped":
-    "Some attachments are larger than 50 MiB, don't fit your 1 GiB of attachment storage, or are missing from the export. Add them by hand after the import.",
+    "Sommige bijlagen zijn groter dan 50 MiB, passen niet in je 1 GiB aan bijlageopslag of ontbreken in de export. Voeg ze na de import handmatig toe.",
   "import.warning.entriesSkipped":
-    "Some entries couldn't be read and will be left out. Check them in your old password manager.",
+    "Sommige vermeldingen konden niet worden gelezen en worden weggelaten. Controleer ze in je oude wachtwoordbeheerder.",
   "import.warning.otpUnreadable":
-    "Some one-time code settings weren't recognized. They were kept as hidden fields, so set up the code again from them.",
+    "Sommige instellingen voor eenmalige codes zijn niet herkend. Ze zijn als verborgen velden bewaard, dus stel de code er opnieuw mee in.",
   "import.warning.otpWeak":
-    "Some one-time codes have a secret shorter than 80 bits, so the codes are easier to guess. They were imported anyway; set them up again with a new secret when you can.",
+    "Sommige eenmalige codes hebben een geheim van minder dan 80 bits, waardoor de codes makkelijker te raden zijn. Ze zijn toch geïmporteerd; stel ze opnieuw in met een nieuw geheim wanneer je kunt.",
   "import.warning.passkeysNotImported":
-    "This export format doesn't contain the private keys of passkeys, so they can't be imported. The rest of those items is imported.",
-  "import.warning.passkeyUnreadable": "Some passkeys couldn't be read and were left out.",
+    "Dit exportformaat bevat de persoonlijke sleutels van passkeys niet, dus ze kunnen niet worden geïmporteerd. De rest van die items wordt wel geïmporteerd.",
+  "import.warning.passkeyUnreadable":
+    "Sommige passkeys konden niet worden gelezen en zijn weggelaten.",
   "import.warning.passkeyUnsupported":
-    "Some passkeys use a key type Mosaic doesn't support (only ES256 works) and were left out.",
+    "Sommige passkeys gebruiken een sleuteltype dat Mosaic niet ondersteunt (alleen ES256 werkt) en zijn weggelaten.",
   "import.warning.passkeysSkipped":
-    "Some passkeys were left out because there are too many (at most 100 per item and 10,000 per file).",
-  "import.warning.passkeysKeepOldApp": "Keep your old app until you've moved the passkeys.",
+    "Sommige passkeys zijn weggelaten omdat het er te veel zijn (maximaal 100 per item en 10.000 per bestand).",
+  "import.warning.passkeysKeepOldApp": "Houd je oude app totdat je de passkeys hebt overgezet.",
   "import.entry.unmappedFields":
-    "Some fields have no matching field in Mosaic. They were kept as custom fields.",
+    "Sommige velden hebben geen overeenkomstig veld in Mosaic. Ze zijn als eigen velden bewaard.",
   "import.entry.otpUnreadable":
-    "The one-time code setting wasn't recognized. It was kept as a hidden field, so set up the code again from it.",
+    "De instelling voor de eenmalige code is niet herkend. Ze is als verborgen veld bewaard, dus stel de code er opnieuw mee in.",
   "import.entry.otpWeak":
-    "The one-time code secret is shorter than 80 bits, so the code is easier to guess. It was imported anyway; set it up again with a new secret when you can.",
+    "Het geheim van de eenmalige code is korter dan 80 bits, waardoor de code makkelijker te raden is. Hij is toch geïmporteerd; stel hem opnieuw in met een nieuw geheim wanneer je kunt.",
   "import.entry.attachmentTooLarge":
-    "An attachment is larger than 50 MiB and was left out. Add it by hand after the import.",
+    "Een bijlage is groter dan 50 MiB en is weggelaten. Voeg hem na de import handmatig toe.",
   "import.entry.attachmentMissing":
-    "An attachment is missing from the export. Add it by hand after the import.",
+    "Een bijlage ontbreekt in de export. Voeg hem na de import handmatig toe.",
   "import.entry.attachmentQuota":
-    "An attachment doesn't fit your 1 GiB of attachment storage and was left out.",
+    "Een bijlage past niet in je 1 GiB aan bijlageopslag en is weggelaten.",
   "import.entry.passkeysNotImported":
-    "This export format doesn't contain the private key of this item's passkey, so it can't be imported. Keep your old app until you've moved it.",
+    "Dit exportformaat bevat de persoonlijke sleutel van de passkey van dit item niet, dus hij kan niet worden geïmporteerd. Houd je oude app totdat je hem hebt overgezet.",
   "import.entry.passkeyUnreadable":
-    "A passkey of this item couldn't be read and was left out. Keep your old app until you've moved it.",
+    "Een passkey van dit item kon niet worden gelezen en is weggelaten. Houd je oude app totdat je hem hebt overgezet.",
   "import.entry.passkeyUnsupported":
-    "A passkey of this item uses a key type Mosaic doesn't support (only ES256 works) and was left out. Keep your old app until you've moved it.",
-  "import.entry.historyTruncated": "Only the 32 most recent old passwords were kept.",
-  "import.entry.tagsDropped": "Empty or overlong tags were left out.",
-  "import.entry.archived": "Archived in your old app. It gets the tag \"archived\".",
-  "import.entry.unknownCategory": "Unknown item type. It's imported as a secure note.",
+    "Een passkey van dit item gebruikt een sleuteltype dat Mosaic niet ondersteunt (alleen ES256 werkt) en is weggelaten. Houd je oude app totdat je hem hebt overgezet.",
+  "import.entry.historyTruncated": "Alleen de 32 meest recente oude wachtwoorden zijn bewaard.",
+  "import.entry.tagsDropped": "Lege of te lange labels zijn weggelaten.",
+  "import.entry.archived": "Gearchiveerd in je oude app. Het krijgt het label \"archived\".",
+  "import.entry.unknownCategory": "Onbekend itemtype. Het wordt als beveiligde notitie geïmporteerd.",
   "import.entry.titleCleaned":
-    "The title had invisible or text-reversing characters. They were removed.",
+    "De titel bevatte onzichtbare tekens of tekens die de tekstrichting omkeren. Ze zijn verwijderd.",
   "import.entry.passkeysLimit":
-    "This item has more passkeys than one import takes (100 per item, 10,000 per file). The extra passkeys were left out. Keep your old app until you've moved them.",
+    "Dit item heeft meer passkeys dan één import aankan (100 per item, 10.000 per bestand). De extra passkeys zijn weggelaten. Houd je oude app totdat je ze hebt overgezet.",
   "import.entry.fieldsDropped":
-    "This item has more fields than Mosaic keeps. The extra fields are left out.",
+    "Dit item heeft meer velden dan Mosaic bewaart. De extra velden zijn weggelaten.",
   "import.entry.notesTruncated":
-    "This item's notes are longer than one item can hold. The part that didn't fit was left out.",
+    "De notities van dit item zijn langer dan één item kan bevatten. Het deel dat niet paste, is weggelaten.",
   "import.entry.idnHost":
-    "This address uses special characters in its domain name and may look like another site. Check it before you rely on it.",
-  "import.entry.urlKeptAsText": "This web address couldn't be used as a link. It was kept as text.",
-  "import.skip.malformed": "This entry is damaged and can't be read.",
-  "import.skip.empty": "This entry is empty.",
-  "import.skip.tooLarge": "This entry is larger than 1 MiB, the most one item can hold.",
+    "Dit adres gebruikt speciale tekens in de domeinnaam en kan op een andere site lijken. Controleer het voordat je erop vertrouwt.",
+  "import.entry.urlKeptAsText":
+    "Dit webadres kon niet als link worden gebruikt. Het is als tekst bewaard.",
+  "import.skip.malformed": "Deze vermelding is beschadigd en kan niet worden gelezen.",
+  "import.skip.empty": "Deze vermelding is leeg.",
+  "import.skip.tooLarge":
+    "Deze vermelding is groter dan 1 MiB, het maximum dat één item kan bevatten.",
   "import.result":
-    "{imported, plural, one {# item imported.} other {# items imported.}} {skipped, plural, =0 {} one {# left out.} other {# left out.}}",
-  "import.flow.title": "Import",
-  "import.flow.formatStep": "Where are you importing from?",
-  "import.flow.chooseFile": "Choose the export file",
-  "import.flow.fileChosen": "File: {name}",
-  "import.flow.password": "Password of the KeePass database",
-  "import.flow.preview": "Preview",
-  "import.flow.previewBusy": "Reading the file. This can take a moment.",
-  "import.flow.selectAll": "Select all",
-  "import.flow.target": "Import into",
-  "import.flow.commit": "Import {count, plural, one {# item} other {# items}}",
-  "import.flow.entries": "Entries",
-  "import.flow.skipped": "Left out",
-  "import.flow.attachments": "{count, plural, one {# attachment} other {# attachments}}",
-  "import.flow.cancel": "Cancel import",
-  "import.flow.noneSelected": "Select at least one item to import.",
+    "{imported, plural, one {# item geïmporteerd.} other {# items geïmporteerd.}} {skipped, plural, =0 {} one {# weggelaten.} other {# weggelaten.}}",
+  "import.flow.title": "Importeren",
+  "import.flow.formatStep": "Waaruit importeer je?",
+  "import.flow.chooseFile": "Kies het exportbestand",
+  "import.flow.fileChosen": "Bestand: {name}",
+  "import.flow.password": "Wachtwoord van de KeePass-database",
+  "import.flow.preview": "Voorvertoning",
+  "import.flow.previewBusy": "Het bestand wordt gelezen. Dit kan even duren.",
+  "import.flow.selectAll": "Alles selecteren",
+  "import.flow.target": "Importeren in",
+  "import.flow.commit": "{count, plural, one {# item} other {# items}} importeren",
+  "import.flow.entries": "Vermeldingen",
+  "import.flow.skipped": "Weggelaten",
+  "import.flow.attachments": "{count, plural, one {# bijlage} other {# bijlagen}}",
+  "import.flow.cancel": "Import annuleren",
+  "import.flow.noneSelected": "Selecteer minstens één item om te importeren.",
   "import.flow.resultFailed":
-    "{failed, plural, =0 {} one {# item could not be saved.} other {# items could not be saved.}}",
+    "{failed, plural, =0 {} one {# item kon niet worden bewaard.} other {# items konden niet worden bewaard.}}",
   "import.flow.deleteReminder":
-    "Delete the export file now. It holds your passwords in plain text.",
+    "Verwijder het exportbestand nu. Het bevat je wachtwoorden als leesbare tekst.",
   "import.flow.dropHint":
-    "Choose your export file. Everything is read and encrypted on this device.",
+    "Kies je exportbestand. Alles wordt op dit apparaat gelezen en versleuteld.",
 } satisfies Record<keyof typeof en, string>;

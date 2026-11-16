@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Dutch UI strings: unlock. Same keys as English (checked by the type).
  * ICU plural categories of Dutch: one, other (CLDR; `other` is required).
@@ -6,34 +5,35 @@
 import type { unlock as en } from "../en/unlock.ts";
 
 export const unlock = {
-  "lock.unlockTitle": "Unlock Mosaic",
-  "lock.masterPassword": "Master password",
+  "lock.unlockTitle": "Mosaic ontgrendelen",
+  "lock.masterPassword": "Hoofdwachtwoord",
   "lock.wrongPassword":
-    "That master password didn't work. Check Caps Lock and your keyboard layout, then try again.",
-  "lock.locked": "Mosaic is locked.",
-  "session.unlocked": "Mosaic is unlocked.",
-  "lock.secretKey": "Secret Key",
+    "Dat hoofdwachtwoord werkte niet. Controleer Caps Lock en je toetsenbordindeling en probeer het opnieuw.",
+  "lock.locked": "Mosaic is vergrendeld.",
+  "session.unlocked": "Mosaic is ontgrendeld.",
+  "lock.secretKey": "Geheime Sleutel",
   "lock.secretKeyHint":
-    "This device doesn't have your Secret Key yet. Type it from your Emergency Kit, and Mosaic remembers it on this device.",
-  "lock.submit": "Unlock",
-  "lock.working": "Unlocking…",
-  "lock.reason.manual": "You locked Mosaic.",
-  "lock.reason.idle": "Mosaic locked itself after a while without activity.",
-  "lock.reason.sleep": "Mosaic locked when the computer went to sleep.",
-  "lock.reason.screenLock": "Mosaic locked together with your screen.",
-  "lock.or": "or",
-  "lock.quick.biometricWindows": "Use Windows Hello",
-  "lock.quick.biometricMac": "Use Touch ID",
-  "lock.quick.biometricLinux": "Use biometrics",
-  "lock.quick.hardwareKey": "Use security key",
-  "lock.autoLockInfo": "Auto-locks after {minutes, plural, one {# minute} other {# minutes}} idle.",
-  "lock.forgot.title": "Forgot your master password?",
+    "Dit apparaat heeft je Geheime Sleutel nog niet. Typ hem over van je Noodkit en Mosaic onthoudt hem op dit apparaat.",
+  "lock.submit": "Ontgrendelen",
+  "lock.working": "Ontgrendelen…",
+  "lock.reason.manual": "Je hebt Mosaic vergrendeld.",
+  "lock.reason.idle": "Mosaic vergrendelde zichzelf na een tijd zonder activiteit.",
+  "lock.reason.sleep": "Mosaic vergrendelde toen de computer in slaapstand ging.",
+  "lock.reason.screenLock": "Mosaic vergrendelde samen met je scherm.",
+  "lock.or": "of",
+  "lock.quick.biometricWindows": "Windows Hello gebruiken",
+  "lock.quick.biometricMac": "Touch ID gebruiken",
+  "lock.quick.biometricLinux": "Biometrie gebruiken",
+  "lock.quick.hardwareKey": "Beveiligingssleutel gebruiken",
+  "lock.autoLockInfo":
+    "Vergrendelt automatisch na {minutes, plural, one {# minuut} other {# minuten}} inactiviteit.",
+  "lock.forgot.title": "Je hoofdwachtwoord vergeten?",
   "lock.forgot.body":
-    "Mosaic can't reset it, because only you know it. Check whether you wrote it on your Emergency Kit. Otherwise, start a new account.",
-  "lock.quick.waitingWindows": "Waiting for Windows Hello…",
-  "lock.quick.waitingMac": "Waiting for Touch ID…",
-  "lock.quick.touchKey": "Insert your key and touch it when it blinks.",
-  "lock.quick.pin": "Security key PIN",
-  "lock.quick.pinSubmit": "Continue",
-  "lock.quick.cancel": "Cancel",
+    "Mosaic kan het niet resetten, want alleen jij kent het. Controleer of je het op je Noodkit hebt geschreven. Maak anders een nieuw account aan.",
+  "lock.quick.waitingWindows": "Wachten op Windows Hello…",
+  "lock.quick.waitingMac": "Wachten op Touch ID…",
+  "lock.quick.touchKey": "Steek je sleutel in en raak hem aan wanneer hij knippert.",
+  "lock.quick.pin": "Pincode van de beveiligingssleutel",
+  "lock.quick.pinSubmit": "Doorgaan",
+  "lock.quick.cancel": "Annuleren",
 } satisfies Record<keyof typeof en, string>;

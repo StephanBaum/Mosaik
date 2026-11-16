@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Dutch UI strings: files. Same keys as English (checked by the type).
  * ICU plural categories of Dutch: one, other (CLDR; `other` is required).
@@ -6,30 +5,30 @@
 import type { files as en } from "../en/files.ts";
 
 export const files = {
-  "files.title": "Files",
-  "files.add": "Add file…",
-  "files.empty": "No files yet.",
-  "files.previewLoading": "Preparing preview…",
+  "files.title": "Bestanden",
+  "files.add": "Bestand toevoegen…",
+  "files.empty": "Nog geen bestanden.",
+  "files.previewLoading": "Voorvertoning voorbereiden…",
   "files.size.b": "{value} B",
   "files.size.kb": "{value} KB",
   "files.size.mb": "{value} MB",
-  "files.addedAt": "Added {at, date, medium}",
-  "files.preview": "Preview {name}",
-  "files.saveAs": "Save {name} as…",
-  "files.saveAsShort": "Save as…",
-  "files.remove": "Remove {name}",
-  "files.close": "Close",
-  "files.previewAlt": "Preview of {name}",
+  "files.addedAt": "Toegevoegd op {at, date, medium}",
+  "files.preview": "Voorvertoning van {name}",
+  "files.saveAs": "{name} bewaren als…",
+  "files.saveAsShort": "Bewaren als…",
+  "files.remove": "{name} verwijderen",
+  "files.close": "Sluiten",
+  "files.previewAlt": "Voorvertoning van {name}",
   "files.previewOnlyImages":
-    "Preview works for PNG and JPEG images. Use Save as to open other files.",
-  "files.notDownloaded": "This file isn't on this device yet.",
-  "files.editorNote": "Files are saved as soon as you add or remove them.",
-  "files.removeConfirm.title": "Remove {name}?",
+    "Voorvertoning werkt voor PNG- en JPEG-afbeeldingen. Gebruik Bewaren als om andere bestanden te openen.",
+  "files.notDownloaded": "Dit bestand staat nog niet op dit apparaat.",
+  "files.editorNote": "Bestanden worden bewaard zodra je ze toevoegt of verwijdert.",
+  "files.removeConfirm.title": "{name} verwijderen?",
   "files.removeConfirm.body":
-    "The file is deleted from this item on every device that syncs it. You can't undo this.",
-  "files.removeConfirm.confirm": "Remove file",
-  "files.removeConfirm.keep": "Keep file",
-  "toast.fileAdded": "File added.",
-  "toast.fileSaved": "File saved.",
-  "toast.fileRemoved": "File removed.",
+    "Het bestand wordt van dit item verwijderd op elk apparaat dat het synchroniseert. Je kunt dit niet ongedaan maken.",
+  "files.removeConfirm.confirm": "Bestand verwijderen",
+  "files.removeConfirm.keep": "Bestand behouden",
+  "toast.fileAdded": "Bestand toegevoegd.",
+  "toast.fileSaved": "Bestand bewaard.",
+  "toast.fileRemoved": "Bestand verwijderd.",
 } satisfies Record<keyof typeof en, string>;

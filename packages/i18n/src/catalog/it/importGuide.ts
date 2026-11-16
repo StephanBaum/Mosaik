@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Italian UI strings: importGuide. Same keys as English (checked by the type).
  * ICU plural categories of Italian: one, many, other (CLDR; `other` is required).
@@ -6,10 +5,10 @@
 import type { importGuide as en } from "../en/importGuide.ts";
 
 export const importGuide = {
-  "import.grid.title": "Where are your passwords now?",
-  "import.grid.browsers": "Browsers",
-  "import.grid.managers": "Password managers",
-  "import.grid.other": "Something else",
+  "import.grid.title": "Dove sono ora le tue password?",
+  "import.grid.browsers": "Browser",
+  "import.grid.managers": "Gestori di password",
+  "import.grid.other": "Altro",
   "import.source.chrome": "Chrome",
   "import.source.edge": "Edge",
   "import.source.brave": "Brave",
@@ -30,144 +29,158 @@ export const importGuide = {
   "import.source.nordpass": "NordPass",
   "import.source.protonPass": "Proton Pass",
   "import.source.roboform": "RoboForm",
-  "import.source.otherFile": "Other CSV or file",
+  "import.source.otherFile": "Altro CSV o file",
   "import.guide.chrome.1":
-    "Open this address in Chrome: copy it and paste it into the address bar.",
+    "Apri questo indirizzo in Chrome: copialo e incollalo nella barra degli indirizzi.",
   "import.guide.chrome.2":
-    "Next to \"Export passwords\", click \"Download file\" and confirm with your computer's password.",
-  "import.guide.chrome.3": "Chrome saves \"Chrome Passwords.csv\" in Downloads.",
-  "import.guide.edge.1": "Open this address in Edge: copy it and paste it into the address bar.",
+    "Accanto a “Esporta password”, fai clic su “Scarica file” e conferma con la password del tuo computer.",
+  "import.guide.chrome.3": "Chrome salva “Chrome Passwords.csv” in Download.",
+  "import.guide.edge.1":
+    "Apri questo indirizzo in Edge: copialo e incollalo nella barra degli indirizzi.",
   "import.guide.edge.2":
-    "Click \"⋯\" next to \"Saved passwords\", then \"Export passwords\", and confirm.",
-  "import.guide.edge.3": "Edge saves the CSV file in Downloads.",
-  "import.guide.brave.1": "Open this address in Brave: copy it and paste it into the address bar.",
+    "Fai clic su “⋯” accanto a “Password salvate”, poi su “Esporta password”, e conferma.",
+  "import.guide.edge.3": "Edge salva il file CSV in Download.",
+  "import.guide.brave.1":
+    "Apri questo indirizzo in Brave: copialo e incollalo nella barra degli indirizzi.",
   "import.guide.brave.2":
-    "Next to \"Export passwords\", click \"Download file\" and confirm with your computer's password.",
-  "import.guide.brave.3": "Brave saves the CSV file in Downloads.",
-  "import.guide.opera.1": "Open this address in Opera: copy it and paste it into the address bar.",
+    "Accanto a “Esporta password”, fai clic su “Scarica file” e conferma con la password del tuo computer.",
+  "import.guide.brave.3": "Brave salva il file CSV in Download.",
+  "import.guide.opera.1":
+    "Apri questo indirizzo in Opera: copialo e incollalo nella barra degli indirizzi.",
   "import.guide.opera.2":
-    "Next to \"Export passwords\", click \"Download file\" and confirm with your computer's password.",
-  "import.guide.opera.3": "Opera saves the CSV file in Downloads.",
+    "Accanto a “Esporta password”, fai clic su “Scarica file” e conferma con la password del tuo computer.",
+  "import.guide.opera.3": "Opera salva il file CSV in Download.",
   "import.guide.vivaldi.1":
-    "Open this address in Vivaldi: copy it and paste it into the address bar.",
+    "Apri questo indirizzo in Vivaldi: copialo e incollalo nella barra degli indirizzi.",
   "import.guide.vivaldi.2":
-    "Next to \"Export passwords\", click \"Download file\" and confirm with your computer's password.",
-  "import.guide.vivaldi.3": "Vivaldi saves the CSV file in Downloads.",
-  "import.guide.arc.1": "Open this address in Arc: copy it and paste it into the address bar.",
+    "Accanto a “Esporta password”, fai clic su “Scarica file” e conferma con la password del tuo computer.",
+  "import.guide.vivaldi.3": "Vivaldi salva il file CSV in Download.",
+  "import.guide.arc.1":
+    "Apri questo indirizzo in Arc: copialo e incollalo nella barra degli indirizzi.",
   "import.guide.arc.2":
-    "Next to \"Export passwords\", click \"Download file\" and confirm with your computer's password.",
-  "import.guide.arc.3": "Arc saves the CSV file in Downloads.",
+    "Accanto a “Esporta password”, fai clic su “Scarica file” e conferma con la password del tuo computer.",
+  "import.guide.arc.3": "Arc salva il file CSV in Download.",
   "import.guide.firefox.1":
-    "Open this address in Firefox: copy it and paste it into the address bar.",
+    "Apri questo indirizzo in Firefox: copialo e incollalo nella barra degli indirizzi.",
   "import.guide.firefox.2":
-    "Click \"⋯\" at the top right, then \"Export passwords…\", and confirm.",
-  "import.guide.firefox.3": "Save \"logins.csv\" in Downloads.",
+    "Fai clic su “⋯” in alto a destra, poi su “Esporta password…”, e conferma.",
+  "import.guide.firefox.3": "Salva “logins.csv” in Download.",
   "import.guide.safari.1":
-    "Safari → Settings → Passwords (macOS 14 and earlier; on macOS 15 and later use Apple Passwords).",
-  "import.guide.safari.2": "Click \"⋯\" below the list, then \"Export All Passwords…\".",
-  "import.guide.safari.3": "Save the CSV file in Downloads.",
-  "import.guide.applePasswords.1": "Open the Passwords app.",
-  "import.guide.applePasswords.2": "File → \"Export All Passwords to File…\".",
-  "import.guide.applePasswords.3": "Save the CSV file in Downloads.",
-  "import.guide.onePassword.1": "Open the 1Password app and unlock it.",
-  "import.guide.onePassword.2": "File → Export → your account, then enter your password.",
-  "import.guide.onePassword.3": "Pick \"1PUX\" and click \"Export Data\".",
-  "import.guide.bitwarden.1": "In the web vault or the app: Tools → Export vault.",
-  "import.guide.bitwarden.2": "Choose the file format \".json\" (not \"encrypted\").",
-  "import.guide.bitwarden.3": "Confirm with your master password.",
-  "import.guide.keepass.1": "Use your database file (.kdbx) as it is.",
-  "import.guide.keepass.2": "You'll enter its password in the next step. It stays on this device.",
-  "import.guide.keepassxcCsv.1": "KeePassXC: Database → Export → CSV File…",
+    "Safari → Impostazioni → Password (macOS 14 e precedenti; da macOS 15 in poi usa Apple Passwords).",
+  "import.guide.safari.2":
+    "Fai clic su “⋯” sotto l'elenco, poi su “Esporta tutte le password…”.",
+  "import.guide.safari.3": "Salva il file CSV in Download.",
+  "import.guide.applePasswords.1": "Apri l'app Password.",
+  "import.guide.applePasswords.2": "File → “Esporta tutte le password in un file…”.",
+  "import.guide.applePasswords.3": "Salva il file CSV in Download.",
+  "import.guide.onePassword.1": "Apri l'app 1Password e sbloccala.",
+  "import.guide.onePassword.2":
+    "File → Esporta → il tuo account, poi inserisci la tua password.",
+  "import.guide.onePassword.3": "Scegli “1PUX” e fai clic su “Esporta dati”.",
+  "import.guide.bitwarden.1":
+    "Nella cassaforte web o nell'app: Strumenti → Esporta cassaforte.",
+  "import.guide.bitwarden.2": "Scegli il formato di file “.json” (non “cifrato”).",
+  "import.guide.bitwarden.3": "Conferma con la tua password principale.",
+  "import.guide.keepass.1": "Usa il tuo file di database (.kdbx) così com'è.",
+  "import.guide.keepass.2":
+    "Inserirai la sua password nel passaggio successivo. Resta su questo dispositivo.",
+  "import.guide.keepassxcCsv.1": "KeePassXC: Database → Esporta → File CSV…",
   "import.guide.keepassxcCsv.2":
-    "Save it in Downloads. The .kdbx file keeps more, so prefer \"KeePass\" if you can.",
-  "import.guide.enpass.1": "Enpass: Menu → File → Export.",
+    "Salvalo in Download. Il file .kdbx conserva di più, quindi se puoi preferisci “KeePass”.",
+  "import.guide.enpass.1": "Enpass: Menu → File → Esporta.",
   "import.guide.enpass.2":
-    "Pick the vault, choose the format \".json\" and enter your master password.",
-  "import.guide.enpass.3": "Save it in Downloads.",
-  "import.guide.lastpass.1": "Sign in at lastpass.com and open Advanced Options → Export.",
-  "import.guide.lastpass.2": "Enter your master password. The CSV file downloads.",
+    "Scegli la cassaforte, scegli il formato “.json” e inserisci la tua password principale.",
+  "import.guide.enpass.3": "Salvalo in Download.",
+  "import.guide.lastpass.1":
+    "Accedi su lastpass.com e apri Opzioni avanzate → Esporta.",
+  "import.guide.lastpass.2": "Inserisci la tua password principale. Il file CSV viene scaricato.",
   "import.guide.lastpass.3":
-    "If the browser shows text instead, save the page as \"lastpass.csv\".",
-  "import.guide.dashlane.1": "Open Dashlane in your browser → My account → Settings → Export data.",
-  "import.guide.dashlane.2": "Pick \"CSV\". Dashlane downloads a ZIP file.",
-  "import.guide.dashlane.3": "Leave the ZIP file as it is.",
-  "import.guide.keeper.1": "Keeper Web Vault → Settings → Export.",
-  "import.guide.keeper.2": "Pick \"JSON\" (it keeps custom fields and 2FA codes) and export.",
-  "import.guide.nordpass.1": "NordPass → Settings → Export Items.",
+    "Se il browser mostra invece del testo, salva la pagina come “lastpass.csv”.",
+  "import.guide.dashlane.1":
+    "Apri Dashlane nel browser → Il mio account → Impostazioni → Esporta dati.",
+  "import.guide.dashlane.2": "Scegli “CSV”. Dashlane scarica un file ZIP.",
+  "import.guide.dashlane.3": "Lascia il file ZIP così com'è.",
+  "import.guide.keeper.1": "Keeper Web Vault → Impostazioni → Esporta.",
+  "import.guide.keeper.2":
+    "Scegli “JSON” (conserva i campi personalizzati e i codici 2FA) ed esporta.",
+  "import.guide.nordpass.1": "NordPass → Impostazioni → Esporta elementi.",
   "import.guide.nordpass.2":
-    "Confirm with your master password and save the CSV file in Downloads.",
-  "import.guide.protonPass.1": "Proton Pass → Settings → Export.",
+    "Conferma con la tua password principale e salva il file CSV in Download.",
+  "import.guide.protonPass.1": "Proton Pass → Impostazioni → Esporta.",
   "import.guide.protonPass.2":
-    "Pick \"ZIP\" and leave encryption off. Mosaic can't read the PGP-encrypted export.",
-  "import.guide.protonPass.3": "Unlock and save it in Downloads.",
-  "import.guide.roboform.1": "RoboForm → Settings → Account & Data → Export.",
-  "import.guide.roboform.2": "Pick \"CSV\" and \"Logins\", then save it in Downloads.",
-  "import.guide.otherFile.1": "Export a CSV file with a header row, or one of the formats above.",
-  "import.guide.otherFile.2": "Choose the file. Mosaic maps the columns.",
-  "import.guide.copyUrl": "Copy address",
-  "import.guide.urlCopied": "Address copied.",
-  "import.guide.choose": "Choose the export file",
-  "import.guide.dropHint": "…or drop one file here. It's read on this device only.",
-  "import.guide.back": "Back",
-  "import.detect.detected": "Recognised: {source}",
+    "Scegli “ZIP” e lascia la cifratura disattivata. Mosaic non può leggere l'esportazione cifrata con PGP.",
+  "import.guide.protonPass.3": "Sblocca e salvalo in Download.",
+  "import.guide.roboform.1": "RoboForm → Impostazioni → Account e dati → Esporta.",
+  "import.guide.roboform.2": "Scegli “CSV” e “Accessi”, poi salvalo in Download.",
+  "import.guide.otherFile.1":
+    "Esporta un file CSV con una riga di intestazione, oppure uno dei formati qui sopra.",
+  "import.guide.otherFile.2": "Scegli il file. Mosaic associa le colonne.",
+  "import.guide.copyUrl": "Copia indirizzo",
+  "import.guide.urlCopied": "Indirizzo copiato.",
+  "import.guide.choose": "Scegli il file di esportazione",
+  "import.guide.dropHint": "…oppure trascina qui un file. Viene letto solo su questo dispositivo.",
+  "import.guide.back": "Indietro",
+  "import.detect.detected": "Riconosciuto: {source}",
   "import.detect.mismatch":
-    "This file looks like an export from {source}. Mosaic will read it as that.",
-  "import.detected.chromium": "Chrome, Edge or another Chromium browser",
+    "Questo file sembra un'esportazione di {source}. Mosaic lo leggerà come tale.",
+  "import.detected.chromium": "Chrome, Edge o un altro browser Chromium",
   "import.detected.firefox": "Firefox",
-  "import.detected.safari": "Safari or Apple Passwords",
+  "import.detected.safari": "Safari o Apple Passwords",
   "import.detected.bitwardenCsv": "Bitwarden (CSV)",
   "import.detected.bitwarden": "Bitwarden",
   "import.detected.enpass": "Enpass",
   "import.detected.keepass": "KeePass",
   "import.detected.keepassxcCsv": "KeePassXC (CSV)",
   "import.detected.onePassword": "1Password",
-  "import.detected.cxf": "a FIDO Credential Exchange file",
+  "import.detected.cxf": "un file FIDO Credential Exchange",
   "import.detected.lastpass": "LastPass",
   "import.detected.dashlane": "Dashlane",
   "import.detected.keeper": "Keeper",
   "import.detected.nordpass": "NordPass",
   "import.detected.protonPass": "Proton Pass",
   "import.detected.roboform": "RoboForm",
-  "import.detected.csv": "a CSV file",
-  "import.lost.title": "Won't come across",
+  "import.detected.csv": "un file CSV",
+  "import.lost.title": "Non verrà trasferito",
   "import.lost.passkeys":
-    "Passkeys: {source} doesn't put them in its export. Keep {source} until you've set up new passkeys.",
+    "Passkey: {source} non le include nella sua esportazione. Conserva {source} finché non hai configurato nuove passkey.",
   "import.lost.attachments":
-    "Attachments: {source} doesn't put them in its export. Add them by hand.",
-  "import.lost.history": "Old passwords (history): this export doesn't hold them.",
+    "Allegati: {source} non li include nella sua esportazione. Aggiungili a mano.",
+  "import.lost.history":
+    "Vecchie password (cronologia): questa esportazione non le contiene.",
   "import.lost.roboformExtras":
-    "Identities, safe notes and bookmarks: export them separately. They aren't part of the logins file.",
+    "Identità, note sicure e segnalibri: esportali separatamente. Non fanno parte del file degli accessi.",
   "import.lost.entriesSkipped":
-    "{count, plural, one {# entry couldn't be read and is left out.} other {# entries couldn't be read and are left out.}}",
+    "{count, plural, one {# voce non è stata letta ed è esclusa.} other {# voci non sono state lette e sono escluse.}}",
   "import.lost.fieldsDropped":
-    "Some items have more fields than Mosaic keeps. The extra fields are left out.",
+    "Alcuni elementi hanno più campi di quelli che Mosaic conserva. I campi in più sono esclusi.",
   "import.lost.notesTruncated":
-    "Some notes are longer than one item can hold. The part that didn't fit is left out.",
+    "Alcune note sono più lunghe di quanto un elemento possa contenere. La parte che non entrava è esclusa.",
   "import.lost.attachmentsSkipped":
-    "Some attachments are missing, too large or don't fit your attachment storage. Add them by hand.",
-  "import.cleanup.title": "Clean up",
-  "import.cleanup.delete": "Delete {name} now",
-  "import.cleanup.deleted": "{name} was overwritten and deleted.",
-  "import.cleanup.deleteFailed": "{name} couldn't be deleted. Delete it yourself.",
+    "Alcuni allegati mancano, sono troppo grandi o non rientrano nel tuo spazio per gli allegati. Aggiungili a mano.",
+  "import.cleanup.title": "Pulizia",
+  "import.cleanup.delete": "Elimina {name} ora",
+  "import.cleanup.deleted": "{name} è stato sovrascritto ed eliminato.",
+  "import.cleanup.deleteFailed": "{name} non ha potuto essere eliminato. Eliminalo tu.",
   "import.cleanup.keepFile":
-    "Some items weren't imported, or didn't come across completely. Keep {name} until you've checked what is missing, then delete it yourself.",
+    "Alcuni elementi non sono stati importati, o non sono arrivati completi. Conserva {name} finché non hai controllato cosa manca, poi eliminalo tu.",
   "import.cleanup.ssdNote":
-    "On SSDs and in synced folders, older copies can survive: in version history, backups or the recycle bin. Check those too.",
+    "Su SSD e nelle cartelle sincronizzate possono sopravvivere copie più vecchie: nella cronologia delle versioni, nei backup o nel cestino. Controlla anche quelli.",
   "import.cleanup.synced":
-    "This file is in your {service} folder. {service} may keep earlier versions; delete them there as well.",
+    "Questo file si trova nella tua cartella {service}. {service} potrebbe conservare versioni precedenti; eliminale anche lì.",
   "import.synced.oneDrive": "OneDrive",
   "import.synced.dropbox": "Dropbox",
   "import.synced.googleDrive": "Google Drive",
   "import.synced.icloud": "iCloud",
   "import.synced.box": "Box",
-  "import.checklist.title": "Before you leave your old app",
+  "import.checklist.title": "Prima di lasciare la tua vecchia app",
   "import.checklist.browserSaving":
-    "Turn off password saving and auto sign-in in {source}, so it doesn't offer to save alongside Mosaic.",
+    "Disattiva in {source} il salvataggio delle password e l'accesso automatico, così non propone di salvare insieme a Mosaic.",
   "import.checklist.firefoxSaving":
-    "Open about:preferences#privacy and untick \"Ask to save passwords\", so Firefox doesn't offer to save alongside Mosaic.",
+    "Apri about:preferences#privacy e deseleziona “Richiedi di salvare le password”, così Firefox non propone di salvare insieme a Mosaic.",
   "import.checklist.safariSaving":
-    "Safari → Settings → AutoFill: untick \"User names and passwords\", so Safari doesn't fill alongside Mosaic.",
-  "import.checklist.oldExtension": "Turn off {source}'s browser extension so only one app fills.",
+    "Safari → Impostazioni → Compilazione automatica: deseleziona “Nomi utente e password”, così Safari non compila insieme a Mosaic.",
+  "import.checklist.oldExtension":
+    "Disattiva l'estensione del browser di {source}, così compila una sola app.",
   "import.checklist.deleteOld":
-    "Delete your data in {source} once you've checked everything in Mosaic.",
+    "Elimina i tuoi dati in {source} dopo aver controllato tutto in Mosaic.",
 } satisfies Record<keyof typeof en, string>;

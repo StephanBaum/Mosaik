@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Spanish UI strings: shell. Same keys as English (checked by the type).
  * ICU plural categories of Spanish: one, many, other (CLDR; `other` is required).
@@ -6,25 +5,26 @@
 import type { shell as en } from "../en/shell.ts";
 
 export const shell = {
-  "shell.emergencyKit.title": "Mosaic Emergency Kit",
+  "shell.emergencyKit.title": "Kit de emergencia de Mosaic",
   "shell.emergencyKit.intro":
-    "Keep this page somewhere safe, such as a locked drawer. Your Secret Key and your master password together unlock your vault on a new device. Nobody, not even Mosaic, can recover either of them for you.",
-  "shell.emergencyKit.email": "Account email",
-  "shell.emergencyKit.accountId": "Account ID",
-  "shell.emergencyKit.signInUrl": "Sign-in address",
-  "shell.emergencyKit.signInUrlLocal": "This device only (no sync server set up yet)",
-  "shell.emergencyKit.secretKey": "Secret Key",
-  "shell.emergencyKit.masterPassword": "Master password",
+    "Guarda esta página en un lugar seguro, por ejemplo en un cajón con llave. Tu Clave secreta y tu contraseña maestra juntas desbloquean tu caja fuerte en un dispositivo nuevo. Nadie, ni siquiera Mosaic, puede recuperar ninguna de las dos por ti.",
+  "shell.emergencyKit.email": "Correo de la cuenta",
+  "shell.emergencyKit.accountId": "ID de la cuenta",
+  "shell.emergencyKit.signInUrl": "Dirección de inicio de sesión",
+  "shell.emergencyKit.signInUrlLocal":
+    "Solo este dispositivo (aún no hay un servidor de sincronización configurado)",
+  "shell.emergencyKit.secretKey": "Clave secreta",
+  "shell.emergencyKit.masterPassword": "Contraseña maestra",
   "shell.emergencyKit.masterPasswordHint":
-    "Write it on the line by hand only if this page stays somewhere safe. Otherwise keep it in your head.",
+    "Escríbela a mano en la línea solo si esta página se queda en un lugar seguro. Si no, memorízala.",
   "shell.emergencyKit.footer":
-    "Mosaic is pre-audit software: it has not yet been reviewed by an external security auditor.",
+    "Mosaic es software previo a una auditoría: aún no lo ha revisado ningún auditor de seguridad externo.",
   "shell.shortcut.conflict":
-    "Another app already uses {shortcut}. Close that app or change its shortcut, then restart Mosaic to use quick search.",
+    "Otra app ya usa {shortcut}. Cierra esa app o cambia su atajo y reinicia Mosaic para usar la búsqueda rápida.",
   "keys.ctrl": "Ctrl",
-  "keys.shift": "Shift",
+  "keys.shift": "Mayús",
   "keys.alt": "Alt",
-  "keys.space": "Space",
+  "keys.space": "Espacio",
   "keys.esc": "Esc",
-  "keys.enter": "Enter",
+  "keys.enter": "Intro",
 } satisfies Record<keyof typeof en, string>;

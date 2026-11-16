@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Dutch UI strings: clipboard. Same keys as English (checked by the type).
  * ICU plural categories of Dutch: one, other (CLDR; `other` is required).
@@ -6,16 +5,18 @@
 import type { clipboard as en } from "../en/clipboard.ts";
 
 export const clipboard = {
-  "clipboard.copied": "Copied. Clears in {seconds, plural, one {# second} other {# seconds}}.",
-  "clipboard.cleared": "Clipboard cleared.",
-  "toast.copied": "Copied. Clears in {seconds, plural, one {# second} other {# seconds}}.",
-  "toast.copiedKept": "Copied. Mosaic won't clear the clipboard.",
-  "toast.clipboardCleared": "Clipboard cleared.",
-  "toast.saved": "Saved.",
-  "toast.trashed": "Moved to Trash.",
-  "toast.restored": "Restored.",
-  "toast.purged": "Deleted for good.",
-  "clipboard.clearNow": "Clear now",
-  "toast.dismiss": "Dismiss",
-  "toast.region": "Notifications",
+  "clipboard.copied":
+    "Gekopieerd. Wordt gewist over {seconds, plural, one {# seconde} other {# seconden}}.",
+  "clipboard.cleared": "Klembord gewist.",
+  "toast.copied":
+    "Gekopieerd. Wordt gewist over {seconds, plural, one {# seconde} other {# seconden}}.",
+  "toast.copiedKept": "Gekopieerd. Mosaic wist het klembord niet.",
+  "toast.clipboardCleared": "Klembord gewist.",
+  "toast.saved": "Bewaard.",
+  "toast.trashed": "Naar de prullenmand verplaatst.",
+  "toast.restored": "Teruggezet.",
+  "toast.purged": "Definitief verwijderd.",
+  "clipboard.clearNow": "Nu wissen",
+  "toast.dismiss": "Sluiten",
+  "toast.region": "Meldingen",
 } satisfies Record<keyof typeof en, string>;

@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * French UI strings: files. Same keys as English (checked by the type).
  * ICU plural categories of French: one, many, other (CLDR; `other` is required).
@@ -6,30 +5,30 @@
 import type { files as en } from "../en/files.ts";
 
 export const files = {
-  "files.title": "Files",
-  "files.add": "Add file…",
-  "files.empty": "No files yet.",
-  "files.previewLoading": "Preparing preview…",
-  "files.size.b": "{value} B",
-  "files.size.kb": "{value} KB",
-  "files.size.mb": "{value} MB",
-  "files.addedAt": "Added {at, date, medium}",
-  "files.preview": "Preview {name}",
-  "files.saveAs": "Save {name} as…",
-  "files.saveAsShort": "Save as…",
-  "files.remove": "Remove {name}",
-  "files.close": "Close",
-  "files.previewAlt": "Preview of {name}",
+  "files.title": "Fichiers",
+  "files.add": "Ajouter un fichier…",
+  "files.empty": "Aucun fichier pour l’instant.",
+  "files.previewLoading": "Préparation de l’aperçu…",
+  "files.size.b": "{value} o",
+  "files.size.kb": "{value} Ko",
+  "files.size.mb": "{value} Mo",
+  "files.addedAt": "Ajouté le {at, date, medium}",
+  "files.preview": "Aperçu de {name}",
+  "files.saveAs": "Enregistrer {name} sous…",
+  "files.saveAsShort": "Enregistrer sous…",
+  "files.remove": "Retirer {name}",
+  "files.close": "Fermer",
+  "files.previewAlt": "Aperçu de {name}",
   "files.previewOnlyImages":
-    "Preview works for PNG and JPEG images. Use Save as to open other files.",
-  "files.notDownloaded": "This file isn't on this device yet.",
-  "files.editorNote": "Files are saved as soon as you add or remove them.",
-  "files.removeConfirm.title": "Remove {name}?",
+    "L’aperçu fonctionne pour les images PNG et JPEG. Utilisez Enregistrer sous pour ouvrir d’autres fichiers.",
+  "files.notDownloaded": "Ce fichier n’est pas encore sur cet appareil.",
+  "files.editorNote": "Les fichiers sont enregistrés dès que vous les ajoutez ou les retirez.",
+  "files.removeConfirm.title": "Retirer {name} ?",
   "files.removeConfirm.body":
-    "The file is deleted from this item on every device that syncs it. You can't undo this.",
-  "files.removeConfirm.confirm": "Remove file",
-  "files.removeConfirm.keep": "Keep file",
-  "toast.fileAdded": "File added.",
-  "toast.fileSaved": "File saved.",
-  "toast.fileRemoved": "File removed.",
+    "Le fichier est supprimé de cet élément sur tous les appareils qui le synchronisent. Vous ne pourrez pas annuler.",
+  "files.removeConfirm.confirm": "Retirer le fichier",
+  "files.removeConfirm.keep": "Garder le fichier",
+  "toast.fileAdded": "Fichier ajouté.",
+  "toast.fileSaved": "Fichier enregistré.",
+  "toast.fileRemoved": "Fichier retiré.",
 } satisfies Record<keyof typeof en, string>;

@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Dutch UI strings: mobileUx. Same keys as English (checked by the type).
  * ICU plural categories of Dutch: one, other (CLDR; `other` is required).
@@ -6,29 +5,32 @@
 import type { mobileUx as en } from "../en/mobileUx.ts";
 
 export const mobileUx = {
-  "mobile.sync.warningsBanner": "Sync found a problem. Open Settings to check it.",
-  "mobile.provider.errorTitle": "Mosaic can't continue",
+  "mobile.sync.warningsBanner":
+    "Synchronisatie vond een probleem. Open Instellingen om het te controleren.",
+  "mobile.provider.errorTitle": "Mosaic kan niet doorgaan",
   "mobile.onboarding.details.keyWiped":
-    "Mosaic removed the scanned Secret Key when you left the app. Scan the code again or type the key.",
-  "mobile.common.showField": "Show {field}",
-  "mobile.common.hideField": "Hide {field}",
+    "Mosaic heeft de gescande Geheime Sleutel verwijderd toen je de app verliet. Scan de code opnieuw of typ de sleutel.",
+  "mobile.common.showField": "{field} tonen",
+  "mobile.common.hideField": "{field} verbergen",
   "mobile.error.storeInUse":
-    "Mosaic is busy elsewhere on this phone. Wait a moment, then try again.",
-  "mobile.error.noAccount": "Mosaic isn't set up on this phone yet. Open Mosaic to set it up.",
+    "Mosaic is elders op deze telefoon bezig. Wacht even en probeer het opnieuw.",
+  "mobile.error.noAccount":
+    "Mosaic is nog niet ingesteld op deze telefoon. Open Mosaic om het in te stellen.",
   "mobile.error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check for typos and the keyboard language, then try again.",
+    "Dat hoofdwachtwoord of die Geheime Sleutel werkte niet. Controleer op typefouten en de toetsenbordtaal en probeer het opnieuw.",
   "mobile.error.invalidInput":
-    "Something you entered isn't valid. Check your entries and try again.",
+    "Iets wat je hebt ingevoerd is ongeldig. Controleer je invoer en probeer het opnieuw.",
   "mobile.error.vaultUnavailable":
-    "This vault can't be opened right now. Sync and try again, or unlock Mosaic again.",
-  "mobile.unlock.quickOptionTouchId": "Unlock with Touch ID next time",
-  "mobile.detail.readCode": "Read code",
+    "Deze kluis kan nu niet worden geopend. Synchroniseer en probeer het opnieuw, of ontgrendel Mosaic opnieuw.",
+  "mobile.unlock.quickOptionTouchId": "De volgende keer ontgrendelen met Touch ID",
+  "mobile.detail.readCode": "Code voorlezen",
   "mobile.detail.labelValue": "{label}: {value}",
-  "mobile.autofill.warningWithName": "Check the address first | {name}",
-  "mobile.autofill.linkEntry": "Link {login} and fill",
-  "mobile.link.imported": "Imported for this app",
-  "mobile.link.confirmTitle": "Link {login} to {app}?",
-  "mobile.link.confirmSubtitle": "App ID {appId} · Signature {fingerprint}",
-  "mobile.link.confirmFallbackHint": "After linking, tap the field again to fill it.",
-  "mobile.link.importedNotVerified": "Imported login. The website has not confirmed this app.",
+  "mobile.autofill.warningWithName": "Controleer eerst het adres | {name}",
+  "mobile.autofill.linkEntry": "{login} koppelen en invullen",
+  "mobile.link.imported": "Geïmporteerd voor deze app",
+  "mobile.link.confirmTitle": "{login} aan {app} koppelen?",
+  "mobile.link.confirmSubtitle": "App-ID {appId} · Handtekening {fingerprint}",
+  "mobile.link.confirmFallbackHint": "Tik na het koppelen opnieuw op het veld om in te vullen.",
+  "mobile.link.importedNotVerified":
+    "Geïmporteerde login. De website heeft deze app niet bevestigd.",
 } satisfies Record<keyof typeof en, string>;

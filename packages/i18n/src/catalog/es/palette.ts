@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Spanish UI strings: palette. Same keys as English (checked by the type).
  * ICU plural categories of Spanish: one, many, other (CLDR; `other` is required).
@@ -6,21 +5,21 @@
 import type { palette as en } from "../en/palette.ts";
 
 export const palette = {
-  "palette.title": "Command palette",
-  "palette.search": "Search items and commands",
-  "palette.items": "Items",
-  "palette.commands": "Commands",
-  "palette.empty": "Nothing matches. Try another word.",
-  "palette.cmd.newItem": "New item",
-  "palette.cmd.generator": "Open the generator",
-  "palette.cmd.security": "Open the security report",
-  "palette.cmd.settings": "Open settings",
-  "palette.cmd.import": "Import from another app",
-  "palette.cmd.share": "Share vault…",
-  "palette.cmd.invites": "Invites",
-  "palette.cmd.lock": "Lock Mosaic",
-  "palette.open": "Open command palette",
-  "palette.hint.move": "to move",
-  "palette.hint.open": "to open",
-  "palette.hint.close": "to close",
+  "palette.title": "Paleta de comandos",
+  "palette.search": "Buscar elementos y comandos",
+  "palette.items": "Elementos",
+  "palette.commands": "Comandos",
+  "palette.empty": "Sin resultados. Prueba con otra palabra.",
+  "palette.cmd.newItem": "Nuevo elemento",
+  "palette.cmd.generator": "Abrir el generador",
+  "palette.cmd.security": "Abrir el informe de seguridad",
+  "palette.cmd.settings": "Abrir los ajustes",
+  "palette.cmd.import": "Importar desde otra app",
+  "palette.cmd.share": "Compartir caja fuerte…",
+  "palette.cmd.invites": "Invitaciones",
+  "palette.cmd.lock": "Bloquear Mosaic",
+  "palette.open": "Abrir la paleta de comandos",
+  "palette.hint.move": "para moverte",
+  "palette.hint.open": "para abrir",
+  "palette.hint.close": "para cerrar",
 } satisfies Record<keyof typeof en, string>;

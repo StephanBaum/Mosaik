@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Brazilian Portuguese UI strings: ssh. Same keys as English (checked by the type).
  * ICU plural categories of Brazilian Portuguese: one, many, other (CLDR; `other` is required).
@@ -6,34 +5,37 @@
 import type { ssh as en } from "../en/ssh.ts";
 
 export const ssh = {
-  "ssh.title": "An app wants to use your SSH key",
-  "ssh.key": "Key",
-  "ssh.fingerprint": "Fingerprint",
-  "ssh.client": "Requested by",
-  "ssh.client.unknown": "An unknown program",
-  "ssh.expires": "Refused automatically in {seconds, plural, one {# second} other {# seconds}}",
-  "ssh.deny": "Deny",
-  "ssh.allowOnce": "Allow once",
-  "ssh.allowFor15Minutes": "Allow for 15 minutes",
-  "ssh.queue": "{count, plural, one {# more request waiting} other {# more requests waiting}}",
+  "ssh.title": "Um app quer usar a sua chave SSH",
+  "ssh.key": "Chave",
+  "ssh.fingerprint": "Impressão digital",
+  "ssh.client": "Solicitado por",
+  "ssh.client.unknown": "Um programa desconhecido",
+  "ssh.expires": "Recusado automaticamente em {seconds, plural, one {# segundo} other {# segundos}}",
+  "ssh.deny": "Recusar",
+  "ssh.allowOnce": "Permitir uma vez",
+  "ssh.allowFor15Minutes": "Permitir por 15 minutos",
+  "ssh.queue":
+    "{count, plural, one {# solicitação a mais em espera} other {# solicitações a mais em espera}}",
   "ssh.signFailed.passphraseRequired":
-    "The key is encrypted, but the item has no passphrase. Add it in the item's Password field.",
+    "A chave está criptografada, mas o item não tem frase secreta. Adicione-a no campo Senha do item.",
   "ssh.signFailed.wrongPassphrase":
-    "The passphrase in the item doesn't unlock the key. Correct it in the item's Password field.",
+    "A frase secreta do item não desbloqueia a chave. Corrija-a no campo Senha do item.",
   "ssh.signFailed.keyMalformed":
-    "The private key in this item can't be read. Paste it again in OpenSSH format.",
+    "Não é possível ler a chave privada deste item. Cole-a de novo no formato OpenSSH.",
   "ssh.signFailed.kdfTooExpensive":
-    "The key's passphrase protection uses more rounds than Mosaic allows. Re-encrypt it with \"ssh-keygen -p -a 64\".",
+    "A proteção por frase secreta da chave usa mais rodadas do que o Mosaic permite. Criptografe-a de novo com “ssh-keygen -p -a 64”.",
   "ssh.signFailed.publicKeyMismatch":
-    "The private key doesn't match the item's public key. Check both fields.",
-  "ssh.signFailed.unsupported": "Mosaic signs only with Ed25519 and ECDSA P-256 keys.",
-  "ssh.signFailed.internal": "Signing failed. Try again.",
-  "ssh.skip.unsupported": "Not served: Mosaic signs only with Ed25519 and ECDSA P-256 keys.",
-  "ssh.skip.malformed": "Not served: the key can't be read.",
-  "ssh.skip.duplicate": "Not served: another item has the same key.",
-  "ssh.description": "An app asked the Mosaic SSH agent to sign in with this key.",
-  "ssh.origin.forwarded": "A server you are connected to asks to use this key.",
+    "A chave privada não corresponde à chave pública do item. Confira os dois campos.",
+  "ssh.signFailed.unsupported":
+    "O Mosaic só assina com chaves Ed25519 e ECDSA P-256.",
+  "ssh.signFailed.internal": "A assinatura falhou. Tente de novo.",
+  "ssh.skip.unsupported":
+    "Não disponibilizada: o Mosaic só assina com chaves Ed25519 e ECDSA P-256.",
+  "ssh.skip.malformed": "Não disponibilizada: não é possível ler a chave.",
+  "ssh.skip.duplicate": "Não disponibilizada: outro item tem a mesma chave.",
+  "ssh.description": "Um app pediu ao agente SSH do Mosaic para entrar com esta chave.",
+  "ssh.origin.forwarded": "Um servidor ao qual você está conectado pede para usar esta chave.",
   "ssh.origin.bindFailed":
-    "Mosaic can't tell where this request comes from: the connection's host check failed. Only allow it if you expect it.",
-  "ssh.escDenies": "to deny",
+    "O Mosaic não consegue saber de onde vem esta solicitação: a verificação do host da conexão falhou. Só permita se você a esperava.",
+  "ssh.escDenies": "para recusar",
 } satisfies Record<keyof typeof en, string>;

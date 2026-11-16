@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Brazilian Portuguese UI strings: files. Same keys as English (checked by the type).
  * ICU plural categories of Brazilian Portuguese: one, many, other (CLDR; `other` is required).
@@ -6,30 +5,30 @@
 import type { files as en } from "../en/files.ts";
 
 export const files = {
-  "files.title": "Files",
-  "files.add": "Add file…",
-  "files.empty": "No files yet.",
-  "files.previewLoading": "Preparing preview…",
+  "files.title": "Arquivos",
+  "files.add": "Adicionar arquivo…",
+  "files.empty": "Nenhum arquivo ainda.",
+  "files.previewLoading": "Preparando pré-visualização…",
   "files.size.b": "{value} B",
   "files.size.kb": "{value} KB",
   "files.size.mb": "{value} MB",
-  "files.addedAt": "Added {at, date, medium}",
-  "files.preview": "Preview {name}",
-  "files.saveAs": "Save {name} as…",
-  "files.saveAsShort": "Save as…",
-  "files.remove": "Remove {name}",
-  "files.close": "Close",
-  "files.previewAlt": "Preview of {name}",
+  "files.addedAt": "Adicionado em {at, date, medium}",
+  "files.preview": "Pré-visualizar {name}",
+  "files.saveAs": "Salvar {name} como…",
+  "files.saveAsShort": "Salvar como…",
+  "files.remove": "Remover {name}",
+  "files.close": "Fechar",
+  "files.previewAlt": "Pré-visualização de {name}",
   "files.previewOnlyImages":
-    "Preview works for PNG and JPEG images. Use Save as to open other files.",
-  "files.notDownloaded": "This file isn't on this device yet.",
-  "files.editorNote": "Files are saved as soon as you add or remove them.",
-  "files.removeConfirm.title": "Remove {name}?",
+    "A pré-visualização funciona para imagens PNG e JPEG. Use Salvar como para abrir outros arquivos.",
+  "files.notDownloaded": "Este arquivo ainda não está neste dispositivo.",
+  "files.editorNote": "Os arquivos são salvos assim que você os adiciona ou remove.",
+  "files.removeConfirm.title": "Remover {name}?",
   "files.removeConfirm.body":
-    "The file is deleted from this item on every device that syncs it. You can't undo this.",
-  "files.removeConfirm.confirm": "Remove file",
-  "files.removeConfirm.keep": "Keep file",
-  "toast.fileAdded": "File added.",
-  "toast.fileSaved": "File saved.",
-  "toast.fileRemoved": "File removed.",
+    "O arquivo é excluído deste item em todos os dispositivos que o sincronizam. Isto não pode ser desfeito.",
+  "files.removeConfirm.confirm": "Remover arquivo",
+  "files.removeConfirm.keep": "Manter arquivo",
+  "toast.fileAdded": "Arquivo adicionado.",
+  "toast.fileSaved": "Arquivo salvo.",
+  "toast.fileRemoved": "Arquivo removido.",
 } satisfies Record<keyof typeof en, string>;

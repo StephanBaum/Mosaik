@@ -1,4 +1,3 @@
-// UNTRANSLATED: copy of English, replace every value
 /**
  * Dutch UI strings: errors. Same keys as English (checked by the type).
  * ICU plural categories of Dutch: one, other (CLDR; `other` is required).
@@ -6,296 +5,317 @@
 import type { errors as en } from "../en/errors.ts";
 
 export const errors = {
-  "error.notImplemented": "This isn't available yet. It's coming in a later version of Mosaic.",
+  "error.notImplemented":
+    "Dit is nog niet beschikbaar. Het komt in een latere versie van Mosaic.",
   "error.noAccount":
-    "There's no account on this device yet. Create one, or sign in with your Emergency Kit.",
-  "error.accountExists": "This device already has a Mosaic account. Unlock it instead.",
-  "error.locked": "Mosaic is locked. Unlock it to continue.",
-  "error.alreadyUnlocked": "Mosaic is already unlocked. You can continue where you left off.",
+    "Er is nog geen account op dit apparaat. Maak er een aan, of log in met je Noodkit.",
+  "error.accountExists": "Dit apparaat heeft al een Mosaic-account. Ontgrendel dat in plaats daarvan.",
+  "error.locked": "Mosaic is vergrendeld. Ontgrendel het om door te gaan.",
+  "error.alreadyUnlocked": "Mosaic is al ontgrendeld. Je kunt verdergaan waar je was.",
   "error.wrongCredentials":
-    "That master password or Secret Key didn't work. Check Caps Lock and your keyboard layout, then try again.",
+    "Dat hoofdwachtwoord of die Geheime Sleutel werkte niet. Controleer Caps Lock en je toetsenbordindeling en probeer het opnieuw.",
   "error.secretKeyRequired":
-    "This device doesn't have your Secret Key. Type it from your Emergency Kit.",
+    "Dit apparaat heeft je Geheime Sleutel niet. Typ hem over van je Noodkit.",
   "error.secretKeyMalformed":
-    "That isn't a Secret Key. Yours starts with “M1-” and is on your Emergency Kit.",
+    "Dat is geen Geheime Sleutel. De jouwe begint met “M1-” en staat op je Noodkit.",
   "error.secretKeyMistyped":
-    "That Secret Key has a typo. Compare it with your Emergency Kit, character by character.",
-  "error.emptyPassword": "The master password is empty. Enter it to continue.",
+    "Die Geheime Sleutel bevat een typefout. Vergelijk hem teken voor teken met je Noodkit.",
+  "error.emptyPassword": "Het hoofdwachtwoord is leeg. Voer het in om door te gaan.",
   "error.quickUnlockUnavailable":
-    "Quick unlock isn't set up on this device. Unlock with your master password.",
+    "Snel ontgrendelen is op dit apparaat niet ingesteld. Ontgrendel met je hoofdwachtwoord.",
   "error.storeInUse":
-    "Mosaic is already open on this computer. Close the other window, then try again.",
+    "Mosaic is al geopend op deze computer. Sluit het andere venster en probeer het opnieuw.",
   "error.storeUnavailable":
-    "Mosaic couldn't open your vault file on this device. Check that the disk is available and has free space, then restart Mosaic.",
-  "error.vaultNotFound": "That vault no longer exists. It may have been deleted on another device.",
+    "Mosaic kon het kluisbestand op dit apparaat niet openen. Controleer of de schijf beschikbaar is en vrije ruimte heeft en start Mosaic opnieuw.",
+  "error.vaultNotFound":
+    "Die kluis bestaat niet meer. Hij is mogelijk op een ander apparaat verwijderd.",
   "error.vaultUnavailable":
-    "This vault can't be opened in this session. Unlock it with its hardware key, or sync and try again.",
+    "Deze kluis kan in deze sessie niet worden geopend. Ontgrendel hem met zijn hardwaresleutel, of synchroniseer en probeer het opnieuw.",
   "error.itemNotFound":
-    "That item no longer exists. It may have been moved or deleted on another device.",
+    "Dat item bestaat niet meer. Het is mogelijk op een ander apparaat verplaatst of verwijderd.",
   "error.itemDeleted":
-    "That item was deleted for good, so it can't be opened. Choose another item.",
-  "error.sameVault": "The item is already in that vault. Choose a different vault.",
-  "error.noOtp": "This item has no one-time code. Edit the item to add one.",
+    "Dat item is definitief verwijderd en kan niet worden geopend. Kies een ander item.",
+  "error.sameVault": "Het item staat al in die kluis. Kies een andere kluis.",
+  "error.noOtp": "Dit item heeft geen eenmalige code. Bewerk het item om er een toe te voegen.",
   "error.fieldEmpty":
-    "That field is empty, so there's nothing to copy or show. Edit the item to fill it in.",
+    "Dat veld is leeg, dus er is niets om te kopiëren of te tonen. Bewerk het item om het in te vullen.",
   "error.invalidInput":
-    "Something in this form isn't valid. Check the highlighted fields and try again.",
+    "Er klopt iets niet in dit formulier. Controleer de gemarkeerde velden en probeer het opnieuw.",
   "error.sshKeyInvalid":
-    "This isn't an OpenSSH private key. Paste the whole key, including the BEGIN and END lines.",
-  "error.reauthRequired": "This change needs your master password. Enter it to confirm.",
-  "error.attachmentTooLarge": "That file is larger than 50 MiB. Choose a smaller file.",
+    "Dit is geen persoonlijke OpenSSH-sleutel. Plak de hele sleutel, inclusief de BEGIN- en END-regels.",
+  "error.reauthRequired": "Voor deze wijziging is je hoofdwachtwoord nodig. Voer het in om te bevestigen.",
+  "error.attachmentTooLarge": "Dat bestand is groter dan 50 MiB. Kies een kleiner bestand.",
   "error.attachmentQuota":
-    "Your files would use more than the 1 GiB available. Remove some attachments, then try again.",
-  "error.attachmentNotFound": "This file is no longer part of the item. Reload the item.",
+    "Je bestanden zouden meer dan de beschikbare 1 GiB gebruiken. Verwijder een aantal bijlagen en probeer het opnieuw.",
+  "error.attachmentNotFound": "Dit bestand maakt geen deel meer uit van het item. Laad het item opnieuw.",
   "error.attachmentUnavailable":
-    "This file can't be opened on this device. It may not be synced yet or may be damaged.",
-  "error.attachmentFileUnreadable": "That file can't be read. Choose another file.",
-  "error.attachmentSaveFailed": "The file couldn't be saved there. Choose another folder.",
-  "error.attachmentPreviewUnsupported": "There's no preview for this file. Use Save as to open it.",
-  "error.attachmentPreviewTooLarge": "This image is too large to preview. Use Save as to open it.",
+    "Dit bestand kan op dit apparaat niet worden geopend. Het is mogelijk nog niet gesynchroniseerd of beschadigd.",
+  "error.attachmentFileUnreadable": "Dat bestand kan niet worden gelezen. Kies een ander bestand.",
+  "error.attachmentSaveFailed": "Het bestand kon daar niet worden bewaard. Kies een andere map.",
+  "error.attachmentPreviewUnsupported":
+    "Er is geen voorvertoning voor dit bestand. Gebruik Bewaren als om het te openen.",
+  "error.attachmentPreviewTooLarge":
+    "Deze afbeelding is te groot voor een voorvertoning. Gebruik Bewaren als om hem te openen.",
   "error.clipboardUnavailable":
-    "Mosaic couldn't use the clipboard. Close apps that might be holding it, then try again.",
+    "Mosaic kon het klembord niet gebruiken. Sluit apps die het mogelijk vasthouden en probeer het opnieuw.",
   "error.importFileUnreadable":
-    "Mosaic couldn't read that file. Check that it still exists and isn't open in another app, then try again.",
+    "Mosaic kon dat bestand niet lezen. Controleer of het nog bestaat en niet in een andere app open staat en probeer het opnieuw.",
   "error.importDeleteNotAllowed":
-    "Import the file first. Mosaic only deletes an export after its items are in your vault.",
+    "Importeer het bestand eerst. Mosaic verwijdert een export pas nadat de items in je kluis staan.",
   "error.importDeleteFailed":
-    "The file couldn't be deleted. It may be open in another app or read-only. Delete it yourself, then empty the recycle bin.",
+    "Het bestand kon niet worden verwijderd. Het staat mogelijk open in een andere app of is alleen-lezen. Verwijder het zelf en leeg daarna de prullenbak.",
   "error.importFormatInvalid":
-    "That file isn't in the format you chose. Choose the matching format, or export the file again.",
-  "error.importPreviewExpired": "This import was cancelled. Choose the file again to start over.",
+    "Dat bestand heeft niet het formaat dat je koos. Kies het juiste formaat of exporteer het bestand opnieuw.",
+  "error.importPreviewExpired":
+    "Deze import is geannuleerd. Kies het bestand opnieuw om opnieuw te beginnen.",
   "error.sshRequestExpired":
-    "That SSH request has already ended. Run the command again if you still need it.",
+    "Dat SSH-verzoek is al beëindigd. Voer de opdracht opnieuw uit als je het nog nodig hebt.",
   "error.sshAgentUnavailable":
-    "The SSH agent couldn't start. Check that no other SSH agent is running, then turn it on again.",
-  "error.unlockDelayed": "Too many wrong attempts in a row. Wait a few seconds, then try again.",
+    "De SSH-agent kon niet starten. Controleer of er geen andere SSH-agent actief is en zet hem opnieuw aan.",
+  "error.unlockDelayed":
+    "Te veel foute pogingen achter elkaar. Wacht een paar seconden en probeer het opnieuw.",
   "error.tooManyAttempts":
-    "Too many wrong answers. Mosaic locked. Unlock it with your master password to continue.",
+    "Te veel foute antwoorden. Mosaic is vergrendeld. Ontgrendel het met je hoofdwachtwoord om door te gaan.",
   "error.sshAllowTooSoon":
-    "That was too quick to read the request. Check the key and the program, then choose Allow again.",
+    "Dat ging te snel om het verzoek te lezen. Controleer de sleutel en het programma en kies opnieuw Toestaan.",
   "error.browserRequestExpired":
-    "That browser request has already ended. Ask again from the extension if you still need it.",
+    "Dat browserverzoek is al beëindigd. Vraag het opnieuw aan vanuit de extensie als je het nog nodig hebt.",
   "error.browserAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
+    "Dat ging te snel om het verzoek te lezen. Controleer de details en kies opnieuw.",
   "error.browserPairingNotFound":
-    "That browser is no longer connected. Reopen Settings to see the current list.",
+    "Die browser is niet meer verbonden. Open de instellingen opnieuw om de actuele lijst te zien.",
   "error.browserHostMissing":
-    "This copy of Mosaic has no browser connector installed, so there is nothing to repair. Install Mosaic with its installer to connect a browser.",
+    "Deze kopie van Mosaic heeft geen browserconnector geïnstalleerd, dus er is niets te herstellen. Installeer Mosaic met het installatieprogramma om een browser te verbinden.",
   "error.agentOriginInvalid":
-    "Agents can send a key only to a site that starts with https:// and names just the site, like https://api.example.com. Check the address.",
+    "Agents kunnen een sleutel alleen naar een site sturen die met https:// begint en alleen de site noemt, zoals https://api.example.com. Controleer het adres.",
   "error.agentBindingInvalid":
-    "Mosaic can't use this setting for agents. Check the field, the sites and how the key is sent.",
+    "Mosaic kan deze instelling niet voor agents gebruiken. Controleer het veld, de sites en hoe de sleutel wordt verstuurd.",
   "error.agentValueUnusable":
-    "This value is too short or has a line break in it, so agents can't use it. A key needs at least 12 characters on one line.",
+    "Deze waarde is te kort of bevat een regeleinde, dus agents kunnen hem niet gebruiken. Een sleutel heeft minstens 12 tekens op één regel nodig.",
   "error.agentVaultShared":
-    "Agents can only use items in a vault that belongs to you and isn't shared. Move the item to one of your own vaults first.",
-  "error.agentAccessOff": "Agent access is switched off. Turn it on in Settings, under Agents.",
+    "Agents kunnen alleen items gebruiken in een kluis die van jou is en niet wordt gedeeld. Verplaats het item eerst naar een van je eigen kluizen.",
+  "error.agentAccessOff":
+    "Agenttoegang staat uit. Zet hem aan in de instellingen, onder Agents.",
   "error.agentRequestExpired":
-    "That agent request has already ended. The agent can ask again if it still needs it.",
+    "Dat agentverzoek is al beëindigd. De agent kan het opnieuw vragen als hij het nog nodig heeft.",
   "error.agentAllowTooSoon":
-    "That was too quick to read the request. Check the details, then choose again.",
+    "Dat ging te snel om het verzoek te lezen. Controleer de details en kies opnieuw.",
   "error.agentPairingNotFound":
-    "That agent is no longer connected. Reopen Settings to see the current list.",
+    "Die agent is niet meer verbonden. Open de instellingen opnieuw om de actuele lijst te zien.",
   "error.agentEndpointUnavailable":
-    "Mosaic could not open the connection agents use. Close other copies of Mosaic and try again.",
+    "Mosaic kon de verbinding die agents gebruiken niet openen. Sluit andere kopieën van Mosaic en probeer het opnieuw.",
   "error.kitNotVerified":
-    "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
+    "Bewaar eerst de nieuwe Noodkit en bevestig de laatste groep ervan. Mosaic wijzigt daarvoor niets.",
   "error.kitGroupMismatch":
-    "That is not the last group of the new Secret Key. Check the new Emergency Kit.",
+    "Dat is niet de laatste groep van de nieuwe Geheime Sleutel. Controleer de nieuwe Noodkit.",
   "error.rotationInProgress":
-    "Another key change is still open. Finish it with Continue key rotation, or discard it first.",
-  "error.rotationNone": "There is no key change to continue.",
+    "Er staat nog een andere sleutelwijziging open. Rond hem af met Sleutelrotatie voortzetten, of verwerp hem eerst.",
+  "error.rotationNone": "Er is geen sleutelwijziging om voort te zetten.",
   "error.rotationNotFound":
-    "That password change is no longer open. It may have been closed on another device or in the browser. Reopen the item to see where it stands.",
+    "Die wachtwoordwijziging staat niet meer open. Ze is mogelijk op een ander apparaat of in de browser gesloten. Open het item opnieuw om te zien hoe het ervoor staat.",
   "error.rotationLimit":
-    "Four password changes of this item are open already. Finish or close one in the item first.",
+    "Er staan al vier wachtwoordwijzigingen van dit item open. Rond er eerst een af of sluit er een in het item.",
   "error.rotationOpen":
-    "This login has an open password change. Restore it from the trash, then choose It worked or It didn't work on the item. After that you can delete it forever.",
+    "Deze login heeft een openstaande wachtwoordwijziging. Zet hem terug uit de prullenmand en kies dan op het item Het werkte of Het werkte niet. Daarna kun je hem definitief verwijderen.",
   "error.rotationNotSupported":
-    "Mosaic can't guide this change. It needs a login with an https address. Change the password on the site yourself.",
+    "Mosaic kan deze wijziging niet begeleiden. Daarvoor is een login met een https-adres nodig. Wijzig het wachtwoord zelf op de site.",
   "error.historyNotFound":
-    "That earlier password isn't in the history any more. Reopen the item to see the current list.",
+    "Dat eerdere wachtwoord staat niet meer in de geschiedenis. Open het item opnieuw om de actuele lijst te zien.",
   "error.originNotRelated":
-    "That page doesn't belong to this login's site, so Mosaic didn't add it. Edit the item's addresses if it should.",
+    "Die pagina hoort niet bij de site van deze login, dus Mosaic heeft hem niet toegevoegd. Bewerk de adressen van het item als dat wel zo moet zijn.",
   "error.breachConsentRequired":
-    "The breach check is off. Turn it on and agree to what it sends first.",
+    "De datalekcontrole staat uit. Zet hem eerst aan en ga akkoord met wat er wordt verstuurd.",
   "error.breachRunning":
-    "A breach check is already running. Wait for it to finish, or stop it first.",
+    "Er loopt al een datalekcontrole. Wacht tot die klaar is of stop hem eerst.",
   "error.rotationTooFar":
-    "This change already reached your account, so it can't be discarded. Continue it to finish.",
+    "Deze wijziging heeft je account al bereikt en kan niet worden verworpen. Zet hem voort om hem af te ronden.",
   "error.rotationJumpTooLarge":
-    "This device is too far behind the other devices to catch up. Set it up again: remove the account from this device and join again with your Emergency Kit.",
+    "Dit apparaat loopt te ver achter op de andere apparaten om bij te komen. Stel het opnieuw in: verwijder het account van dit apparaat en sluit je opnieuw aan met je Noodkit.",
   "error.rotationNotApplied":
-    "The change never reached your account, so nothing was changed. Start again or discard it.",
+    "De wijziging heeft je account nooit bereikt, dus er is niets gewijzigd. Begin opnieuw of verwerp hem.",
   "error.secretKeyUnchanged":
-    "That Secret Key no longer works. Use the one from the Emergency Kit you saved on the device that made the change.",
-  "error.passwordUnchanged": "The new master password has to be different from the current one.",
+    "Die Geheime Sleutel werkt niet meer. Gebruik de sleutel uit de Noodkit die je hebt bewaard op het apparaat dat de wijziging maakte.",
+  "error.passwordUnchanged":
+    "Het nieuwe hoofdwachtwoord moet anders zijn dan het huidige.",
   "error.profileDowngrade":
-    "That level is not stronger than what your account uses now. Pick a higher one.",
+    "Dat niveau is niet sterker dan wat je account nu gebruikt. Kies een hoger niveau.",
   "error.profileTooSlow":
-    "Unlocking with that level would take this device more than two seconds. Pick a lower level, or upgrade anyway.",
+    "Ontgrendelen met dat niveau zou dit apparaat meer dan twee seconden kosten. Kies een lager niveau of upgrade toch.",
   "error.rekeyNeedsCleanSync":
-    "A re-key needs sync to be up to date and free of warnings. Sync now, look at any warning, then try again.",
+    "Voor het vernieuwen van de sleutels moet de synchronisatie bij zijn en vrij van waarschuwingen. Synchroniseer nu, bekijk eventuele waarschuwingen en probeer het opnieuw.",
   "error.rekeyMemberKeyMismatch":
-    "You have not compared the safety code of everyone in a shared vault yet, so that vault can't be renewed. Compare their codes in the vault's sharing settings, then try again.",
-  "error.rekeyBusy": "Your vaults kept changing while Mosaic worked. Wait a moment and try again.",
+    "Je hebt de veiligheidscode van iedereen in een gedeelde kluis nog niet vergeleken, dus die kluis kan niet worden vernieuwd. Vergelijk hun codes in de deelinstellingen van de kluis en probeer het opnieuw.",
+  "error.rekeyBusy":
+    "Je kluizen bleven veranderen terwijl Mosaic bezig was. Wacht even en probeer het opnieuw.",
   "error.rekeyOutcomeUnknown":
-    "Mosaic couldn't confirm whether your account accepted the new keys. Choose Continue key rotation to find out.",
+    "Mosaic kon niet bevestigen of je account de nieuwe sleutels heeft geaccepteerd. Kies Sleutelrotatie voortzetten om het te achterhalen.",
   "error.rekeyNeedsServer":
-    "Re-keying needs your sync server or folder, and it can't be reached. Check the connection and try again.",
+    "Voor het vernieuwen van de sleutels is je synchronisatieserver of -map nodig, en die is niet bereikbaar. Controleer de verbinding en probeer het opnieuw.",
   "error.rekeyNoAccountFile":
-    "Nothing in your sync folder opens with this password and Secret Key. Check the new Emergency Kit.",
+    "Niets in je synchronisatiemap opent met dit wachtwoord en deze Geheime Sleutel. Controleer de nieuwe Noodkit.",
   "error.syncAccountRekeyed":
-    "Your account's keys were renewed on another device. Use the Secret Key from the new Emergency Kit to continue.",
+    "De sleutels van je account zijn op een ander apparaat vernieuwd. Gebruik de Geheime Sleutel uit de nieuwe Noodkit om door te gaan.",
   "error.syncEpochRollback":
-    "Your sync backend shows older account keys than this device has. Nothing was changed.",
+    "Je synchronisatie-backend toont oudere accountsleutels dan dit apparaat heeft. Er is niets gewijzigd.",
   "error.syncRekeyRefused":
-    "The keys your sync backend offers are not the next ones after this device's. Nothing was changed. Check your other devices.",
-  "error.pickerStale": "This list is out of date. Click the field again.",
-  "error.pickerTooSoon": "Wait a moment, then confirm again.",
-  "error.programFillUnavailable": "Filling in programs isn't available on this device.",
-  "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
+    "De sleutels die je synchronisatie-backend aanbiedt zijn niet de volgende na die van dit apparaat. Er is niets gewijzigd. Controleer je andere apparaten.",
+  "error.pickerStale": "Deze lijst is verouderd. Klik opnieuw op het veld.",
+  "error.pickerTooSoon": "Wacht even en bevestig dan opnieuw.",
+  "error.programFillUnavailable": "Invullen in programma’s is op dit apparaat niet beschikbaar.",
+  "error.busy": "Mosaic rondt de vorige stap nog af. Wacht even en probeer het opnieuw.",
   "error.internal":
-    "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",
+    "Er ging onverwacht iets mis bij deze actie. Probeer het opnieuw en start Mosaic opnieuw als het blijft gebeuren.",
   "error.importTooLarge":
-    "This file is too large or too complex to import. Export fewer items at a time, then try again.",
+    "Dit bestand is te groot of te complex om te importeren. Exporteer minder items tegelijk en probeer het opnieuw.",
   "error.importUnsupported":
-    "Mosaic can't read this version of the format. Export again in a current format (for KeePass: KDBX 4 with AES or ChaCha20), then try again.",
+    "Mosaic kan deze versie van het formaat niet lezen. Exporteer opnieuw in een actueel formaat (voor KeePass: KDBX 4 met AES of ChaCha20) en probeer het opnieuw.",
   "error.importEncrypted":
-    "This export is password-protected. Export again without encryption, import it, then delete the file.",
+    "Deze export is met een wachtwoord beveiligd. Exporteer opnieuw zonder versleuteling, importeer hem en verwijder daarna het bestand.",
   "error.sshAgentEndpointInUse":
-    "Another SSH agent is already running (on Windows, the OpenSSH Authentication Agent service). Stop it, then turn on Mosaic's SSH agent again.",
-  "error.cancelled": "Cancelled. Nothing changed.",
+    "Er draait al een andere SSH-agent (in Windows de service OpenSSH Authentication Agent). Stop die en zet de SSH-agent van Mosaic opnieuw aan.",
+  "error.cancelled": "Geannuleerd. Er is niets gewijzigd.",
   "error.quickUnlockExpired":
-    "Quick unlock expired. Unlock with your master password, then turn it on again in Settings.",
+    "Snel ontgrendelen is verlopen. Ontgrendel met je hoofdwachtwoord en zet het daarna opnieuw aan in de instellingen.",
   "error.quickUnlockInvalidated":
-    "Quick unlock stopped working on this device and was turned off. Unlock with your master password.",
+    "Snel ontgrendelen werkt op dit apparaat niet meer en is uitgezet. Ontgrendel met je hoofdwachtwoord.",
   "error.passwordRequired":
-    "Enter your master password this time. Quick unlock works again after that.",
-  "error.hardwareKeyUnsupported": "This security key or system can't be used with Mosaic.",
-  "error.hardwareKeyNotFound": "No security key found. Insert it and try again.",
-  "error.hardwareKeyTimeout": "The key wasn't touched in time. Try again.",
-  "error.hardwareKeyPinRequired": "Enter your security key's PIN.",
-  "error.hardwareKeyPinInvalid": "Wrong PIN. After several wrong tries the key locks itself.",
+    "Voer deze keer je hoofdwachtwoord in. Daarna werkt snel ontgrendelen weer.",
+  "error.hardwareKeyUnsupported":
+    "Deze beveiligingssleutel of dit systeem kan niet met Mosaic worden gebruikt.",
+  "error.hardwareKeyNotFound": "Geen beveiligingssleutel gevonden. Steek hem in en probeer het opnieuw.",
+  "error.hardwareKeyTimeout": "De sleutel is niet op tijd aangeraakt. Probeer het opnieuw.",
+  "error.hardwareKeyPinRequired": "Voer de pincode van je beveiligingssleutel in.",
+  "error.hardwareKeyPinInvalid":
+    "Verkeerde pincode. Na een aantal foute pogingen vergrendelt de sleutel zichzelf.",
   "error.hardwareKeyPinBlocked":
-    "This key is locked after too many wrong PINs. Reset it with its maker's tool; its registrations are then lost.",
-  "error.hardwareKeyNoPin": "Set a PIN on this key first, with its maker's tool.",
+    "Deze sleutel is vergrendeld na te veel foute pincodes. Reset hem met het hulpprogramma van de maker; zijn registraties gaan dan verloren.",
+  "error.hardwareKeyNoPin":
+    "Stel eerst een pincode in op deze sleutel, met het hulpprogramma van de maker.",
   "error.hardwareKeyNotRecognized":
-    "This key isn't registered here. Try another key or your master password.",
-  "error.hardwareKeyLimit": "You've registered the most keys allowed (8). Remove one first.",
+    "Deze sleutel is hier niet geregistreerd. Probeer een andere sleutel of je hoofdwachtwoord.",
+  "error.hardwareKeyLimit":
+    "Je hebt het maximale aantal toegestane sleutels (8) geregistreerd. Verwijder er eerst een.",
   "error.hardwareKeyLast":
-    "This is the vault's only key. Register another one before you remove it.",
-  "error.itemTypeNotAllowed": "This vault holds one-time codes only.",
+    "Dit is de enige sleutel van de kluis. Registreer eerst een andere voordat je hem verwijdert.",
+  "error.itemTypeNotAllowed": "Deze kluis bevat alleen eenmalige codes.",
   "error.otpScanUnsupported":
-    "Screen scanning isn't available on this system. Paste a screenshot instead.",
-  "error.otpQrNotFound": "No QR code found. Make sure the whole code is visible, then try again.",
+    "Het scannen van het scherm is op dit systeem niet beschikbaar. Plak in plaats daarvan een schermafbeelding.",
+  "error.otpQrNotFound":
+    "Geen QR-code gevonden. Zorg dat de hele code zichtbaar is en probeer het opnieuw.",
   "error.otpQrNotOtp":
-    "This QR code isn't a two-factor setup code. Look for the code on the site's 2FA setup page.",
+    "Deze QR-code is geen installatiecode voor tweestapsverificatie. Zoek de code op de 2FA-instelpagina van de site.",
   "error.otpQrMigration":
-    "This is a Google Authenticator export code, which Mosaic can't read yet. Set up each account again on its site, or enter its setup key.",
+    "Dit is een exportcode van Google Authenticator, die Mosaic nog niet kan lezen. Stel elk account opnieuw in op zijn site, of voer de installatiesleutel in.",
   "error.otpQrMultiple":
-    "More than one setup code is visible. Show only the one you want, then try again.",
+    "Er is meer dan één installatiecode zichtbaar. Toon alleen de code die je wilt en probeer het opnieuw.",
   "error.otpQrInvalid":
-    "This setup code uses settings Mosaic doesn't support. Enter the setup key instead.",
-  "error.otpUriInvalid": "This isn't a valid otpauth:// link. Copy the whole link again.",
+    "Deze installatiecode gebruikt instellingen die Mosaic niet ondersteunt. Voer in plaats daarvan de installatiesleutel in.",
+  "error.otpUriInvalid": "Dit is geen geldige otpauth://-link. Kopieer de hele link opnieuw.",
   "error.otpKeyInvalid":
-    "This key isn't valid. It uses only the letters A to Z and the digits 2 to 7; check for typos.",
-  "error.otpImageUnreadable": "Mosaic can't read this image. Use a PNG or JPEG file.",
-  "error.otpImageTooLarge": "This image is too large. Use a screenshot of just the QR code.",
+    "Deze sleutel is ongeldig. Hij gebruikt alleen de letters A tot Z en de cijfers 2 tot 7; controleer op typefouten.",
+  "error.otpImageUnreadable": "Mosaic kan deze afbeelding niet lezen. Gebruik een PNG- of JPEG-bestand.",
+  "error.otpImageTooLarge":
+    "Deze afbeelding is te groot. Gebruik een schermafbeelding van alleen de QR-code.",
   "error.otpClipboardNoImage":
-    "The clipboard has no image. Take a screenshot of the QR code, then paste it here.",
-  "error.otpPendingExpired": "The scanned code is no longer available. Scan it again.",
-  "error.syncNotConfigured": "Sync isn't set up on this device yet. Set it up in Settings first.",
+    "Er staat geen afbeelding op het klembord. Maak een schermafbeelding van de QR-code en plak hem hier.",
+  "error.otpPendingExpired": "De gescande code is niet meer beschikbaar. Scan hem opnieuw.",
+  "error.syncNotConfigured":
+    "Synchronisatie is op dit apparaat nog niet ingesteld. Stel het eerst in bij de instellingen.",
   "error.syncAlreadyConfigured":
-    "Sync is already set up. Disconnect first to use a different server or folder.",
+    "Synchronisatie is al ingesteld. Verbreek eerst de verbinding om een andere server of map te gebruiken.",
   "error.syncServerUnreachable":
-    "Mosaic couldn't reach the server. Check the address and your internet connection, then try again.",
+    "Mosaic kon de server niet bereiken. Controleer het adres en je internetverbinding en probeer het opnieuw.",
   "error.syncServerInvalid":
-    "This doesn't look like a Mosaic server. Check the address; it should look like https://sync.example.com.",
+    "Dit lijkt niet op een Mosaic-server. Controleer het adres; het hoort eruit te zien als https://sync.example.com.",
   "error.syncServerInsecure":
-    "Mosaic only connects to servers over https, so nobody on the way can read or change your data. Use an https:// address.",
-  "error.syncServerMismatch": "This isn't the server this account syncs with. Check the address.",
+    "Mosaic maakt alleen via https verbinding met servers, zodat niemand onderweg je gegevens kan lezen of wijzigen. Gebruik een https://-adres.",
+  "error.syncServerMismatch":
+    "Dit is niet de server waarmee dit account synchroniseert. Controleer het adres.",
   "error.syncServerIncompatible":
-    "This server runs a version that doesn't match your Mosaic. Update Mosaic or ask the server's owner to update it.",
+    "Deze server draait een versie die niet bij je Mosaic past. Werk Mosaic bij of vraag de eigenaar van de server om te updaten.",
   "error.syncRegistrationClosed":
-    "This server isn't accepting new sync accounts. Sign in to an existing one or ask the server's owner.",
+    "Deze server accepteert geen nieuwe synchronisatieaccounts. Log in op een bestaand account of vraag het de eigenaar van de server.",
   "error.syncInviteInvalid":
-    "This invite code isn't valid or was already used. Check it or ask the server's owner for a new one.",
+    "Deze uitnodigingscode is ongeldig of al gebruikt. Controleer hem of vraag de eigenaar van de server om een nieuwe.",
   "error.syncAccountExists":
-    "You already have a sync account on this server. Choose Sign in instead.",
+    "Je hebt al een synchronisatieaccount op deze server. Kies in plaats daarvan Inloggen.",
   "error.syncAccountMismatch":
-    "The sync account on that server belongs to a different Mosaic account. Check the address and your email.",
+    "Het synchronisatieaccount op die server hoort bij een ander Mosaic-account. Controleer het adres en je e-mailadres.",
   "error.syncTwoFactorRequired":
-    "This sync account needs a code from your authenticator app. Enter the 6-digit code.",
+    "Dit synchronisatieaccount heeft een code uit je authenticator-app nodig. Voer de 6-cijferige code in.",
   "error.syncTwoFactorInvalid":
-    "That code isn't right or has expired. Enter the current 6-digit code from your authenticator app.",
+    "Die code klopt niet of is verlopen. Voer de actuele 6-cijferige code uit je authenticator-app in.",
   "error.syncSignedOut":
-    "The server signed this device out. Sign in again to keep syncing. Your changes are safe on this device.",
-  "error.syncRateLimited": "Too many attempts. Wait a few minutes, then try again.",
+    "De server heeft dit apparaat uitgelogd. Log opnieuw in om te blijven synchroniseren. Je wijzigingen zijn veilig op dit apparaat.",
+  "error.syncRateLimited": "Te veel pogingen. Wacht een paar minuten en probeer het opnieuw.",
   "error.syncQuotaExceeded":
-    "The server or folder has no room left for your data. Free up space or ask the server's owner for more.",
+    "De server of map heeft geen ruimte meer voor je gegevens. Maak ruimte vrij of vraag de eigenaar van de server om meer.",
   "error.syncFolderUnavailable":
-    "Mosaic can't use this folder. Check that it exists, that your cloud service has finished syncing it and that Mosaic may write to it.",
+    "Mosaic kan deze map niet gebruiken. Controleer of hij bestaat, of je cloudservice klaar is met synchroniseren en of Mosaic erin mag schrijven.",
   "error.syncFolderNotEmpty":
-    "This folder holds other files, so Mosaic won't write there. Choose an empty folder or create a new one.",
+    "Deze map bevat andere bestanden, dus Mosaic schrijft er niet in. Kies een lege map of maak een nieuwe.",
   "error.syncFolderNoAccount":
-    "This folder holds no sync data for this account. Choose the folder your other device syncs to.",
+    "Deze map bevat geen synchronisatiegegevens voor dit account. Kies de map waarmee je andere apparaat synchroniseert.",
   "error.syncFolderDamaged":
-    "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.",
+    "Sommige synchronisatiebestanden in deze map zijn beschadigd. Laat je cloudservice klaar zijn met synchroniseren of zet de map terug uit een back-up en probeer het opnieuw.",
   "error.syncPasswordOutcomeUnknown":
-    "We couldn't confirm whether the server changed your master password. Keep both passwords until sync confirms which one applies.",
+    "We konden niet bevestigen of de server je hoofdwachtwoord heeft gewijzigd. Bewaar beide wachtwoorden totdat de synchronisatie bevestigt welk van toepassing is.",
   "error.syncWebauthnUnavailable":
-    "Your server can't use a security key for this right now, or this account has none. Use an authenticator-app code instead.",
+    "Je server kan hiervoor nu geen beveiligingssleutel gebruiken, of dit account heeft er geen. Gebruik in plaats daarvan een code uit een authenticator-app.",
   "error.syncWebauthnLimit":
-    "This account already has the most security keys the server allows. Remove one you no longer use, then try again.",
-  "error.syncHandoffExpired": "The browser step ran out of time. Start it again.",
+    "Dit account heeft al het maximale aantal beveiligingssleutels dat de server toestaat. Verwijder er een die je niet meer gebruikt en probeer het opnieuw.",
+  "error.syncHandoffExpired": "De stap in de browser is verlopen. Begin opnieuw.",
   "error.syncHandoffFailed":
-    "Too many wrong codes or failed checks in the browser. Start the step again.",
+    "Te veel foute codes of mislukte controles in de browser. Begin de stap opnieuw.",
   "error.syncPasswordNeedsServer":
-    "Changing your master password needs your sync server, and it can't be reached. Check your internet connection and try again.",
-  "error.syncDeviceIsCurrent": "You can't remove the device you're using. Use Disconnect instead.",
-  "error.syncChoiceExpired": "The folder choice timed out. Choose the folder again.",
-  "error.syncFreshLoginExpired": "Your password check timed out. Enter your master password again.",
-  "error.syncPasswordRollback": "The server offered an older master password. Check the server.",
+    "Voor het wijzigen van je hoofdwachtwoord is je synchronisatieserver nodig, en die is niet bereikbaar. Controleer je internetverbinding en probeer het opnieuw.",
+  "error.syncDeviceIsCurrent":
+    "Je kunt het apparaat dat je gebruikt niet verwijderen. Gebruik in plaats daarvan Verbinding verbreken.",
+  "error.syncChoiceExpired": "De mapkeuze is verlopen. Kies de map opnieuw.",
+  "error.syncFreshLoginExpired":
+    "Je wachtwoordcontrole is verlopen. Voer je hoofdwachtwoord opnieuw in.",
+  "error.syncPasswordRollback":
+    "De server bood een ouder hoofdwachtwoord aan. Controleer de server.",
   "error.syncPasswordChanged":
-    "Your master password was changed on the server or in the folder. Enter the new one below.",
+    "Je hoofdwachtwoord is op de server of in de map gewijzigd. Voer hieronder het nieuwe in.",
   "error.sharingNotHosted":
-    "Sharing needs a Mosaic server. Connect one in the Sync settings first.",
-  "error.setupCodeNeedsServer": "A phone can only join an account that syncs.",
+    "Delen heeft een Mosaic-server nodig. Verbind er eerst een bij de synchronisatie-instellingen.",
+  "error.setupCodeNeedsServer": "Een telefoon kan alleen deelnemen aan een account dat synchroniseert.",
   "error.sharingContactUnverified":
-    "Compare this person's safety code first. Mosaic only shares with people you verified.",
+    "Vergelijk eerst de veiligheidscode van deze persoon. Mosaic deelt alleen met mensen die je hebt geverifieerd.",
   "error.sharingKeyChanged":
-    "This person's key changed, or the code doesn't match. Look them up again and compare the new code before you go on.",
+    "De sleutel van deze persoon is gewijzigd, of de code komt niet overeen. Zoek de persoon opnieuw op en vergelijk de nieuwe code voordat je verdergaat.",
   "error.sharingRoleForbidden":
-    "Your role in this vault doesn't allow that. Ask the owner or a manager.",
+    "Je rol in deze kluis staat dat niet toe. Vraag het de eigenaar of een beheerder.",
   "error.sharingInviteExists":
-    "An invite for this person and vault is waiting already. Withdraw it first if you want to send a new one.",
+    "Er wacht al een uitnodiging voor deze persoon en kluis. Trek die eerst in als je een nieuwe wilt sturen.",
   "error.sharingInviteStale":
-    "The invite changed in the meantime, for example after a key change. Open it again.",
+    "De uitnodiging is intussen veranderd, bijvoorbeeld na een sleutelwijziging. Open hem opnieuw.",
   "error.sharingInviteExpired":
-    "This invite ran out or was withdrawn. Ask the sender to invite you again.",
+    "Deze uitnodiging is verlopen of ingetrokken. Vraag de afzender je opnieuw uit te nodigen.",
   "error.sharingInviteUnreadable":
-    "This invite can't be opened. It may be damaged or not meant for this account. Ask the sender to invite you again.",
+    "Deze uitnodiging kan niet worden geopend. Hij is mogelijk beschadigd of niet voor dit account bedoeld. Vraag de afzender je opnieuw uit te nodigen.",
   "error.sharingInviteNotInRoster":
-    "The vault's member list doesn't match this invite, so Mosaic didn't open it. Ask the sender to invite you again.",
+    "De ledenlijst van de kluis komt niet overeen met deze uitnodiging, dus Mosaic heeft hem niet geopend. Vraag de afzender je opnieuw uit te nodigen.",
   "error.sharingOwnerCannotLeave":
-    "The owner can't leave a vault. Remove the other people instead.",
-  "error.sharingAlreadyMember": "This person is a member of the vault already.",
+    "De eigenaar kan een kluis niet verlaten. Verwijder in plaats daarvan de andere mensen.",
+  "error.sharingAlreadyMember": "Deze persoon is al lid van de kluis.",
   "error.sharingReinviteBlocked":
-    "You removed this person recently. You can invite them again once the vault key has changed. Sync, then try again.",
-  "error.sharingInviteLimit": "Too many invites are waiting. Wait for answers or withdraw some.",
+    "Je hebt deze persoon onlangs verwijderd. Je kunt de persoon opnieuw uitnodigen zodra de kluissleutel is gewijzigd. Synchroniseer en probeer het opnieuw.",
+  "error.sharingInviteLimit":
+    "Er wachten te veel uitnodigingen. Wacht op antwoorden of trek er een paar in.",
   "error.sharingVaultKnown":
-    "This device has that vault already, so Mosaic didn't accept a key for it. Ask the sender which vault they shared.",
+    "Dit apparaat heeft die kluis al, dus Mosaic accepteerde er geen sleutel voor. Vraag de afzender welke kluis hij heeft gedeeld.",
   "error.syncHasSharedVaults":
-    "You can't switch servers while shared vaults are on this device. Leave the shared vaults, or have their owners remove you, first.",
+    "Je kunt niet van server wisselen zolang er gedeelde kluizen op dit apparaat staan. Verlaat eerst de gedeelde kluizen, of laat de eigenaars je verwijderen.",
   "error.emergencyWaiting":
-    "A request is waiting, so this can't change now. Refuse it or wait for it.",
+    "Er wacht een verzoek, dus dit kan nu niet worden gewijzigd. Weiger het of wacht erop.",
   "error.emergencyCooldown":
-    "Your last request was refused. You can ask again after the waiting period of one day.",
+    "Je laatste verzoek is geweigerd. Je kunt opnieuw vragen na de wachttijd van één dag.",
   "error.emergencyNotGranted":
-    "There is nothing to claim: no request is open, or the person didn't grant you access.",
+    "Er is niets op te eisen: er staat geen verzoek open, of de persoon heeft je geen toegang gegeven.",
   "error.shortcutUnavailable":
-    "Another program already uses this shortcut, or Mosaic can't register it. Choose a different combination.",
+    "Een ander programma gebruikt deze sneltoets al, of Mosaic kan hem niet registreren. Kies een andere combinatie.",
   "error.shortcutUnsupported":
-    "Your system doesn't let apps set a global shortcut. Open Mosaic from its window instead.",
+    "Je systeem laat apps geen algemene sneltoets instellen. Open Mosaic in plaats daarvan vanuit het venster.",
 } satisfies Record<keyof typeof en, string>;
