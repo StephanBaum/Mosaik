@@ -96,15 +96,22 @@ impl Perspective {
 }
 
 pub fn line_intersect(p0: &Point, p1: &Point, q0: &Point, q1: &Point) -> Option<Point> {
+    // Mosaic patch: upstream computed this in i32, where the products of an
+    // edge length squared and a coordinate overflow for large capstones (a
+    // debug panic; in release a wrapped numerator of i32::MIN over a
+    // determinant of -1 panics too). i128 cannot overflow for any i32 input; a
+    // result beyond ±MAX_COORD (outside any image Mosaic scans) drops the
+    // grouping, so later i32 products of coordinate differences stay in range.
+    let (p0, p1, q0, q1) = (wide(p0), wide(p1), wide(q0), wide(q1));
     /* (a, b) is perpendicular to line p */
-    let a = -(p1.y - p0.y);
-    let b = p1.x - p0.x;
+    let a = -(p1.1 - p0.1);
+    let b = p1.0 - p0.0;
     /* (c, d) is perpendicular to line q */
-    let c = -(q1.y - q0.y);
-    let d = q1.x - q0.x;
+    let c = -(q1.1 - q0.1);
+    let d = q1.0 - q0.0;
     /* e and f are dot products of the respective vectors with p and q */
-    let e = a * p1.x + b * p1.y;
-    let f = c * q1.x + d * q1.y;
+    let e = a * p1.0 + b * p1.1;
+    let f = c * q1.0 + d * q1.1;
     /* Now we need to solve:
      *     [a b] [rx]   [e]
      *     [c d] [ry] = [f]
@@ -118,10 +125,22 @@ pub fn line_intersect(p0: &Point, p1: &Point, q0: &Point, q1: &Point) -> Option<
         None
     } else {
         Some(Point {
-            x: (d * e - b * f) / det,
-            y: (-c * e + a * f) / det,
+            x: narrow((d * e - b * f) / det)?,
+            y: narrow((-c * e + a * f) / det)?,
         })
     }
+}
+
+/// Mosaic patch: a point's coordinates widened for `line_intersect`.
+fn wide(p: &Point) -> (i128, i128) {
+    (i128::from(p.x), i128::from(p.y))
+}
+
+/// Mosaic patch: a `line_intersect` coordinate, if within ±MAX_COORD.
+fn narrow(v: i128) -> Option<i32> {
+    i32::try_from(v)
+        .ok()
+        .filter(|v| (-MAX_COORD..=MAX_COORD).contains(v))
 }
 
 #[derive(Debug, Clone)]

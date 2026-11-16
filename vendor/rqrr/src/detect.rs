@@ -201,8 +201,13 @@ fn is_capstone<S>(img: &mut PreparedImage<S>, linepos: &LinePosition, y: usize) 
 where
     S: ImageBuffer,
 {
-    let ring_reg = img.get_region((linepos.right, y));
-    let stone_reg = img.get_region((linepos.stone, y));
+    // Mosaic patch: `get_region` returns an `Option` instead of panicking.
+    let (Some(ring_reg), Some(stone_reg)) = (
+        img.get_region((linepos.right, y)),
+        img.get_region((linepos.stone, y)),
+    ) else {
+        return false;
+    };
 
     if img.get_pixel_at(linepos.left, y) != img.get_pixel_at(linepos.right, y) {
         return false;
@@ -252,11 +257,12 @@ where
         y: y as i32,
     };
     let first_corner_finder = FirstCornerFinder::new(start_point);
+    // Mosaic patch: `repaint_and_apply` returns `None` instead of panicking.
     let first_corner_finder =
-        img.repaint_and_apply((linepos.right, y), PixelColor::Tmp1, first_corner_finder);
+        img.repaint_and_apply((linepos.right, y), PixelColor::Tmp1, first_corner_finder)?;
     let all_corner_finder = AllCornerFinder::new(start_point, first_corner_finder.best());
     let all_corner_finder =
-        img.repaint_and_apply((linepos.right, y), PixelColor::CapStone, all_corner_finder);
+        img.repaint_and_apply((linepos.right, y), PixelColor::CapStone, all_corner_finder)?;
     let corners = all_corner_finder.best();
 
     /* Set up the perspective transform and find the center */
@@ -624,7 +630,9 @@ mod tests {
         let mut test_u = img_from_array([[1, 0, 1], [1, 0, 1], [1, 1, 1]]);
         let finder = FirstCornerFinder::new(Point { x: 0, y: 0 });
 
-        let res = test_u.repaint_and_apply((0, 0), PixelColor::Tmp1, finder);
+        let res = test_u
+            .repaint_and_apply((0, 0), PixelColor::Tmp1, finder)
+            .unwrap();
         assert_eq!(Point { x: 2, y: 2 }, res.best());
     }
 
@@ -635,7 +643,9 @@ mod tests {
         let one_corner = Point { x: 2, y: 2 };
         let finder = AllCornerFinder::new(initial, one_corner);
 
-        let res = test_u.repaint_and_apply((0, 0), PixelColor::Tmp1, finder);
+        let res = test_u
+            .repaint_and_apply((0, 0), PixelColor::Tmp1, finder)
+            .unwrap();
         let corners = res.best();
         assert_eq!(Point { x: 2, y: 2 }, corners[0]);
         assert_eq!(Point { x: 0, y: 2 }, corners[1]);
