@@ -358,7 +358,7 @@ fn summary_of(
         kind,
         title: item.title().unwrap_or_default().to_owned(),
         favorite: item.favorite(),
-        has_otp: item.otp().is_some(),
+        has_otp: item.has_primary_otp(),
         has_passkey: item.passkey_public().is_some(),
         primary_host: item
             .urls()

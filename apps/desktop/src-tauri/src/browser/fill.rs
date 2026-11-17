@@ -148,7 +148,7 @@ fn login_match(entry: &ItemRef<'_>, matched: Matched) -> LoginMatch {
         title: non_empty(entry.item.title()),
         username: username_of(entry.item),
         host: matched.host,
-        has_otp: entry.item.otp().is_some(),
+        has_otp: entry.item.has_primary_otp(),
         favorite: entry.item.favorite(),
         matched_by: match matched.kind {
             MatchKind::ExactOrigin => MatchedBy::ExactOrigin,
@@ -235,7 +235,7 @@ impl Backend {
                 title: non_empty(entry.item.title()).unwrap_or_default(),
                 username: username_of(entry.item),
                 host: first_host(entry.item),
-                has_otp: entry.item.otp().is_some(),
+                has_otp: entry.item.has_primary_otp(),
                 favorite: entry.item.favorite(),
                 fillable: page
                     .as_ref()

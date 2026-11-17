@@ -656,7 +656,7 @@ fn candidate_of(key: ItemKey, item: &Item, kind: MatchKind) -> FillCandidate {
             MatchKind::ExactOrigin => FillMatch::Exact,
             MatchKind::Etld1 => FillMatch::Etld1,
         },
-        has_otp: item.otp().is_some(),
+        has_otp: item.has_primary_otp(),
     }
 }
 

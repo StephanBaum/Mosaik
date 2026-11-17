@@ -223,11 +223,7 @@ fn passkey_line(passkey: &PasskeyPublic) -> Option<String> {
 }
 
 fn has_otp(item: &Item) -> bool {
-    item.otp().is_some()
-        || item
-            .custom_fields()
-            .iter()
-            .any(|(_, field)| matches!(field.value, CustomFieldValue::Otp(_)))
+    item.has_otp()
 }
 
 fn summarize(vault_id: VaultId, item_id: ItemId, item: &Item) -> ItemSummary {
