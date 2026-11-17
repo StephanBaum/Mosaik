@@ -2529,12 +2529,14 @@ export const fixtures = {
     "list_items": [
       {
         "favoritesOnly": true,
+        "limit": 8,
         "query": "git",
         "trash": "exclude",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       },
       {
         "favoritesOnly": false,
+        "limit": null,
         "query": null,
         "trash": "only",
         "vaultId": null

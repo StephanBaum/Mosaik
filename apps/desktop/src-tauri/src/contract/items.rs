@@ -196,6 +196,9 @@ pub struct ListItemsRequest {
     /// Search over title, user name, email, URLs and tags (`null` or empty:
     /// no search). Results are ranked by the core's search.
     pub query: Option<String>,
+    /// At most this many items (`null`: all). Applied before the items are
+    /// summarized, so a short list of a big vault stays cheap.
+    pub limit: Option<u32>,
 }
 
 /// An item in a list. Never contains a secret.

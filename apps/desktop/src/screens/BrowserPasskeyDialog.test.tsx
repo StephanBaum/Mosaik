@@ -176,6 +176,7 @@ describe("browser passkey dialog: create", () => {
       trash: "exclude",
       favoritesOnly: false,
       query: null,
+      limit: null,
     });
     expect(listed.ok && listed.value.some((item) => item.kind === "passkey" && item.host === "example.com")).toBe(
       true,

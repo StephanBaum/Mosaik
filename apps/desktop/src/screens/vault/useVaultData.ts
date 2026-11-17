@@ -1,5 +1,5 @@
 /** Data the vault shell needs besides the open list: vaults, category counts, findings. */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import type { InsightFinding, ItemSummary, VaultId, VaultSummary } from "../../ipc/contract/index.ts";
 
@@ -76,14 +76,74 @@ export function useVaults(reloadKey: number): VaultSummary[] {
   return vaults;
 }
 
-/** Item counts per category for the selected vault (trash excluded). */
-export function useCategoryCounts(vaultId: VaultId | null, reloadKey: number) {
+/** An item that was saved: the list takes its row in place instead of loading again. */
+export interface SavedItem {
+  /** Counts the saves; a new value is a new save, also of the same item. */
+  seq: number;
+  summary: ItemSummary;
+}
+
+/** The list as the backend returned it (all categories), and what it was asked for. */
+export interface FetchedList {
+  items: ItemSummary[];
+  vaultId: VaultId | null;
+  /** No search and not the trash: every item of the vault, so the sidebar counts come from it. */
+  unfiltered: boolean;
+}
+
+function before(a: ItemSummary, b: ItemSummary): boolean {
+  // The backend lists by vault ID, then item ID (both UUIDs: the hyphenated text sorts like the bytes).
+  return a.vaultId === b.vaultId ? a.itemId < b.itemId : a.vaultId < b.vaultId;
+}
+
+/**
+ * The list after a save, without asking the backend: the row is replaced, removed (it left this
+ * list) or, for a new item, inserted at its place. `null` when that cannot be done exactly (a
+ * search or the trash is shown, or no list of this view is loaded): the caller loads again.
+ */
+export function applySaved(
+  current: FetchedList | null,
+  summary: ItemSummary,
+  view: { vaultId: VaultId | null; trash: boolean; query: string },
+): FetchedList | null {
+  const unfiltered = view.query.trim() === "" && !view.trash;
+  if (current === null || !unfiltered || !current.unfiltered || current.vaultId !== view.vaultId) {
+    return null;
+  }
+  const items = current.items.slice();
+  const index = items.findIndex((item) => item.vaultId === summary.vaultId && item.itemId === summary.itemId);
+  const belongs = summary.trashedAt === null && (view.vaultId === null || view.vaultId === summary.vaultId);
+  if (!belongs) {
+    if (index >= 0) {
+      items.splice(index, 1);
+    }
+  } else if (index >= 0) {
+    items[index] = summary;
+  } else {
+    const at = items.findIndex((item) => before(summary, item));
+    items.splice(at < 0 ? items.length : at, 0, summary);
+  }
+  return { ...current, items };
+}
+
+/**
+ * Item counts per category for the selected vault (trash excluded). While `fromList` is set the
+ * item list feeds them through `feed` (it loads the same unfiltered list); otherwise they are
+ * requested here.
+ */
+export function useCategoryCounts(vaultId: VaultId | null, reloadKey: number, fromList: boolean) {
   const ipc = useIpc();
   const [counts, setCounts] = useState(NO_COUNTS);
+  const feed = useCallback((items: readonly ItemSummary[]) => {
+    setCounts(categoryCounts(items));
+  }, []);
   useEffect(() => {
+    if (fromList) {
+      return undefined;
+    }
     let current = true;
     void ipc
-      .call("list_items", { vaultId, trash: "exclude", favoritesOnly: false, query: null })
+      .call("list_items", { vaultId, trash: "exclude", favoritesOnly: false, query: null, limit: null })
       .then((result) => {
         if (current && result.ok) {
           setCounts(categoryCounts(result.value));
@@ -92,19 +152,20 @@ export function useCategoryCounts(vaultId: VaultId | null, reloadKey: number) {
     return () => {
       current = false;
     };
-  }, [ipc, vaultId, reloadKey]);
-  return counts;
+  }, [ipc, vaultId, reloadKey, fromList]);
+  return { counts, feed };
 }
 
 /**
- * The security findings: loaded once on mount and again when the user leaves the
+ * The security findings: loaded once the item list has loaded (`ready`: the report is slower
+ * than the list and must not delay the first paint) and again when the user leaves the
  * security view, not on every reload.
  */
-export function useFindings(inSecurityView: boolean): readonly InsightFinding[] {
+export function useFindings(inSecurityView: boolean, ready: boolean): readonly InsightFinding[] {
   const ipc = useIpc();
   const [findings, setFindings] = useState<readonly InsightFinding[]>([]);
   useEffect(() => {
-    if (inSecurityView) {
+    if (inSecurityView || !ready) {
       return undefined;
     }
     let current = true;
@@ -116,7 +177,7 @@ export function useFindings(inSecurityView: boolean): readonly InsightFinding[] 
     return () => {
       current = false;
     };
-  }, [ipc, inSecurityView]);
+  }, [ipc, inSecurityView, ready]);
   return findings;
 }
 

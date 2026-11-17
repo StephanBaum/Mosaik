@@ -238,7 +238,7 @@ describe("agent access in the item detail", () => {
   it("shows a confirmed binding without a banner", async () => {
     const user = userEvent.setup();
     const ipc = createMockIpc({ start: "unlocked", agent: "on" });
-    const items = await ipc.call("list_items", { vaultId: null, trash: "exclude", favoritesOnly: false, query: null });
+    const items = await ipc.call("list_items", { vaultId: null, trash: "exclude", favoritesOnly: false, query: null, limit: null });
     const github = items.ok ? items.value.find((item) => item.title === "GitHub") : undefined;
     expect(github).toBeDefined();
     await ipc.call("update_item", {

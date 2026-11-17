@@ -458,6 +458,27 @@ fn list_items_in(b: &Backend, trash: &str) -> Vec<ItemSummary> {
     .unwrap()
 }
 
+#[test]
+fn list_items_limit_caps_the_result() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let vault = vault_id(&h.backend);
+    add_login(&h.backend, &vault);
+    add_ssh(&h.backend, &vault);
+    let listed = |limit: Value| {
+        h.backend
+            .list_items(&req(json!({
+                "vaultId": null, "trash": "exclude", "favoritesOnly": false,
+                "query": null, "limit": limit,
+            })))
+            .unwrap()
+    };
+    assert_eq!(listed(json!(null)).len(), 2);
+    assert_eq!(listed(json!(1)).len(), 1);
+    assert_eq!(listed(json!(0)).len(), 0);
+    assert_eq!(listed(json!(8)).len(), 2);
+}
+
 fn check_list_get_and_reveal(b: &Backend, vault: &str, detail: &ItemDetail) {
     assert_eq!(list_items_in(b, "exclude").len(), 1);
     let found = b

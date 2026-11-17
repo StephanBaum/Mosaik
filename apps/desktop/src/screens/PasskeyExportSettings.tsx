@@ -29,7 +29,7 @@ function usePasskeyCount(vaultId: VaultId | null): number | null {
     }
     let current = true;
     void ipc
-      .call("list_items", { vaultId, trash: "exclude", favoritesOnly: false, query: null })
+      .call("list_items", { vaultId, trash: "exclude", favoritesOnly: false, query: null, limit: null })
       .then((result) => {
         if (current) {
           const count = result.ok ? result.value.filter((item) => item.kind === "passkey").length : 0;

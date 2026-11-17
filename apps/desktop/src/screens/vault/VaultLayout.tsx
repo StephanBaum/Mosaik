@@ -11,6 +11,7 @@ import { useLandmarkId } from "../../reveal/context.ts";
 import type {
   InsightFinding,
   ItemDetail as Detail,
+  ItemSummary,
   SessionState,
   VaultSummary,
 } from "../../ipc/contract/index.ts";
@@ -108,10 +109,12 @@ function MainArea({
   shell,
   vaults,
   findings,
+  feedCounts,
 }: {
   shell: Shell;
   vaults: readonly VaultSummary[];
   findings: readonly InsightFinding[];
+  feedCounts: (items: readonly ItemSummary[]) => void;
 }) {
   const { view, query, category, editor, itemCount } = shell;
   const listing = view === "vault" || view === "trash";
@@ -142,6 +145,8 @@ function MainArea({
           selected={shell.selected}
           editor={editor}
           reloadKey={shell.reloadKey}
+          saved={shell.saved}
+          onUnfiltered={feedCounts}
           empty={
             itemCount === 0 &&
             query.trim() === "" &&
@@ -152,6 +157,7 @@ function MainArea({
           onSelect={shell.setSelected}
           onEditor={shell.setEditor}
           onChanged={shell.changed}
+          onItemSaved={shell.itemSaved}
           onImport={() => {
             shell.go("import");
           }}
@@ -172,13 +178,35 @@ function nameOf(vaults: readonly VaultSummary[], vaultId: string | null, t: Tran
   return vaultId === null ? t("vault.allVaults") : labelOf(vaults.find((v) => v.vaultId === vaultId), t);
 }
 
+/** A hardware vault that is not open shows no item list. */
+function showsNoList(vaults: readonly VaultSummary[], vaultId: string | null): boolean {
+  return vaults.some(
+    (vault) => vault.vaultId === vaultId && vault.protection === "hardwareKey" && !vault.available,
+  );
+}
+
+/**
+ * Whether the item list (unfiltered, not the trash, vault open) feeds the sidebar counts, so
+ * they need no request of their own.
+ */
+function countsFromList(vaults: readonly VaultSummary[], shell: Shell): boolean {
+  return shell.view === "vault" && shell.query.trim() === "" && !showsNoList(vaults, shell.vaultId);
+}
+
+/** The list loaded first: the report that is slower to compute waits for it (first paint). */
+function listHasLoaded(vaults: readonly VaultSummary[], shell: Shell): boolean {
+  const listing = shell.view === "vault" || shell.view === "trash";
+  return shell.itemCount !== null || !listing || showsNoList(vaults, shell.vaultId);
+}
+
 // eslint-disable-next-line max-lines-per-function -- the layout wires the sidebar, the top bar, the page and the vault dialogs.
 export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) => void }) {
   const events = useEvents();
   const { t } = useI18n();
   const shell = useShell(onLocked);
   const { view, vaultId, category, query, editor, itemCount } = shell;
-  const vaults = useVaults(shell.reloadKey);
+  // A save changes a vault's item count but reloads no list: the vaults are read again for it.
+  const vaults = useVaults(shell.reloadKey + (shell.saved?.seq ?? 0));
   const [creating, setCreating] = useState(false);
   const share = useVaultSharing(vaults, vaultId, view === "vault", shell.changed);
   const rotation = useVaultRotation({
@@ -189,8 +217,12 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
     onChanged: shell.changed,
   });
   useHardwareVaultClosed(shell);
-  const counts = useCategoryCounts(vaultId, shell.reloadKey);
-  const findings = useFindings(view === "security");
+  const { counts, feed: feedCounts } = useCategoryCounts(
+    vaultId,
+    shell.reloadKey,
+    countsFromList(vaults, shell),
+  );
+  const findings = useFindings(view === "security", listHasLoaded(vaults, shell));
   const vaultName = nameOf(vaults, vaultId, t);
 
   return (
@@ -232,7 +264,7 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
         onShare={share.open}
         onRotate={rotation.open}
       />
-      <MainArea shell={shell} vaults={vaults} findings={findings} />
+      <MainArea shell={shell} vaults={vaults} findings={findings} feedCounts={feedCounts} />
       {events.paletteOpen && (
         <CommandPalette
           onClose={() => {

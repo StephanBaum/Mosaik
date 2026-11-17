@@ -1,12 +1,12 @@
 /** The vault shell's state (view, filters, selection, editor) and its actions. */
 import { useCallback, useState } from "react";
 import { useEvents } from "../../app/EventsProvider.tsx";
-import type { ItemRequest, SessionState, VaultId } from "../../ipc/contract/index.ts";
+import type { ItemRequest, ItemSummary, SessionState, VaultId } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { usePlatform } from "../../platform/platform.ts";
 import { useAppShortcuts } from "../../platform/shortcuts.ts";
 import { useReveal } from "../../reveal/context.ts";
-import type { Category } from "./useVaultData.ts";
+import type { Category, SavedItem } from "./useVaultData.ts";
 import type { Editor, View } from "./VaultLayout.tsx";
 
 export function useShell(onLocked: (session: SessionState) => void) {
@@ -22,9 +22,14 @@ export function useShell(onLocked: (session: SessionState) => void) {
   const [selected, setSelected] = useState<ItemRequest | null>(null);
   const [editor, setEditor] = useState<Editor>({ mode: "closed" });
   const [reloadKey, setReloadKey] = useState(0);
+  const [saved, setSaved] = useState<SavedItem | null>(null);
 
   const changed = useCallback(() => {
     setReloadKey((n) => n + 1);
+  }, []);
+  /** A save: the list updates in place from the saved row; nothing else reloads but the vaults. */
+  const itemSaved = useCallback((summary: ItemSummary) => {
+    setSaved((previous) => ({ seq: (previous?.seq ?? 0) + 1, summary }));
   }, []);
   const go = (next: View) => {
     setView(next);
@@ -83,6 +88,8 @@ export function useShell(onLocked: (session: SessionState) => void) {
     // A sync run that changed vaults reloads the lists like a local change does.
     reloadKey: reloadKey + syncDataVersion,
     changed,
+    saved,
+    itemSaved,
     go,
     open,
     startNew,

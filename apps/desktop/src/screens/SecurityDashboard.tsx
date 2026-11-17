@@ -29,7 +29,7 @@ function useReport(round: number) {
     let current = true;
     void Promise.all([
       ipc.call("security_report", null),
-      ipc.call("list_items", { vaultId: null, trash: "exclude", favoritesOnly: false, query: null }),
+      ipc.call("list_items", { vaultId: null, trash: "exclude", favoritesOnly: false, query: null, limit: null }),
     ]).then(([reportResult, items]) => {
       if (!current) {
         return;

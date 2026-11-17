@@ -447,9 +447,13 @@ impl Backend {
         } else {
             session.search(query)
         };
+        let limit = request
+            .limit
+            .map_or(usize::MAX, |n| usize::try_from(n).unwrap_or(usize::MAX));
         Ok(entries
             .iter()
             .filter(|entry| accepts(request, entry))
+            .take(limit)
             .map(|entry| summarize(entry.vault_id, entry.item_id, entry.item))
             .collect())
     }
