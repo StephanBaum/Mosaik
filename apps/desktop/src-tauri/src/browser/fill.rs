@@ -14,10 +14,8 @@ use mosaic_native_messaging::bodies::{
     RulesSource, SearchBody, SearchHit, SearchResult,
 };
 use mosaic_native_messaging::protocol::{ErrorCode as WireError, Secret};
-use mosaic_origin::{
-    MatchKind, PageOrigin, Refusal, fill_allowed, idn_unicode, lookalike_of, saved_origin,
-};
-use mosaic_vault::session::{ItemFilter, ItemRef, UnlockedSession, VaultProtection};
+use mosaic_origin::{MatchKind, PageOrigin, Refusal, fill_allowed, idn_unicode, saved_origin};
+use mosaic_vault::session::{ItemFilter, ItemRef, OriginKey, UnlockedSession, VaultProtection};
 use serde::Deserialize;
 use serde::de::value::{Error as ValueError, StrDeserializer};
 use serde_json::value::RawValue;
@@ -121,10 +119,17 @@ pub(super) fn best_match(item: &Item, page: &PageOrigin) -> Option<Matched> {
     best
 }
 
-/// The live logins outside the trash.
-pub(super) fn logins(session: &UnlockedSession) -> Vec<ItemRef<'_>> {
+/// The live logins outside the trash that can match `page`.
+///
+/// The origin index only narrows the candidates (a saved URL can match a page only under the
+/// page's key, see `mosaic_vault::session::OriginKey`); callers still run `best_match`
+/// (`fill_allowed`, the HTTP rule) on every one, so the result equals a scan of the whole vault.
+pub(super) fn logins_for_page<'s>(
+    session: &'s UnlockedSession,
+    page: &PageOrigin,
+) -> Vec<ItemRef<'s>> {
     session
-        .items(&ItemFilter::default())
+        .items_for_origin(&OriginKey::web(page), &ItemFilter::default())
         .into_iter()
         .filter(|entry| entry.item.item_type() == Some(ItemType::Login))
         .collect()
@@ -175,22 +180,8 @@ fn warnings(page: &PageOrigin, no_matches: bool, session: &UnlockedSession) -> V
     if page.is_http() && !page.is_loopback() {
         out.push(OriginWarning::Insecure {});
     }
-    if no_matches {
-        let saved: Vec<String> = logins(session)
-            .iter()
-            .flat_map(|entry| {
-                entry
-                    .item
-                    .urls()
-                    .into_iter()
-                    .filter_map(|(_, url)| saved_origin(url.url.as_str()).map(|o| o.host_str()))
-            })
-            .collect();
-        if let Some(saved_host) = lookalike_of(&host, saved.iter().map(String::as_str)) {
-            out.push(OriginWarning::Lookalike {
-                saved_host: saved_host.to_owned(),
-            });
-        }
+    if no_matches && let Some(saved_host) = session.lookalike_of_saved(&host, true, |_| true) {
+        out.push(OriginWarning::Lookalike { saved_host });
     }
     out
 }
@@ -205,7 +196,7 @@ impl Backend {
         parse_origin(&body.top_origin)?;
         let slot = self.slot().map_err(wire)?;
         let session = slot.unlocked().map_err(wire)?;
-        let mut items: Vec<LoginMatch> = logins(session)
+        let mut items: Vec<LoginMatch> = logins_for_page(session, &page)
             .iter()
             .filter_map(|entry| best_match(entry.item, &page).map(|m| login_match(entry, m)))
             .collect();

@@ -71,7 +71,7 @@ fn align_otp(e: &mut ItemEdit<'_>, in_hardware_vault: bool) -> mosaic_core::Resu
 }
 
 impl ItemFilter {
-    fn accepts(&self, vault_id: VaultId, item: &Item) -> bool {
+    pub(super) fn accepts(&self, vault_id: VaultId, item: &Item) -> bool {
         if item.is_deleted() || self.vault.is_some_and(|v| v != vault_id) {
             return false;
         }

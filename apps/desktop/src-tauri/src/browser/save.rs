@@ -13,7 +13,7 @@ use mosaic_origin::{PageOrigin, registrable_domain};
 use mosaic_vault::session::{UnlockedSession, VaultProtection};
 use subtle::ConstantTimeEq as _;
 
-use super::fill::{best_match, logins, parse_origin, wire};
+use super::fill::{best_match, logins_for_page, parse_origin, wire};
 use super::prompts::{PendingSave, SavePlan};
 use crate::commands::is_spoofing_char;
 use crate::contract::browser::{BrowserSaveCandidate, BrowserSaveDecision, BrowserSaveKind};
@@ -72,7 +72,7 @@ pub(super) fn analyze(
     username: Option<&str>,
     password: &str,
 ) -> Analysis {
-    let matching: Vec<_> = logins(session)
+    let matching: Vec<_> = logins_for_page(session, page)
         .into_iter()
         .filter(|entry| best_match(entry.item, page).is_some())
         .collect();

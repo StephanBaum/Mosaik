@@ -69,6 +69,7 @@ mod error;
 mod export;
 mod hardware_vaults;
 mod items;
+mod origin_index;
 mod records_load;
 mod rotation;
 mod search;
@@ -102,6 +103,7 @@ pub use error::{Error, Result};
 pub use export::{ExportPreview, ExportReport, ExportSelection};
 pub use items::{ItemFilter, ItemRef, OtpCode, TrashFilter};
 pub use mosaic_core::sync_auth::FolderMacPurpose;
+pub use origin_index::OriginKey;
 pub use rotation::{
     FolderRekeyPlan, MemberVaultReview, PreparedRekey, RekeyAdopted, RekeyAdoption, RekeyCommitted,
     RekeyPlan, RekeyRequest, RekeyReview, ResealStep, SharedOwnedReview, SharedRekeyOut,
@@ -384,6 +386,9 @@ pub struct UnlockedSession {
     password_fresh: bool,
     vaults: VaultMap,
     index: search::LazyIndex,
+    /// The in-memory origin index of the fill lookups, rebuilt when the vaults change
+    /// (see [`origin_index`]); dropped at lock.
+    origin_index: origin_index::OriginIndexCache,
     /// This install's stable ID (CRYPTO_SPEC §10), read from the store at
     /// unlock.
     install: InstallId,
@@ -847,6 +852,7 @@ impl UnlockedSession {
                     password_fresh: quick.fresh_password,
                     vaults: VaultMap::new(vaults),
                     index: search::LazyIndex::default(),
+                    origin_index: origin_index::OriginIndexCache::default(),
                     install,
                     session_tag,
                     created_handed: BTreeMap::new(),
@@ -1051,6 +1057,8 @@ mod cli_export_tests;
 mod credential_rotation_tests;
 #[cfg(test)]
 mod hardware_vaults_tests;
+#[cfg(test)]
+mod origin_index_tests;
 #[cfg(test)]
 mod rotation_tests;
 #[cfg(test)]

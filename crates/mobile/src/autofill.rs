@@ -18,11 +18,13 @@ use mosaic_origin::assetlinks::{Relation, app_is_delegated, parse_asset_links};
 use mosaic_origin::fields::{self, FieldRole, InputKind};
 use mosaic_origin::target::{self, IosIdentifier, TargetError};
 use mosaic_origin::{
-    HttpPolicy, MatchKind, PageOrigin, Refusal, app, fill_allowed_with, idn_unicode, lookalike_of,
+    HttpPolicy, MatchKind, PageOrigin, Refusal, app, fill_allowed_with, idn_unicode,
     registrable_domain, saved_origin,
 };
 use mosaic_sync::transport::TransportError;
-use mosaic_vault::session::{ItemFilter as SessionFilter, UnlockedSession, VaultProtection};
+use mosaic_vault::session::{
+    ItemFilter as SessionFilter, OriginKey, UnlockedSession, VaultProtection,
+};
 
 use crate::Core;
 use crate::config::Platform;
@@ -744,26 +746,14 @@ impl Core {
         if let Some(unicode) = idn_unicode(&origin.host_str()) {
             return Ok(Some(OriginWarning::Punycode { unicode }));
         }
-        let hosts = self.with_session(|s| {
+        // The origin index holds the saved hosts of the live items of every vault; the usable
+        // vaults are chosen here, so the answer is the one a scan of those items gives.
+        let host = origin.host_str();
+        let saved_host = self.with_session(|s| {
             let usable = usable_vaults(s);
-            let mut hosts: Vec<String> = s
-                .items(&SessionFilter::default())
-                .into_iter()
-                .filter(|r| usable.contains(&r.vault_id))
-                .flat_map(|r| r.item.urls())
-                .filter_map(|(_, u)| saved_origin(u.url.as_str()).map(|o| o.host_str()))
-                .collect();
-            hosts.sort();
-            hosts.dedup();
-            Ok(hosts)
+            Ok(s.lookalike_of_saved(&host, false, |vault| usable.contains(&vault)))
         })?;
-        Ok(
-            lookalike_of(&origin.host_str(), hosts.iter().map(String::as_str)).map(|saved| {
-                OriginWarning::Lookalike {
-                    saved_host: saved.to_owned(),
-                }
-            }),
-        )
+        Ok(saved_host.map(|saved_host| OriginWarning::Lookalike { saved_host }))
     }
 
     /// The logins that may fill the target, and the fill session the values
@@ -780,7 +770,13 @@ impl Core {
             let shared = shared_of(s, &usable);
             let mut list = Vec::new();
             let mut insecure = false;
-            for entry in s.items(&SessionFilter::default()) {
+            // The origin index only narrows the candidates: `match_item` (HTTP rule, app
+            // certificate, shared-vault rule) runs unchanged on each one.
+            let key = match &resolved {
+                Resolved::Web(page) => OriginKey::web(page),
+                Resolved::App { package, .. } => OriginKey::app(package),
+            };
+            for entry in s.items_for_origin(&key, &SessionFilter::default()) {
                 if !usable.contains(&entry.vault_id)
                     || entry.item.item_type() != Some(ItemType::Login)
                 {
