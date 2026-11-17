@@ -195,6 +195,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "Uygulama: {name}",
   "mobile.detail.needsLinking": "Doldurabilmesi için bağlanması gerekiyor",
   "mobile.detail.linkApp": "Bir uygulama bağla",
+  "mobile.detail.linkSharedHint": "Uygulamalar, paylaşılan bir kasadaki girişlere bağlanamaz.",
   "mobile.editor.newLogin": "Yeni giriş",
   "mobile.editor.editLogin": "Girişi düzenle",
   "mobile.editor.newNote": "Yeni not",

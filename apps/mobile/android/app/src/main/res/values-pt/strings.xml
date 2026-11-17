@@ -196,6 +196,7 @@
   <string name="mobile_detail_favoriteRemove">Remover dos favoritos</string>
   <string name="mobile_detail_labelValue">%1$s: %2$s</string>
   <string name="mobile_detail_linkApp">Vincular um app</string>
+  <string name="mobile_detail_linkSharedHint">Apps não podem ser vinculados a logins de um cofre compartilhado.</string>
   <string name="mobile_detail_linkedApp">App: %1$s</string>
   <string name="mobile_detail_needsLinking">Precisa ser vinculado antes de poder preencher</string>
   <plurals name="mobile_detail_otpLeft">

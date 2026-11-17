@@ -207,6 +207,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "App: {name}",
   "mobile.detail.needsLinking": "Muss verknüpft werden, bevor es ausfüllen kann",
   "mobile.detail.linkApp": "App verknüpfen",
+  "mobile.detail.linkSharedHint": "Apps lassen sich nicht mit Anmeldungen in einem geteilten Tresor verknüpfen.",
   "mobile.editor.newLogin": "Neue Zugangsdaten",
   "mobile.editor.editLogin": "Zugangsdaten bearbeiten",
   "mobile.editor.newNote": "Neue Notiz",

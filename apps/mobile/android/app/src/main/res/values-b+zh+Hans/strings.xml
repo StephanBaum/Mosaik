@@ -188,6 +188,7 @@
   <string name="mobile_detail_favoriteRemove">取消收藏</string>
   <string name="mobile_detail_labelValue">%1$s：%2$s</string>
   <string name="mobile_detail_linkApp">关联应用</string>
+  <string name="mobile_detail_linkSharedHint">无法将应用关联到共享保险库中的登录。</string>
   <string name="mobile_detail_linkedApp">应用：%1$s</string>
   <string name="mobile_detail_needsLinking">需要先关联才能填充</string>
   <plurals name="mobile_detail_otpLeft">

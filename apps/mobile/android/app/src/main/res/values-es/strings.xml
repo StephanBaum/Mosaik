@@ -196,6 +196,7 @@
   <string name="mobile_detail_favoriteRemove">Quitar de favoritos</string>
   <string name="mobile_detail_labelValue">%1$s: %2$s</string>
   <string name="mobile_detail_linkApp">Vincular una app</string>
+  <string name="mobile_detail_linkSharedHint">Las apps no se pueden vincular a inicios de sesión de una caja fuerte compartida.</string>
   <string name="mobile_detail_linkedApp">App: %1$s</string>
   <string name="mobile_detail_needsLinking">Hay que vincularlo antes de poder rellenar</string>
   <plurals name="mobile_detail_otpLeft">

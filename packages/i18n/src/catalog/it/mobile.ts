@@ -205,6 +205,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "App: {name}",
   "mobile.detail.needsLinking": "Va collegata prima di poter compilare",
   "mobile.detail.linkApp": "Collega un'app",
+  "mobile.detail.linkSharedHint": "Le app non possono essere collegate agli accessi di una cassaforte condivisa.",
   "mobile.editor.newLogin": "Nuovo accesso",
   "mobile.editor.editLogin": "Modifica accesso",
   "mobile.editor.newNote": "Nuova nota",

@@ -204,6 +204,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "App: {name}",
   "mobile.detail.needsLinking": "Needs linking before it can fill",
   "mobile.detail.linkApp": "Link an app",
+  "mobile.detail.linkSharedHint": "Apps can't be linked to logins in a shared vault.",
   "mobile.editor.newLogin": "New login",
   "mobile.editor.editLogin": "Edit login",
   "mobile.editor.newNote": "New note",

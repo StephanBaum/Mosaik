@@ -23,9 +23,9 @@ dependencies = [
 
 [[package]]
 name = "aes"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35f0f96ce78e38c3dc6d8948aa8163d06385be74000f3c7a95bf1eef35d3ea32"
+checksum = "fc0fc36d7440d015b45468ba08a21e80e056ebbd014c611c6298bb7503e04bd1"
 dependencies = [
  "cipher",
  "cpubits",
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "mosaic-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aead-stream",
  "argon2",
@@ -560,11 +560,12 @@ dependencies = [
 
 [[package]]
 name = "mosaic-ssh-agent"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bcrypt-pbkdf",
  "ed25519-dalek",
  "mosaic-core",
+ "signature",
  "ssh-key",
  "thiserror",
  "tokio",

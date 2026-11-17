@@ -619,6 +619,9 @@ object L10n {
     fun detailLinkApp(r: Resources): String =
         r.getString(R.string.mobile_detail_linkApp)
 
+    fun detailLinkSharedHint(r: Resources): String =
+        r.getString(R.string.mobile_detail_linkSharedHint)
+
     fun detailLinkedApp(r: Resources, name: String): String =
         r.getString(R.string.mobile_detail_linkedApp, name)
 
