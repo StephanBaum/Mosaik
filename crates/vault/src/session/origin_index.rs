@@ -98,28 +98,7 @@ impl OriginIndex {
                 if item.is_deleted() {
                     continue;
                 }
-                let live = item.trashed_at().is_none();
-                let login = item.item_type() == Some(ItemType::Login);
-                let mut keys: Vec<String> = Vec::new();
-                for (_, url) in item.urls() {
-                    let text = url.url.as_str();
-                    if let Some(origin) = saved_origin(text) {
-                        let host = origin.host_str();
-                        keys.push(host_key(&host));
-                        if live {
-                            if login {
-                                hosts.logins.insert(host.clone());
-                            }
-                            hosts.all.insert(host);
-                        }
-                    }
-                    if let Ok(app) = AndroidAppUrl::parse(text) {
-                        keys.push(app_key(app.package()));
-                    }
-                }
-                keys.sort_unstable();
-                keys.dedup();
-                for key in keys {
+                for key in item_keys(item, &mut hosts) {
                     index
                         .by_key
                         .entry(key)
@@ -133,6 +112,33 @@ impl OriginIndex {
         }
         index
     }
+}
+
+/// The sorted, de-duplicated index keys of one item's URLs. The hosts of a live (not trashed)
+/// item go into `hosts` for the look-alike check: every live item, and logins separately.
+fn item_keys(item: &mosaic_core::model::Item, hosts: &mut VaultHosts) -> Vec<String> {
+    let live = item.trashed_at().is_none();
+    let login = item.item_type() == Some(ItemType::Login);
+    let mut keys: Vec<String> = Vec::new();
+    for (_, url) in item.urls() {
+        let text = url.url.as_str();
+        if let Some(origin) = saved_origin(text) {
+            let host = origin.host_str();
+            keys.push(host_key(&host));
+            if live && login {
+                hosts.logins.insert(host.clone());
+            }
+            if live {
+                hosts.all.insert(host);
+            }
+        }
+        if let Ok(app) = AndroidAppUrl::parse(text) {
+            keys.push(app_key(app.package()));
+        }
+    }
+    keys.sort_unstable();
+    keys.dedup();
+    keys
 }
 
 /// The index of a session, built by the first lookup and again after every change of the vaults.

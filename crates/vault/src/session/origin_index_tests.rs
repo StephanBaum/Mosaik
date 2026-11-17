@@ -71,11 +71,11 @@ fn the_index_is_built_by_the_first_lookup_and_follows_edits() {
     assert_eq!(found(&s, "https://example.com", &all), [b]);
     assert_eq!(found(&s, "https://other.org", &all), [a]);
     // A web key never finds an item that is only saved under another registrable domain.
-    assert!(found(&s, "https://example.org", &all).is_empty());
+    assert_eq!(found(&s, "https://example.org", &all), []);
 
     // A purge removes it.
     s.purge_item(vault, b).unwrap();
-    assert!(found(&s, "https://example.com", &all).is_empty());
+    assert_eq!(found(&s, "https://example.com", &all), []);
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn a_received_record_is_found() {
     let (mut s, _) = account();
     let vault = s.create_vault("Personal").unwrap();
     let all = ItemFilter::default();
-    assert!(found(&s, "https://remote.example", &all).is_empty());
+    assert_eq!(found(&s, "https://remote.example", &all), []);
     let id = ItemId::new_v7().unwrap();
     let device = DeviceId::new_v7().unwrap();
     let at = Timestamp::from_unix_millis(1);
@@ -120,7 +120,7 @@ fn a_trashed_item_is_only_found_when_the_filter_asks_for_it() {
     assert_eq!(found(&s, "https://example.com", &all), [a]);
 
     s.trash_item(vault, a).unwrap();
-    assert!(found(&s, "https://example.com", &all).is_empty());
+    assert_eq!(found(&s, "https://example.com", &all), []);
     assert_eq!(found(&s, "https://example.com", &with_trash), [a]);
     // A trashed login is not a saved host to imitate.
     assert_eq!(s.lookalike_of_saved("exampel.com", true, |_| true), None);
@@ -173,7 +173,7 @@ fn app_links_and_look_alike_hosts_are_indexed() {
     };
     // Both app URLs are candidates (the cert rule is the caller's check); a web page is not.
     assert_eq!(ids(&OriginKey::app("com.example.app")), [app, unbound]);
-    assert!(ids(&OriginKey::app("com.example.other")).is_empty());
+    assert_eq!(ids(&OriginKey::app("com.example.other")), []);
     assert_eq!(ids(&OriginKey::web(&page("https://github.com"))), [web]);
     assert_eq!(
         s.lookalike_of_saved("githuh.com", true, |_| true)
@@ -352,7 +352,7 @@ fn scan_verdicts<'a>(
         .collect()
 }
 
-fn saved_hosts(refs: impl IntoIterator<Item = ItemRef<'_>>) -> Vec<String> {
+fn saved_hosts<'a>(refs: impl IntoIterator<Item = ItemRef<'a>>) -> Vec<String> {
     refs.into_iter()
         .flat_map(|r| r.item.urls())
         .filter_map(|(_, u)| saved_origin(u.url.as_str()).map(|o| o.host_str()))
