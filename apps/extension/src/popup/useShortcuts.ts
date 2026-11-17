@@ -4,7 +4,7 @@
  * Text the user selected, or a text box, keeps its own copy and Enter. Esc is handled by the
  * menus and dialogs themselves (the top layer closes first).
  */
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { useAnnounce } from "./components/Announcer.tsx";
 import { useI18n } from "./i18n.tsx";
 import type { Actions, ItemKey } from "./useActions.ts";
@@ -76,7 +76,9 @@ export function useShortcuts({
   useLayoutEffect(() => {
     latest.current = { items, fill, copy, enabled, announce, errorText };
   });
-  useEffect(() => {
+  // Added before the first paint (a layout effect, not useEffect, which runs after it): otherwise the
+  // logins could be on screen while Enter and Ctrl+C still did nothing.
+  useLayoutEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const { items: current, fill: doFill, copy: doCopy, enabled: on, announce: say, errorText: text } = latest.current;
       if (!on) {
