@@ -797,6 +797,10 @@ public enum L10n {
         NSLocalizedString("mobile.detail.linkApp", bundle: .main, comment: "")
     }
 
+    public static func detailLinkSharedHint() -> String {
+        NSLocalizedString("mobile.detail.linkSharedHint", bundle: .main, comment: "")
+    }
+
     public static func detailLinkedApp(name: String) -> String {
         String(format: NSLocalizedString("mobile.detail.linkedApp", bundle: .main, comment: ""), locale: .current, arguments: [name])
     }

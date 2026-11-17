@@ -192,6 +192,7 @@
   <string name="mobile_detail_favoriteRemove">Uit favorieten verwijderen</string>
   <string name="mobile_detail_labelValue">%1$s: %2$s</string>
   <string name="mobile_detail_linkApp">Een app koppelen</string>
+  <string name="mobile_detail_linkSharedHint">Apps kunnen niet worden gekoppeld aan inloggegevens in een gedeelde kluis.</string>
   <string name="mobile_detail_linkedApp">App: %1$s</string>
   <string name="mobile_detail_needsLinking">Moet worden gekoppeld voordat het kan invullen</string>
   <plurals name="mobile_detail_otpLeft">

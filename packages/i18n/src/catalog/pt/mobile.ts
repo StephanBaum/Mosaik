@@ -201,6 +201,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "App: {name}",
   "mobile.detail.needsLinking": "Precisa ser vinculado antes de poder preencher",
   "mobile.detail.linkApp": "Vincular um app",
+  "mobile.detail.linkSharedHint": "Apps não podem ser vinculados a logins de um cofre compartilhado.",
   "mobile.editor.newLogin": "Novo login",
   "mobile.editor.editLogin": "Editar login",
   "mobile.editor.newNote": "Nova nota",

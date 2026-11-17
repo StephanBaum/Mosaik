@@ -206,6 +206,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "Application : {name}",
   "mobile.detail.needsLinking": "Doit être associé avant de pouvoir remplir",
   "mobile.detail.linkApp": "Associer une application",
+  "mobile.detail.linkSharedHint": "Les applications ne peuvent pas être associées aux identifiants d'un coffre partagé.",
   "mobile.editor.newLogin": "Nouvel identifiant",
   "mobile.editor.editLogin": "Modifier l’identifiant",
   "mobile.editor.newNote": "Nouvelle note",

@@ -205,6 +205,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "App: {name}",
   "mobile.detail.needsLinking": "Moet worden gekoppeld voordat het kan invullen",
   "mobile.detail.linkApp": "Een app koppelen",
+  "mobile.detail.linkSharedHint": "Apps kunnen niet worden gekoppeld aan inloggegevens in een gedeelde kluis.",
   "mobile.editor.newLogin": "Nieuwe login",
   "mobile.editor.editLogin": "Login bewerken",
   "mobile.editor.newNote": "Nieuwe notitie",

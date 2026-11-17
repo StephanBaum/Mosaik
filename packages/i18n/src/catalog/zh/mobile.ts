@@ -159,6 +159,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "应用：{name}",
   "mobile.detail.needsLinking": "需要先关联才能填充",
   "mobile.detail.linkApp": "关联应用",
+  "mobile.detail.linkSharedHint": "无法将应用关联到共享保险库中的登录。",
   "mobile.editor.newLogin": "新建登录信息",
   "mobile.editor.editLogin": "编辑登录信息",
   "mobile.editor.newNote": "新建笔记",

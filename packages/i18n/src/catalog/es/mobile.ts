@@ -207,6 +207,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "App: {name}",
   "mobile.detail.needsLinking": "Hay que vincularlo antes de poder rellenar",
   "mobile.detail.linkApp": "Vincular una app",
+  "mobile.detail.linkSharedHint": "Las apps no se pueden vincular a inicios de sesión de una caja fuerte compartida.",
   "mobile.editor.newLogin": "Nuevo inicio de sesión",
   "mobile.editor.editLogin": "Editar inicio de sesión",
   "mobile.editor.newNote": "Nueva nota",

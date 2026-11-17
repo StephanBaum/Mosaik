@@ -195,6 +195,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "アプリ: {name}",
   "mobile.detail.needsLinking": "入力するには、リンクが必要です",
   "mobile.detail.linkApp": "アプリをリンク",
+  "mobile.detail.linkSharedHint": "共有保管庫のログインにはアプリをリンクできません。",
   "mobile.editor.newLogin": "新しいログイン",
   "mobile.editor.editLogin": "ログインを編集",
   "mobile.editor.newNote": "新しいメモ",

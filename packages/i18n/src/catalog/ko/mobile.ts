@@ -195,6 +195,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "앱: {name}",
   "mobile.detail.needsLinking": "자동 입력하려면 연결이 필요해요",
   "mobile.detail.linkApp": "앱 연결",
+  "mobile.detail.linkSharedHint": "공유 보관함의 로그인에는 앱을 연결할 수 없습니다.",
   "mobile.editor.newLogin": "새 로그인",
   "mobile.editor.editLogin": "로그인 편집",
   "mobile.editor.newNote": "새 메모",

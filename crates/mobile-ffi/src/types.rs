@@ -321,6 +321,7 @@ record!(ItemDetail <=> m::ItemDetail {
     attachments: Vec<AttachmentView>,
     otp: Option<OtpView>,
     history_count: u32,
+    shared: bool,
 });
 
 /// What a login draft does with the generator.

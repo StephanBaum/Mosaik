@@ -14475,6 +14475,83 @@
         }
       }
     },
+    "mobile.detail.linkSharedHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps lassen sich nicht mit Anmeldungen in einem geteilten Tresor verknüpfen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps can't be linked to logins in a shared vault."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las apps no se pueden vincular a inicios de sesión de una caja fuerte compartida."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les applications ne peuvent pas être associées aux identifiants d'un coffre partagé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le app non possono essere collegate agli accessi di una cassaforte condivisa."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共有保管庫のログインにはアプリをリンクできません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "공유 보관함의 로그인에는 앱을 연결할 수 없습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps kunnen niet worden gekoppeld aan inloggegevens in een gedeelde kluis."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aplikacji nie można powiązać z danymi logowania we wspólnym sejfie."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps não podem ser vinculados a logins de um cofre compartilhado."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uygulamalar, paylaşılan bir kasadaki girişlere bağlanamaz."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法将应用关联到共享保险库中的登录。"
+          }
+        }
+      }
+    },
     "mobile.detail.linkedApp" : {
       "extractionState" : "manual",
       "localizations" : {

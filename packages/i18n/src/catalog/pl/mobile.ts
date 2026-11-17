@@ -202,6 +202,7 @@ export const mobile = {
   "mobile.detail.linkedApp": "Aplikacja: {name}",
   "mobile.detail.needsLinking": "Wymaga powiązania, zanim będzie mogło wypełniać",
   "mobile.detail.linkApp": "Powiąż aplikację",
+  "mobile.detail.linkSharedHint": "Aplikacji nie można powiązać z danymi logowania we wspólnym sejfie.",
   "mobile.editor.newLogin": "Nowe logowanie",
   "mobile.editor.editLogin": "Edytuj logowanie",
   "mobile.editor.newNote": "Nowa notatka",

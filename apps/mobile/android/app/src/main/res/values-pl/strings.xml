@@ -200,6 +200,7 @@
   <string name="mobile_detail_favoriteRemove">Usuń z ulubionych</string>
   <string name="mobile_detail_labelValue">%1$s: %2$s</string>
   <string name="mobile_detail_linkApp">Powiąż aplikację</string>
+  <string name="mobile_detail_linkSharedHint">Aplikacji nie można powiązać z danymi logowania we wspólnym sejfie.</string>
   <string name="mobile_detail_linkedApp">Aplikacja: %1$s</string>
   <string name="mobile_detail_needsLinking">Wymaga powiązania, zanim będzie mogło wypełniać</string>
   <plurals name="mobile_detail_otpLeft">
