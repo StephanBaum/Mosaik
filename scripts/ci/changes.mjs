@@ -334,7 +334,8 @@ export function classify(file, ws) {
     e.rustAny = true;
     if (seg[2] === "fuzz") {
       if (ws.fuzz.has(`${dir}/fuzz`)) e.fuzz.add(`${dir}/fuzz`);
-      return e;
+      // Seeds double as regression inputs that the crate's own tests replay (crates/qr/tests/redteam.rs).
+      if (seg[3] !== "seeds") return e;
     }
     e.crates.add(crate.name);
     if (ALL_RUST_CRATES.has(dir)) e.allRust = true;

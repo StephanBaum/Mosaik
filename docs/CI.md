@@ -50,6 +50,7 @@ ubuntu-latest and windows-latest.
 | `crates/<x>/**` | Rust on L+W for `x` and every crate that builds on it (`-p` each). The CLI, desktop Rust and the server image run if they are among those crates. Coverage and fuzz run for the affected crates |
 | `crates/platform/**`, `crates/native-messaging/**`, `crates/cli/src/**`, `apps/desktop/src-tauri/**` | the same, plus **macOS** (keychain, Touch ID, native-messaging and CLI paths that only build there) |
 | `crates/<x>/fuzz/**` | that fuzz job, plus fmt and the unsafe check (Rust, ubuntu-latest) |
+| `crates/<x>/fuzz/seeds/**` | also the `crates/<x>/**` row: the crate's own tests replay seeds as regression inputs |
 | `apps/desktop/src-tauri/**` | desktop Rust (L+W+macOS), the desktop fuzz job, fmt and the unsafe check |
 | `apps/desktop/**` (the frontend) | TypeScript (3 OS), desktop frontend |
 | `apps/extension/**` | TypeScript (3 OS), extension |
