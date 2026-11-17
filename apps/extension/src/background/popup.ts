@@ -14,7 +14,7 @@ import type {
   TabInfo,
 } from "../shared/messages.ts";
 import { hostOf, isSecureOrigin, originOf, unicodeHostOf } from "../shared/origin.ts";
-import type { GenerateRequest, LoginMatch } from "../shared/protocol.ts";
+import type { GenerateRequest, LoginMatch, ResultMap } from "../shared/protocol.ts";
 import { classifyFrame, chooseTarget } from "./frames.ts";
 import {
   LAST_FILLED_TTL_MS,
@@ -88,6 +88,11 @@ async function takeLastError(deps: PopupDeps, tabId: number): Promise<PopupState
 type Operations = {
   readonly [K in PopupRequest["op"]]: (request: Extract<PopupRequest, { op: K }>, tab: TabRef | null) => Promise<unknown>;
 };
+
+interface OriginListing {
+  readonly origin: string;
+  readonly listing: ResultMap["listForOrigin"] | null;
+}
 
 type Learnable = Pick<LoginMatch, "vaultId" | "itemId" | "title" | "username" | "hasOtp">;
 
@@ -228,36 +233,67 @@ export class PopupService {
       rotations: [],
       rotationTabOffer: null,
     };
-    state.saveOffers = await this.#deps.save.offersEnabled().catch(() => false);
-    state.passkeys = await this.#deps.passkeys.enabled().catch(() => false);
-    if (tab !== null && info !== null) {
-      await this.#fillTab(state, tab, info);
-      state.pendingSave = await this.#deps.save.info(tab.id, info.origin).catch(() => null);
-    }
+    // The optional lookups each fall back on their own; only the front tab's frame and code
+    // lookups (`#fillTab`) can abort the state, as before.
+    const [saveOffers, passkeys, pendingSave] = await Promise.all([
+      this.#deps.save.offersEnabled().catch(() => false),
+      this.#deps.passkeys.enabled().catch(() => false),
+      tab !== null && info !== null ? this.#deps.save.info(tab.id, info.origin).catch(() => null) : null,
+      tab !== null && info !== null ? this.#fillTab(state, tab, info) : undefined,
+    ]);
+    state.saveOffers = saveOffers;
+    state.passkeys = passkeys;
+    state.pendingSave = pendingSave;
     return state;
   }
 
   /** What the popup shows about the front tab: its frame, matches, warnings and a pending code. */
   async #fillTab(state: PopupState, tab: TabRef, info: TabInfo): Promise<void> {
-    const { native } = this.#deps;
-    state.lastError = await takeLastError(this.#deps, tab.id);
-    const probes = await probeFrames(this.#deps, tab);
+    const unlocked = state.connection === "unlocked";
+    // Started before the frames are known, so they overlap the probe. Neither can reject (each
+    // falls back on its own); the list is kept only when it turns out to be for the chosen frame.
+    const speculative = unlocked ? this.#listFor(info.origin, info.origin) : null;
+    const rotation = unlocked
+      ? this.#deps.rotation.forTab(tab).catch(() => ({ rotations: [], rotationTabOffer: null }))
+      : null;
+    const [lastError, probes] = await Promise.all([takeLastError(this.#deps, tab.id), probeFrames(this.#deps, tab)]);
+    state.lastError = lastError;
     const target = chooseTarget(probes, null);
     const origin = target?.origin ?? info.origin;
     state.frame = classifyFrame(target, info.origin);
     state.frameTarget = target === null ? null : { frameId: target.frameId, documentId: target.documentId };
     state.generatorFill = (target?.counts.newPassword ?? 0) > 0;
-    state.nextOtp = await nextOtpOf(this.#deps, tab, origin);
-    if (state.connection === "unlocked") {
-      const listing = await native.request("listForOrigin", { origin, topOrigin: info.origin }).catch(() => null);
-      state.matches = listing?.items ?? [];
-      state.warnings = listing?.warnings ?? [];
+    const [nextOtp, listed, rotations] = await Promise.all([
+      nextOtpOf(this.#deps, tab, origin),
+      speculative === null ? null : this.#listForFrame(speculative, origin, info.origin),
+      rotation,
+    ]);
+    state.nextOtp = nextOtp;
+    if (listed !== null && rotations !== null) {
+      // The list shown belongs to the chosen frame's origin, never to another one.
+      if (listed.origin !== origin) {
+        throw new ExtensionError("internal");
+      }
+      state.matches = listed.listing?.items ?? [];
+      state.warnings = listed.listing?.warnings ?? [];
       this.#learn(state.matches);
-      Object.assign(state, await this.#deps.rotation.forTab(tab).catch(() => ({ rotations: [], rotationTabOffer: null })));
+      Object.assign(state, rotations);
       if (state.rotations.length > 0) {
         state.changeFrame = changeFrameOf(probes, info.origin);
       }
     }
+  }
+
+  /** The matches for one origin, tagged with the origin that was asked for. A failure is no list. */
+  async #listFor(origin: string, topOrigin: string): Promise<OriginListing> {
+    const listing = await this.#deps.native.request("listForOrigin", { origin, topOrigin }).catch(() => null);
+    return { origin, listing };
+  }
+
+  /** The speculative list when it was for the chosen frame's origin, otherwise a new query for that origin. */
+  async #listForFrame(speculative: Promise<OriginListing>, origin: string, topOrigin: string): Promise<OriginListing> {
+    const early = await speculative;
+    return early.origin === origin ? early : this.#listFor(origin, topOrigin);
   }
 }
 

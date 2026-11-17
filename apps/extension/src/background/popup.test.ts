@@ -36,6 +36,11 @@ interface Harness {
   session: ReturnType<typeof memorySession>;
   badge: { clear: ReturnType<typeof vi.fn> };
   setProbes: (probes: FrameProbe[]) => void;
+  /** Per-op replacements for the desktop's answer, checked before the defaults. */
+  handlers: Record<string, (body: unknown) => Promise<unknown>>;
+  fill: FillDeps;
+  passkeys: PasskeySwitch;
+  rotation: RotationService;
 }
 
 function harness(): Harness {
@@ -43,13 +48,19 @@ function harness(): Harness {
   const requests: Harness["requests"] = [];
   const session = memorySession();
   const badge = { clear: vi.fn(() => Promise.resolve()) };
+  const handlers: Harness["handlers"] = {};
   const native = {
     connection: "unlocked",
     ensureSession: () => Promise.resolve(),
     request: (op: string, body: unknown) => {
       requests.push({ op, body });
+      const handler = handlers[op];
+      if (handler !== undefined) {
+        return handler(body);
+      }
       const results: Record<string, unknown> = {
         listForOrigin: { items: [], warnings: [] },
+        rotationForOrigin: { attempts: [], related: false },
         generate: { value: "Gen-1", entropyBits: 100, strength: "strong", rulesSource: "page" },
         checkSave: { kind: "new", itemTitle: null },
         proposeSave: { outcome: "saved", vaultId: null, itemId: null },
@@ -94,7 +105,7 @@ function harness(): Harness {
   const passkeys = new PasskeySwitch(registry);
   const rotation = new RotationService({ native: native as unknown as RotationDeps["native"], tabs: fill.tabs, session, now: () => 1_000_000 });
   const service = new PopupService({ native: native as unknown as NativeClient, fill, hold, save, passkeys, rotation }, () => null);
-  return { service, hold, save, kv, requests, session, badge, setProbes: (p) => (probes = p) };
+  return { service, hold, save, kv, requests, session, badge, setProbes: (p) => (probes = p), handlers, fill, passkeys, rotation };
 }
 
 let h: Harness;
@@ -176,6 +187,88 @@ describe("getState", () => {
     expect(await h.service.handle({ op: "getState" }, TAB)).toMatchObject({ passkeys: false });
     expect(await h.service.handle({ op: "setPasskeys", enabled: true }, TAB)).toEqual({ passkeys: true });
     expect(await h.service.handle({ op: "setPasskeys", enabled: false }, TAB)).toEqual({ passkeys: false });
+  });
+});
+
+const LOGIN = { vaultId: "v1", itemId: "i1", title: "Bank", username: "ada", hasOtp: false };
+const FRAME = "https://pay.bank.test";
+const listFor = (origin: string) => ({ items: [{ ...LOGIN, itemId: `item-of-${origin}` }], warnings: [] });
+const listRequests = (h: Harness) => h.requests.filter((r) => r.op === "listForOrigin").map((r) => r.body);
+
+describe("getState loads its lookups together", () => {
+  it("lists and offers rotations for a normal tab, with one list request", async () => {
+    h.handlers.listForOrigin = (body) => Promise.resolve(listFor((body as { origin: string }).origin));
+    h.handlers.rotationForOrigin = () => Promise.resolve({ attempts: [{ attemptId: "a1" }], related: false });
+    h.setProbes([probe({ changeShape: "currentAndNew" })]);
+    const state = await h.service.handle({ op: "getState" }, TAB);
+    expect(state).toMatchObject({
+      frame: "top",
+      matches: listFor(TOP).items,
+      warnings: [],
+      rotations: [{ attemptId: "a1" }],
+      lastError: null,
+      nextOtp: null,
+      saveOffers: false,
+      passkeys: false,
+      pendingSave: null,
+    });
+    expect(listRequests(h)).toEqual([{ origin: TOP, topOrigin: TOP }]);
+  });
+
+  it("drops the speculative list and asks again when the chosen frame has another origin", async () => {
+    h.handlers.listForOrigin = (body) => Promise.resolve(listFor((body as { origin: string }).origin));
+    h.setProbes([probe({ frameId: 4, documentId: "doc-4", origin: FRAME, activeField: true, depth: 1, ancestorsSameOrigin: false })]);
+    const state = await h.service.handle({ op: "getState" }, TAB);
+    expect(state.frame).toBe("crossOriginFrame");
+    expect(listRequests(h)).toEqual([
+      { origin: TOP, topOrigin: TOP },
+      { origin: FRAME, topOrigin: TOP },
+    ]);
+    // Only the list for the frame's origin reached the state.
+    expect(state.matches).toEqual(listFor(FRAME).items);
+    expect(JSON.stringify(state)).not.toContain(`item-of-${TOP}`);
+  });
+
+  it("keeps the other lookups when one optional lookup fails", async () => {
+    h.handlers.listForOrigin = () => Promise.reject(new Error("desktop gone"));
+    h.handlers.rotationForOrigin = () => Promise.resolve({ attempts: [{ attemptId: "a1" }], related: false });
+    vi.spyOn(h.passkeys, "enabled").mockResolvedValue(true);
+    let state = await h.service.handle({ op: "getState" }, TAB);
+    expect(state).toMatchObject({ matches: [], warnings: [], rotations: [{ attemptId: "a1" }], passkeys: true });
+
+    h.handlers.listForOrigin = () => Promise.resolve(listFor(TOP));
+    h.handlers.rotationForOrigin = () => Promise.reject(new Error("old desktop"));
+    state = await h.service.handle({ op: "getState" }, TAB);
+    expect(state).toMatchObject({ matches: listFor(TOP).items, rotations: [], rotationTabOffer: null, passkeys: true });
+
+    vi.spyOn(h.passkeys, "enabled").mockRejectedValue(new Error("x"));
+    vi.spyOn(h.save, "offersEnabled").mockRejectedValue(new Error("x"));
+    vi.spyOn(h.save, "info").mockRejectedValue(new Error("x"));
+    state = await h.service.handle({ op: "getState" }, TAB);
+    expect(state).toMatchObject({ matches: listFor(TOP).items, passkeys: false, saveOffers: false, pendingSave: null });
+  });
+
+  it("still aborts when reading the last error or the pending code fails", async () => {
+    vi.spyOn(h.session, "get").mockRejectedValue(new Error("session gone"));
+    await expect(h.service.handle({ op: "getState" }, TAB)).rejects.toThrow();
+  });
+
+  it("overlaps the probe, the list and the rotation lookup", async () => {
+    vi.useFakeTimers();
+    try {
+      const later = <T>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), 100));
+      h.handlers.listForOrigin = () => later({ items: [], warnings: [] });
+      h.handlers.rotationForOrigin = () => later({ attempts: [], related: false });
+      h.fill.tabs.probe = () => later([probe()]);
+      let done = false;
+      const pending = h.service.handle({ op: "getState" }, TAB).then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(100);
+      // Run one after the other these would take 300 ms.
+      expect(done).toBe(true);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
