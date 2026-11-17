@@ -99,6 +99,17 @@ impl UnlockedSession {
             .ok_or(Error::UnknownItem)
     }
 
+    /// A counter that changes whenever the items, the vault keys or the vault
+    /// metadata may have changed (every edit, sync merge, key rotation, vault
+    /// creation or reload, and a stored breach scan). It can change without a
+    /// visible change, never the other way round, so a result computed at one
+    /// revision is current while the revision is the same. It starts at 0 in
+    /// every unlocked session, so keep a cache of it only for one session.
+    #[must_use]
+    pub fn revision(&self) -> u64 {
+        self.vaults.revision
+    }
+
     /// The live items that pass `filter`, by vault and item ID.
     #[must_use]
     pub fn items(&self, filter: &ItemFilter) -> Vec<ItemRef<'_>> {

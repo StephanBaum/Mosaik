@@ -24,8 +24,30 @@ pub async fn security_report(state: State<'_, AppState>) -> IpcResult<SecurityRe
     state.run(|b| b.security_report(now())).await
 }
 
+/// How long a cached report is reused at most: the "old password" check reads the clock.
+const REPORT_MAX_AGE_MS: u64 = 60 * 60 * 1000;
+
+/// The last security report and what it was computed from. Kept only while unlocked (cleared
+/// on every lock and unlock). It holds what the report holds: item IDs, finding kinds and
+/// severities, counts, the public 2FA-directory names and the plain-HTTP host names. No
+/// password, no secret, and nothing a plain `security_report` answer would not show anyway.
+pub(crate) struct ReportCache {
+    /// [`UnlockedSession::revision`] when it was computed.
+    revision: u64,
+    report: SecurityReport,
+}
+
 impl Backend {
-    /// Runs the offline checks over every live item outside the trash.
+    /// Forgets the cached security report (lock and unlock).
+    pub(crate) fn clear_report_cache(&self) {
+        if let Ok(mut cache) = self.report_cache.lock() {
+            *cache = None;
+        }
+    }
+
+    /// Runs the offline checks over every live item outside the trash. The answer is kept
+    /// while the session's revision (every change to items, vault keys and metadata, and the
+    /// stored breach answers) and the hour stay the same.
     ///
     /// # Errors
     /// `locked`; `internal` if the checks fail (the OS random number
@@ -34,6 +56,14 @@ impl Backend {
         self.touch();
         let slot = self.slot()?;
         let session = slot.unlocked()?;
+        let revision = session.revision();
+        if let Ok(cache) = self.report_cache.lock()
+            && let Some(hit) = cache.as_ref()
+            && hit.revision == revision
+            && hit.report.generated_at.abs_diff(now.as_unix_millis()) < REPORT_MAX_AGE_MS
+        {
+            return Ok(hit.report.clone());
+        }
         let entries = session.items(&ItemFilter::default());
         let candidates = || {
             entries.iter().map(|e| Candidate {
@@ -52,7 +82,14 @@ impl Backend {
             &Extra::new(&breached),
         )
         .map_err(|_| IpcError::INTERNAL)?;
-        Ok(to_wire(&report, now))
+        let wire = to_wire(&report, now);
+        if let Ok(mut cache) = self.report_cache.lock() {
+            *cache = Some(ReportCache {
+                revision,
+                report: wire.clone(),
+            });
+        }
+        Ok(wire)
     }
 }
 

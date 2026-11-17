@@ -246,6 +246,57 @@ pub struct PasswordChanged {
     pub removed_quick_unlock: Option<QuickUnlockEnrollment>,
 }
 
+/// The open vaults, with a counter that rises on every access that can change them
+/// (`get_mut`, `insert`, `replace`, [`VaultMap::touch`]). Reads go through `Deref`; there is
+/// no `DerefMut`, so a new way to mutate the map cannot skip the counter. The counter
+/// over-counts (a `get_mut` that changes nothing still rises), never under-counts.
+struct VaultMap {
+    map: BTreeMap<VaultId, OpenVault>,
+    revision: u64,
+}
+
+impl VaultMap {
+    fn new(map: BTreeMap<VaultId, OpenVault>) -> Self {
+        Self { map, revision: 0 }
+    }
+
+    fn touch(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    fn get_mut(&mut self, id: &VaultId) -> Option<&mut OpenVault> {
+        self.touch();
+        self.map.get_mut(id)
+    }
+
+    fn insert(&mut self, id: VaultId, vault: OpenVault) -> Option<OpenVault> {
+        self.touch();
+        self.map.insert(id, vault)
+    }
+
+    fn replace(&mut self, map: BTreeMap<VaultId, OpenVault>) {
+        self.touch();
+        self.map = map;
+    }
+}
+
+impl std::ops::Deref for VaultMap {
+    type Target = BTreeMap<VaultId, OpenVault>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+
+impl<'a> IntoIterator for &'a VaultMap {
+    type Item = (&'a VaultId, &'a OpenVault);
+    type IntoIter = std::collections::btree_map::Iter<'a, VaultId, OpenVault>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.iter()
+    }
+}
+
 /// A vault as the session holds it.
 struct OpenVault {
     /// The highest accepted key generation; new objects are sealed under it.
@@ -331,7 +382,7 @@ pub struct UnlockedSession {
     /// by quick unlock, a security key or a CLI session): only then may it
     /// seal a CLI session ([`UnlockedSession::create_cli_session`]).
     password_fresh: bool,
-    vaults: BTreeMap<VaultId, OpenVault>,
+    vaults: VaultMap,
     index: search::LazyIndex,
     /// This install's stable ID (CRYPTO_SPEC §10), read from the store at
     /// unlock.
@@ -794,7 +845,7 @@ impl UnlockedSession {
                     proof_id,
                     password_unlocked: quick.password_unlocked,
                     password_fresh: quick.fresh_password,
-                    vaults,
+                    vaults: VaultMap::new(vaults),
                     index: search::LazyIndex::default(),
                     install,
                     session_tag,

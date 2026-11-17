@@ -251,6 +251,8 @@ pub struct Backend {
     /// without the password. Only a prepare (which checks the password) sets
     /// it, every lock clears it, and a quick unlock never reopens it (KEY-1).
     pub(crate) pending_kit_window: Mutex<Option<AccountId>>,
+    /// The last security report, by session revision (cleared on lock and unlock).
+    pub(crate) report_cache: Mutex<Option<crate::commands::insights::ReportCache>>,
     lock_hooks: Mutex<Vec<LockHook>>,
     unlock_hooks: Mutex<Vec<UnlockHook>>,
 }
@@ -311,6 +313,7 @@ impl Backend {
             kit_pending: Mutex::new(None),
             pending_kit_verified: Mutex::new(None),
             pending_kit_window: Mutex::new(None),
+            report_cache: Mutex::new(None),
             lock_hooks: Mutex::new(Vec::new()),
             unlock_hooks: Mutex::new(Vec::new()),
         }

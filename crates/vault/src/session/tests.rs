@@ -1869,3 +1869,35 @@ fn the_search_index_is_built_lazily_and_gives_the_same_results() {
     assert_eq!(found(&s, "gitea"), [(vault, c)]);
     assert!(!found(&s, "git").contains(&(vault, a)));
 }
+
+#[test]
+fn revision_changes_with_every_kind_of_mutation_and_not_with_reads() {
+    let (mut s, _key) = account();
+    let mut last = s.revision();
+    let mut moved = |s: &UnlockedSession, what: &str| {
+        let now = s.revision();
+        assert_ne!(now, last, "{what}");
+        last = now;
+    };
+    let vault = s.create_vault("Work").unwrap();
+    moved(&s, "create_vault");
+    let item = s
+        .add_item(vault, &ItemType::Login, |e| e.set_title("A"))
+        .unwrap();
+    moved(&s, "add_item");
+    s.update_item(vault, item, |e| e.set_title("B")).unwrap();
+    moved(&s, "update_item");
+    s.trash_item(vault, item).unwrap();
+    moved(&s, "trash_item");
+    s.rename_vault(vault, "Home").unwrap();
+    moved(&s, "rename_vault (metadata)");
+    s.rotate_vault_key(vault).unwrap();
+    moved(&s, "rotate_vault_key");
+
+    // Reads leave it alone.
+    let before = s.revision();
+    let _ = s.items(&super::ItemFilter::default());
+    let _ = s.search("B");
+    let _ = s.vaults();
+    assert_eq!(s.revision(), before);
+}

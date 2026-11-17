@@ -172,6 +172,7 @@ impl Backend {
             let _ = self.adapters.ssh.start(session, self.event_sink());
         }
         self.sweep_cli_sessions();
+        self.clear_report_cache();
         // Unlocking (password, biometrics or a security key) verifies the user.
         self.note_user_verification();
         self.run_unlock_hooks();
@@ -494,6 +495,7 @@ impl Backend {
             files.clear();
         }
         self.adapters.import.clear();
+        self.clear_report_cache();
         self.adapters.ssh.stop();
         // The sync thread ends; the transport fails closed from here on.
         self.sync_after_lock();

@@ -459,6 +459,27 @@ fn list_items_in(b: &Backend, trash: &str) -> Vec<ItemSummary> {
 }
 
 #[test]
+fn security_report_is_cached_by_revision_and_fresh_after_a_change() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let b = &h.backend;
+    let vault = vault_id(b);
+    add_login(b, &vault);
+    let first = b.security_report(NOW).unwrap();
+    assert!(b.report_cache.lock().unwrap().is_some());
+    assert_eq!(b.security_report(NOW).unwrap(), first);
+    // A change moves the revision: the answer is computed again and equals a fresh one.
+    add_login(b, &vault);
+    let after = b.security_report(NOW).unwrap();
+    assert_eq!(after.items_checked, first.items_checked + 1);
+    b.clear_report_cache();
+    assert_eq!(b.security_report(NOW).unwrap(), after);
+    // Locking forgets it.
+    b.lock(LockReason::Manual).unwrap();
+    assert!(b.report_cache.lock().unwrap().is_none());
+}
+
+#[test]
 fn list_items_limit_caps_the_result() {
     let _kdf = crate::test_support::kdf_permit();
     let h = unlocked();

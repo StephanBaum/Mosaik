@@ -188,7 +188,7 @@ impl UnlockedSession {
                 }
             }
         }
-        self.vaults = vaults;
+        self.vaults.replace(vaults);
         // The next search rebuilds the index from the reloaded vaults.
         self.index = super::search::LazyIndex::default();
     }
