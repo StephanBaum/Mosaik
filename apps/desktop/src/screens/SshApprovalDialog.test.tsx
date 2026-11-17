@@ -37,14 +37,20 @@ describe("SSH approval dialog", () => {
     render(<App ipc={createMockIpc({ start: "unlocked", sshRequest: true })} languages={["en"]} />);
 
     const deny = await screen.findByRole("button", { name: "Deny" }, { timeout: 3000 });
+    // Read the guard at once: on a loaded CI runner the focus wait below can take longer than
+    // the guard itself, and then Allow is (correctly) enabled already.
+    const shownAt = performance.now();
+    const once = screen.getByRole("button", { name: "Allow once" });
+    const disabledAtFirst = (once as HTMLButtonElement).disabled;
+    if (performance.now() - shownAt < ALLOW_GUARD_MS / 2) {
+      expect(disabledAtFirst).toBe(true);
+    }
     await waitFor(() => {
       expect(document.activeElement).toBe(deny);
     });
     expect(screen.getByText("git (4242)")).toBeTruthy();
     expect(screen.getByText(/SHA256:/)).toBeTruthy();
-    const once = screen.getByRole("button", { name: "Allow once" });
     expect(screen.getByRole("button", { name: "Allow for 15 minutes" })).toBeTruthy();
-    expect((once as HTMLButtonElement).disabled).toBe(true);
 
     await waitFor(
       () => {

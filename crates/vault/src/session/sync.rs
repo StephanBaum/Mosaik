@@ -184,6 +184,16 @@ impl UnlockedSession {
     /// copy legitimately keeps the source's version vector.) [`Error::UnknownVault`],
     /// [`Error::VaultUnavailable`], [`Error::Store`].
     pub fn apply_remote_record(&mut self, record: &RemoteRecord) -> Result<ApplyOutcome> {
+        let outcome = self.apply_remote_record_inner(record)?;
+        if outcome != ApplyOutcome::Ignored {
+            // A binding removed or changed on another device leaves no mark that still
+            // confirms it here (cross-feature red team F3).
+            self.prune_agent_marks(record.vault_id, record.record_id)?;
+        }
+        Ok(outcome)
+    }
+
+    fn apply_remote_record_inner(&mut self, record: &RemoteRecord) -> Result<ApplyOutcome> {
         let (vault_id, item_id) = (record.vault_id, record.record_id);
         let device = self.device;
         let ov = self.vault(vault_id)?;

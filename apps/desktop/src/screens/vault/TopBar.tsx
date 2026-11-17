@@ -2,6 +2,7 @@
 import { useEvents } from "../../app/EventsProvider.tsx";
 import { Button } from "../../components/Button.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
+import { useHoloLinger } from "../../holo/useHoloLinger.ts";
 import { Icon } from "../../components/icons.tsx";
 import { Kbd } from "../../components/Kbd.tsx";
 import { MenuButton } from "../../components/Menu.tsx";
@@ -82,7 +83,8 @@ export function AgentActivityIndicator() {
 export function TopBar(props: TopBarProps) {
   const { t } = useI18n();
   const platform = usePlatform();
-  const NewButton = props.headerPrimary ? HoloButton : Button;
+  const linger = useHoloLinger(props.headerPrimary);
+  const NewButton = linger.holo ? HoloButton : Button;
   return (
     <header className="topbar">
       <Breadcrumb {...props} />
@@ -125,7 +127,10 @@ export function TopBar(props: TopBarProps) {
       <NewButton
         data-new-item=""
         className="topbar__new"
-        onClick={props.onNew}
+        onClick={() => {
+          linger.pressed();
+          props.onNew();
+        }}
         aria-keyshortcuts={ariaKeyshortcuts(SHORTCUTS.newItem, platform)}
       >
         <Icon name="plus" />

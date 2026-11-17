@@ -88,6 +88,34 @@ impl UnlockedSession {
         Ok(())
     }
 
+    /// Drops the item's marks that match none of its current agent bindings (a conflicted,
+    /// malformed or removed binding, or a deleted or unknown item, keeps none). The sync apply path calls it,
+    /// so a binding removed on another device does not stay confirmed here.
+    ///
+    /// # Errors
+    /// [`super::Error::UnknownVault`], [`super::Error::Core`], [`super::Error::Store`].
+    pub(crate) fn prune_agent_marks(&mut self, vault: VaultId, item: ItemId) -> Result<()> {
+        if self.store.agent_marks_of(&vault, &item)?.is_empty() {
+            return Ok(());
+        }
+        let bindings = self
+            .vault(vault)?
+            .items
+            .get(&item)
+            .map(mosaic_core::Item::agent_bindings)
+            .unwrap_or_default();
+        // A binding without a canonical form can hold no mark; it never fails the apply.
+        let current: Vec<_> = bindings
+            .iter()
+            .filter_map(|(id, record)| Some((id.as_str(), record.canonical_json().ok()?)))
+            .collect();
+        let keep: Vec<(&str, &[u8])> = current
+            .iter()
+            .map(|(id, canonical)| (*id, canonical.expose_secret()))
+            .collect();
+        self.retain_agent_marks(vault, item, &keep)
+    }
+
     /// Seals one log record and stores it, then prunes entries older than 90 days (measured from
     /// `at_ms`) and those beyond the newest 10,000.
     ///

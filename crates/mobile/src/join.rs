@@ -140,6 +140,14 @@ impl PendingJoin {
     }
 }
 
+/// The device name typed by the person, or the default of the platform.
+pub(crate) fn clean_device_name(platform: Platform, typed: Option<String>) -> String {
+    typed
+        .map(|n| n.trim().to_owned())
+        .filter(|n| !n.is_empty() && n.chars().count() <= 64)
+        .unwrap_or_else(|| default_device_name(platform).to_owned())
+}
+
 fn default_device_name(platform: Platform) -> &'static str {
     match platform {
         Platform::Android => "Android phone",
@@ -153,7 +161,7 @@ fn default_device_name(platform: Platform) -> &'static str {
 pub(crate) struct JoinFlight<'a>(&'a Core);
 
 impl<'a> JoinFlight<'a> {
-    fn start(core: &'a Core) -> Self {
+    pub(crate) fn start(core: &'a Core) -> Self {
         if let Ok(mut guard) = core.guard() {
             guard.pending.join_in_flight = true;
         }
@@ -210,10 +218,7 @@ impl Core {
         let origin = phone_origin(&server_url)?;
         let email =
             mosaic_sync::wire::email::normalize(&email).map_err(|_| MobileError::InvalidInput)?;
-        let device_name = device_name
-            .map(|n| n.trim().to_owned())
-            .filter(|n| !n.is_empty() && n.chars().count() <= 64)
-            .unwrap_or_else(|| default_device_name(self.config.platform).to_owned());
+        let device_name = clean_device_name(self.config.platform, device_name);
         // The store must be empty; a join over an account is refused.
         if matches!(self.guard()?.phase, Phase::Locked(_) | Phase::Unlocked(_)) {
             return Err(MobileError::AccountExists);

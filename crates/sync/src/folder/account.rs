@@ -11,9 +11,10 @@ use std::path::Path;
 use mosaic_core::{AccountId, MasterPassword, PasswordParams, SecretKey, WrappedKey};
 use mosaic_vault::session::{Error as SessionError, LockedSession, UnlockedSession};
 
-use super::init::{FolderContents, FolderError, has_account, inspect};
+use super::init::{FolderContents, FolderError, has_account_in, inspect_in};
 use super::layout::Layout;
-use super::{FolderCrypto, FolderTransport, fsutil, lock_or};
+use super::store::{FolderStore, LocalStore};
+use super::{FolderCrypto, FolderTransport, lock_or};
 use crate::transport::TransportError;
 use crate::wire::account_file::{self, AccountFile, AccountFilePath};
 use crate::wire::folder_names::{self, FolderName};
@@ -34,12 +35,14 @@ const MAX_ACCOUNT_FILES_READ: usize = 64;
 /// The account files of a folder, best first: highest version, then lowest
 /// device ID. Each comes with the path IDs and the file's bytes.
 fn candidates(
+    store: &dyn FolderStore,
     layout: &Layout,
     account: AccountId,
 ) -> Result<Vec<(AccountFilePath, Vec<u8>)>, TransportError> {
-    let mut found: Vec<(u64, [u8; 16])> = fsutil::list(&layout.account_files())?
+    let mut found: Vec<(u64, [u8; 16])> = store
+        .list(&layout.account_files())?
         .iter()
-        .filter(|e| !e.is_dir)
+        .filter(|e| !e.is_dir())
         .filter_map(|e| match folder_names::parse(&e.name) {
             Some(FolderName::Account { version, device }) => Some((version, device)),
             _ => None,
@@ -53,8 +56,10 @@ fn candidates(
             continue;
         };
         let name = folder_names::account_name(version, &device);
-        let Some(bytes) =
-            fsutil::read_capped(&layout.account_files().join(name), account_file::LEN as u64)?
+        let Some(bytes) = store.read_capped(
+            &layout.account_files().known(&name),
+            account_file::LEN as u64,
+        )?
         else {
             continue;
         };
@@ -79,8 +84,19 @@ pub fn current_account_file(
     root: &Path,
     account: AccountId,
 ) -> Result<Option<(AccountFile, Vec<u8>)>, TransportError> {
-    let layout = Layout::new(root, &account);
-    for (path, bytes) in candidates(&layout, account)? {
+    current_account_file_in(&LocalStore::new(root), account)
+}
+
+/// As [`current_account_file`], over any [`FolderStore`].
+///
+/// # Errors
+/// [`TransportError`] for a folder that cannot be read.
+pub fn current_account_file_in(
+    store: &dyn FolderStore,
+    account: AccountId,
+) -> Result<Option<(AccountFile, Vec<u8>)>, TransportError> {
+    let layout = Layout::new(&account);
+    for (path, bytes) in candidates(store, &layout, account)? {
         if let Ok(file) = AccountFile::decode_for_join(&bytes, &path) {
             return Ok(Some((file, bytes)));
         }
@@ -176,9 +192,45 @@ pub fn join_from_folder(
     password: &MasterPassword,
     secret_key: &SecretKey,
 ) -> Result<UnlockedSession, Box<JoinFailure>> {
-    match inspect(root) {
+    join_from_folder_in(
+        &LocalStore::new(root),
+        account,
+        session,
+        password,
+        secret_key,
+    )
+}
+
+/// As [`join_from_folder`], over any [`FolderStore`].
+///
+/// # Errors
+/// [`JoinFailure`] with a [`JoinError`].
+pub fn join_from_folder_in(
+    store: &dyn FolderStore,
+    account: AccountId,
+    session: LockedSession,
+    password: &MasterPassword,
+    secret_key: &SecretKey,
+) -> Result<UnlockedSession, Box<JoinFailure>> {
+    join_from_folder_versioned_in(store, account, session, password, secret_key)
+        .map(|(unlocked, _)| unlocked)
+}
+
+/// As [`join_from_folder_in`], and also the `account_version` of the account file the join
+/// opened (the caller records it as the floor against a planted older file).
+///
+/// # Errors
+/// [`JoinFailure`] with a [`JoinError`].
+pub fn join_from_folder_versioned_in(
+    store: &dyn FolderStore,
+    account: AccountId,
+    session: LockedSession,
+    password: &MasterPassword,
+    secret_key: &SecretKey,
+) -> Result<(UnlockedSession, u64), Box<JoinFailure>> {
+    match inspect_in(store) {
         // A direct check, not `inspect`'s capped list: the account may be the 65th.
-        FolderContents::Mosaic { .. } if has_account(root, &account) => {}
+        FolderContents::Mosaic { .. } if has_account_in(store, &account) => {}
         FolderContents::Mosaic { .. } => return Err(fail(JoinError::NoAccountFile, Some(session))),
         FolderContents::Missing | FolderContents::Empty | FolderContents::Foreign => {
             return Err(fail(
@@ -193,7 +245,7 @@ pub fn join_from_folder(
             ));
         }
     }
-    let Ok(all) = candidates(&Layout::new(root, &account), account) else {
+    let Ok(all) = candidates(store, &Layout::new(&account), account) else {
         return Err(fail(JoinError::Folder(FolderError::Io), Some(session)));
     };
     // Candidates in order (highest version, lowest device) until one unlocks
@@ -252,7 +304,7 @@ pub fn join_from_folder(
             };
         // The same check once more on the unlocked session.
         return match AccountFile::verify_mac(bytes, &unlocked) {
-            Ok(true) => Ok(unlocked),
+            Ok(true) => Ok((unlocked, file.account_version)),
             Ok(false) | Err(_) => Err(fail(JoinError::FolderDamaged, None)),
         };
     }
@@ -296,19 +348,20 @@ impl<C: FolderCrypto> FolderTransport<C> {
             .encode(&self.crypto)
             .map_err(|e| lock_or(e, TransportError::Protocol))?;
         let dir = self.layout.account_files();
-        fsutil::write_atomic(
+        self.store.write_atomic(
             &dir,
             &folder_names::account_name(version, self.install.as_bytes()),
             &bytes,
             true,
         )?;
-        for entry in fsutil::list(&dir)? {
+        for entry in self.store.list(&dir)? {
             if let Some(FolderName::Account { version: v, device }) =
                 folder_names::parse(&entry.name)
                 && v < version
                 && device == *self.install.as_bytes()
             {
-                fsutil::remove(&dir.join(&entry.name))?;
+                self.store
+                    .remove(&dir.known(&folder_names::account_name(v, &device)))?;
             }
         }
         Ok(())
@@ -320,9 +373,11 @@ impl<C: FolderCrypto> FolderTransport<C> {
     /// # Errors
     /// [`TransportError`].
     pub fn highest_account_version(&self) -> Result<u64, TransportError> {
-        let mut found: Vec<(u64, [u8; 16])> = fsutil::list(&self.layout.account_files())?
+        let mut found: Vec<(u64, [u8; 16])> = self
+            .store
+            .list(&self.layout.account_files())?
             .iter()
-            .filter(|e| !e.is_dir)
+            .filter(|e| !e.is_dir())
             .filter_map(|e| match folder_names::parse(&e.name) {
                 Some(FolderName::Account { version, device }) => Some((version, device)),
                 _ => None,
@@ -340,9 +395,11 @@ impl<C: FolderCrypto> FolderTransport<C> {
     /// # Errors
     /// [`TransportError`].
     pub fn verified_account_file(&self) -> Result<Option<AccountFile>, TransportError> {
-        let mut found: Vec<(u64, [u8; 16])> = fsutil::list(&self.layout.account_files())?
+        let mut found: Vec<(u64, [u8; 16])> = self
+            .store
+            .list(&self.layout.account_files())?
             .iter()
-            .filter(|e| !e.is_dir)
+            .filter(|e| !e.is_dir())
             .filter_map(|e| match folder_names::parse(&e.name) {
                 Some(FolderName::Account { version, device }) => Some((version, device)),
                 _ => None,

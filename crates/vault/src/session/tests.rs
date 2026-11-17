@@ -1571,3 +1571,80 @@ fn adoption_is_for_an_unconfirmed_local_key_of_the_current_generation_only() {
         Err(Error::VaultKeyConflict { generation: 1 })
     ));
 }
+
+/// Cross-feature red team F3: a binding removed or changed on another device leaves no mark that
+/// still confirms it here. The marks of a binding the remote record keeps unchanged stay.
+#[test]
+fn applying_a_remote_record_prunes_marks_of_bindings_that_are_gone() {
+    use mosaic_core::model::{AgentBindingRecord, AgentInject};
+    let mark = |s: &UnlockedSession, vault, item, id: &mosaic_core::model::ElementId| {
+        let record = s
+            .item(vault, item)
+            .unwrap()
+            .agent_bindings()
+            .into_iter()
+            .find(|(i, _)| i == id)
+            .unwrap()
+            .1;
+        record.canonical_json().unwrap()
+    };
+    let (mut a, sk) = account();
+    let vault = a.create_vault("Personal").unwrap();
+    let binding =
+        |origin: &str| AgentBindingRecord::new("api_key.secret", &[origin], AgentInject::Bearer);
+    let item = a
+        .add_item(vault, &ItemType::ApiKey, |e| {
+            e.set_title("Key")?;
+            e.set_secret(SecretField::ApiKeySecret, "SK-TEST")?;
+            e.add_agent_binding(&binding("https://api.example.com"))?;
+            e.add_agent_binding(&binding("https://other.example.com"))?;
+            Ok(())
+        })
+        .unwrap();
+    let ids: Vec<_> = a
+        .item(vault, item)
+        .unwrap()
+        .agent_bindings()
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    let (kept, removed) = (ids[0].clone(), ids[1].clone());
+    let first = uploads(&mut a);
+    let mut b = join(&a, &sk);
+    b.apply_remote_record(&first[0]).unwrap();
+    for id in [&kept, &removed] {
+        let canonical = mark(&b, vault, item, id);
+        b.confirm_agent_mark(vault, item, id.as_str(), canonical.expose_secret())
+            .unwrap();
+    }
+    let kept_canonical = mark(&b, vault, item, &kept);
+    let removed_canonical = mark(&b, vault, item, &removed);
+
+    // Device A removes one binding; B applies the record.
+    a.update_item(vault, item, |e| e.remove_agent_binding(&removed))
+        .unwrap();
+    let rec = uploads(&mut a).pop().unwrap();
+    b.apply_remote_record(&rec).unwrap();
+    assert!(
+        b.agent_mark_confirmed(vault, item, kept.as_str(), kept_canonical.expose_secret())
+            .unwrap()
+    );
+    assert!(
+        !b.agent_mark_confirmed(
+            vault,
+            item,
+            removed.as_str(),
+            removed_canonical.expose_secret()
+        )
+        .unwrap()
+    );
+    assert_eq!(b.store.agent_marks_of(&vault, &item).unwrap().len(), 1);
+
+    // An unchanged record again (ignored) keeps the mark; a purge drops it.
+    b.apply_remote_record(&rec).unwrap();
+    assert_eq!(b.store.agent_marks_of(&vault, &item).unwrap().len(), 1);
+    a.purge_item(vault, item).unwrap();
+    let tombstone = uploads(&mut a).pop().unwrap();
+    b.apply_remote_record(&tombstone).unwrap();
+    assert_eq!(b.store.agent_marks_of(&vault, &item).unwrap().len(), 0);
+}

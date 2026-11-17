@@ -34,7 +34,7 @@ final class VaultFormatTests: XCTestCase {
     func testSyncLineSaysWhereTheVaultLives() {
         func overview(configured: Bool, error: String? = nil, last: UInt64? = nil) -> SyncOverview {
             SyncOverview(
-                configured: configured, signedIn: configured, serverUrl: nil, pendingUploads: 0,
+                configured: configured, signedIn: configured, serverUrl: nil, folder: nil, resetPhrase: "", pendingUploads: 0,
                 lastSyncedAtMs: last, lastError: error, halted: false, warnings: [])
         }
         XCTAssertEqual(SyncLine.text(for: nil), "")

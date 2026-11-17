@@ -41,10 +41,12 @@ pub fn find_and_rank_possible_neighbors(capstones: &[CapStone], idx: usize) -> V
         }
     }
 
+    // Mosaic patch: no `expect`; the scores pushed above are never NaN, so the
+    // order is unchanged.
     res.sort_unstable_by(|a, b| {
         (a.score)
             .partial_cmp(&(b.score))
-            .expect("Neighbor distance should never cause a div by 0")
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
     res.iter().map(|n| (n.h_index, n.v_index)).collect()
 }

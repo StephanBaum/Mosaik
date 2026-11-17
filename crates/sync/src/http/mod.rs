@@ -17,11 +17,11 @@
 
 pub mod assetlinks;
 mod backend;
-mod client;
+pub(crate) mod client;
 pub mod hosted;
 pub mod pwned;
 mod sharing;
-mod tls;
+pub(crate) mod tls;
 
 pub use backend::HttpTransport;
 pub use client::{StoredToken, Token, canonical_origin};

@@ -371,7 +371,9 @@ fn summary_of(
     }
 }
 
-fn url_view(url: &LoginUrl) -> UrlView {
+/// `shared`: the item is in a shared vault, whose app bindings a member chose and which never
+/// fill an app (ADR-0092 amendment, cross-feature F2), so none shows as linked.
+fn url_view(url: &LoginUrl, shared: bool) -> UrlView {
     let parsed = mosaic_origin::app::AndroidAppUrl::parse(url.url.as_str());
     UrlView {
         url: url.url.as_str().to_owned(),
@@ -379,7 +381,7 @@ fn url_view(url: &LoginUrl) -> UrlView {
         allow_http: url.allow_http,
         is_app: parsed.is_ok(),
         needs_linking: url.url.as_str().starts_with("androidapp://")
-            && parsed.as_ref().map_or(true, |a| a.cert_sha256().is_none()),
+            && (shared || parsed.as_ref().map_or(true, |a| a.cert_sha256().is_none())),
     }
 }
 
@@ -459,10 +461,15 @@ fn detail_of(
     item_id: ItemId,
     item: &Item,
 ) -> ItemDetail {
+    let shared = session.vault_shared(vault).unwrap_or(true);
     ItemDetail {
         summary: summary_of(session, vault, item_id, item),
         fields: fields_of(item),
-        urls: item.urls().iter().map(|(_, u)| url_view(u)).collect(),
+        urls: item
+            .urls()
+            .iter()
+            .map(|(_, u)| url_view(u, shared))
+            .collect(),
         tags: item.tags().into_iter().map(str::to_owned).collect(),
         passkeys: item
             .passkey_public()
@@ -662,11 +669,34 @@ fn save(
             }
             (Current::of(item), item.urls())
         };
+        refuse_device_links(&saved, edits)?;
         session.update_item(vault, id, |e| apply(e, Some(&current), edits, &saved))?;
         Ok(id)
     } else {
+        refuse_device_links(&[], edits)?;
         session.add_item(vault, item_type, |e| apply(e, None, edits, &[]))
     }
+}
+
+/// The editor never adds a device binding: a cert-bound `androidapp://` URL comes only from the
+/// link step (ADR-0092) and a `winapp://` URL only from the desktop's (ADR-0164). Only the URLs
+/// the draft adds are checked, so a saved binding stays when the rest of the login changes
+/// (cross-feature red team F1).
+fn refuse_device_links(
+    saved: &[(mosaic_core::model::ElementId, LoginUrl)],
+    edits: &Edits,
+) -> SessionResult<()> {
+    let Some(urls) = &edits.urls else {
+        return Ok(());
+    };
+    let (_, add) = url_changes(saved, urls);
+    if add
+        .iter()
+        .any(|url| mosaic_origin::is_device_link_url(url.url.as_str()))
+    {
+        return Err(mosaic_vault::session::Error::InvalidInput);
+    }
+    Ok(())
 }
 
 impl Core {
@@ -779,7 +809,8 @@ impl Core {
     ///
     /// # Errors
     /// `locked`, `invalidInput` (an empty title, a bad ID, a draft URL that is
-    /// too long), `notFound`, `vaultUnavailable`, `itemTypeNotAllowed`.
+    /// too long, a cert-bound `androidapp://` or a `winapp://` URL the draft
+    /// adds), `notFound`, `vaultUnavailable`, `itemTypeNotAllowed`.
     pub fn save_login(&self, draft: LoginDraft) -> Result<ItemKey> {
         let LoginDraft {
             vault_id,

@@ -1,0 +1,31 @@
+name: Idea or feature request
+description: Something Mosaic should do, or do differently.
+labels: ["idea"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation and what gets in your way today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: Your idea, if you have one. Rough is fine.
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part of Mosaic?
+      options:
+        - Desktop app
+        - Browser extension
+        - Android app
+        - iOS app
+        - Command line
+        - Agent access (MCP)
+        - Sync and sharing
+        - Import
+        - Website
+        - Something else

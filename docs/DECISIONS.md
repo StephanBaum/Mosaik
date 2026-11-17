@@ -5112,7 +5112,7 @@ M10 brings Mosaic to Android and iOS (brief §2 and §10: "native autofill and p
   - The desktop "Set up a phone" setup code (ADR-0096).
 - **Out of scope**, each with its reason:
   - *Account creation on mobile.* It needs Argon2 calibration on the phone, the Emergency Kit PDF and its verification step. The app says "Create your account on a computer, then set up this phone." The `test-hooks` feature creates local accounts for tests only.
-  - *Folder sync.* Android has no path-based access to cloud folders (Storage Access Framework URIs, no atomic rename, no file locks). On iOS, iCloud Drive and File Provider folders need `NSFileCoordinator` downloads, which need a signed-in Apple ID on a device; CI has neither. Deferred to M10b (OD-M10-11). The app says "This account syncs through a folder. The phone apps support Mosaic sync for now."
+  - *Folder sync.* Android has no path-based access to cloud folders (Storage Access Framework URIs, no atomic rename, no file locks). On iOS, iCloud Drive and File Provider folders need `NSFileCoordinator` downloads, which need a signed-in Apple ID on a device; CI has neither. Deferred to M10b (OD-M10-11). The app says "This account syncs through a folder. The phone apps support Mosaic sync for now." Android: resolved by ADR-0162 (provider APIs, no SAF).
   - *Features that stay on the computer:*
     - sharing management and emergency access;
     - key or credential rotation, and re-key adoption (the fallback is "Set up this phone again", ADR-0091);
@@ -5460,6 +5460,7 @@ Brief §4 sets four rules: no fill without a trusted user gesture, exact-origin 
 - **Matching is in Rust** (`mosaic-origin`, pure and host-tested).
   - **App URLs** on logins: `androidapp://<package>?cert=<b64url(sha256(signing cert))>`.
     - A URL without `cert` (from an import, for example) **never matches**. It shows as "needs linking".
+    - **Amendment (cross-feature red team F1): only the link step writes `cert`.** A cert-bound URL is written only by the phone's link step (`link_android_app`, `link_app_in_fill_session`, both through `write_app_link`, with the caller's or the fill session's signer), as ADR-0164 does for `winapp://`. An import keeps an `androidapp://<pkg>?cert=…` value as text (`UrlKeptAsText`) and stores only `androidapp://<pkg>`, which needs linking. The desktop editor (`UrlChange` add and update) and the phone editor (URLs a draft adds; a saved binding stays when the rest of the login changes) refuse any `androidapp:` URL with a query and any `winapp:` URL (`mosaic_origin::is_device_link_url`, `invalidInput`). Before, a tampered export could bind a bank login to an attacker's certificate, and a sideloaded app with the same package then filled like a linked one.
     - A match needs an equal package, and a `cert` equal to the caller's **current** signer: `apkContentsSigners`, else the last entry of `signingCertificateHistory`.
     - **Amendment (M10 G1 review, G1-9): exactly one current signer.** Kotlin chooses the current signers and hands them over as `AndroidCaller.current_signers`, never the old certificates of a signing history. Rust and `mosaic-origin` refuse a caller with more than one current signer as ambiguous: `link_android_app`, `asset_links_status` and the non-browser passkey path answer `invalidInput`, `app_fill_allowed` does not match, and `is_trusted_browser` does not trust it. A browser's own allowlist entry may still list several release certificates (for rotation); the single current signer of the caller must be one of them. The earlier text ("a `cert` equal to one of the caller's current signers") let a stale or co-signing certificate of the history identify an app.
   - **Browser allowlist:** `crates/origin/data/android-privileged-browsers.json`, in the Credential Manager `getOrigin` format.
@@ -5502,6 +5503,7 @@ Brief §4 sets four rules: no fill without a trusted user gesture, exact-origin 
   - **Amendment (M10 G3 red team, G3-6 and housekeeping): DNS names, bounded state.** `canonical_rp_id` requires DNS labels: ASCII letters, digits and hyphens, no leading or trailing hyphen, at most 63 bytes per label (253 in total). Callers: the passkey import (`mosaic-import`, so desktop and CLI imports reach it too) and the mobile passkey calls. `webauthn_rp_id` applies the same DNS-label check at creation (M10-G3 round 2, N1). The asset-links answer cache holds at most 256 entries and evicts the one that expires first. The system pickers' lists open a fill or passkey session per request that nothing uses: `fill_release` and `passkey_release` drop it (the provider calls them right after building the list and on every failed exit of the get flows).
   - **Amendment (M10 RT-android-1): a missing `webScheme` is refused.** A trusted browser's `webDomain` without a `webScheme` is `TargetError::MissingScheme` (`noMatch` on the phone), never read as `https`: the page may be plain `http`.
   - **Amendment (M10-G2-iOS, M3): a QuickType selection fills only after a confirm.** For a tap on a QuickType suggestion (`prepareInterfaceToProvideCredential`) iOS gives the provider the identity (its own domain and record) and not the page the user is on. The core's origin match would compare the identity with itself, so a login saved for `a.example` could be offered for a page of another site that the keyboard showed it on. The conservative choice is taken: the request never fills by itself. The extension opens the interface, shows "Fill the login for <saved site>?" naming the site of the identity, and asks for Face ID or Touch ID only after the explicit confirm; then it fills the identity's login, if the core still lists it as a match for that site. The settings text of OD-M10-7 says so. Alternative rejected: filling at once after Face ID, as a QuickType suggestion normally does (the user cannot see which page the fill is for, and the check proves nothing).
+  - **Amendment (cross-feature red team F2): no app fills from a shared vault.** Every member with write access to a shared vault chooses its logins' URLs, so an `androidapp://…?cert=` URL there was never proven on this phone. The core treats a login of a shared vault (or one whose sharing state cannot be read) as never matching an app target (`fill_candidates`, `fill_values`, `fill_otp`), shows its app URLs as "needs linking", leaves it out of link offers and of the "already linked" check, and refuses to write a link into it (`link_android_app` and `link_app_in_fill_session` answer `invalidInput` and `noMatch`). Its web URLs still match by exact origin. A device-local confirmation (like the agent marks of ADR-0160) would allow app fills there later; until then such a login is copied by hand. THREAT_MODEL R208.
   - **Amendment (one-tap linking, autofill-everywhere spec §5.5.2).** When a fill request names an app that no login matches, the core offers at most 3 **strong candidates** from the fill session (`fill_link_offer`): a login with `androidapp://<package>` without `cert` whose package equals the caller's byte for byte ("Imported for this app"), or a login with an `https` URL whose host's `assetlinks.json` lists the package and the session's single current signer with `get_login_creds` ("Verified by <host>"). Only hosts whose registrable domain equals the package's web domain (`package_web_domain`: the first three labels reversed, reduced to the registrable domain) are fetched, at most 2 logins are checked and at most 1 uncached fetch (2 s timeout) runs per request; answers are cached 24 hours, transport failures are not. Each candidate is a value-less, authenticated dataset "Link <title> and fill". A tap opens `FillAuthActivity` in `link` mode, which reads the caller again, opens a new fill session and requires the tapped login to be in the new offer. The confirmation is the system biometric prompt (strong biometric), whose title and subtitle name the login, the app label, the package, the first 8 bytes of the signer fingerprint and the reason; on success `link_app_in_fill_session` writes the cert-bound URL with the **session's** signer and `fill_values` fills. Without a strong biometric, a confirm screen with the same identity panel links only and does not fill. Weak cases ("Not verified", "Could not check", no candidate) keep the "No login for <app>" flow. Browsers never get an offer. **Owner decision (imported candidates):** an imported `androidapp://` URL has no certificate, so it is the look-alike threat (a sideloaded app reusing the package). The core keeps offering `LinkReason::ImportedForApp`; the Android side shows such entries only when the app's install source is a trusted store (`com.android.vending`, `com.sec.android.app.samsungapps`) and the confirmation says the app is not verified by the website. The install source counts as trusted only on API 30+ and only when **both** `installingPackageName` and `initiatingPackageName` are trusted: a privileged installer (adb, a shell) can set the installing package to a store, but the initiating package then names the real caller. On API 28 and 29 the initiator is not available, so an imported login gets no one-tap entry there. The same check runs again at the tap. Otherwise the user gets the existing link screen with installer and "Not verified". A same-package app from a trusted store still gets the offer (store review is the only barrier; THREAT_MODEL R164). Alternative rejected: an offer computed from every https login of the vault (one network request per saved host, and the network learns the vault's site list).
 
 ### Alternatives considered
@@ -6230,53 +6232,6 @@ and Q3. The rules are pure and live in `crates/origin/src/program.rs`; the captu
 ### Consequences
 THREAT_MODEL §4.10. `crates/program-fill` (identity, policy, re-verification) builds on these rules.
 
-## ADR-0160: Agent channel labels, device marks and the agent log
-
-- Status: accepted
-- Date: 2026-11-15
-- Milestone: agent access, phase 0 (spec `docs/superpowers/specs/2026-11-14-agent-access-design.md` §5.2, §6.4, §9.4)
-
-### Context
-AI agents use vault secrets through a local MCP relay (`mosaic agent mcp`) that talks to the unlocked desktop. That needs (1) a local channel
-with its own pairings, (2) a way to make a binding that arrived by sync unusable until the user confirmed it on this device, and (3) a log of every
-agent use. The log holds item titles, origins and command lines, which are derived from item plaintext, so CRYPTO_SPEC §11 forbids storing them in
-cleartext.
-
-### Decision
-- **Channel labels.** CRYPTO_SPEC §15 becomes "Local app channels". The construction is unchanged and used by two channels with disjoint label sets:
-  `browser/auth|handshake|session|frame` and `agent/auth|handshake|session|frame`. Pairings, `K_pair` storage and endpoints are per channel. Every
-  derivation and the frame AAD carry the channel's labels, so a key of one channel fails the other's handshake. The agent `K_pair` is stored by the
-  desktop in `agent-pairings.json` as §4 stores browser pairings, and by the client only in the OS keystore. The browser golden vector stays
-  byte-identical; a second vector pins the agent labels.
-- **Device marks.** `K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)`; `mark = HMAC-SHA-256(K_agent_mark, item_id[16] || u32(len(binding_id)) || binding_id || canonical(v))` (the binding ID is in the mark, a binding with
-  concurrent register entries is unconfirmed, numbers are integers only);
-  local-only table `agent_marks(vault_id, item_id, mark)`; no binding content in cleartext. A binding is usable on a device when a mark of its item
-  matches its canonical form, so a binding that arrives by sync, or is changed by another writer, needs the user's confirmation on this device.
-- **Agent log.** `K_agent_log = HKDF(AK, "", ctx("agent-log-key"), 32)`; each record
-  `0x01 || 0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, random nonce, plaintext, AAD = header || aad("agent-log", entry_id, at_ms))`; local-only
-  table `agent_log(entry_id, at_ms, sealed)` with the time in cleartext for pruning (90 days or 10,000 entries) and bound into the AAD. Never synced,
-  never in the outbox. When the count cap removes an entry younger than 90 days, the log screen says so.
-- **Labels are not reused.** The plan text of the spec used `agent-log` as the HKDF info and as the AAD label. §3 says every derived key and every AEAD
-  use has a unique label, so the HKDF info is `agent-log-key` and `agent-log` stays the AAD label (the `export` / `export-key` precedent).
-- **Settings (B2).** `canonical(settings)` gains the key `agentAccessEnabled`, which sorts first. It is written as `"agentAccessEnabled":true,` only
-  while true and omitted while false, so every existing MAC still verifies: no migration, no version bump. While locked it reads `false`; a missing
-  or invalid MAC sets it `false`, and the `settingsReset` notice fires if the file had it `true`.
-
-### Alternatives
-- A separate key agreement for agents: rejected. It is a new construction; the same OS access control and the user's approval authenticate the pairing.
-- Marks stored per element ID in cleartext: rejected. Element IDs live in item plaintext (§11).
-- The log in `settings.json` or a plain file: rejected. Titles and origins are derived from plaintext.
-- A counter nonce for log records: rejected. §7.2 requires a fresh random nonce, and the records are independent (a counter nonce is used only for the
-  channel frames, ADR-0036, where each key lives for one connection).
-- The same HKDF label for the log key and the log AAD: rejected (§3, see above).
-
-### Consequences
-Unreadable log rows (a record that does not open, for example after a full re-key) are skipped and counted, never deleted on read; the count is shown. Skipping preserves evidence of tampering and never destroys data on a read error.
-
-No new primitive, crate or dependency: HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 and `random(n)` as in §2. The crypto-reviewer reviews this ADR
-and the spec text before `mosaic-core` code lands (Task 3 of the plan). THREAT_MODEL §4.11 rows cite this ADR; R179 records the cleartext time
-column of the log. A disk reader of the store learns when agent use happened and how many records exist, not what was used.
-
 ## ADR-0159: Desktop agent mode: an MCP request tool
 
 - Status: accepted
@@ -6367,6 +6322,149 @@ Decisions made on top of the spec (D = spec decision, Q = spec open question, B 
 `crates/agent` (new), `crates/native-messaging` (agent endpoint), `crates/cli/src/agent`, the desktop `AgentService` and the item editor follow in the
 plan's later tasks. THREAT_MODEL §4.11 and R179 to R185, `docs/NATIVE_MESSAGING.md` §9 and `docs/CLI.md` "Agent access" are normative for them. The
 landing page may make a claim only after the red-team pass of the plan (spec §11.5); this ADR makes none. The README stays pre-audit.
+
+## ADR-0160: Agent channel labels, device marks and the agent log
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: agent access, phase 0 (spec `docs/superpowers/specs/2026-11-14-agent-access-design.md` §5.2, §6.4, §9.4)
+
+### Context
+AI agents use vault secrets through a local MCP relay (`mosaic agent mcp`) that talks to the unlocked desktop. That needs (1) a local channel
+with its own pairings, (2) a way to make a binding that arrived by sync unusable until the user confirmed it on this device, and (3) a log of every
+agent use. The log holds item titles, origins and command lines, which are derived from item plaintext, so CRYPTO_SPEC §11 forbids storing them in
+cleartext.
+
+### Decision
+- **Channel labels.** CRYPTO_SPEC §15 becomes "Local app channels". The construction is unchanged and used by two channels with disjoint label sets:
+  `browser/auth|handshake|session|frame` and `agent/auth|handshake|session|frame`. Pairings, `K_pair` storage and endpoints are per channel. Every
+  derivation and the frame AAD carry the channel's labels, so a key of one channel fails the other's handshake. The agent `K_pair` is stored by the
+  desktop in `agent-pairings.json` as §4 stores browser pairings, and by the client only in the OS keystore. The browser golden vector stays
+  byte-identical; a second vector pins the agent labels.
+- **Device marks.** `K_agent_mark = HKDF(AK, "", ctx("agent-mark"), 32)`; `mark = HMAC-SHA-256(K_agent_mark, item_id[16] || u32(len(binding_id)) || binding_id || canonical(v))` (the binding ID is in the mark, a binding with
+  concurrent register entries is unconfirmed, numbers are integers only);
+  local-only table `agent_marks(vault_id, item_id, mark)`; no binding content in cleartext. A binding is usable on a device when a mark of its item
+  matches its canonical form, so a binding that arrives by sync, or is changed by another writer, needs the user's confirmation on this device.
+  Marks that match none of an item's current bindings are dropped when the item is saved in this device's editor and,
+  since the cross-feature red team (F3), whenever a remote record of the item is applied (`apply_remote_record`), so a
+  binding removed on another device leaves no stale mark behind.
+- **Agent log.** `K_agent_log = HKDF(AK, "", ctx("agent-log-key"), 32)`; each record
+  `0x01 || 0x01 || nonce[24] || XChaCha20-Poly1305(K_agent_log, random nonce, plaintext, AAD = header || aad("agent-log", entry_id, at_ms))`; local-only
+  table `agent_log(entry_id, at_ms, sealed)` with the time in cleartext for pruning (90 days or 10,000 entries) and bound into the AAD. Never synced,
+  never in the outbox. When the count cap removes an entry younger than 90 days, the log screen says so.
+- **Labels are not reused.** The plan text of the spec used `agent-log` as the HKDF info and as the AAD label. §3 says every derived key and every AEAD
+  use has a unique label, so the HKDF info is `agent-log-key` and `agent-log` stays the AAD label (the `export` / `export-key` precedent).
+- **Settings (B2).** `canonical(settings)` gains the key `agentAccessEnabled`, which sorts first. It is written as `"agentAccessEnabled":true,` only
+  while true and omitted while false, so every existing MAC still verifies: no migration, no version bump. While locked it reads `false`; a missing
+  or invalid MAC sets it `false`, and the `settingsReset` notice fires if the file had it `true`.
+
+### Alternatives
+- A separate key agreement for agents: rejected. It is a new construction; the same OS access control and the user's approval authenticate the pairing.
+- Marks stored per element ID in cleartext: rejected. Element IDs live in item plaintext (§11).
+- The log in `settings.json` or a plain file: rejected. Titles and origins are derived from plaintext.
+- A counter nonce for log records: rejected. §7.2 requires a fresh random nonce, and the records are independent (a counter nonce is used only for the
+  channel frames, ADR-0036, where each key lives for one connection).
+- The same HKDF label for the log key and the log AAD: rejected (§3, see above).
+
+### Consequences
+Unreadable log rows (a record that does not open, for example after a full re-key) are skipped and counted, never deleted on read; the count is shown. Skipping preserves evidence of tampering and never destroys data on a read error.
+
+No new primitive, crate or dependency: HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 and `random(n)` as in §2. The crypto-reviewer reviews this ADR
+and the spec text before `mosaic-core` code lands (Task 3 of the plan). THREAT_MODEL §4.11 rows cite this ADR; R179 records the cleartext time
+column of the log. A disk reader of the store learns when agent use happened and how many records exist, not what was used.
+
+## ADR-0161: Folder setup code v2
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: Android folder sync (spec `docs/superpowers/specs/2026-11-15-android-folder-sync-design.md` §7)
+
+### Context
+The desktop setup code (ADR-0096, CRYPTO_SPEC §6.9.7) carries a server, an email and the Secret Key, so it only
+fits hosted accounts, and the desktop refuses to show it for a folder account. A free user whose desktop syncs
+through Dropbox, OneDrive or Nextcloud has to type the account ID, the provider, the folder and the Secret Key on
+the phone. A folder account has no server and no email, so it needs another body.
+
+### Decision
+A second code form, `mosaic-setup:2:` followed by unpadded base64url of a canonical JSON with seven members in a
+fixed order: `v` (2), `kind` (`folder`), `account` (32 lowercase hex), `provider` (`dropbox`, `onedrive`, `webdav`
+or `other`), `server` (a canonical `https` origin, non-empty exactly for `webdav`), `path` (a hint, strict path
+rules) and `sk` (the Secret Key display form). At most 1 024 bytes. The exact rules are in CRYPTO_SPEC §6.9.7. The
+v1 form and its parser stay as they are.
+
+- The code carries nothing secret that is not in a v1 code: the Secret Key was already there, and the account ID
+  and the path are visible to the provider (§12.1). It has no label and uses no primitive.
+- The desktop builds it only after re-authentication and shows it for 60 s, as for v1.
+- The path and the provider come from the desktop's provider client configuration (Dropbox `info.json`, the
+  `OneDrive*` variables, the Nextcloud client config). The hint is best effort: an unknown source gives `other`
+  and an empty path, and the phone asks the user to choose the folder.
+
+### Alternatives considered
+- **An optional member in v1.** Rejected: the v1 parser is strict (exactly four members), so an older phone would
+  refuse the code with a misleading error, and a strict parser is the point.
+- **Carrying an OAuth token in the code.** Rejected: a new secret in a QR code that a camera or a screenshot can
+  capture. The phone signs in to the provider itself.
+
+### Consequences
+The desktop shows the code for folder accounts. A wrong or hostile hint gains nothing: the join opens only an
+account file that the master password and the Secret Key unwrap, and the version rule refuses a re-planted
+wrapping (§10.1 "Joining"), while the newer file is visible; a withholding provider is R54. THREAT_MODEL R139 applies to the folder code too.
+
+## ADR-0162: Android folder sync through provider APIs
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: Android folder sync (spec `docs/superpowers/specs/2026-11-15-android-folder-sync-design.md`, with the
+  owner answers of 2026-11-15)
+
+### Context
+The phone apps support hosted accounts only (`folderAccountUnsupported`), so a free user, who syncs through their
+own cloud folder, cannot use the Android app. Android has no path-based access to Dropbox or OneDrive folders
+(spec §4). The folder format, MACs and join rules of CRYPTO_SPEC §10.1 stay as they are; no primitive is added.
+
+### Decision
+- **Rust HTTP stores, not SAF.** A `FolderStore` trait goes under `FolderTransport`; today's local file access
+  becomes `LocalStore` (no behaviour change). Remote stores for WebDAV, Dropbox API v2 and Microsoft Graph live in
+  `mosaic-sync` behind the feature `folder-remote`, over the existing blocking `reqwest` client with `rustls`. A
+  SAF store for local-sync apps is a possible phase 2 and not part of this decision.
+- **Full-access scopes, confined by our code** (owner answer 2): Dropbox Full Dropbox with
+  `files.metadata.read files.content.read files.content.write account_info.read`, Graph
+  `Files.ReadWrite offline_access`. Mosaic's code reaches only `root + RelPath`, a validated relative path type.
+- **No provider SDKs, no Play services, no `androidx.browser`.** The sign-in page opens with
+  `Intent.ACTION_VIEW` in the system browser (RFC 8252 external user agent), as the WebAuthn handoff does, not in
+  Custom Tabs.
+- **OAuth.** Redirect `io.github.stephanbaum.mosaic.oauth:/cb`, PKCE S256 with a fresh 32-byte verifier per
+  attempt and a 32-byte `state` compared in constant time with `subtle`. PKCE is RFC 7636 over SHA-256 and
+  `random(32)` from CRYPTO_SPEC §2, not a new construction. There is no client secret.
+- **Pending link.** The pending sign-in lives 5 minutes and follows the lifetime of the join slot; it is dropped
+  on lock.
+- **Client IDs** are compile-time `option_env!` values; an empty one means `folderProviderUnsupported`.
+- **Graph lists per directory** at launch (no `delta`).
+- **Revocation.** Unlink revokes what can be revoked: Dropbox `/2/auth/token/revoke`, Nextcloud
+  `DELETE /ocs/v2.php/core/apppassword`. Microsoft has no per-app revocation of consumer refresh tokens: the user
+  removes the app on the account page (R168).
+- **TLS 1.3 only** (owner answer 3, ADR-0046, ADR-0091), also for self-hosted WebDAV. A TLS 1.2 server gets
+  `folderServerTlsTooOld`.
+- **Google Drive is skipped** (owner answer 1): restricted-scope verification, an annual assessment and Play
+  services conflict with the rules above. iCloud Drive has no Android access.
+- **`quick-xml`** (already in `Cargo.lock` through `plist`) reads WebDAV `PROPFIND` answers; `subtle` (already in
+  the lock file) compares `state`. Neither adds a cryptographic primitive.
+- **Build order** (owner answer 4): WebDAV and Nextcloud, then Dropbox, then OneDrive.
+
+### Alternatives considered
+- **SAF through a Kotlin callback store for every provider.** Rejected: Dropbox, OneDrive and Google Drive expose
+  no usable tree (spec §4), and Rust-owned provider rules are written and host-tested once.
+- **App-folder scopes.** Rejected by the owner: an existing desktop folder would have to move, and Dropbox team
+  folders are out of reach.
+- **A provider SDK or MSAL.** Rejected: telemetry and proprietary code, and Play services.
+
+### Consequences
+- CRYPTO_SPEC §10.1 "Remote stores" lists the write and listing rules; §12.1 lists what a provider sees; §6.9.1
+  adds the `folder-credential/<account>` secure-storage entry.
+- A provider API answer is a hostile folder (R54): the MAC checks, the name parser, the caps and the own-log
+  rollback halt apply unchanged. The own-log check asks an authoritative `stat` before it halts, so a lagging
+  listing never causes a false halt.
+- New residual risks R166 to R170 in THREAT_MODEL §5.
 
 ## ADR-0163: Windows program fill phase 2: shim scope for focus events, writes and input
 
@@ -6524,6 +6622,23 @@ needs the clicked offer's token and program to be the current offer; modifier ke
 clean-up chord and Enter; a lone text field is first judged from its container's edits, and the window is searched by a walk
 that stops at the second usable edit and checks its deadline per element.
 
+### Amendment: bindings of a shared vault are not trusted (cross-feature red team F2)
+In a shared vault every member with write access chooses a login's `winapp://` URLs and their `extra` data, so a binding
+there proves nothing on this device, and `extra.submit` and `extra.program { name, signer }` are the member's words (a
+binding to the member's program could be shown as "Microsoft Teams, Microsoft Corporation"). Conservative reading, the
+same as agent bindings (ADR-0160): a login of a shared vault, or of a vault whose sharing state cannot be read, is never a
+match in the picker. When one of its bindings matches the program it is a suggestion, otherwise it is judged by title and
+web hosts like a login without a binding, and a link-again verdict there is ignored. A suggestion fills only after this
+device's own link step (which shows the captured identity, never the stored display data); if an equal binding is already
+there, the link writes nothing and fills. Enter is never pressed for a login of a shared vault (`offer::credentials`, also
+for the two-step continuation), and the link step shows it off. The item view names such a binding by its URL (exe name or
+package family; file name for `path/`) and shows no signer name and Enter off. Agent bindings keep their own rule (device
+marks, shared vaults excluded). The phone's rule for app bindings is the ADR-0092 amendment of the same red team. THREAT_MODEL
+R208.
+
+The same red team (F1) made `UrlChange` refuse a cert-bound `androidapp://` URL too (`mosaic_origin::is_device_link_url`),
+and (F4) a file dropped on the chip or the list starts no import: only the `main` window takes drops.
+
 ### Renamed browsers (open item of the phase 1 red team)
 A browser copied to another file name keeps the vendor's signature, so the name list of ADR-0158 does not exclude it.
 Phase 2 adds an exclusion by the product name of the version resource (`Google Chrome`, `Microsoft Edge`, `Mozilla Firefox`,
@@ -6604,3 +6719,46 @@ parsers sit on the existing CSV, JSON and bounded ZIP readers of `crates/import`
 ### Consequences
 THREAT_MODEL §4.1 (import rows) and R194 to R196. The launch-gate checklist in `docs/PROGRESS.md` ("Onboarding
 import: launch gate") must be done before the guides and presets are described as supported without reservation.
+
+## ADR-0166: Provider stores keep to the folder; test hooks are test-only
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: Android folder sync (ADR-0162), Dropbox and OneDrive stores
+
+### Context
+The Dropbox and Graph stores run on full-access scopes (ADR-0162, R166). Our code is the only thing that keeps
+them inside the chosen folder, and the provider client has a loopback `http` switch for the tests.
+
+### Decision
+- **Confinement.** A store builds every request path from the chosen folder and a validated `RelPath`. A listed
+  entry is used only if it is strictly below the folder, component by component (Dropbox: the lower-case path
+  starts with the folder's components, the display path equals the lower-case path, the name is the last
+  component; Graph: a valid single component that is a plain file or folder, never a shortcut, package or deleted
+  item). A Graph `nextLink` is followed only inside `drives/<drive>/`; an upload URL must be https and gets no
+  `Authorization`; a download link is fetched once without it.
+- **Deletes.** A delete carries the listed `rev` (Dropbox `parent_rev`) or `eTag` (`If-Match`) and never removes a
+  folder on the name of a file. `remove_squatter` removes whatever sits on one of the writer's own segment names
+  and `remove_empty_dir` an empty folder; both are recursive on the provider (R198; this includes WebDAV, whose
+  `DELETE` of a collection removes it with everything in it). The chosen folder itself is
+  never deleted.
+- **Tokens.** Refresh tokens and access tokens are zeroizing and never in an error or a log. The access token is
+  fetched when missing and once after a 401; a refused grant ends the run as signed out. A rotated Graph refresh
+  token is stored before the new access token is used (R199). Dropbox uploads are single requests (at most
+  150 MiB); Graph uses an upload session above 4 MiB with 3 276 800-byte chunks.
+- **Test hooks.** `RemoteHttp::new()` is the only production constructor (https only). `new_loopback()` exists
+  only in test builds or in debug builds with the `test-util` feature, so no release build has it, with or without
+  `test-util` (CI release test runs enable `test-util` through dev-dependencies) (R200).
+- **Store schema v14** adds the device-local `folder_remote` table (CRYPTO_SPEC section 11).
+- **Open items resolved after the red team.** Graph write-once now goes through `createUploadSession` with
+  `conflictBehavior: fail` (documented) for every size; a simple `PUT` is used only for replacing. A WebDAV 401 is
+  confirmed by a second `PROPFIND` before the credential is deleted, and the app password is revoked first (R201).
+  A forged sign-in callback no longer destroys the pending link (five failures, then it expires; R202). A join
+  records the account file's version (R203). Phones register as `android` and `ios` in `info.mdev` (R204). A
+  reset reports a revocation that did not happen (R205). A read error of the own segment fails the run, with no
+  24 h timer (CRYPTO_SPEC section 10.1).
+
+### Alternatives considered
+- **A flag on the production constructor.** Rejected: a caller could enable it.
+- **Metadata call before every Graph download.** Rejected: the download response carries its length, which is
+  checked against the cap before the body is read.

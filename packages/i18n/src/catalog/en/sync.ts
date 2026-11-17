@@ -113,8 +113,8 @@ export const sync = {
   "settings.sync.phone.hidden.time": "The 60 seconds are over, so the code is hidden.",
   "settings.sync.phone.hidden.away": "You left this window, so the code is hidden.",
   "settings.sync.phone.again": "Show again",
-  "settings.sync.phone.folder":
-    "This account syncs through a folder. The phone apps support Mosaic sync for now.",
+  "settings.sync.phone.folderHint":
+    "Your phone signs in to your cloud storage and opens this same folder.",
 
   "settings.sync.totp.title": "Authenticator app",
   "settings.sync.totp.body":

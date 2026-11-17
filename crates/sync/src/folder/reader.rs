@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use mosaic_core::{InstallId, KeyGeneration, VaultId};
 use mosaic_vault::storage::RecordBody;
 
-use super::fsutil::{self, Entry};
+use super::store::Entry;
 use super::{FolderCrypto, FolderTransport, Outcome, ScanEntry};
 use crate::transport::{
     Cursor, PullPage, PullUnit, PulledKey, PulledMeta, PulledRecord, RemoteVault, TransportError,
@@ -22,11 +22,13 @@ use crate::wire::folder_names::{self, FolderName};
 use crate::wire::segment::{MAX_SEGMENT_LEN, Segment, SegmentObject, SegmentPath, SnapshotInfo};
 
 /// A segment file as a directory listing shows it.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct SegmentFile {
     pub(crate) seq: u64,
     pub(crate) len: u64,
     pub(crate) modified: Option<std::time::SystemTime>,
+    /// The store's version token (a provider's `rev` or `ETag`), if it has one.
+    pub(crate) version: Option<Box<[u8]>>,
 }
 
 /// Marks every sequence number up to `last` read.
@@ -70,7 +72,7 @@ pub(crate) fn encode_cursor(cursor: &FolderCursor) -> Result<Cursor, TransportEr
 fn dir_ids(entries: &[Entry]) -> Vec<[u8; 16]> {
     entries
         .iter()
-        .filter(|e| e.is_dir)
+        .filter(|e| e.is_dir())
         .filter_map(|e| match folder_names::parse(&e.name) {
             Some(FolderName::Dir(id)) => Some(id),
             _ => None,
@@ -81,7 +83,7 @@ fn dir_ids(entries: &[Entry]) -> Vec<[u8; 16]> {
 impl<C: FolderCrypto> FolderTransport<C> {
     /// The vault directories.
     pub(crate) fn vault_ids(&self) -> Result<Vec<VaultId>, TransportError> {
-        let entries = fsutil::list(&self.layout.vaults_dir())?;
+        let entries = self.store.list(&self.layout.vaults_dir())?;
         Ok(dir_ids(&entries)
             .into_iter()
             .filter_map(|id| VaultId::from_bytes(id).ok())
@@ -90,7 +92,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
 
     /// The devices with a log directory in `vault`, ascending.
     pub(crate) fn log_devices(&self, vault: &VaultId) -> Result<Vec<InstallId>, TransportError> {
-        let entries = fsutil::list(&self.layout.logs_dir(vault))?;
+        let entries = self.store.list(&self.layout.logs_dir(vault))?;
         Ok(dir_ids(&entries)
             .into_iter()
             .filter_map(|id| InstallId::from_bytes(id).ok())
@@ -103,15 +105,16 @@ impl<C: FolderCrypto> FolderTransport<C> {
         vault: &VaultId,
         device: &InstallId,
     ) -> Result<Vec<SegmentFile>, TransportError> {
-        let entries = fsutil::list(&self.layout.log_dir(vault, device))?;
+        let entries = self.store.list(&self.layout.log_dir(vault, device))?;
         let mut out: Vec<SegmentFile> = entries
             .iter()
-            .filter(|e| !e.is_dir)
+            .filter(|e| !e.is_dir())
             .filter_map(|e| match folder_names::parse(&e.name) {
                 Some(FolderName::Segment { seq }) => Some(SegmentFile {
                     seq,
                     len: e.len,
                     modified: e.modified,
+                    version: e.version.clone(),
                 }),
                 _ => None,
             })
@@ -126,6 +129,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
             ScanEntry {
                 len: file.len,
                 modified: file.modified,
+                version: file.version.clone(),
                 outcome,
             },
         );
@@ -145,8 +149,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
     ) -> Result<Option<Segment>, TransportError> {
         let key = (vault, device, file.seq);
         if let Some(entry) = self.scan.get(&key)
-            && entry.len == file.len
-            && entry.modified == file.modified
+            && entry.current_for(file)
             && matches!(entry.outcome, Outcome::Bad)
         {
             return Ok(None);
@@ -154,8 +157,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
         let path = self
             .layout
             .log_dir(&vault, &device)
-            .join(folder_names::segment_name(file.seq));
-        let segment = match fsutil::read_capped(&path, MAX_SEGMENT_LEN as u64) {
+            .known(&folder_names::segment_name(file.seq));
+        let segment = match self.store.read_capped(&path, MAX_SEGMENT_LEN as u64) {
             Ok(Some(bytes)) => {
                 let decoded = Segment::decode(
                     &bytes,
@@ -208,8 +211,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
         file: &SegmentFile,
     ) -> Result<Outcome, TransportError> {
         if let Some(entry) = self.scan.get(&(vault, device, file.seq))
-            && entry.len == file.len
-            && entry.modified == file.modified
+            && entry.current_for(file)
         {
             return Ok(entry.outcome);
         }

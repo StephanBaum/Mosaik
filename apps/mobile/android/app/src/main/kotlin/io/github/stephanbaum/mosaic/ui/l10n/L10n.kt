@@ -7,7 +7,7 @@ import io.github.stephanbaum.mosaic.R
 object L10n {
     /** Every `MobileError::code()` that has a string. */
     val errorCodes: List<String> =
-        listOf("accountExists", "appNotLinked", "appNotVerified", "assetLinksUnavailable", "busy", "emptyPassword", "folderAccountUnsupported", "foreignFrame", "insecureOrigin", "internal", "invalidInput", "itemTypeNotAllowed", "locked", "noAccount", "noMatch", "notEnoughMemory", "notFound", "otpKeyInvalid", "otpQrInvalid", "otpQrMigration", "otpQrMultiple", "otpQrNotOtp", "otpUriInvalid", "passkeyExcluded", "passkeyNotFound", "passkeySessionExpired", "passkeyUnsupportedAlgorithm", "passwordInApp", "passwordRequired", "qrNotFound", "quickUnlockExpired", "quickUnlockInvalidated", "reauthRequired", "rpIdInvalid", "secretKeyMalformed", "secretKeyMistyped", "secretKeyRequired", "setupCodeInvalid", "storageUnavailable", "storeInUse", "storeUnavailable", "syncAccountRekeyed", "syncFailed", "syncHandoffExpired", "syncNotConfigured", "syncPasswordChanged", "syncRateLimited", "syncServerIncompatible", "syncServerInsecure", "syncServerInvalid", "syncServerMismatch", "syncServerUnreachable", "syncSignedOut", "syncTwoFactorInvalid", "syncTwoFactorRequired", "vaultUnavailable", "wrongCredentials")
+        listOf("accountExists", "appNotLinked", "appNotVerified", "assetLinksUnavailable", "busy", "emptyPassword", "folderLinkExpired", "folderLinkInvalid", "folderNotFound", "folderProviderSignedOut", "folderProviderUnsupported", "folderServerTlsTooOld", "folderStorageFull", "foreignFrame", "insecureOrigin", "internal", "invalidInput", "itemTypeNotAllowed", "locked", "noAccount", "noMatch", "notEnoughMemory", "notFound", "otpKeyInvalid", "otpQrInvalid", "otpQrMigration", "otpQrMultiple", "otpQrNotOtp", "otpUriInvalid", "passkeyExcluded", "passkeyNotFound", "passkeySessionExpired", "passkeyUnsupportedAlgorithm", "passwordInApp", "passwordRequired", "qrNotFound", "quickUnlockExpired", "quickUnlockInvalidated", "reauthRequired", "rpIdInvalid", "secretKeyMalformed", "secretKeyMistyped", "secretKeyRequired", "setupCodeInvalid", "storageUnavailable", "storeInUse", "storeUnavailable", "syncAccountRekeyed", "syncFailed", "syncFolderDamaged", "syncFolderNoAccount", "syncHandoffExpired", "syncNotConfigured", "syncPasswordChanged", "syncPasswordRollback", "syncRateLimited", "syncServerIncompatible", "syncServerInsecure", "syncServerInvalid", "syncServerMismatch", "syncServerUnreachable", "syncSignedOut", "syncTwoFactorInvalid", "syncTwoFactorRequired", "vaultUnavailable", "wrongCredentials")
 
     /** The text of `code` (`error.<code>`), or null for a code this build does not know. */
     fun errorMessage(r: Resources, code: String): String? =
@@ -18,7 +18,13 @@ object L10n {
         "assetLinksUnavailable" -> errorAssetLinksUnavailable(r)
         "busy" -> errorBusy(r)
         "emptyPassword" -> errorEmptyPassword(r)
-        "folderAccountUnsupported" -> errorFolderAccountUnsupported(r)
+        "folderLinkExpired" -> errorFolderLinkExpired(r)
+        "folderLinkInvalid" -> errorFolderLinkInvalid(r)
+        "folderNotFound" -> errorFolderNotFound(r)
+        "folderProviderSignedOut" -> errorFolderProviderSignedOut(r)
+        "folderProviderUnsupported" -> errorFolderProviderUnsupported(r)
+        "folderServerTlsTooOld" -> errorFolderServerTlsTooOld(r)
+        "folderStorageFull" -> errorFolderStorageFull(r)
         "foreignFrame" -> errorForeignFrame(r)
         "insecureOrigin" -> errorInsecureOrigin(r)
         "internal" -> errorInternal(r)
@@ -55,9 +61,12 @@ object L10n {
         "storeUnavailable" -> errorStoreUnavailable(r)
         "syncAccountRekeyed" -> errorSyncAccountRekeyed(r)
         "syncFailed" -> errorSyncFailed(r)
+        "syncFolderDamaged" -> errorSyncFolderDamaged(r)
+        "syncFolderNoAccount" -> errorSyncFolderNoAccount(r)
         "syncHandoffExpired" -> errorSyncHandoffExpired(r)
         "syncNotConfigured" -> errorSyncNotConfigured(r)
         "syncPasswordChanged" -> errorSyncPasswordChanged(r)
+        "syncPasswordRollback" -> errorSyncPasswordRollback(r)
         "syncRateLimited" -> errorSyncRateLimited(r)
         "syncServerIncompatible" -> errorSyncServerIncompatible(r)
         "syncServerInsecure" -> errorSyncServerInsecure(r)
@@ -90,8 +99,26 @@ object L10n {
     fun errorEmptyPassword(r: Resources): String =
         r.getString(R.string.error_emptyPassword)
 
-    fun errorFolderAccountUnsupported(r: Resources): String =
-        r.getString(R.string.error_folderAccountUnsupported)
+    fun errorFolderLinkExpired(r: Resources): String =
+        r.getString(R.string.error_folderLinkExpired)
+
+    fun errorFolderLinkInvalid(r: Resources): String =
+        r.getString(R.string.error_folderLinkInvalid)
+
+    fun errorFolderNotFound(r: Resources): String =
+        r.getString(R.string.error_folderNotFound)
+
+    fun errorFolderProviderSignedOut(r: Resources): String =
+        r.getString(R.string.error_folderProviderSignedOut)
+
+    fun errorFolderProviderUnsupported(r: Resources): String =
+        r.getString(R.string.error_folderProviderUnsupported)
+
+    fun errorFolderServerTlsTooOld(r: Resources): String =
+        r.getString(R.string.error_folderServerTlsTooOld)
+
+    fun errorFolderStorageFull(r: Resources): String =
+        r.getString(R.string.error_folderStorageFull)
 
     fun errorForeignFrame(r: Resources): String =
         r.getString(R.string.error_foreignFrame)
@@ -201,6 +228,12 @@ object L10n {
     fun errorSyncFailed(r: Resources): String =
         r.getString(R.string.error_syncFailed)
 
+    fun errorSyncFolderDamaged(r: Resources): String =
+        r.getString(R.string.error_syncFolderDamaged)
+
+    fun errorSyncFolderNoAccount(r: Resources): String =
+        r.getString(R.string.error_syncFolderNoAccount)
+
     fun errorSyncHandoffExpired(r: Resources): String =
         r.getString(R.string.error_syncHandoffExpired)
 
@@ -209,6 +242,9 @@ object L10n {
 
     fun errorSyncPasswordChanged(r: Resources): String =
         r.getString(R.string.error_syncPasswordChanged)
+
+    fun errorSyncPasswordRollback(r: Resources): String =
+        r.getString(R.string.error_syncPasswordRollback)
 
     fun errorSyncRateLimited(r: Resources): String =
         r.getString(R.string.error_syncRateLimited)
@@ -732,6 +768,102 @@ object L10n {
     fun extWarnPunycode(r: Resources, unicode: String): String =
         r.getString(R.string.mobile_ext_warnPunycode, unicode)
 
+    fun folderAccountOption(r: Resources, id: String): String =
+        r.getString(R.string.mobile_folder_accountOption, id)
+
+    fun folderAppPasswordAction(r: Resources): String =
+        r.getString(R.string.mobile_folder_appPasswordAction)
+
+    fun folderAppPasswordHint(r: Resources): String =
+        r.getString(R.string.mobile_folder_appPasswordHint)
+
+    fun folderAppPasswordLabel(r: Resources): String =
+        r.getString(R.string.mobile_folder_appPasswordLabel)
+
+    fun folderAppPasswordToggle(r: Resources): String =
+        r.getString(R.string.mobile_folder_appPasswordToggle)
+
+    fun folderBrowseHint(r: Resources): String =
+        r.getString(R.string.mobile_folder_browseHint)
+
+    fun folderBrowseTitle(r: Resources): String =
+        r.getString(R.string.mobile_folder_browseTitle)
+
+    fun folderChooseProvider(r: Resources): String =
+        r.getString(R.string.mobile_folder_chooseProvider)
+
+    fun folderCurrentFolder(r: Resources, path: String): String =
+        r.getString(R.string.mobile_folder_currentFolder, path)
+
+    fun folderDavLabel(r: Resources): String =
+        r.getString(R.string.mobile_folder_davLabel)
+
+    fun folderIntro(r: Resources, provider: String): String =
+        r.getString(R.string.mobile_folder_intro, provider)
+
+    fun folderLinked(r: Resources): String =
+        r.getString(R.string.mobile_folder_linked)
+
+    fun folderLocating(r: Resources): String =
+        r.getString(R.string.mobile_folder_locating)
+
+    fun folderLoginLabel(r: Resources): String =
+        r.getString(R.string.mobile_folder_loginLabel)
+
+    fun folderMsRevokeHint(r: Resources): String =
+        r.getString(R.string.mobile_folder_msRevokeHint)
+
+    fun folderNoDrive(r: Resources): String =
+        r.getString(R.string.mobile_folder_noDrive)
+
+    fun folderNoSubfolders(r: Resources): String =
+        r.getString(R.string.mobile_folder_noSubfolders)
+
+    fun folderPickAccount(r: Resources): String =
+        r.getString(R.string.mobile_folder_pickAccount)
+
+    fun folderProviderDropbox(r: Resources): String =
+        r.getString(R.string.mobile_folder_providerDropbox)
+
+    fun folderProviderOneDrive(r: Resources): String =
+        r.getString(R.string.mobile_folder_providerOneDrive)
+
+    fun folderProviderWebDav(r: Resources): String =
+        r.getString(R.string.mobile_folder_providerWebDav)
+
+    fun folderRelink(r: Resources): String =
+        r.getString(R.string.mobile_folder_relink)
+
+    fun folderScope(r: Resources, provider: String): String =
+        r.getString(R.string.mobile_folder_scope, provider)
+
+    fun folderServerConfirm(r: Resources, server: String): String =
+        r.getString(R.string.mobile_folder_serverConfirm, server)
+
+    fun folderServerHint(r: Resources): String =
+        r.getString(R.string.mobile_folder_serverHint)
+
+    fun folderServerLabel(r: Resources): String =
+        r.getString(R.string.mobile_folder_serverLabel)
+
+    fun folderSettingsLine(r: Resources, provider: String, path: String): String =
+        r.getString(R.string.mobile_folder_settingsLine, provider, path)
+
+    fun folderSignIn(r: Resources, provider: String): String =
+        r.getString(R.string.mobile_folder_signIn, provider)
+
+    fun folderUp(r: Resources): String =
+        r.getString(R.string.mobile_folder_up)
+
+    fun folderUseFolder(r: Resources): String =
+        r.getString(R.string.mobile_folder_useFolder)
+
+    fun folderUseThis(r: Resources): String =
+        r.getString(R.string.mobile_folder_useThis)
+
+    fun folderWaiting(r: Resources): String =
+        r.getString(R.string.mobile_folder_waiting)
+
     fun generatorAmbiguous(r: Resources): String =
         r.getString(R.string.mobile_generator_ambiguous)
 
@@ -1043,6 +1175,30 @@ object L10n {
 
     fun providerErrorTitle(r: Resources): String =
         r.getString(R.string.mobile_provider_errorTitle)
+
+    fun resetAction(r: Resources): String =
+        r.getString(R.string.mobile_reset_action)
+
+    fun resetBody(r: Resources): String =
+        r.getString(R.string.mobile_reset_body)
+
+    fun resetConfirm(r: Resources): String =
+        r.getString(R.string.mobile_reset_confirm)
+
+    fun resetPhraseLabel(r: Resources): String =
+        r.getString(R.string.mobile_reset_phraseLabel)
+
+    fun resetRevokeDropbox(r: Resources): String =
+        r.getString(R.string.mobile_reset_revokeDropbox)
+
+    fun resetRevokeWebdav(r: Resources): String =
+        r.getString(R.string.mobile_reset_revokeWebdav)
+
+    fun resetTitle(r: Resources): String =
+        r.getString(R.string.mobile_reset_title)
+
+    fun resetTypePhrase(r: Resources, phrase: String): String =
+        r.getString(R.string.mobile_reset_typePhrase, phrase)
 
     fun scanAllow(r: Resources): String =
         r.getString(R.string.mobile_scan_allow)

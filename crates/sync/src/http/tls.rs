@@ -96,7 +96,7 @@ fn current() -> Option<TlsTrust> {
 }
 
 /// The client configuration for the trust in force.
-pub(super) fn config() -> Result<ClientConfig, TransportError> {
+pub(crate) fn config() -> Result<ClientConfig, TransportError> {
     config_for(&current().ok_or(TransportError::Io)?)
 }
 

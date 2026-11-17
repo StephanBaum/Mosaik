@@ -107,14 +107,15 @@ describe("set up a phone", () => {
     expect(screen.queryByRole("img", { name: "Setup code for your phone" })).toBeNull();
   });
 
-  it("says what is supported when the account syncs through a folder", async () => {
+  it("shows the code button for a folder account", async () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc({ start: "unlocked", sync: { variant: "folder" } })} languages={["en"]} />);
     await screen.findByText("GitHub");
     await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(
-      await screen.findByText("This account syncs through a folder. The phone apps support Mosaic sync for now."),
+      await screen.findByText("Your phone signs in to your cloud storage and opens this same folder."),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Set up a phone" })).toBeNull();
+    expect(screen.queryByText(/The phone apps support Mosaic sync for now/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Set up a phone" })).toBeTruthy();
   });
 });

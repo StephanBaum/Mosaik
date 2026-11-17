@@ -277,9 +277,10 @@ fn fill_candidates_http_refused_without_allow_http() {
 
 #[test]
 fn fill_candidates_android_app_requires_cert_binding() {
-    let (phone, _) = Phone::with_account();
+    let (phone, sk) = Phone::with_account();
     let bound = format!("androidapp://com.example.app?cert={}", b64url(&CERT));
-    login(&phone, "Bound", vec![url(&bound, false, false)]);
+    // As a link made on another device of the account arrives (the editor refuses it).
+    phone.plant_login(&sk, "Bound", &[&bound], false);
     // An imported URL without a certificate never matches.
     login(
         &phone,
@@ -1053,5 +1054,171 @@ fn fill_warning_names_the_lookalike() {
             .fill_warning(web("https://unrelated.test"))
             .unwrap(),
         None
+    );
+}
+
+fn draft(phone: &Phone, item_id: Option<String>, title: &str, urls: Vec<UrlDraft>) -> LoginDraft {
+    LoginDraft {
+        vault_id: phone.vault_id(),
+        item_id,
+        title: title.to_owned(),
+        username: "alice".to_owned(),
+        password: None,
+        urls,
+        notes: None,
+        otp: OtpEdit::Keep,
+        favorite: false,
+    }
+}
+
+/// Cross-feature red team F1: a cert-bound app URL comes only from the link step (ADR-0092) and a
+/// program binding only from the desktop's (ADR-0164); the phone's editor adds neither. A binding
+/// the link step wrote stays when the rest of the login changes.
+#[test]
+fn the_editor_never_adds_a_device_binding() {
+    let (phone, _) = Phone::android_with_account();
+    let bound = format!("androidapp://com.example.app?cert={}", b64url(&CERT));
+    for refused in [
+        bound.clone(),
+        format!(" {}", bound.replace("androidapp", "AndroidApp")),
+        "winapp://signed/slack.exe?signer=ERERERERERERERERERERERERERERERERERERERERERE".to_owned(),
+        "WinApp:path/C:/x.exe?hash=00".to_owned(),
+    ] {
+        assert_eq!(
+            phone
+                .core
+                .save_login(draft(
+                    &phone,
+                    None,
+                    "Evil",
+                    vec![url(&refused, false, false)]
+                ))
+                .err(),
+            Some(MobileError::InvalidInput),
+            "{refused:?}"
+        );
+    }
+    assert!(phone.core.items(ItemFilter::default()).unwrap().is_empty());
+
+    let key = login(
+        &phone,
+        "Example",
+        vec![url("androidapp://com.example.app", false, false)],
+    );
+    phone
+        .core
+        .link_android_app(&key.vault_id, &key.item_id, caller("com.example.app", CERT))
+        .unwrap();
+    let saved: Vec<UrlDraft> = phone
+        .core
+        .item(&key.vault_id, &key.item_id)
+        .unwrap()
+        .urls
+        .iter()
+        .map(|u| url(&u.url, u.match_etld1, u.allow_http))
+        .collect();
+    assert_eq!(saved[0].url, bound);
+    phone
+        .core
+        .save_login(draft(
+            &phone,
+            Some(key.item_id.clone()),
+            "Renamed",
+            saved.clone(),
+        ))
+        .unwrap();
+    assert_eq!(
+        titles(
+            &phone
+                .core
+                .fill_candidates(app_target("com.example.app", CERT))
+                .unwrap()
+                .candidates
+        ),
+        vec!["Renamed"]
+    );
+    // A second binding typed next to it is refused, and nothing changes.
+    let mut more = saved;
+    more.push(url(
+        &format!("androidapp://com.example.other?cert={}", b64url(&CERT)),
+        false,
+        false,
+    ));
+    assert_eq!(
+        phone
+            .core
+            .save_login(draft(&phone, Some(key.item_id.clone()), "Changed", more))
+            .err(),
+        Some(MobileError::InvalidInput)
+    );
+    let detail = phone.core.item(&key.vault_id, &key.item_id).unwrap();
+    assert_eq!(detail.urls.len(), 1);
+}
+
+/// Cross-feature red team F2: in a shared vault any member with write access chose the login's
+/// URLs, so an app binding there was never proven on this phone. It never fills an app, never
+/// shows as linked, is no link candidate, and the phone writes none there (ADR-0092 amendment).
+/// The login's web URL still fills its page.
+#[test]
+fn a_shared_vault_app_binding_never_fills_an_app() {
+    let (phone, sk) = Phone::android_with_account();
+    let imported = phone.plant_login(&sk, "Imported", &["androidapp://com.example.app"], false);
+    let bound = format!("androidapp://com.example.app?cert={}", b64url(&CERT));
+    let key = phone.plant_login(&sk, "Bank", &[&bound, "https://bank.example"], true);
+    let target = app_target("com.example.app", CERT);
+    let found = phone.core.fill_candidates(target.clone()).unwrap();
+    assert!(found.candidates.is_empty());
+    assert_eq!(
+        phone
+            .core
+            .fill_values(found.session_id.clone(), key.clone())
+            .err(),
+        Some(MobileError::AppNotLinked)
+    );
+    assert!(
+        phone
+            .core
+            .fill_link_offer(found.session_id.clone())
+            .unwrap()
+            .candidates
+            .is_empty()
+    );
+    assert_eq!(
+        phone
+            .core
+            .link_app_in_fill_session(found.session_id, imported.clone())
+            .err(),
+        Some(MobileError::NoMatch)
+    );
+    for login in [&key, &imported] {
+        assert_eq!(
+            phone
+                .core
+                .link_android_app(
+                    &login.vault_id,
+                    &login.item_id,
+                    caller("com.example.app", CERT)
+                )
+                .err(),
+            Some(MobileError::InvalidInput)
+        );
+    }
+    let detail = phone.core.item(&key.vault_id, &key.item_id).unwrap();
+    assert!(
+        detail
+            .urls
+            .iter()
+            .filter(|u| u.is_app)
+            .all(|u| u.needs_linking)
+    );
+    assert_eq!(
+        titles(
+            &phone
+                .core
+                .fill_candidates(web("https://bank.example"))
+                .unwrap()
+                .candidates
+        ),
+        vec!["Bank"]
     );
 }

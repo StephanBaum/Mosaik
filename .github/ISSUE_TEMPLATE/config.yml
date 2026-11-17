@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem (private)
+    url: https://github.com/StephanBaum/Mosaik/security/advisories/new
+    about: Vulnerabilities go here, never into a public issue. Only you and the maintainers see the report (SECURITY.md).
+  - name: Security challenge rules and targets
+    url: https://github.com/StephanBaum/Mosaik/blob/main/docs/CHALLENGE.md
+    about: What is in scope, what we reward, and how to take part.

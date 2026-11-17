@@ -16,13 +16,15 @@ default = []
 # offset). Built only for the host tests, the JVM unit tests, the instrumented
 # tests and the XCTest builds; `scripts/mobile/check-no-test-hooks.sh` keeps it out
 # of release libraries.
-test-hooks = []
+# The loopback `http` client and the fake provider servers of `mosaic-sync` come with it (debug only).
+test-hooks = ["mosaic-sync/test-util"]
 
 [dependencies]
 mosaic-core = { path = "../core" }
 mosaic-vault = { path = "../vault" }
-# Hosted join, login, sync engine and transport (feature `http`).
-mosaic-sync = { path = "../sync", features = ["http"] }
+# Hosted join, login, sync engine and transport (feature `http`); the provider stores, OAuth and
+# Login Flow v2 of folder accounts (feature `folder-remote`, ADR-0162).
+mosaic-sync = { path = "../sync", features = ["http", "folder-remote"] }
 # OTP configurations, `otpauth://` parsing and codes.
 mosaic-totp = { path = "../totp" }
 # Password and passphrase generation.
@@ -53,6 +55,8 @@ rusqlite.workspace = true
 mosaic-qr = { path = "../qr", features = ["testing"] }
 # Independent P-256 verification of passkey signatures.
 p256.workspace = true
+# The fake WebDAV, Dropbox and Graph servers and the session holder for the folder tests.
+mosaic-sync = { path = "../sync", features = ["http", "folder-remote", "test-util"] }
 # The loopback server harness hashes invite codes (`#[path]`-included).
 sha2.workspace = true
 

@@ -353,6 +353,14 @@ impl LockedSession {
     pub fn sync_config(&self) -> Result<Option<SyncConfig>> {
         Ok(self.store.sync_config()?)
     }
+
+    /// Where the folder of a provider-backed folder account is (device-local, never synced).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn folder_remote(&self) -> Result<Option<String>> {
+        Ok(self.store.folder_remote()?)
+    }
 }
 
 impl UnlockedSession {
@@ -378,6 +386,23 @@ impl UnlockedSession {
     /// [`Error::Store`] with `SyncDataInvalid` for an out-of-range value.
     pub fn set_sync_config(&mut self, config: Option<&SyncConfig>) -> Result<()> {
         Ok(self.store.set_sync_config(config)?)
+    }
+
+    /// Where the folder of a provider-backed folder account is (device-local, never synced).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn folder_remote(&self) -> Result<Option<String>> {
+        Ok(self.store.folder_remote()?)
+    }
+
+    /// Stores where the folder is, or forgets it with `None` (needs a folder backend).
+    ///
+    /// # Errors
+    /// [`Error::Store`] with `SyncDataInvalid` for text of the wrong length or without a folder
+    /// backend.
+    pub fn set_folder_remote(&mut self, location: Option<&str>) -> Result<()> {
+        Ok(self.store.set_folder_remote(location)?)
     }
 
     /// Prepares the store for a (new) backend in one transaction: every

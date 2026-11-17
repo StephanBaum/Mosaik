@@ -35,17 +35,17 @@ use crate::wire::json::{
 use crate::wire::origin;
 
 /// Connecting to the server.
-pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// An ordinary request.
-pub(super) const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// The longest long poll.
 pub(super) const POLL_TIMEOUT: Duration = Duration::from_secs(40);
 /// An attachment transfer.
-pub(super) const ATTACHMENT_TIMEOUT: Duration = Duration::from_secs(600);
+pub(crate) const ATTACHMENT_TIMEOUT: Duration = Duration::from_secs(600);
 /// The most of an error body that is read.
 const MAX_ERROR_LEN: usize = 64 * 1024;
 /// `Retry-After` when the server sends none (or something unreadable).
-const DEFAULT_RETRY_AFTER_S: u32 = 60;
+pub(crate) const DEFAULT_RETRY_AFTER_S: u32 = 60;
 /// The most a `Retry-After` can ask for (one day).
 const MAX_RETRY_AFTER_S: u32 = 86_400;
 
@@ -145,7 +145,7 @@ pub(super) fn tls_versions() -> &'static [&'static rustls::SupportedProtocolVers
 /// trust of [`super::TlsTrust`] (the operating system's by default) and no client certificate. (`rustls` is
 /// built with its `tls12` feature, which hyper-rustls switches on; this
 /// configuration offers TLS 1.3 only whatever the features say.)
-pub(super) fn tls_config() -> Result<ClientConfig, TransportError> {
+pub(crate) fn tls_config() -> Result<ClientConfig, TransportError> {
     super::tls::config()
 }
 
@@ -201,7 +201,7 @@ impl Reply {
 }
 
 /// `Retry-After` in whole seconds; the HTTP-date form is not honoured.
-fn parse_retry_after(value: &HeaderValue) -> Option<u32> {
+pub(crate) fn parse_retry_after(value: &HeaderValue) -> Option<u32> {
     let s = value.to_str().ok()?;
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -334,7 +334,7 @@ fn rekey_failure(body: &ErrorBody) -> Option<TransportError> {
     })
 }
 
-fn map_reqwest(e: &reqwest::Error) -> TransportError {
+pub(crate) fn map_reqwest(e: &reqwest::Error) -> TransportError {
     if e.is_timeout() {
         TransportError::Timeout
     } else if e.is_connect() {
@@ -476,7 +476,7 @@ pub(super) fn json_body<Req: Serialize>(
 /// Reads a response body of at most `cap` bytes. A success that is longer
 /// is a protocol error; a failure that is longer is cut (its body is not
 /// needed to map it).
-fn read_capped(
+pub(crate) fn read_capped(
     response: reqwest::blocking::Response,
     cap: usize,
     strict: bool,
