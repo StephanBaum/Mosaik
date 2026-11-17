@@ -166,3 +166,71 @@ proptest! {
         }
     }
 }
+
+/// The fuzz smoke's crash of 2026-11-15 (`scan_luma`): capstone corners that
+/// give no perspective made rqrr panic (`rotated perspective can't fail`), and a
+/// release build aborts on a panic. The input is replayed through the fuzz
+/// target's decoding of its bytes; the scan must return, not panic.
+#[test]
+fn a_degenerate_capstone_does_not_panic() {
+    let data: &[u8] = include_bytes!("../fuzz/seeds/scan_luma/degenerate-capstone.bin");
+    let (head, pixels) = data.split_at(3);
+    let layout = LAYOUTS[usize::from(head[0]) % LAYOUTS.len()];
+    let bpp = layout.bytes_per_pixel();
+    let width = usize::from(u16::from_le_bytes([head[1], head[2]])).clamp(21, 1024);
+    let stride = width * bpp;
+    let height = pixels.len() / stride;
+    assert!(height >= 21, "the seed is a real frame");
+    let frame = Frame::new(
+        u32::try_from(width).unwrap(),
+        u32::try_from(height).unwrap(),
+        stride,
+        layout,
+        pixels,
+    )
+    .unwrap();
+    let _ = scan_frames(&[frame]);
+}
+
+/// Draws a QR finder pattern (7 by 7 modules of `module` pixels, top-left at
+/// `x0, y0`) into a white grey-level frame `side` pixels wide.
+fn draw_finder(pixels: &mut [u8], side: usize, x0: usize, y0: usize, module: usize) {
+    for v in 0..7 {
+        for u in 0..7 {
+            let ring = u == 0 || u == 6 || v == 0 || v == 6;
+            let stone = (2..=4).contains(&u) && (2..=4).contains(&v);
+            if !(ring || stone) {
+                continue;
+            }
+            for y in y0 + v * module..y0 + (v + 1) * module {
+                let row = y * side;
+                pixels
+                    .get_mut(row + x0 + u * module..row + x0 + (u + 1) * module)
+                    .unwrap()
+                    .fill(0);
+            }
+        }
+    }
+}
+
+/// Audit of 2026-11-16 (vendored rqrr, fourth patch): three oversized finder
+/// patterns (1316 px each) in a 2896 by 2896 frame (just under the 8 MP
+/// detection limit). Upstream intersects two capstone edges in `i32`; here the
+/// product of an edge length squared and a coordinate (1315^2 * 1540) exceeds
+/// 2^31: a debug build panics on the overflow, a release build wraps, and a
+/// wrapped numerator of `i32::MIN` over a determinant of -1 would panic there
+/// too (integer division overflow panics in release). The scan must return,
+/// not panic.
+#[test]
+fn oversized_finder_patterns_do_not_overflow() {
+    let side = 2896usize;
+    let module = 188usize;
+    let far = side - 40 - 7 * module;
+    let mut pixels = vec![255u8; side * side];
+    draw_finder(&mut pixels, side, 40, 40, module);
+    draw_finder(&mut pixels, side, far, 40, module);
+    draw_finder(&mut pixels, side, 40, far, module);
+    let side_px = u32::try_from(side).unwrap();
+    let frame = Frame::new(side_px, side_px, side, PixelLayout::Luma8, &pixels).unwrap();
+    assert_eq!(scan_frames(&[frame]).unwrap_err(), ScanError::NotFound);
+}

@@ -107,3 +107,29 @@ fn rt_android_held_a_foreign_signer_gets_no_target_for_any_scheme() {
         );
     }
 }
+
+/// Cross-feature red team F1: only a device's link step writes a cert-bound app URL or a
+/// program binding, so imports and editors must recognise every spelling of one.
+#[test]
+fn device_link_urls_are_recognised_in_every_spelling() {
+    let cert = "ERERERERERERERERERERERERERERERERERERERERERE";
+    for bound in [
+        format!("androidapp://com.bank.app?cert={cert}"),
+        format!("  ANDROIDAPP://com.bank.app?cert={cert}"),
+        format!("\tAndroidApp:com.bank.app?cert={cert}"),
+        "androidapp://com.bank.app?".to_owned(),
+        "winapp://signed/slack.exe?signer=abc".to_owned(),
+        "WINAPP:path/C:/x.exe".to_owned(),
+    ] {
+        assert!(crate::is_device_link_url(&bound), "{bound:?}");
+    }
+    for plain in [
+        "androidapp://com.bank.app",
+        "https://bank.example/?cert=x",
+        "bank.example",
+        "my bank",
+        "",
+    ] {
+        assert!(!crate::is_device_link_url(plain), "{plain:?}");
+    }
+}

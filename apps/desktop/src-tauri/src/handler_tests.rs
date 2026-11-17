@@ -3118,6 +3118,39 @@ fn the_item_editor_cannot_add_or_edit_a_program_binding() {
     assert_eq!(after.urls, detail.urls);
 }
 
+/// Cross-feature red team F1: a cert-bound `androidapp://` URL comes only from the phone's link
+/// step (ADR-0092); the editor can still save an app URL without a certificate.
+#[test]
+fn the_item_editor_cannot_add_a_cert_bound_app_url() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let vault = vault_id(&h.backend);
+    let bound = "androidapp://com.bank.app?cert=ERERERERERERERERERERERERERERERERERERERERERE";
+    let add = |url: &str| {
+        h.backend
+            .add_item(req(json!({ "vaultId": vault, "kind": "login", "draft": {
+                "text": [{ "field": "title", "value": "Bank" }],
+                "secrets": [],
+                "urls": [{ "op": "add", "url": url, "matchMode": "exactOrigin", "allowHttp": false }],
+                "customFields": []
+            }})))
+    };
+    for url in [
+        bound.to_owned(),
+        format!(" {bound}"),
+        bound.replace("androidapp", "AndroidApp"),
+    ] {
+        assert_eq!(
+            code(add(&url).unwrap_err()),
+            ErrorCode::InvalidInput,
+            "{url:?}"
+        );
+    }
+    let unbound = add("androidapp://com.bank.app").unwrap();
+    assert_eq!(unbound.urls.len(), 1);
+    assert_eq!(unbound.urls[0].url, "androidapp://com.bank.app");
+}
+
 #[test]
 fn a_program_binding_shows_its_program_and_submit_switch() {
     use crate::contract::items::ProgramBindingView;

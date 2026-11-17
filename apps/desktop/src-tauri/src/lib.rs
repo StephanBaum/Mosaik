@@ -325,8 +325,10 @@ pub fn run() -> tauri::Result<()> {
                 _ => {}
             }
             // The webview never listens to drops (paths): Rust takes the file
-            // and sends the webview a token (`importFileDropped`).
+            // and sends the webview a token (`importFileDropped`). Only the main
+            // window imports; a drop on the chip or the picker list is ignored.
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event
+                && accepts_file_drop(window.label())
                 && let Some(state) = window.app_handle().try_state::<AppState>()
             {
                 state.backend().import_file_dropped(paths);
@@ -354,6 +356,15 @@ pub fn run() -> tauri::Result<()> {
         }
     });
     Ok(())
+}
+
+/// The label of the main window (`tauri.conf.json`).
+const MAIN_WINDOW_LABEL: &str = "main";
+
+/// Whether a file dropped on the window labelled `label` starts an import: only on the main
+/// window, never on the program-fill chip or list (cross-feature red team F4).
+fn accepts_file_drop(label: &str) -> bool {
+    label == MAIN_WINDOW_LABEL
 }
 
 #[cfg(test)]

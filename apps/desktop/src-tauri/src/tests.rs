@@ -613,3 +613,20 @@ fn every_request_sample_reaches_its_command() {
     run_all("unlocked");
     run_all("locked");
 }
+
+/// Cross-feature red team F4: a file dropped on the program-fill chip or list starts no import;
+/// only the main window (the label of `tauri.conf.json`) takes drops.
+#[test]
+fn only_the_main_window_accepts_file_drops() {
+    let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let main = config["app"]["windows"][0]["label"].as_str().unwrap();
+    assert!(crate::accepts_file_drop(main));
+    for label in [
+        crate::commands::picker::CHIP_LABEL,
+        crate::commands::picker::LIST_LABEL,
+        "",
+        "Main",
+    ] {
+        assert!(!crate::accepts_file_drop(label), "{label:?}");
+    }
+}

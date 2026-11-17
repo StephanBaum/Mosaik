@@ -124,9 +124,13 @@ pub async fn move_item(
 }
 
 /// What the item view shows of a `winapp://` binding: `None` for any other URL (ADR-0164).
-fn program_binding(url: &LoginUrl) -> Option<ProgramBindingView> {
+///
+/// `shared`: the item is in a shared vault, where a member chose the binding's `extra` data. Then
+/// the name comes from the URL itself, no signer name is shown, and Enter after the fill shows as
+/// off, because it is never pressed there (ADR-0164 amendment, cross-feature red team F2).
+fn program_binding(url: &LoginUrl, shared: bool) -> Option<ProgramBindingView> {
     let parsed = ProgramUrl::parse(url.url.as_str()).ok()?;
-    let display = program_display(url);
+    let display = if shared { None } else { program_display(url) };
     let (kind, fallback, path) = match parsed {
         ProgramUrl::Package { family } => (
             ProgramKind::Package,
@@ -144,7 +148,7 @@ fn program_binding(url: &LoginUrl) -> Option<ProgramBindingView> {
         name: display.as_ref().map_or(fallback, |d| d.name.clone()),
         signer: display.and_then(|d| d.signer),
         path,
-        submit: submit_enabled(url),
+        submit: !shared && submit_enabled(url),
     })
 }
 
@@ -368,6 +372,7 @@ pub(super) fn detail(
             secrets.push(SecretFieldKey::from_model(field));
         }
     }
+    let shared = store.vault_sharing(&vault_id).map_or(true, |s| s.is_some());
     let otp = item.otp().map(|config| OtpSummary {
         scheme: match config.kind {
             OtpKind::Totp => OtpScheme::Totp,
@@ -388,7 +393,7 @@ pub(super) fn detail(
             .urls()
             .into_iter()
             .map(|(id, url)| UrlEntry {
-                program: program_binding(&url),
+                program: program_binding(&url, shared),
                 element_id: id.as_str().to_owned(),
                 url: url.url.as_str().to_owned(),
                 match_mode: match url.match_mode {

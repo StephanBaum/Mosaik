@@ -206,6 +206,67 @@ impl Phone {
         self.core.vaults().unwrap()[0].vault_id.clone()
     }
 
+    /// Writes a login into the phone's vault through the vault session, as a record synced from
+    /// another device or a vault member arrives (the phone's own editor refuses device bindings,
+    /// cross-feature F1). With `shared`, the vault is then marked shared, owned by this account.
+    /// The phone is unlocked again afterwards; returns the item's key.
+    pub fn plant_login(
+        &self,
+        sk: &str,
+        title: &str,
+        urls: &[&str],
+        shared: bool,
+    ) -> mosaic_mobile::ItemKey {
+        use mosaic_core::model::{ItemType, LoginUrl, SecretField, TextField};
+        let vault_text = self.vault_id();
+        let vault = self
+            .core
+            .vaults()
+            .unwrap()
+            .into_iter()
+            .find(|v| v.vault_id == vault_text)
+            .unwrap();
+        self.core.close_store();
+        let store = Store::open(self.store_path()).unwrap();
+        let mut session = LockedSession::open(store)
+            .unlock(
+                &MasterPassword::new(PASSWORD.to_owned()),
+                &SecretKey::parse(sk).unwrap(),
+            )
+            .unwrap();
+        let vault_id = session
+            .vaults()
+            .into_iter()
+            .map(|v| v.vault_id)
+            .find(|v| v.to_string() == vault.vault_id)
+            .unwrap();
+        let item = session
+            .add_item(vault_id, &ItemType::Login, |e| {
+                e.set_title(title)?;
+                e.set_text(TextField::Username, "alice")?;
+                e.set_secret(SecretField::Password, "planted-Passw0rd")?;
+                for url in urls {
+                    e.add_url(&LoginUrl::new(url))?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let me = session.account_id();
+        let mut store = session.lock().into_store();
+        if shared {
+            store.set_vault_sharing(&vault_id, 1, &me, false).unwrap();
+        }
+        drop(store);
+        self.core.reopen_store().unwrap();
+        self.core
+            .unlock_password(PASSWORD.as_bytes().to_vec(), None)
+            .unwrap();
+        mosaic_mobile::ItemKey {
+            vault_id: vault.vault_id,
+            item_id: item.to_string(),
+        }
+    }
+
     pub fn join(&self, server: &impl Server, email: &str, sk: &str) -> SessionState {
         server.advance_ms(60_000);
         match self

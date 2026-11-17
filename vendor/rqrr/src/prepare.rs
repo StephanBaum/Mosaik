@@ -342,14 +342,16 @@ where
         self.buffer.height()
     }
 
-    pub(crate) fn get_region(&mut self, (x, y): (usize, usize)) -> ColoredRegion {
+    // Mosaic patch: returns `None` instead of panicking (a white pixel, a region
+    // missing from the cache, an empty cache at capacity, a failed repaint).
+    pub(crate) fn get_region(&mut self, (x, y): (usize, usize)) -> Option<ColoredRegion> {
         let color: PixelColor = self.buffer.get_pixel(x, y).into();
         match color {
-            PixelColor::Discarded(r) => *self.cache.get(&r).unwrap(),
+            PixelColor::Discarded(r) => self.cache.get(&r).copied(),
             PixelColor::Black => {
                 let cache_fill = self.cache.len();
                 let reg_idx = if cache_fill == self.cache.cap().get() {
-                    let (c, reg) = self.cache.pop_lru().expect("fill is at capacity (251)");
+                    let (c, reg) = self.cache.pop_lru()?;
                     #[allow(clippy::single_match)]
                     match reg {
                         ColoredRegion::Unclaimed {
@@ -373,7 +375,7 @@ where
                     cache_fill as u8
                 };
                 let next_reg_color = PixelColor::Discarded(reg_idx);
-                let counter = self.repaint_and_apply((x, y), next_reg_color, AreaCounter(0));
+                let counter = self.repaint_and_apply((x, y), next_reg_color, AreaCounter(0))?;
                 let new_reg = ColoredRegion::Unclaimed {
                     color: next_reg_color,
                     src_x: x,
@@ -381,30 +383,32 @@ where
                     pixel_count: counter.0,
                 };
                 self.cache.put(reg_idx, new_reg);
-                new_reg
+                Some(new_reg)
             }
-            PixelColor::Tmp1 => ColoredRegion::Tmp1,
-            PixelColor::Alignment => ColoredRegion::Alignment,
-            PixelColor::CapStone => ColoredRegion::CapStone,
-            PixelColor::White => panic!("Tried to color white patch"),
+            PixelColor::Tmp1 => Some(ColoredRegion::Tmp1),
+            PixelColor::Alignment => Some(ColoredRegion::Alignment),
+            PixelColor::CapStone => Some(ColoredRegion::CapStone),
+            PixelColor::White => None,
         }
     }
 
+    // Mosaic patch: returns `None` instead of panicking on a white or
+    // same-coloured source.
     pub(crate) fn repaint_and_apply<F>(
         &mut self,
         (x, y): (usize, usize),
         target_color: PixelColor,
         fill: F,
-    ) -> F
+    ) -> Option<F>
     where
         F: AreaFiller,
     {
         let src = self.buffer.get_pixel(x, y);
         if PixelColor::White == src || target_color == src {
-            panic!("Cannot repaint with white or same color");
+            return None;
         }
 
-        self.flood_fill(x, y, src, target_color.into(), fill)
+        Some(self.flood_fill(x, y, src, target_color.into(), fill))
     }
 
     pub fn get_pixel_at_point(&self, p: Point) -> PixelColor {
@@ -450,7 +454,10 @@ where
     where
         F: AreaFiller,
     {
-        assert_ne!(from, to);
+        // Mosaic patch: nothing to repaint instead of an `assert_ne!`.
+        if from == to {
+            return fill;
+        }
         let w = self.width();
         let mut queue = Vec::new();
         queue.push((x, y));
@@ -668,7 +675,7 @@ mod tests {
     fn test_get_region() {
         let mut test_u = img_from_array([[1, 0, 1], [1, 0, 1], [1, 1, 1]]);
 
-        let reg = test_u.get_region((0, 0));
+        let reg = test_u.get_region((0, 0)).unwrap();
         let (color, src_x, src_y, pixel_count) = match reg {
             ColoredRegion::Unclaimed {
                 color,

@@ -690,7 +690,7 @@ fn g3i_password_identities_name_the_host_only_and_fill_only_an_exact_origin() {
         "Multi",
         "erin",
         vec![
-            url("androidapp://com.example.app?cert=AAAA", false, false),
+            url("androidapp://com.example.app", false, false),
             url("https://multi.example", false, false),
             url("https://second.example", false, false),
         ],

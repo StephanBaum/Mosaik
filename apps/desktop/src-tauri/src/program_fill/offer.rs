@@ -3,7 +3,7 @@
 //! read here and nowhere else, only for a fill, and only into a `SecretString` that goes to the
 //! host.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use mosaic_core::model::{Item, ItemType, LoginUrl, Role, SecretField, TextField};
 use mosaic_core::{ItemId, SecretString, VaultId};
@@ -60,6 +60,27 @@ fn live_logins(session: &UnlockedSession) -> Vec<ItemRef<'_>> {
         .collect()
 }
 
+/// Whether `vault` is shared (a sharing state that cannot be read counts as shared).
+///
+/// In a shared vault every member with write access chooses a login's URLs and their `extra`
+/// data, so a program binding there proves nothing on this device: it is never a match, its
+/// `extra.submit` is never honoured and its `extra.program` is never shown (ADR-0164 amendment,
+/// cross-feature red team F2). A login there is offered as a suggestion, which fills only after
+/// this device's own link step.
+#[must_use]
+pub fn shared_vault(session: &UnlockedSession, vault: VaultId) -> bool {
+    session.vault_shared(vault).unwrap_or(true)
+}
+
+fn shared_vaults(session: &UnlockedSession) -> HashSet<VaultId> {
+    session
+        .vaults()
+        .into_iter()
+        .map(|v| v.vault_id)
+        .filter(|v| shared_vault(session, *v))
+        .collect()
+}
+
 fn vault_names(session: &UnlockedSession) -> HashMap<VaultId, String> {
     session
         .vaults()
@@ -103,16 +124,29 @@ fn sort_key(login: &PickerLogin) -> (String, String) {
 }
 
 /// The offer for `identity`: linked logins (at most [`MAX_MATCHES`], by title), the link-again
-/// reason, and, when nothing is linked, up to [`MAX_SUGGESTIONS`] suggestions.
+/// reason, and, when nothing is linked, up to [`MAX_SUGGESTIONS`] suggestions. A login of a
+/// shared vault is never linked here ([`shared_vault`]): when its binding matches it is a
+/// suggestion, otherwise it is judged by its title and web hosts like a login without one.
 #[must_use]
 pub fn build(session: &UnlockedSession, identity: &CapturedIdentity) -> Offer {
     let names = vault_names(session);
+    let shared = shared_vaults(session);
     let terms = suggestion_terms(identity);
     let mut offer = Offer::default();
     let mut suggestions = Vec::new();
     for entry in live_logins(session) {
         let urls = url_values(entry.item);
-        match match_bindings(&urls, identity) {
+        let verdict = match match_bindings(&urls, identity) {
+            BindingMatch::Matched(_) if shared.contains(&entry.vault_id) => {
+                suggestions.push(picker_login(&entry, &urls, &names));
+                continue;
+            }
+            BindingMatch::LinkAgain(_) if shared.contains(&entry.vault_id) => {
+                BindingMatch::NoBinding
+            }
+            verdict => verdict,
+        };
+        match verdict {
             BindingMatch::Matched(indices) => {
                 let submit = indices
                     .iter()
@@ -304,16 +338,18 @@ pub fn credentials(
     {
         return Err(IpcError::new(ErrorCode::ItemNotFound));
     }
-    let mut submit = true;
+    // Enter after the fill is this device's choice only outside a shared vault (F2).
+    let mut submit = !shared_vault(session, vault);
     if let Some(identity) = identity {
         let urls = url_values(entry);
         let BindingMatch::Matched(indices) = match_bindings(&urls, identity) else {
             return Err(IpcError::new(ErrorCode::PickerStale));
         };
-        submit = indices
-            .iter()
-            .filter_map(|&i| urls.get(i))
-            .all(mosaic_program_fill::binding::submit_enabled);
+        submit = submit
+            && indices
+                .iter()
+                .filter_map(|&i| urls.get(i))
+                .all(mosaic_program_fill::binding::submit_enabled);
     }
     let password = entry
         .secret(SecretField::Password)

@@ -1,0 +1,28 @@
+name: Translation problem
+description: A text in the app reads wrong in your language.
+labels: ["translation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most languages were translated with AI help and are being reviewed. Thank you for helping.
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options: [Español, Français, Italiano, Português (Brasil), Nederlands, Polski, Türkçe, 日本語, 한국어, 简体中文, Deutsch, English]
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Where is the text, and what does it say?
+      description: The screen or menu, and the text as it appears (a screenshot helps).
+    validations:
+      required: true
+  - type: textarea
+    id: better
+    attributes:
+      label: What should it say?
+    validations:
+      required: true
