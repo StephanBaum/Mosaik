@@ -331,7 +331,7 @@ pub struct UnlockedSession {
     /// seal a CLI session ([`UnlockedSession::create_cli_session`]).
     password_fresh: bool,
     vaults: BTreeMap<VaultId, OpenVault>,
-    index: search::SearchIndex,
+    index: search::LazyIndex,
     /// This install's stable ID (CRYPTO_SPEC §10), read from the store at
     /// unlock.
     install: InstallId,
@@ -770,10 +770,6 @@ impl UnlockedSession {
         match load_state(&mut store, &account_key, &account_id) {
             Ok((device, vaults)) => {
                 let identity_key = sharing::load_identity(&store, &account_key, &account_id);
-                let mut index = search::SearchIndex::default();
-                for (vault_id, ov) in &vaults {
-                    index.update_vault(*vault_id, ov);
-                }
                 Ok(Self {
                     store,
                     account_id,
@@ -785,7 +781,7 @@ impl UnlockedSession {
                     password_unlocked: quick.password_unlocked,
                     password_fresh: quick.fresh_password,
                     vaults,
-                    index,
+                    index: search::LazyIndex::default(),
                     install,
                     session_tag,
                     created_handed: BTreeMap::new(),

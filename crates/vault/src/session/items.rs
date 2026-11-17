@@ -123,7 +123,7 @@ impl UnlockedSession {
     #[must_use]
     pub fn search(&self, query: &str) -> Vec<ItemRef<'_>> {
         self.index
-            .search(query)
+            .search(&self.vaults, query)
             .into_iter()
             .filter_map(|(v, i)| {
                 let item = self.vaults.get(&v)?.items.get(&i)?;

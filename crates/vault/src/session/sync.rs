@@ -180,18 +180,17 @@ impl UnlockedSession {
     /// kept as a view the store does not have.
     fn reload_vaults_from_store(&mut self) {
         let mut vaults = std::collections::BTreeMap::new();
-        let mut index = super::search::SearchIndex::default();
         if let Ok(states) = self.store.vaults() {
             for state in states {
                 if let Ok(ov) = load_vault(&self.store, &self.account_key, &self.account_id, &state)
                 {
-                    index.update_vault(state.vault_id, &ov);
                     vaults.insert(state.vault_id, ov);
                 }
             }
         }
         self.vaults = vaults;
-        self.index = index;
+        // The next search rebuilds the index from the reloaded vaults.
+        self.index = super::search::LazyIndex::default();
     }
 
     /// Applies a record received from the server.

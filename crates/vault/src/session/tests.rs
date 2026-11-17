@@ -1819,3 +1819,53 @@ fn batched_writes_are_faster_on_a_file_store() {
     eprintln!("2000 records: one by one {plain:?}, batched {batched:?}");
     assert!(batched < plain);
 }
+
+/// The search index is built by the first search from the then-current items; changes made
+/// before it (and after it) give the same results as an index kept up to date all along.
+#[test]
+fn the_search_index_is_built_lazily_and_gives_the_same_results() {
+    let (mut s, _) = account();
+    let vault = s.create_vault("Lazy").unwrap();
+    let add = |s: &mut UnlockedSession, title: &str, user: &str| {
+        s.add_item(vault, &ItemType::Login, |e| {
+            e.set_title(title)?;
+            e.set_text(TextField::Username, user)
+        })
+        .unwrap()
+    };
+    // What an index updated by every change would answer: built fresh from the open vaults.
+    let fresh = |s: &UnlockedSession, q: &str| {
+        let mut index = SearchIndex::default();
+        for (v, ov) in &s.vaults {
+            index.update_vault(*v, ov);
+        }
+        index.search(q)
+    };
+    let found = |s: &UnlockedSession, q: &str| -> Vec<(VaultId, ItemId)> {
+        s.search(q)
+            .into_iter()
+            .map(|r| (r.vault_id, r.item_id))
+            .collect()
+    };
+
+    let a = add(&mut s, "GitHub", "x");
+    let b = add(&mut s, "Mail", "github-user");
+    // A change before the first search leaves the index unbuilt and is seen by that search.
+    s.update_item(vault, a, |e| e.set_title("GitLab")).unwrap();
+    assert!(!s.index.is_built());
+    assert_eq!(found(&s, "git"), [a, b].map(|i| (vault, i)));
+    assert!(s.index.is_built());
+    for q in ["git", "lab", "github", "mail", "x", "nothing"] {
+        assert_eq!(found(&s, q), fresh(&s, q), "{q}");
+    }
+
+    // Changes after the build update it.
+    let c = add(&mut s, "Gitea", "y");
+    s.update_item(vault, b, |e| e.set_title("Gitmail")).unwrap();
+    s.purge_item(vault, a).unwrap();
+    for q in ["git", "lab", "gitea", "mail", "y"] {
+        assert_eq!(found(&s, q), fresh(&s, q), "{q}");
+    }
+    assert_eq!(found(&s, "gitea"), [(vault, c)]);
+    assert!(!found(&s, "git").contains(&(vault, a)));
+}

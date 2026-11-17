@@ -509,12 +509,9 @@ fn hidden_custom(item: &Item, custom_id: &str) -> Option<Zeroizing<String>> {
 }
 
 fn sort_summaries(list: &mut [ItemSummary]) {
-    list.sort_by(|a, b| {
-        a.title
-            .to_lowercase()
-            .cmp(&b.title.to_lowercase())
-            .then_with(|| a.item_id.cmp(&b.item_id))
-    });
+    // The same order as comparing the lowercase titles and then the IDs, with the lowercase title
+    // built once per row instead of twice per comparison.
+    list.sort_by_cached_key(|s| (s.title.to_lowercase(), s.item_id.clone()));
 }
 
 /// The login URLs of a draft against the saved ones: what to remove and add.
