@@ -1086,7 +1086,7 @@ impl Store {
     /// folder that comes back never sees a number reused; the hole this
     /// leaves in a new folder is closed by the first compaction), and the
     /// checkpoint counter stays (it only grows).
-    pub(super) fn clear_engine_state_in(tx: &rusqlite::Transaction<'_>) -> Result<()> {
+    pub(super) fn clear_engine_state_in(tx: &rusqlite::Connection) -> Result<()> {
         for sql in [
             // Reserved numbers stay (nothing is reused if the old folder
             // comes back); the new backend counts from zero written.

@@ -150,6 +150,18 @@ pub struct StoredRecord {
     pub updated_at_ms: i64,
 }
 
+/// The sync columns of a stored record, without its ciphertext
+/// ([`Store::record_sync`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecordSync {
+    /// The server's sequence number of the last version synced, if any.
+    pub server_seq: Option<u64>,
+    /// Set while a local change waits for upload.
+    pub outbox_seq: Option<OutboxSeq>,
+    /// The key generation the stored ciphertext is sealed under.
+    pub key_generation: KeyGeneration,
+}
+
 const SELECT_RECORD: &str = "SELECT vault_id, record_id, kind, key_generation, ciphertext,
     server_seq, outbox_seq, updated_at FROM records";
 
@@ -375,6 +387,38 @@ impl Store {
             )
             .optional()?;
         raw.as_ref().map(decode_record).transpose()
+    }
+
+    /// The sync columns of one record, if stored, read without the
+    /// ciphertext (a cheap lookup per received record). The ciphertext itself
+    /// is not validated here: use [`Store::record`] where its content is
+    /// needed.
+    ///
+    /// # Errors
+    /// [`Error::Corrupt`] for a sequence number or generation out of range,
+    /// [`Error::Database`].
+    pub fn record_sync(
+        &self,
+        vault_id: &VaultId,
+        record_id: &ItemId,
+    ) -> Result<Option<RecordSync>> {
+        let raw: Option<(Option<i64>, Option<i64>, i64)> = self
+            .conn
+            .query_row(
+                "SELECT server_seq, outbox_seq, key_generation FROM records
+                 WHERE vault_id = ?1 AND record_id = ?2",
+                params![vault_id.as_bytes(), record_id.as_bytes()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        raw.map(|(server, outbox, generation)| {
+            Ok(RecordSync {
+                server_seq: server.map(seq_from_sql).transpose()?,
+                outbox_seq: outbox.map(|s| seq_from_sql(s).map(OutboxSeq)).transpose()?,
+                key_generation: generation_from_sql(generation)?,
+            })
+        })
+        .transpose()
     }
 
     fn list(&self, sql: &str, args: impl rusqlite::Params) -> Result<Vec<RecordEntry>> {

@@ -12,14 +12,15 @@ use super::{
     seal_record,
 };
 use crate::storage::{
-    Error as StorageError, KeyOrigin, Origin, OutboxSeq, RecordBody, RecordEntry, StoredRecord,
+    Error as StorageError, KeyOrigin, Origin, OutboxSeq, RecordBody, RecordEntry, RecordSync,
     VaultKeyWrap,
 };
 
 /// What this device holds for a record that arrives from the server.
 struct LocalAnchor {
-    /// The stored row, if there is a readable one.
-    stored: Option<StoredRecord>,
+    /// The sync columns of the stored row, if there is a readable one. The
+    /// ciphertext is fetched only where it is compared.
+    stored: Option<RecordSync>,
     /// A row exists but fails the store's own checks.
     damaged_row: bool,
     /// A local change is waiting for upload (or the row is damaged, so it
@@ -145,6 +146,54 @@ pub(super) fn key_acceptance_error(e: StorageError) -> Error {
 }
 
 impl UnlockedSession {
+    /// Runs `f` with every store write of it joined into one transaction:
+    /// one commit (one fsync) for the whole batch instead of one per write
+    /// (ADR-0170). Batches nest; the outermost one commits.
+    ///
+    /// Each write inside stays atomic on its own (a savepoint), so an inner
+    /// failure undoes only that write and the session's memory still
+    /// matches the store. The outer transaction commits even when `f`
+    /// returns an error: whatever succeeded before the error is kept, as it
+    /// is without a batch. If the final commit fails, nothing of the batch
+    /// is on disk, so the vaults are reloaded from the store (and, if even
+    /// that fails, dropped from memory, so no write is accepted against a
+    /// stale view): memory never disagrees with disk.
+    ///
+    /// # Errors
+    /// `f`'s error, or [`Error::Store`] if the transaction cannot start or
+    /// commit.
+    pub fn batch<R>(&mut self, f: impl FnOnce(&mut Self) -> Result<R>) -> Result<R> {
+        self.store.begin_batch()?;
+        let out = f(self);
+        match self.store.end_batch() {
+            Ok(()) => out,
+            Err(e) => {
+                self.reload_vaults_from_store();
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Rebuilds the open vaults and the search index from the store after a
+    /// batch whose commit failed. A vault that cannot be reloaded is left
+    /// out (every call on it then fails as an unknown vault) rather than
+    /// kept as a view the store does not have.
+    fn reload_vaults_from_store(&mut self) {
+        let mut vaults = std::collections::BTreeMap::new();
+        let mut index = super::search::SearchIndex::default();
+        if let Ok(states) = self.store.vaults() {
+            for state in states {
+                if let Ok(ov) = load_vault(&self.store, &self.account_key, &self.account_id, &state)
+                {
+                    index.update_vault(state.vault_id, &ov);
+                    vaults.insert(state.vault_id, ov);
+                }
+            }
+        }
+        self.vaults = vaults;
+        self.index = index;
+    }
+
     /// Applies a record received from the server.
     ///
     /// The record must be sealed under the vault's highest accepted key
@@ -306,7 +355,7 @@ impl UnlockedSession {
         item_id: ItemId,
         remote_seq: u64,
     ) -> Result<LocalAnchor> {
-        let (stored, damaged_row) = match self.store.record(&vault_id, &item_id) {
+        let (stored, damaged_row) = match self.store.record_sync(&vault_id, &item_id) {
             Ok(stored) => (stored, false),
             // A row that fails the store's own checks: it has no readable
             // state and may be in the outbox; the received version replaces
@@ -346,9 +395,17 @@ impl UnlockedSession {
         let Some(stored) = anchor.stored.as_ref() else {
             return Ok(());
         };
-        if let Some(outbox) = stored.outbox_seq
-            && stored.body.as_bytes() == record.body.as_bytes()
-        {
+        let Some(outbox) = stored.outbox_seq else {
+            return Ok(());
+        };
+        // The ciphertext is needed only here; a row that fails its checks
+        // cannot be the pending change itself.
+        let body = match self.store.record(&vault_id, &item_id) {
+            Ok(Some(full)) => full.body,
+            Ok(None) | Err(StorageError::Corrupt) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        if body.as_bytes() == record.body.as_bytes() {
             self.store
                 .mark_uploaded(&vault_id, &item_id, outbox, anchor.server_seq)?;
         }
@@ -366,7 +423,7 @@ impl UnlockedSession {
     ) -> Result<()> {
         if let Some(s) = &anchor.stored
             && !anchor.pending
-            && s.body.key_generation() < record.body.key_generation()
+            && s.key_generation < record.body.key_generation()
         {
             self.store.upsert_record(
                 &vault_id,

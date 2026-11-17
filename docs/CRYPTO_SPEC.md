@@ -2680,6 +2680,12 @@ and the join rules of this section do not change.
   plus the wrapped keys and the Argon2 parameters. Item plaintext, titles and
   URLs are never written to disk. The search index exists only in memory while
   unlocked.
+- Every local write is one SQLite transaction. A sync pull page, the
+  acknowledgements of an upload page and a chunk of 500 imported entries are
+  written as a batch: the writes are savepoints of one outer transaction that
+  commits once, so a crash loses at most the batch in flight and never leaves
+  a half-written record (ADR-0170). Nothing about the keys or the format
+  changes.
 - Nothing derived from item plaintext is stored in cleartext. That includes
   sync state such as version vectors, revisions and per-device counters.
   The only cleartext metadata is what the server sees as well (§12): IDs, key

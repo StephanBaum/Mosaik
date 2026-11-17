@@ -380,42 +380,46 @@ fn mark_accepted(
     }
     let local = accepted.iter().filter(|(_, q)| q.is_none()).count();
     let local = u32::try_from(local).map_err(|_| SyncError::Locked)?;
-    let marked = access.with(|s| -> Result<u32, Error> {
-        let mut next = if local == 0 {
-            0
-        } else {
-            s.allocate_local_seqs(vault, local)?
-        };
-        let cursor = s
-            .sync_cursor(vault)?
-            .and_then(|c| <[u8; 8]>::try_from(c.as_slice()).ok())
-            .map_or(0, u64::from_be_bytes);
-        let mut n = 0u32;
-        for (record, seq) in accepted {
-            let Some(outbox) = record.outbox_seq else {
-                continue;
-            };
-            let seq = if let Some(q) = seq {
-                if hosted && *q <= cursor {
-                    // Impossible from an honest server: not acknowledged
-                    // here (the change stays queued), reported at once.
-                    s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
-                    continue;
-                }
-                if hosted {
-                    let hash: [u8; 32] = Sha256::digest(record.body.as_bytes()).into();
-                    s.note_served(vault, record.record_id, *q, hash)?;
-                }
-                *q
+    // One transaction for every acknowledgement of the page: one fsync, not
+    // one per record (ADR-0170).
+    let marked = access.with(|s| {
+        s.batch(|s| -> Result<u32, Error> {
+            let mut next = if local == 0 {
+                0
             } else {
-                let q = next;
-                next += 1;
-                q
+                s.allocate_local_seqs(vault, local)?
             };
-            mark(s, vault, record, outbox, seq)?;
-            n += 1;
-        }
-        Ok(n)
+            let cursor = s
+                .sync_cursor(vault)?
+                .and_then(|c| <[u8; 8]>::try_from(c.as_slice()).ok())
+                .map_or(0, u64::from_be_bytes);
+            let mut n = 0u32;
+            for (record, seq) in accepted {
+                let Some(outbox) = record.outbox_seq else {
+                    continue;
+                };
+                let seq = if let Some(q) = seq {
+                    if hosted && *q <= cursor {
+                        // Impossible from an honest server: not acknowledged
+                        // here (the change stays queued), reported at once.
+                        s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
+                        continue;
+                    }
+                    if hosted {
+                        let hash: [u8; 32] = Sha256::digest(record.body.as_bytes()).into();
+                        s.note_served(vault, record.record_id, *q, hash)?;
+                    }
+                    *q
+                } else {
+                    let q = next;
+                    next += 1;
+                    q
+                };
+                mark(s, vault, record, outbox, seq)?;
+                n += 1;
+            }
+            Ok(n)
+        })
     })??;
     Ok(marked)
 }
