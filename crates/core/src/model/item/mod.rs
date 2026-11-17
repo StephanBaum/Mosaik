@@ -846,14 +846,31 @@ impl Item {
         vault_id: &VaultId,
         item_id: &ItemId,
     ) -> Result<Self> {
+        let pt = Self::open_plaintext(ct, vk, vault_id, item_id)?;
+        Self::from_json(pt.expose_secret())
+    }
+
+    /// The decryption half of [`Item::open`]: the plaintext, to be decoded
+    /// with [`Item::from_json`] (so a caller can decrypt on one thread and
+    /// decode on several).
+    ///
+    /// # Errors
+    /// [`Error::UnsupportedVersion`] for a header `schema_version` other
+    /// than 1 (checked before decryption), [`Error::KeyGenerationMismatch`],
+    /// [`Error::ItemCorrupted`] for every authentication or padding failure.
+    pub fn open_plaintext(
+        ct: &ItemCiphertext,
+        vk: &VaultKey,
+        vault_id: &VaultId,
+        item_id: &ItemId,
+    ) -> Result<SecretVec> {
         if ct.schema_version() != SCHEMA_VERSION {
             return Err(Error::UnsupportedVersion);
         }
-        let pt = ct.open(vk, vault_id, item_id).map_err(|e| match e {
+        ct.open(vk, vault_id, item_id).map_err(|e| match e {
             Error::Decryption => Error::ItemCorrupted { item_id: *item_id },
             other => other,
-        })?;
-        Self::from_json(pt.expose_secret())
+        })
     }
 
     fn int(&self, key: &str) -> Option<i64> {

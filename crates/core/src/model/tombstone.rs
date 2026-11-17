@@ -117,10 +117,25 @@ impl Tombstone {
         vault_id: &VaultId,
         item_id: &ItemId,
     ) -> Result<Self> {
-        let pt = ct.open(vk, vault_id, item_id).map_err(|e| match e {
+        let pt = Self::open_plaintext(ct, vk, vault_id, item_id)?;
+        Self::from_json(pt.expose_secret())
+    }
+
+    /// The decryption half of [`Tombstone::open`]: the plaintext, to be
+    /// decoded with [`Tombstone::from_json`].
+    ///
+    /// # Errors
+    /// [`Error::KeyGenerationMismatch`], [`Error::ItemCorrupted`] for every
+    /// authentication failure.
+    pub fn open_plaintext(
+        ct: &TombstoneCiphertext,
+        vk: &VaultKey,
+        vault_id: &VaultId,
+        item_id: &ItemId,
+    ) -> Result<SecretVec> {
+        ct.open(vk, vault_id, item_id).map_err(|e| match e {
             Error::Decryption => Error::ItemCorrupted { item_id: *item_id },
             other => other,
-        })?;
-        Self::from_json(pt.expose_secret())
+        })
     }
 }

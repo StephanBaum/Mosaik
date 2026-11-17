@@ -69,6 +69,7 @@ mod error;
 mod export;
 mod hardware_vaults;
 mod items;
+mod records_load;
 mod rotation;
 mod search;
 mod sharing;
@@ -643,20 +644,33 @@ fn load_vault_with(
             .and_then(|vk| VaultMeta::open(&ct, vk, &vault_id).ok());
         ov.meta_unreadable = ov.meta.is_none();
     }
+    // Decryption stays on this thread; the JSON decoding of a big vault runs on workers.
+    let mut opened = Vec::new();
     for entry in store.records(&vault_id)? {
         match entry {
-            Ok(rec) => match open_record(&rec.body, &ov.keys, &vault_id, &rec.record_id) {
-                Ok(item) => {
-                    ov.items.insert(rec.record_id, item);
+            Ok(rec) => {
+                match records_load::open_plaintext(&rec.body, &ov.keys, &vault_id, &rec.record_id) {
+                    Ok(plain) => opened.push((rec.record_id, plain)),
+                    Err(_) => {
+                        ov.corrupt.insert(rec.record_id);
+                    }
                 }
-                Err(_) => {
-                    ov.corrupt.insert(rec.record_id);
-                }
-            },
+            }
             Err(corrupt) => {
                 if let Some(id) = corrupt.record_id {
                     ov.corrupt.insert(id);
                 }
+            }
+        }
+    }
+    let workers = records_load::workers_for(opened.len());
+    for (record_id, parsed) in records_load::parse_records(opened, workers) {
+        match parsed {
+            Ok(item) => {
+                ov.items.insert(record_id, item);
+            }
+            Err(_) => {
+                ov.corrupt.insert(record_id);
             }
         }
     }
