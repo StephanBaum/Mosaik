@@ -56,8 +56,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Pull requests diff against the merge base, which needs the history.
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          # Pull requests diff against the merge base, which needs the history. The depths are
+          # strings: a number 0 is falsy in an expression, so `&& 0 || 1` would always give 1.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
