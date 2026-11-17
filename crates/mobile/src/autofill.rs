@@ -1426,6 +1426,132 @@ impl LinkVerdicts<'_> {
 mod tests {
     use super::*;
 
+    mod origin_index {
+        //! The real `match_item` gives the same verdicts over every item and over the items the
+        //! origin index narrows to (the vault crate's property test uses a copy of it).
+
+        use std::cell::RefCell;
+
+        use mosaic_core::model::{LoginUrl, UrlMatch};
+        use mosaic_core::{Argon2Profile, MasterPassword};
+        use mosaic_origin::app::AndroidAppUrl;
+        use mosaic_vault::session::LockedSession;
+        use mosaic_vault::storage::Store;
+        use proptest::collection::vec;
+        use proptest::prelude::*;
+        use proptest::sample::select;
+
+        use super::*;
+
+        const URLS: &[&str] = &[
+            "https://example.com",
+            "https://www.example.com/login",
+            "http://example.com",
+            "http://localhost:3000",
+            "https://EXAMPLE.com.",
+            "https://login.example.org:8443",
+            "https://xn--exmple-cua.com",
+            "androidapp://com.example.app",
+            "not a url",
+        ];
+        const PAGES: &[&str] = &[
+            "https://example.com",
+            "http://example.com",
+            "https://sub.example.com",
+            "http://localhost:3000",
+            "https://example.org",
+        ];
+
+        thread_local! {
+            // One session for all cases (the key derivation is slow); each case purges its items.
+            static FIXTURE: RefCell<(UnlockedSession, [VaultId; 2])> = RefCell::new({
+                let pw = MasterPassword::new("unit test password".to_owned());
+                let (mut s, _) = LockedSession::open(Store::open_in_memory().unwrap())
+                    .create_account(&pw, Argon2Profile::Baseline)
+                    .unwrap();
+                let vaults = [s.create_vault("A").unwrap(), s.create_vault("B").unwrap()];
+                (s, vaults)
+            });
+        }
+
+        fn kinds(
+            refs: Vec<mosaic_vault::session::ItemRef<'_>>,
+            target: &Resolved,
+            shared: VaultId,
+        ) -> Vec<(VaultId, ItemId, Option<MatchKind>, bool)> {
+            refs.into_iter()
+                .filter(|r| r.item.item_type() == Some(ItemType::Login))
+                .filter_map(|r| match match_item(r.item, target, r.vault_id == shared) {
+                    Ok(kind) => Some((r.vault_id, r.item_id, Some(kind), false)),
+                    Err(Refusal::Insecure) => Some((r.vault_id, r.item_id, None, true)),
+                    Err(_) => None,
+                })
+                .collect()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: 24, ..ProptestConfig::default() })]
+
+            #[test]
+            fn the_index_never_changes_a_match_verdict(
+                items in vec((0usize..2, vec((select(URLS), any::<bool>(), any::<bool>()), 0..4)), 0..6),
+                page in select(PAGES),
+                cert in 1u8..=2,
+            ) {
+                FIXTURE.with(|f| {
+                    let mut f = f.borrow_mut();
+                    let (s, vaults) = &mut *f;
+                    let vaults = *vaults;
+                    let mut ids = Vec::new();
+                    for (vault, urls) in &items {
+                        let id = s
+                            .add_item(vaults[*vault], &ItemType::Login, |e| {
+                                e.set_title("t")?;
+                                for (text, etld1, http) in urls {
+                                    let mut saved = LoginUrl::new(text);
+                                    if *etld1 {
+                                        saved.match_mode = UrlMatch::Etld1;
+                                    }
+                                    saved.allow_http = *http;
+                                    e.add_url(&saved)?;
+                                }
+                                Ok(())
+                            })
+                            .unwrap();
+                        ids.push((vaults[*vault], id));
+                    }
+                    let signed = AndroidAppUrl::new("com.example.app", Some([cert; 32]))
+                        .unwrap()
+                        .canonical();
+                    let bound = s
+                        .add_item(vaults[0], &ItemType::Login, |e| {
+                            e.add_url(&LoginUrl::new(signed.as_str()))?;
+                            Ok(())
+                        })
+                        .unwrap();
+                    ids.push((vaults[0], bound));
+                    let all = SessionFilter::default();
+                    let targets = [
+                        (Resolved::Web(PageOrigin::parse(page).unwrap()), OriginKey::web(&PageOrigin::parse(page).unwrap())),
+                        (
+                            Resolved::App { package: "com.example.app".to_owned(), certs: vec![[1; 32], [cert; 32]] },
+                            OriginKey::app("com.example.app"),
+                        ),
+                    ];
+                    for (target, key) in &targets {
+                        let full = kinds(s.items(&all), target, vaults[1]);
+                        let indexed = kinds(s.items_for_origin(key, &all), target, vaults[1]);
+                        prop_assert_eq!(full, indexed);
+                    }
+                    for (vault, id) in ids {
+                        s.purge_item(vault, id).unwrap();
+                    }
+                    Ok(())
+                })?;
+            }
+        }
+    }
+
     #[test]
     fn the_asset_links_cache_is_bounded_and_evicts_the_oldest() {
         let links = AssetLinks::new();

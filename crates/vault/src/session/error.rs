@@ -17,6 +17,12 @@ pub enum Error {
     #[error("local store error")]
     Store(#[source] crate::storage::Error),
 
+    /// A batch could not commit and the session could not be rebuilt from the
+    /// store, so its memory may not match the disk. The session must be
+    /// locked and unlocked again.
+    #[error("session state lost")]
+    SessionInconsistent,
+
     /// A one-time-password operation failed.
     #[error("one-time password error")]
     Otp(#[source] mosaic_totp::Error),

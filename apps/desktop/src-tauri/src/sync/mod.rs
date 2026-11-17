@@ -526,6 +526,11 @@ impl SyncService {
             .spawn(move || {
                 if !delay.is_zero() {
                     std::thread::sleep(delay);
+                    // The app may have locked or another run replaced this
+                    // one while it waited.
+                    if ctx.session().current().is_none() {
+                        return;
+                    }
                 }
                 thread_main(&ctx, &run, &rx);
             });

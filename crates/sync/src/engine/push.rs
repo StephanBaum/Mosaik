@@ -399,21 +399,13 @@ fn mark_accepted(
                     continue;
                 };
                 let seq = if let Some(q) = seq {
-                    if hosted && *q <= cursor {
-                        // Impossible from an honest server: not acknowledged
-                        // here (the change stays queued), reported at once.
-                        s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
-                        continue;
-                    }
-                    if hosted {
-                        let hash: [u8; 32] = Sha256::digest(record.body.as_bytes()).into();
-                        s.note_served(vault, record.record_id, *q, hash)?;
-                    }
-                    *q
+                    served_seq(s, vault, record, *q, hosted, cursor)?
                 } else {
-                    let q = next;
                     next += 1;
-                    q
+                    Some(next - 1)
+                };
+                let Some(seq) = seq else {
+                    continue;
                 };
                 mark(s, vault, record, outbox, seq)?;
                 n += 1;
@@ -422,6 +414,27 @@ fn mark_accepted(
         })
     })??;
     Ok(marked)
+}
+
+/// The sequence number the server gave a record, checked and noted (hosted); `None` when an
+/// honest server cannot have sent it (the change stays queued, the vault is flagged).
+fn served_seq(
+    s: &mut UnlockedSession,
+    vault: VaultId,
+    record: &StoredRecord,
+    q: u64,
+    hosted: bool,
+    cursor: u64,
+) -> Result<Option<u64>, Error> {
+    if hosted {
+        if q <= cursor {
+            s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
+            return Ok(None);
+        }
+        let hash: [u8; 32] = Sha256::digest(record.body.as_bytes()).into();
+        s.note_served(vault, record.record_id, q, hash)?;
+    }
+    Ok(Some(q))
 }
 
 fn mark(

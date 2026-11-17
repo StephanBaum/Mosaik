@@ -21,7 +21,10 @@ struct LocalAnchor {
     /// The sync columns of the stored row, if there is a readable one. The
     /// ciphertext is fetched only where it is compared.
     stored: Option<RecordSync>,
-    /// A row exists but fails the store's own checks.
+    /// A row exists but its sync columns fail the store's checks (a sequence
+    /// number or generation out of range). `record_sync` reads only those
+    /// columns, so the other row checks of `decode_record` (the ciphertext,
+    /// ids) are not applied here; damage there shows when the row is read.
     damaged_row: bool,
     /// A local change is waiting for upload (or the row is damaged, so it
     /// may be).
@@ -164,33 +167,65 @@ impl UnlockedSession {
     /// commit.
     pub fn batch<R>(&mut self, f: impl FnOnce(&mut Self) -> Result<R>) -> Result<R> {
         self.store.begin_batch()?;
-        let out = f(self);
-        match self.store.end_batch() {
+        // A panic in `f` must not leave the outer transaction open: close the
+        // batch first, then re-raise the same panic.
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+        let end = self.store.end_batch();
+        let out = match out {
+            Ok(out) => out,
+            // Re-raises the panic of `f` unchanged (not a new panic site).
+            Err(payload) => std::panic::resume_unwind(payload),
+        };
+        match end {
             Ok(()) => out,
             Err(e) => {
-                self.reload_vaults_from_store();
-                Err(e.into())
+                if self.reload_vaults_from_store() {
+                    Err(e.into())
+                } else {
+                    self.inconsistent = true;
+                    Err(Error::SessionInconsistent)
+                }
             }
         }
+    }
+
+    /// Whether the session lost track of the store after a failed batch
+    /// commit and must be locked ([`Error::SessionInconsistent`]).
+    #[must_use]
+    pub const fn needs_relock(&self) -> bool {
+        self.inconsistent
     }
 
     /// Rebuilds the open vaults and the search index from the store after a
     /// batch whose commit failed. A vault that cannot be reloaded is left
     /// out (every call on it then fails as an unknown vault) rather than
-    /// kept as a view the store does not have.
-    fn reload_vaults_from_store(&mut self) {
+    /// kept as a view the store does not have. Returns `false` if the store
+    /// could not be read, or a vault that was open before could not come
+    /// back open (an open hardware vault returns closed): the caller then
+    /// reports [`Error::SessionInconsistent`].
+    fn reload_vaults_from_store(&mut self) -> bool {
         let mut vaults = std::collections::BTreeMap::new();
-        if let Ok(states) = self.store.vaults() {
-            for state in states {
-                if let Ok(ov) = load_vault(&self.store, &self.account_key, &self.account_id, &state)
-                {
-                    vaults.insert(state.vault_id, ov);
-                }
+        let mut complete = true;
+        let states = self.store.vaults().unwrap_or_else(|_| {
+            complete = false;
+            Vec::new()
+        });
+        for state in states {
+            let was_open = self
+                .vaults
+                .get(&state.vault_id)
+                .is_some_and(OpenVault::available);
+            let loaded = load_vault(&self.store, &self.account_key, &self.account_id, &state);
+            // A vault that was open must come back open.
+            complete &= loaded.as_ref().is_ok_and(|ov| ov.available() || !was_open);
+            if let Ok(ov) = loaded {
+                vaults.insert(state.vault_id, ov);
             }
         }
         self.vaults.replace(vaults);
         // The next search rebuilds the index from the reloaded vaults.
         self.index = super::search::LazyIndex::default();
+        complete
     }
 
     /// Applies a record received from the server.

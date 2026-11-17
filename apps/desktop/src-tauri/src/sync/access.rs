@@ -41,10 +41,19 @@ impl BackendSession {
     fn run<R>(&self, f: impl FnOnce(&mut UnlockedSession) -> R) -> Option<R> {
         let backend = self.current()?;
         let mut slot = backend.slot().ok()?;
-        match &mut *slot {
-            Slot::Unlocked(session) => Some(f(session)),
-            Slot::Unavailable(_) | Slot::Locked(_) | Slot::Taken => None,
+        let out = match &mut *slot {
+            Slot::Unlocked(session) => f(session),
+            Slot::Unavailable(_) | Slot::Locked(_) | Slot::Taken => return None,
+        };
+        // A batch whose commit failed and whose reload failed too leaves a
+        // session that may disagree with the store: lock it, so the next
+        // unlock rebuilds it from disk.
+        if matches!(&*slot, Slot::Unlocked(session) if session.needs_relock())
+            && let Slot::Unlocked(session) = std::mem::replace(&mut *slot, Slot::Taken)
+        {
+            *slot = Slot::Locked((*session).lock());
         }
+        Some(out)
     }
 }
 

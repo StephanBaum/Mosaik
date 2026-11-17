@@ -1785,6 +1785,53 @@ fn a_failed_commit_reloads_the_session_from_disk() {
     assert_eq!(memory_ids(&s, vault), disk_ids(&s, vault));
 }
 
+#[test]
+fn a_peer_key_rotation_inside_a_batch_is_accepted_and_the_wal_scrub_waits_for_the_commit() {
+    // Review C1: the WAL checkpoint cannot run inside the batch's open
+    // transaction; it must be deferred to the commit, not fail the accept.
+    let (mut s, _) = account();
+    let vault = s.create_vault("Named").unwrap();
+    let g2 = KeyGeneration::FIRST.next().unwrap();
+    let wrapped2 = VaultKey::generate(g2)
+        .unwrap()
+        .wrap(&s.account_key, &s.account_id, &vault)
+        .unwrap();
+    s.batch(|s| {
+        s.apply_remote_vault_key(vault, g2, &wrapped2)?;
+        assert!(in_transaction(s));
+        Ok(())
+    })
+    .unwrap();
+    assert!(!in_transaction(&s));
+    assert_eq!(summary(&s, vault).key_generation, g2);
+    // Memory and disk agree on the accepted generation after a reload.
+    let s = s.reload();
+    assert_eq!(summary(&s, vault).key_generation, g2);
+    // A local edit still works (the generation floor is not ahead of memory).
+    let mut s = s;
+    s.add_item(vault, &ItemType::Login, |e| e.set_title("after"))
+        .unwrap();
+}
+
+#[test]
+fn a_failed_commit_drops_the_reserved_local_sequence_block() {
+    // Review M1: the block reserved inside the failed batch was rolled back,
+    // so the in-memory reservation must not be handed out afterwards.
+    let (mut s, _) = account();
+    let vault = s.create_vault("Personal").unwrap();
+    let err = s
+        .batch(|s| {
+            assert_eq!(s.allocate_local_seqs(vault, 1)?, 1);
+            // Ends the outer transaction: the final COMMIT fails.
+            s.store.exec_raw("ROLLBACK;")?;
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(matches!(err, Error::Store(_)), "{err:?}");
+    // Nothing of the batch is on disk, so the reservation starts over.
+    assert_eq!(s.allocate_local_seqs(vault, 1).unwrap(), 1);
+}
+
 /// 2,000 records on a file-backed store, batched against not batched. Run
 /// with `cargo test -p mosaic-vault --release -- --ignored --nocapture`.
 #[test]

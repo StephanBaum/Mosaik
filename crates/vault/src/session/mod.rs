@@ -373,6 +373,10 @@ pub struct UnlockedSession {
     /// original error and keeps this one for
     /// [`UnlockedSession::take_attachment_cleanup_error`].
     attachment_cleanup_error: Option<crate::storage::Error>,
+    /// A failed batch commit could not be recovered from: the reload from the
+    /// store failed, so memory may disagree with disk. The owner must lock
+    /// the session ([`UnlockedSession::needs_relock`]).
+    inconsistent: bool,
     account_key: AccountKey,
     /// A random ID of this unlocked session (not the writer ID, which can
     /// rotate): binds a [`Reauthenticated`] proof to the session that made
@@ -700,9 +704,33 @@ fn load_vault_with(
             .and_then(|vk| VaultMeta::open(&ct, vk, &vault_id).ok());
         ov.meta_unreadable = ov.meta.is_none();
     }
-    // Decryption stays on this thread; the JSON decoding of a big vault runs on workers.
+    let records = store.records(&vault_id)?;
+    if records_load::workers_for(records.len()) == 1 {
+        // A small vault: one record at a time, so no plaintext of the
+        // others is held while one is decoded.
+        for entry in records {
+            match entry {
+                Ok(rec) => match open_record(&rec.body, &ov.keys, &vault_id, &rec.record_id) {
+                    Ok(item) => {
+                        ov.items.insert(rec.record_id, item);
+                    }
+                    Err(_) => {
+                        ov.corrupt.insert(rec.record_id);
+                    }
+                },
+                Err(corrupt) => {
+                    if let Some(id) = corrupt.record_id {
+                        ov.corrupt.insert(id);
+                    }
+                }
+            }
+        }
+        return Ok(ov);
+    }
+    // A big vault: decryption stays on this thread; the JSON decoding runs on
+    // workers.
     let mut opened = Vec::new();
-    for entry in store.records(&vault_id)? {
+    for entry in records {
         match entry {
             Ok(rec) => {
                 match records_load::open_plaintext(&rec.body, &ov.keys, &vault_id, &rec.record_id) {
@@ -846,6 +874,7 @@ impl UnlockedSession {
                     device,
                     retired: Vec::new(),
                     attachment_cleanup_error: None,
+                    inconsistent: false,
                     account_key,
                     proof_id,
                     password_unlocked: quick.password_unlocked,
