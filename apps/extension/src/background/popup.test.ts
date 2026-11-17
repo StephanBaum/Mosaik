@@ -197,8 +197,8 @@ const listRequests = (h: Harness) => h.requests.filter((r) => r.op === "listForO
 
 describe("getState loads its lookups together", () => {
   it("lists and offers rotations for a normal tab, with one list request", async () => {
-    h.handlers.listForOrigin = (body) => Promise.resolve(listFor((body as { origin: string }).origin));
-    h.handlers.rotationForOrigin = () => Promise.resolve({ attempts: [{ attemptId: "a1" }], related: false });
+    h.handlers["listForOrigin"] = (body) => Promise.resolve(listFor((body as { origin: string }).origin));
+    h.handlers["rotationForOrigin"] = () => Promise.resolve({ attempts: [{ attemptId: "a1" }], related: false });
     h.setProbes([probe({ changeShape: "currentAndNew" })]);
     const state = await h.service.handle({ op: "getState" }, TAB);
     expect(state).toMatchObject({
@@ -216,28 +216,27 @@ describe("getState loads its lookups together", () => {
   });
 
   it("drops the speculative list and asks again when the chosen frame has another origin", async () => {
-    h.handlers.listForOrigin = (body) => Promise.resolve(listFor((body as { origin: string }).origin));
+    h.handlers["listForOrigin"] = (body) => Promise.resolve(listFor((body as { origin: string }).origin));
     h.setProbes([probe({ frameId: 4, documentId: "doc-4", origin: FRAME, activeField: true, depth: 1, ancestorsSameOrigin: false })]);
     const state = await h.service.handle({ op: "getState" }, TAB);
-    expect(state.frame).toBe("crossOriginFrame");
     expect(listRequests(h)).toEqual([
       { origin: TOP, topOrigin: TOP },
       { origin: FRAME, topOrigin: TOP },
     ]);
     // Only the list for the frame's origin reached the state.
-    expect(state.matches).toEqual(listFor(FRAME).items);
+    expect(state).toMatchObject({ frame: "crossOriginFrame", matches: listFor(FRAME).items });
     expect(JSON.stringify(state)).not.toContain(`item-of-${TOP}`);
   });
 
   it("keeps the other lookups when one optional lookup fails", async () => {
-    h.handlers.listForOrigin = () => Promise.reject(new Error("desktop gone"));
-    h.handlers.rotationForOrigin = () => Promise.resolve({ attempts: [{ attemptId: "a1" }], related: false });
+    h.handlers["listForOrigin"] = () => Promise.reject(new Error("desktop gone"));
+    h.handlers["rotationForOrigin"] = () => Promise.resolve({ attempts: [{ attemptId: "a1" }], related: false });
     vi.spyOn(h.passkeys, "enabled").mockResolvedValue(true);
     let state = await h.service.handle({ op: "getState" }, TAB);
     expect(state).toMatchObject({ matches: [], warnings: [], rotations: [{ attemptId: "a1" }], passkeys: true });
 
-    h.handlers.listForOrigin = () => Promise.resolve(listFor(TOP));
-    h.handlers.rotationForOrigin = () => Promise.reject(new Error("old desktop"));
+    h.handlers["listForOrigin"] = () => Promise.resolve(listFor(TOP));
+    h.handlers["rotationForOrigin"] = () => Promise.reject(new Error("old desktop"));
     state = await h.service.handle({ op: "getState" }, TAB);
     expect(state).toMatchObject({ matches: listFor(TOP).items, rotations: [], rotationTabOffer: null, passkeys: true });
 
@@ -256,9 +255,14 @@ describe("getState loads its lookups together", () => {
   it("overlaps the probe, the list and the rotation lookup", async () => {
     vi.useFakeTimers();
     try {
-      const later = <T>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), 100));
-      h.handlers.listForOrigin = () => later({ items: [], warnings: [] });
-      h.handlers.rotationForOrigin = () => later({ attempts: [], related: false });
+      const later = <T>(value: T) =>
+        new Promise<T>((resolve) => {
+          setTimeout(() => {
+            resolve(value);
+          }, 100);
+        });
+      h.handlers["listForOrigin"] = () => later({ items: [], warnings: [] });
+      h.handlers["rotationForOrigin"] = () => later({ attempts: [], related: false });
       h.fill.tabs.probe = () => later([probe()]);
       let done = false;
       const pending = h.service.handle({ op: "getState" }, TAB).then(() => (done = true));

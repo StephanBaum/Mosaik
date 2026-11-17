@@ -111,7 +111,8 @@ export function applySaved(
     return null;
   }
   const items = current.items.slice();
-  const index = items.findIndex((item) => item.vaultId === summary.vaultId && item.itemId === summary.itemId);
+  // A move keeps the item ID but changes the vault, so the old row is found by its ID alone.
+  const index = items.findIndex((item) => item.itemId === summary.itemId);
   const belongs = summary.trashedAt === null && (view.vaultId === null || view.vaultId === summary.vaultId);
   if (!belongs) {
     if (index >= 0) {

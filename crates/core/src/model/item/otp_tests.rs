@@ -42,7 +42,13 @@ fn broken(f: impl FnOnce(&mut Object)) -> Value {
 
 /// Valid and malformed configurations, as raw values.
 fn config_cases() -> Vec<(&'static str, Value)> {
-    let long = "A".repeat(200);
+    let mut cases = valid_and_shape_cases();
+    cases.extend(malformed_field_cases());
+    cases
+}
+
+/// Valid configurations and wrong shapes.
+fn valid_and_shape_cases() -> Vec<(&'static str, Value)> {
     vec![
         ("valid", Value::Object(valid_config())),
         (
@@ -63,6 +69,13 @@ fn config_cases() -> Vec<(&'static str, Value)> {
         ),
         ("not an object", Value::text("x")),
         ("null", Value::Null),
+    ]
+}
+
+/// Configurations with one bad field.
+fn malformed_field_cases() -> Vec<(&'static str, Value)> {
+    let long = "A".repeat(200);
+    vec![
         (
             "empty secret",
             broken(|o| o.insert("secret", Value::text(""))),
@@ -208,28 +221,28 @@ fn a_custom_otp_field_matches_decoding_for_valid_and_malformed_values() {
 
 #[test]
 fn malformed_custom_fields_match_decoding() {
-    let good = Value::Object(valid_config());
+    let good = || Value::Object(valid_config());
     let label = || Some(Value::text("l"));
     let cases = [
         (
             "missing label",
-            custom_value(None, Value::text("otp"), Some(good.clone())),
+            custom_value(None, Value::text("otp"), Some(good())),
         ),
         (
             "label not text",
-            custom_value(Some(Value::uint(1)), Value::text("otp"), Some(good.clone())),
+            custom_value(Some(Value::uint(1)), Value::text("otp"), Some(good())),
         ),
         (
             "kind not text",
-            custom_value(label(), Value::uint(1), Some(good.clone())),
+            custom_value(label(), Value::uint(1), Some(good())),
         ),
         (
             "kind text with otp value",
-            custom_value(label(), Value::text("text"), Some(good.clone())),
+            custom_value(label(), Value::text("text"), Some(good())),
         ),
         (
             "kind uppercase",
-            custom_value(label(), Value::text("OTP"), Some(good.clone())),
+            custom_value(label(), Value::text("OTP"), Some(good())),
         ),
         (
             "value missing",

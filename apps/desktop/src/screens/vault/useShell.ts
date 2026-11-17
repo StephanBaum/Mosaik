@@ -9,10 +9,28 @@ import { useReveal } from "../../reveal/context.ts";
 import type { Category, SavedItem } from "./useVaultData.ts";
 import type { Editor, View } from "./VaultLayout.tsx";
 
-export function useShell(onLocked: (session: SessionState) => void) {
+/** Locks the vault: the backend locks first and never waits for the animation. */
+function useLock(onLocked: (session: SessionState) => void) {
   const ipc = useIpc();
-  const platform = usePlatform();
   const reveal = useReveal();
+  return () => {
+    // In the same task the vault is sealed into a picture and unmounted, so no secret outlives
+    // the lock on screen.
+    const pending = ipc.call("lock", null);
+    const sealed = reveal.sealVault();
+    void pending.then((result) => {
+      if (result.ok) {
+        onLocked(result.value);
+      } else if (sealed) {
+        reveal.abortSeal();
+      }
+    });
+  };
+}
+
+export function useShell(onLocked: (session: SessionState) => void) {
+  const platform = usePlatform();
+  const lock = useLock(onLocked);
   const { setPaletteOpen, syncDataVersion } = useEvents();
   const [view, setView] = useState<View>("vault");
   const [vaultId, setVaultId] = useState<VaultId | null>(null);
@@ -45,19 +63,6 @@ export function useShell(onLocked: (session: SessionState) => void) {
     setView("vault");
     setSelected(null);
     setEditor({ mode: "new" });
-  };
-  const lock = () => {
-    // The backend locks first and never waits for the animation. In the same task the vault
-    // is sealed into a picture and unmounted, so no secret outlives the lock on screen.
-    const pending = ipc.call("lock", null);
-    const sealed = reveal.sealVault();
-    void pending.then((result) => {
-      if (result.ok) {
-        onLocked(result.value);
-      } else if (sealed) {
-        reveal.abortSeal();
-      }
-    });
   };
   const search = (next: string) => {
     setQuery(next);
