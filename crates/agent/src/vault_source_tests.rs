@@ -469,3 +469,74 @@ fn basic_user_comes_from_the_binding_or_a_text_field() {
     assert_eq!(user_of(colon), Err(AgentErrorCode::NotAgentUsable));
     assert_eq!(user_of(secret_user), Ok(None));
 }
+
+/// A vault of mixed items lists the same bindings, in item ID order, and every reference
+/// resolves as it did when each request listed all items first.
+#[test]
+fn a_mixed_vault_lists_and_resolves_the_same_bindings() {
+    let (mut session, _) = account();
+    let vault = session.create_vault("Mixed").unwrap();
+    let mut usable: Vec<(ItemId, ElementId)> = Vec::new();
+    let mut unusable: Vec<ItemId> = Vec::new();
+    for n in 0..12 {
+        // Items without a binding, some with custom fields (skipped before decoding them).
+        let plain = session
+            .add_item(vault, &ItemType::Login, |e| {
+                e.set_title(&format!("Plain {n}"))?;
+                e.add_custom_field(&CustomField::new(
+                    Text::new("Note"),
+                    CustomFieldValue::Text(Text::new("x")),
+                ))?;
+                Ok(())
+            })
+            .unwrap();
+        unusable.push(plain);
+        usable.push(api_item(&mut session, vault, &format!("Key {n}")));
+        // A binding to a field the item does not have.
+        let missing = session
+            .add_item(vault, &ItemType::ApiKey, |e| {
+                e.set_title(&format!("Empty {n}"))?;
+                e.add_agent_binding(&record("api_key.secret"))?;
+                Ok(())
+            })
+            .unwrap();
+        unusable.push(missing);
+    }
+    // A trashed item with a usable binding.
+    let (trashed, _) = api_item(&mut session, vault, "Trashed");
+    session.trash_item(vault, trashed).unwrap();
+    unusable.push(trashed);
+
+    let source = VaultSource::new(&session);
+    let listed: Vec<(ItemId, ElementId)> = source
+        .usable_bindings()
+        .into_iter()
+        .map(|b| (b.item_id, b.element_id))
+        .collect();
+    // In ascending item ID order, which is the order of the ID strings.
+    usable.sort_by_key(|(item, _)| item.to_string());
+    assert_eq!(listed, usable);
+    assert!(
+        listed
+            .windows(2)
+            .all(|w| w[0].0.to_string() < w[1].0.to_string())
+    );
+
+    for (item, element) in &usable {
+        let resolved = source
+            .resolve(&reference(vault, *item, "api_key.secret"))
+            .unwrap();
+        assert_eq!(
+            (resolved.item_id, resolved.element_id),
+            (*item, element.clone())
+        );
+    }
+    for item in &unusable {
+        assert_eq!(
+            source
+                .resolve(&reference(vault, *item, "api_key.secret"))
+                .err(),
+            Some(ResolveError::NotUsable)
+        );
+    }
+}

@@ -656,6 +656,17 @@ impl Item {
             })
     }
 
+    /// Whether the item has at least one agent binding register (ADR-0159).
+    /// A key prefix check: no binding is decoded, so it can be true for a
+    /// conflicted or unreadable binding that [`Item::agent_bindings`] does
+    /// not list. Use it only to skip items before the full decode.
+    #[must_use]
+    pub fn has_agent_bindings(&self) -> bool {
+        self.doc
+            .registers()
+            .any(|(k, r)| k.starts_with(AGENT_PREFIX) && r.winner().is_some())
+    }
+
     /// The HOTP counter (the largest value any device wrote).
     #[must_use]
     pub fn otp_counter(&self) -> u64 {
