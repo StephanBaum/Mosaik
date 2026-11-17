@@ -94,6 +94,20 @@ interface OriginListing {
   readonly listing: ResultMap["listForOrigin"] | null;
 }
 
+type Rotations = Pick<PopupState, "rotations" | "rotationTabOffer">;
+
+/** The lookups started before the frames are known. */
+interface EarlyLookups {
+  readonly speculative: Promise<OriginListing>;
+  readonly rotation: Promise<Rotations>;
+}
+
+/** The lookups of an unlocked front tab, once they are known to be for the chosen frame. */
+interface FoundLookups {
+  readonly listed: OriginListing;
+  readonly rotations: Rotations;
+}
+
 type Learnable = Pick<LoginMatch, "vaultId" | "itemId" | "title" | "username" | "hasOtp">;
 
 export class PopupService {
@@ -249,13 +263,9 @@ export class PopupService {
 
   /** What the popup shows about the front tab: its frame, matches, warnings and a pending code. */
   async #fillTab(state: PopupState, tab: TabRef, info: TabInfo): Promise<void> {
-    const unlocked = state.connection === "unlocked";
     // Started before the frames are known, so they overlap the probe. Neither can reject (each
     // falls back on its own); the list is kept only when it turns out to be for the chosen frame.
-    const speculative = unlocked ? this.#listFor(info.origin, info.origin) : null;
-    const rotation = unlocked
-      ? this.#deps.rotation.forTab(tab).catch(() => ({ rotations: [], rotationTabOffer: null }))
-      : null;
+    const early = state.connection === "unlocked" ? this.#startLookups(tab, info) : null;
     const [lastError, probes] = await Promise.all([takeLastError(this.#deps, tab.id), probeFrames(this.#deps, tab)]);
     state.lastError = lastError;
     const target = chooseTarget(probes, null);
@@ -263,24 +273,44 @@ export class PopupService {
     state.frame = classifyFrame(target, info.origin);
     state.frameTarget = target === null ? null : { frameId: target.frameId, documentId: target.documentId };
     state.generatorFill = (target?.counts.newPassword ?? 0) > 0;
-    const [nextOtp, listed, rotations] = await Promise.all([
+    const [nextOtp, found] = await Promise.all([
       nextOtpOf(this.#deps, tab, origin),
-      speculative === null ? null : this.#listForFrame(speculative, origin, info.origin),
-      rotation,
+      early === null ? null : this.#finishLookups(early, origin, info.origin),
     ]);
     state.nextOtp = nextOtp;
-    if (listed !== null && rotations !== null) {
-      // The list shown belongs to the chosen frame's origin, never to another one.
-      if (listed.origin !== origin) {
-        throw new ExtensionError("internal");
-      }
-      state.matches = listed.listing?.items ?? [];
-      state.warnings = listed.listing?.warnings ?? [];
-      this.#learn(state.matches);
-      Object.assign(state, rotations);
-      if (state.rotations.length > 0) {
-        state.changeFrame = changeFrameOf(probes, info.origin);
-      }
+    if (found !== null) {
+      this.#applyFound(state, found, probes, info.origin);
+    }
+  }
+
+  /** The lookups that do not need the frames: the list for the tab's own origin and the rotations. */
+  #startLookups(tab: TabRef, info: TabInfo): EarlyLookups {
+    return {
+      speculative: this.#listFor(info.origin, info.origin),
+      rotation: this.#deps.rotation.forTab(tab).catch(() => ({ rotations: [], rotationTabOffer: null })),
+    };
+  }
+
+  /** The early lookups, with the list checked against the chosen frame's origin. */
+  async #finishLookups(early: EarlyLookups, origin: string, topOrigin: string): Promise<FoundLookups> {
+    const [listed, rotations] = await Promise.all([
+      this.#listForFrame(early.speculative, origin, topOrigin),
+      early.rotation,
+    ]);
+    // The list shown belongs to the chosen frame's origin, never to another one.
+    if (listed.origin !== origin) {
+      throw new ExtensionError("internal");
+    }
+    return { listed, rotations };
+  }
+
+  #applyFound(state: PopupState, found: FoundLookups, probes: readonly FrameProbe[], topOrigin: string): void {
+    state.matches = found.listed.listing?.items ?? [];
+    state.warnings = found.listed.listing?.warnings ?? [];
+    this.#learn(state.matches);
+    Object.assign(state, found.rotations);
+    if (state.rotations.length > 0) {
+      state.changeFrame = changeFrameOf(probes, topOrigin);
     }
   }
 

@@ -45,7 +45,7 @@ export interface ListViewProps {
 
 function Detail(props: ListViewProps) {
   const { t } = useI18n();
-  const { editor, selected, trash, vaults, vaultId, reloadKey, onSelect, onEditor, onChanged, onItemSaved } = props;
+  const { editor, selected, trash, vaults, vaultId, reloadKey, query, onSelect, onEditor, onChanged, onItemSaved } = props;
   // The item saved last as new: its detail puts the cursor on "Add file" (documents).
   const [created, setCreated] = useState<string | null>(null);
   useEditorFocusReturn(editor.mode !== "closed");
@@ -56,12 +56,17 @@ function Detail(props: ListViewProps) {
         vaults={editor.mode === "new" ? vaults.filter((vault) => vault.protection === "accountKey") : vaults}
         vaultId={vaultId}
         editing={editor.mode === "edit" ? editor.detail : null}
-        onSaved={(item, summary) => {
+        onSaved={(item, summary, codeStored) => {
           setCreated(editor.mode === "new" ? item.itemId : null);
           onEditor({ mode: "closed" });
           onSelect(item);
           // The list and the counts change in place; no list is fetched again for a save.
           onItemSaved(summary);
+          // A code kept in a hardware vault is an item the in-place update does not show, and
+          // a search result list is not updated in place, so the sidebar counts reload.
+          if (codeStored || query.trim() !== "") {
+            onChanged();
+          }
         }}
         onCancel={() => {
           onEditor({ mode: "closed" });

@@ -44,9 +44,14 @@ function useItems(
   const [error, setError] = useState<IpcError | null>(null);
   const [refetch, setRefetch] = useState(0);
   const unfiltered = query.trim() === "" && !trash;
+  // The last save applied to the list: a response that was requested before it is stale.
+  const [handledSeq, setHandledSeq] = useState(saved?.seq ?? 0);
+  const latestSeq = useLatest(handledSeq);
+  const loadedRef = useLatest(onLoaded);
   useEffect(() => {
     let current = true;
     const load = () => {
+      const sentAt = latestSeq.current;
       void ipc
         .call("list_items", {
           vaultId,
@@ -59,9 +64,18 @@ function useItems(
           if (!current) {
             return;
           }
+          if (latestSeq.current !== sentAt) {
+            // A save updated the list in place while this was in flight: ask again.
+            setRefetch((n) => n + 1);
+            return;
+          }
           setError(result.ok ? null : result.error);
           if (result.ok) {
             setFetched({ items: result.value, vaultId, unfiltered });
+          } else {
+            // A list that cannot load is still a settled list: what waits for it (the report)
+            // must not wait for ever.
+            loadedRef.current?.(0);
           }
         });
     };
@@ -77,24 +91,18 @@ function useItems(
       current = false;
       clearTimeout(timer);
     };
-  }, [ipc, vaultId, trash, query, unfiltered, reloadKey, refetch]);
+  }, [ipc, latestSeq, loadedRef, vaultId, trash, query, unfiltered, reloadKey, refetch]);
 
   // A save arrived: update the list in place; load again only when that cannot be exact.
-  const latest = useLatest({ fetched, view: { vaultId, trash, query } });
-  const handled = useRef(saved?.seq ?? 0);
-  useEffect(() => {
-    if (saved === null || saved.seq === handled.current) {
-      return;
-    }
-    handled.current = saved.seq;
-    const { fetched: now, view } = latest.current;
-    const next = applySaved(now, saved.summary, view);
+  if (saved !== null && saved.seq !== handledSeq) {
+    setHandledSeq(saved.seq);
+    const next = applySaved(fetched, saved.summary, { vaultId, trash, query });
     if (next === null) {
       setRefetch((n) => n + 1);
     } else {
       setFetched(next);
     }
-  }, [saved, latest]);
+  }
 
   const items = useMemo(
     () => fetched?.items.filter((item) => matchesCategory(item, category)) ?? null,
