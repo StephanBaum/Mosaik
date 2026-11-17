@@ -1,0 +1,75 @@
+name: Bug report
+description: Something in Mosaic does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please keep it short.
+        **Is it a security problem?** Then stop here and use the private report instead:
+        https://github.com/StephanBaum/Mosaik/security/advisories/new
+        **Never paste real passwords, keys, codes or vault contents.** Test with a throwaway account.
+  - type: dropdown
+    id: part
+    attributes:
+      label: Where did it happen?
+      options:
+        - Desktop app (Windows)
+        - Desktop app (macOS preview)
+        - Desktop app (Linux)
+        - Browser extension (Chrome)
+        - Browser extension (Edge)
+        - Browser extension (Firefox)
+        - Android app
+        - Command line (mosaic)
+        - Agent access (MCP)
+        - Sync server
+        - Website
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → About in the app, or `mosaic --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System and language
+      description: Operating system and version, browser if it matters, and the app language.
+      placeholder: "Windows 11 24H2, Chrome 142, app in German"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. See …
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots (blur anything personal), error text, how often it happens.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send it
+      options:
+        - label: This report contains no real passwords, keys, one-time codes or vault data.
+          required: true
+        - label: This is not a security vulnerability (those go to the private report).
+          required: true

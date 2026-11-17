@@ -56,14 +56,16 @@ impl SkewedGridLocation {
         /* Rotate each capstone so that corner 0 is top-left with respect
          * to the grid.
          */
-        rotate_capstone(&mut group.0, &h0, &hd);
-        rotate_capstone(&mut group.1, &h0, &hd);
-        rotate_capstone(&mut group.2, &h0, &hd);
+        // Mosaic patch: a degenerate capstone ends this grouping instead of panicking.
+        rotate_capstone(&mut group.0, &h0, &hd)?;
+        rotate_capstone(&mut group.1, &h0, &hd)?;
+        rotate_capstone(&mut group.2, &h0, &hd)?;
 
         /* Check the timing pattern. This doesn't require a perspective
          * transform.
          */
-        let grid_size = measure_timing_pattern(img, &group);
+        // Mosaic patch: no timing transitions drops this grouping (was an assert).
+        let grid_size = measure_timing_pattern(img, &group)?;
 
         /* Make an estimate based for the alignment pattern based on extending
          * lines from capstones A and C.
@@ -86,11 +88,12 @@ impl SkewedGridLocation {
                 best: align,
                 score,
             };
+            // Mosaic patch: `repaint_and_apply` returns `None` instead of panicking.
             let found = img.repaint_and_apply(
                 (align.x as usize, align.y as usize),
                 PixelColor::Alignment,
                 finder,
-            );
+            )?;
             align = found.best;
         }
 
@@ -164,18 +167,19 @@ where
     Some(jiggle_perspective(img, initial, grid_size))
 }
 
-fn rotate_capstone(cap: &mut CapStone, h0: &Point, hd: &Point) {
+// Mosaic patch: returns None (no panic) when the rotated corners give no perspective; a hostile
+// image can produce such corners (fuzz smoke, scan_luma, 2026-11-15).
+fn rotate_capstone(cap: &mut CapStone, h0: &Point, hd: &Point) -> Option<()> {
     let (best_idx, _) = cap
         .corners
         .iter()
         .enumerate()
-        .min_by_key(|(_, a)| (a.x - h0.x) * (-hd.y) + (a.y - h0.y) * hd.x)
-        .expect("corners cannot be empty");
+        .min_by_key(|(_, a)| (a.x - h0.x) * (-hd.y) + (a.y - h0.y) * hd.x)?;
 
     /* Rotate the capstone */
     cap.corners.rotate_left(best_idx);
-    cap.c = geometry::Perspective::create(&cap.corners, 7.0, 7.0)
-        .expect("rotated perspective can't fail");
+    cap.c = geometry::Perspective::create(&cap.corners, 7.0, 7.0)?;
+    Some(())
 }
 
 //* Try the measure the timing pattern for a given QR code. This does
@@ -187,7 +191,9 @@ fn rotate_capstone(cap: &mut CapStone, h0: &Point, hd: &Point) {
 // * which is nearest the centre of the code. Using these points, we do
 // * a horizontal and a vertical timing scan.
 // */
-fn measure_timing_pattern<S>(img: &PreparedImage<S>, caps: &CapStoneGroup) -> usize
+// Mosaic patch: returns `None` instead of asserting when neither timing scan
+// sees a transition; a hostile image can make both scan lines uniform.
+fn measure_timing_pattern<S>(img: &PreparedImage<S>, caps: &CapStoneGroup) -> Option<usize>
 where
     S: ImageBuffer,
 {
@@ -203,10 +209,12 @@ where
     let scan = cmp::max(hscan, vscan);
 
     /* Choose the nearest allowable grid size */
-    assert!(scan >= 1);
+    if scan < 1 {
+        return None;
+    }
     let size = scan + 13;
     let ver = (size as f64 - 15.0).floor() as usize / 4;
-    ver * 4 + 17
+    Some(ver * 4 + 17)
 }
 
 fn timing_scan<S>(img: &PreparedImage<S>, p0: &Point, p1: &Point) -> usize
@@ -253,9 +261,18 @@ where
      * point.
      */
     let mut dir = 0;
-    let mut step_size = 1;
+    let mut step_size = 1usize;
 
-    while step_size * step_size < size_estimate * 100 {
+    // Mosaic patch: saturating, so a 32-bit target cannot overflow (a debug
+    // panic) or wrap into a much longer search; 64-bit results are unchanged.
+    // Mosaic patch: the spiral never goes past MAX_ALIGN_STEP. A misshaped capstone can make
+    // size_estimate about 2e9, which asked for about 2e11 iterations (a hung scan). A real
+    // alignment pattern is found within about ten module widths, so 1024 steps cover module
+    // sizes up to about 100 px; worst case about a million cheap iterations.
+    const MAX_ALIGN_STEP: usize = 1024;
+    while step_size <= MAX_ALIGN_STEP
+        && step_size.saturating_mul(step_size) < size_estimate.saturating_mul(100)
+    {
         const DX_MAP: [i32; 4] = [1, 0, -1, 0];
         const DY_MAP: [i32; 4] = [0, -1, 0, 1];
         for _pass in 0..step_size {
@@ -264,9 +281,10 @@ where
 
             // Alignment pattern should not be white
             if x < img.width() && y < img.height() && PixelColor::White != img.get_pixel_at(x, y) {
+                // Mosaic patch: `get_region` returns an `Option` instead of panicking.
                 let region = img.get_region((x, y));
                 let count = match region {
-                    ColoredRegion::Unclaimed { pixel_count, .. } => pixel_count,
+                    Some(ColoredRegion::Unclaimed { pixel_count, .. }) => pixel_count,
                     _ => continue,
                 };
 

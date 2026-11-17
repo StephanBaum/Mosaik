@@ -52,7 +52,7 @@ mosaic-totp = { path = "../../../crates/totp" }
 mosaic-vault = { path = "../../../crates/vault" }
 # The system browser for the security-key handoff page (ADR-0077): the Tauri opener plugin is not
 # in the tree, and the surface test keeps it out. Called from one place, with a URL Rust builds.
-open = "=5.3.2"
+open = "=5.4.5"
 pdf-writer.workspace = true
 # The setup code QR for a phone (ADR-0096): Rust renders the module matrix, the webview draws it.
 # Pinned by the workspace (ADR-0031), no new crate in the tree.

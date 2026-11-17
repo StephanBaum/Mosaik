@@ -320,19 +320,18 @@ fn g3_4_loopback_http_on_a_phone_needs_allow_http() {
 /// never an app target or an app match.
 #[test]
 fn g3_5_a_browser_package_is_never_an_app_login() {
-    let (phone, _) = Phone::android_with_account();
+    let (phone, sk) = Phone::android_with_account();
     let chrome = browser();
-    login(
-        &phone,
+    // Typing and import refuse a cert-bound URL (cross-feature F1); sync still delivers one.
+    phone.plant_login(
+        &sk,
         "Bank",
-        vec![url(
-            &format!(
-                "androidapp://{}?cert={}",
-                chrome.package,
-                b64url(&ATTACKER_CERT)
-            ),
-            false,
+        &[&format!(
+            "androidapp://{}?cert={}",
+            chrome.package,
+            b64url(&ATTACKER_CERT)
         )],
+        false,
     );
     let mut fake = caller(&chrome.package, ATTACKER_CERT);
     fake.web_domain = Some("anything.example".to_owned());

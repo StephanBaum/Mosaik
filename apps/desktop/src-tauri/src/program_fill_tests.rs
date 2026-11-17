@@ -410,6 +410,28 @@ impl Env {
             .collect()
     }
 
+    /// Marks the vault shared in the store (as a sync of its membership would) and unlocks again.
+    fn share_vault(&self) {
+        {
+            let mut slot = self.b().slot().unwrap();
+            let crate::state::Slot::Unlocked(session) =
+                std::mem::replace(&mut *slot, crate::state::Slot::Taken)
+            else {
+                panic!("unlocked");
+            };
+            let me = session.account_id();
+            let mut store = session.lock().into_store();
+            store.set_vault_sharing(&self.vault, 1, &me, false).unwrap();
+            *slot = crate::state::Slot::Locked(LockedSession::open(store));
+        }
+        self.b()
+            .unlock(UnlockRequest {
+                password: SecretIn::test(PASSWORD),
+                secret_key: Some(SecretIn::test(&self.secret_key)),
+            })
+            .unwrap();
+    }
+
     fn urls_of(&self, item: ItemId) -> Vec<LoginUrl> {
         let slot = self.b().slot().unwrap();
         slot.unlocked()
@@ -1432,4 +1454,76 @@ fn search_finds_logins_by_title_user_or_host_and_is_capped() {
         })
         .unwrap_err();
     assert_eq!(stale.code, ErrorCode::PickerStale);
+}
+
+/// Cross-feature red team F2: in a shared vault any member with write access chooses a login's
+/// bindings, their Enter switch and their display data. Such a binding is never a match here: the
+/// login is a suggestion, it fills only after this device's own link step, never with Enter, and
+/// the item view names the program by its URL, not by the member's text (ADR-0164 amendment).
+#[test]
+fn a_shared_vault_binding_is_only_a_suggestion_and_never_presses_enter() {
+    use mosaic_program_fill::binding::{ProgramDisplay, set_program_display};
+    let e = Env::new();
+    let mut planted = signed_url("slack.exe", SLACK_SIGNER);
+    set_program_display(
+        &mut planted,
+        &ProgramDisplay {
+            name: "Microsoft Teams".into(),
+            signer: Some("Microsoft Corporation".into()),
+        },
+    );
+    let item = e.add_login("Work", "member-user", SLACK_PW, &[planted]);
+    e.share_vault();
+    e.start();
+    e.open_list(password_field(1, Env::slack_identity()));
+    let state = e.state_now();
+    assert_eq!(state.matches.len(), 0, "a member's binding is no match");
+    assert_eq!(
+        state
+            .suggestions
+            .iter()
+            .map(|s| s.item_id.get())
+            .collect::<Vec<_>>(),
+        vec![item]
+    );
+    assert_eq!(
+        e.b().picker_choose(&e.item_request(item)).unwrap_err().code,
+        ErrorCode::InvalidInput
+    );
+    assert_eq!(e.fills().len(), 0);
+
+    // This device's link step fills it, and Enter stays off.
+    let step = e.b().picker_link_begin(&e.item_request(item)).unwrap();
+    assert!(!step.submit);
+    let generation = e.generation();
+    e.advance(LINK_MIN_DELAY_MS);
+    assert_eq!(
+        e.b()
+            .picker_link_confirm(&PickerGenerationRequest { generation })
+            .unwrap(),
+        LinkConfirmResult::Linked
+    );
+    assert_eq!(
+        e.fills(),
+        vec![HostCall::Fill {
+            token: 1,
+            username: Some("member-user".into()),
+            has_password: true,
+            submit: false,
+            continuation: false,
+        }]
+    );
+
+    // The item view shows the exe name of the URL, no signer name and no Enter.
+    let detail = e
+        .b()
+        .get_item(crate::contract::items::ItemRequest {
+            vault_id: WireVaultId::from(e.vault),
+            item_id: WireItemId::from(item),
+        })
+        .unwrap();
+    let program = detail.urls.iter().find_map(|u| u.program.clone()).unwrap();
+    assert_eq!(program.name, "slack.exe");
+    assert_eq!(program.signer, None);
+    assert!(!program.submit);
 }
