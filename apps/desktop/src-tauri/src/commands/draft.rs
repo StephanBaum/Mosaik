@@ -37,20 +37,15 @@ fn element(id: &str) -> IpcResult<ElementId> {
     ElementId::from_stored(id).map_err(|_| invalid())
 }
 
-/// Whether `text` names a program binding. The editor never writes one: a `winapp://` URL comes
-/// from the picker's link step (which proves the program) or not at all (ADR-0164).
-fn is_program_url_text(text: &str) -> bool {
-    text.trim()
-        .get(..7)
-        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("winapp:"))
-}
-
 fn login_url(url: &str, match_mode: UrlMatchMode, allow_http: bool) -> IpcResult<LoginUrl> {
     let url = url.trim();
     if url.is_empty() || url.len() > MAX_URL_LEN || url.chars().any(char::is_control) {
         return Err(invalid());
     }
-    if is_program_url_text(url) {
+    // The editor never writes a device binding: a `winapp://` URL comes from the picker's link
+    // step (which proves the program, ADR-0164) and a cert-bound `androidapp://` URL from the
+    // phone's link step (ADR-0092), or not at all.
+    if mosaic_origin::is_device_link_url(url) {
         return Err(invalid());
     }
     let mut login = LoginUrl::new(url);

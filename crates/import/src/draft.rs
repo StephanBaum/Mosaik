@@ -587,8 +587,12 @@ impl Builder {
             if self.draft.urls.iter().any(|u| u.as_str() == v) {
                 return;
             }
+            if mosaic_origin::is_device_link_url(v) {
+                self.device_link_url(v, label);
+                return;
+            }
             // A login URL is used for matching, so only a web origin or an
-            // Android app link is kept as one (spec 7).
+            // Android app link without a certificate is kept as one (spec 7).
             let origin = mosaic_origin::saved_origin(v);
             if origin.is_some() || mosaic_origin::app::AndroidAppUrl::parse(v).is_ok() {
                 if origin.is_some_and(|o| mosaic_origin::idn_unicode(&o.host_str()).is_some()) {
@@ -604,6 +608,24 @@ impl Builder {
         } else {
             self.custom(label, Kind::Url, v);
         }
+    }
+
+    /// A program binding or a cert-bound app link comes only from a device's
+    /// link step (ADR-0164, ADR-0092), so a crafted export cannot pre-link a
+    /// login. An app link keeps its package, unbound, which needs linking on
+    /// the phone; the original stays as text (cross-feature red team F1).
+    fn device_link_url(&mut self, v: &str, label: &str) {
+        let unbound = mosaic_origin::app::AndroidAppUrl::parse(v)
+            .and_then(|app| mosaic_origin::app::AndroidAppUrl::new(app.package(), None))
+            .map(|app| mosaic_origin::app::AndroidAppUrl::canonical(&app));
+        if let Ok(unbound) = unbound
+            && self.room()
+            && !self.draft.urls.iter().any(|u| u.as_str() == unbound)
+        {
+            self.draft.urls.push(Text::new(&unbound));
+        }
+        self.custom(label, Kind::Text, v);
+        self.warn(EntryWarning::UrlKeptAsText);
     }
 
     /// Adds an OTP value: the item's OTP (logins and TOTP items, first one
@@ -1148,6 +1170,32 @@ mod tests {
         let (d, w) = b.finish().unwrap();
         let urls: Vec<&str> = d.urls.iter().map(Text::as_str).collect();
         assert_eq!(urls, Vec::<&str>::new());
+        assert_eq!(d.custom_fields.len(), 3);
+        assert!(w.contains(&EntryWarning::UrlKeptAsText));
+    }
+
+    /// A crafted export cannot bind a login to an attacker's signing
+    /// certificate: a cert-bound `androidapp://` URL comes only from the
+    /// phone's link step (ADR-0092). The package stays, unbound, so it still
+    /// needs linking; the original is kept as text (cross-feature F1).
+    #[test]
+    fn an_imported_app_url_never_carries_a_certificate() {
+        let cert = "ERERERERERERERERERERERERERERERERERERERERERE";
+        let mut b = Builder::new(ItemType::Login);
+        for u in [
+            format!("androidapp://com.bank.app?cert={cert}"),
+            format!("ANDROIDAPP://com.bank.app?cert={cert}"),
+            "androidapp://com.other.app?cert=bad".to_owned(),
+        ] {
+            b.url(&u, "URL");
+        }
+        let (d, w) = b.finish().unwrap();
+        let urls: Vec<&str> = d.urls.iter().map(Text::as_str).collect();
+        assert_eq!(urls, ["androidapp://com.bank.app"]);
+        for url in &d.urls {
+            let app = mosaic_origin::app::AndroidAppUrl::parse(url.as_str()).unwrap();
+            assert!(app.cert_sha256().is_none());
+        }
         assert_eq!(d.custom_fields.len(), 3);
         assert!(w.contains(&EntryWarning::UrlKeptAsText));
     }

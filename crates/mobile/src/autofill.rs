@@ -600,8 +600,26 @@ pub(crate) fn usable_vaults(session: &UnlockedSession) -> HashSet<VaultId> {
         .collect()
 }
 
-/// How the saved URLs of a login match a target: the best match, else why not.
-fn match_item(item: &Item, target: &Resolved) -> std::result::Result<MatchKind, Refusal> {
+/// Those of `vaults` that are shared (a vault whose state cannot be read counts as shared).
+///
+/// In a shared vault any member with write access chose the login's URLs, and an app binding
+/// there was never proven on this phone: it never fills an app. Its web URLs still match by
+/// exact origin (ADR-0092 amendment, cross-feature red team F2).
+fn shared_of(session: &UnlockedSession, vaults: &HashSet<VaultId>) -> HashSet<VaultId> {
+    vaults
+        .iter()
+        .copied()
+        .filter(|v| session.vault_shared(*v).unwrap_or(true))
+        .collect()
+}
+
+/// How the saved URLs of a login match a target: the best match, else why not. `shared`: the
+/// login is in a shared vault, so its app bindings never match ([`shared_of`]).
+fn match_item(
+    item: &Item,
+    target: &Resolved,
+    shared: bool,
+) -> std::result::Result<MatchKind, Refusal> {
     let mut insecure = false;
     let mut best: Option<MatchKind> = None;
     for (_, url) in item.urls() {
@@ -609,6 +627,7 @@ fn match_item(item: &Item, target: &Resolved) -> std::result::Result<MatchKind, 
             Resolved::Web(page) => {
                 fill_allowed_with(&url, page, HttpPolicy::LoopbackNeedsAllowHttp)
             }
+            Resolved::App { .. } if shared => Err(Refusal::NoMatch),
             Resolved::App { package, certs } => app::app_fill_allowed(&url, package, certs),
         };
         match verdict {
@@ -758,6 +777,7 @@ impl Core {
         let held = resolved.clone();
         let (mut list, insecure) = self.with_session(|s| {
             let usable = usable_vaults(s);
+            let shared = shared_of(s, &usable);
             let mut list = Vec::new();
             let mut insecure = false;
             for entry in s.items(&SessionFilter::default()) {
@@ -766,7 +786,7 @@ impl Core {
                 {
                     continue;
                 }
-                match match_item(entry.item, &resolved) {
+                match match_item(entry.item, &resolved, shared.contains(&entry.vault_id)) {
                     Ok(kind) => {
                         let key = ItemKey {
                             vault_id: entry.vault_id.to_string(),
@@ -848,7 +868,7 @@ impl Core {
             if item.item_type() != Some(ItemType::Login) {
                 return Err(MobileError::NoMatch);
             }
-            match match_item(item, &resolved) {
+            match match_item(item, &resolved, s.vault_shared(vault).unwrap_or(true)) {
                 Ok(_) => {}
                 Err(Refusal::Insecure) => return Err(MobileError::InsecureOrigin),
                 Err(_) => {
@@ -913,8 +933,8 @@ impl Core {
     /// the login's other URLs of the same package.
     ///
     /// # Errors
-    /// `locked`, `notFound`, `invalidInput` (a bad package or certificate, or
-    /// not a login), `vaultUnavailable`.
+    /// `locked`, `notFound`, `invalidInput` (a bad package or certificate, not
+    /// a login, or a login of a shared vault), `vaultUnavailable`.
     pub fn link_android_app(
         &self,
         vault_id: &str,
@@ -963,6 +983,7 @@ impl Core {
         let web_domain = package_web_domain(package);
         self.with_session(|s| {
             let usable = usable_vaults(s);
+            let shared = shared_of(s, &usable);
             let writable: HashSet<VaultId> = usable
                 .iter()
                 .copied()
@@ -979,7 +1000,10 @@ impl Core {
             };
             for entry in s.items(&SessionFilter::default()) {
                 let item = entry.item;
+                // A login of a shared vault never fills an app, so it is neither linked nor a
+                // candidate: a link there would be a binding any member can change (F2).
                 if !usable.contains(&entry.vault_id)
+                    || shared.contains(&entry.vault_id)
                     || item.item_type() != Some(ItemType::Login)
                     || item.is_deleted()
                     || item.trashed_at().is_some()
@@ -987,7 +1011,7 @@ impl Core {
                     continue;
                 }
                 // A login of a read-only vault still fills, so it counts.
-                if match_item(item, &target).is_ok() {
+                if match_item(item, &target, false).is_ok() {
                     scan.already_linked = true;
                 }
                 if !writable.contains(&entry.vault_id) {
@@ -1269,6 +1293,10 @@ fn write_app_link(
     let new_url = LoginUrl::new(&linked.canonical());
     if !usable_vaults(s).contains(&vault) {
         return Err(MobileError::VaultUnavailable);
+    }
+    // A binding in a shared vault never fills an app (F2), so none is written there.
+    if s.vault_shared(vault).unwrap_or(true) {
+        return Err(MobileError::InvalidInput);
     }
     let item = s.item(vault, id)?;
     if item.is_deleted() || item.item_type() != Some(ItemType::Login) {
