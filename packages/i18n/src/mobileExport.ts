@@ -229,7 +229,7 @@ function androidText(variant: Variant, entry: MobileEntry, formatted: boolean): 
 
 /**
  * Locales whose CLDR `one` covers more than one number (fr and pt: 0 and 1). Android lint
- * (ImplicitQuantity) wants the count in such a `one` text; a label like "Site web" is correct
+ * (ImpliedQuantity) wants the count in such a `one` text; a label like "Site web" is correct
  * for 0 and 1 there, so those plurals tell lint to skip that check.
  */
 const ONE_SPANS_ZERO: ReadonlySet<ExportLocale> = new Set<ExportLocale>(["fr", "pt"]);
@@ -245,7 +245,7 @@ function androidResource(entry: MobileEntry, locale: ExportLocale): string {
     const one = variants.find((v) => v.selector === "one");
     const implicit =
       ONE_SPANS_ZERO.has(locale) && one !== undefined && !androidText(one, entry, true).includes("$d");
-    const ignore = implicit ? ' tools:ignore="ImplicitQuantity"' : "";
+    const ignore = implicit ? ' tools:ignore="ImpliedQuantity"' : "";
     return `  <plurals name="${name}"${ignore}>\n${items.join("\n")}\n  </plurals>`;
   }
   const variant = message.variants[0] as Variant;

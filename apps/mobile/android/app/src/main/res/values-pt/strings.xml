@@ -128,7 +128,7 @@
     <item quantity="other">%1$s exibido. Ele é ocultado de novo em %2$d segundos.</item>
   </plurals>
   <string name="item_tags">Etiquetas</string>
-  <plurals name="item_urls" tools:ignore="ImplicitQuantity">
+  <plurals name="item_urls" tools:ignore="ImpliedQuantity">
     <item quantity="one">Site</item>
     <item quantity="many">Sites</item>
     <item quantity="other">Sites</item>
