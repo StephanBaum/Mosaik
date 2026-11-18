@@ -28,9 +28,12 @@ import { breach } from "./catalog/zh/breach.ts";
 import { mobile } from "./catalog/zh/mobile.ts";
 import { mobileUx } from "./catalog/zh/mobileUx.ts";
 import { mobileFolder } from "./catalog/zh/mobileFolder.ts";
+import { web } from "./catalog/en/web/index.ts";
 import type { MessageKey } from "./en.ts";
 
 export const zh: Readonly<Record<MessageKey, string>> = {
+  // The website is not translated into the app-only languages (ADR-0168): its keys fall back to English.
+  ...web,
   ...app,
   ...errors,
   ...onboarding,

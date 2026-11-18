@@ -1,0 +1,22 @@
+/* DM Sans variable (wght clamped to 400-700, opsz 9-40), subset at build time to the characters of the web
+   catalogs (scripts/fonts.ts) from @fontsource-variable/dm-sans (OFL 1.1, no Reserved Font Name).
+   The one preloaded font. Characters it lacks fall back to the metric-matched face below. */
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url("../../node_modules/.cache/mosaic-fonts/dm-sans-sub.woff2") format("woff2");
+}
+
+/* Metric-matched local fallback, so the swap to DM Sans moves nothing (concept §2 Loading).
+   Measured in Chromium against DM Sans 400: advance width 92.04 % of Arial; ascender 992 and
+   descender 310 per 1000 units, divided by the size adjustment. */
+@font-face {
+  font-family: "DM Sans Fallback";
+  src: local("Arial"), local("Helvetica Neue"), local("Helvetica"), local("Liberation Sans");
+  size-adjust: 92.04%;
+  ascent-override: 107.78%;
+  descent-override: 33.68%;
+  line-gap-override: 0%;
+}

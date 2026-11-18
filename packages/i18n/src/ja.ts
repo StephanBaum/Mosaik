@@ -28,9 +28,12 @@ import { breach } from "./catalog/ja/breach.ts";
 import { mobile } from "./catalog/ja/mobile.ts";
 import { mobileUx } from "./catalog/ja/mobileUx.ts";
 import { mobileFolder } from "./catalog/ja/mobileFolder.ts";
+import { web } from "./catalog/en/web/index.ts";
 import type { MessageKey } from "./en.ts";
 
 export const ja: Readonly<Record<MessageKey, string>> = {
+  // The website is not translated into the app-only languages (ADR-0168): its keys fall back to English.
+  ...web,
   ...app,
   ...errors,
   ...onboarding,

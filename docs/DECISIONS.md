@@ -6763,6 +6763,74 @@ them inside the chosen folder, and the provider client has a loopback `http` swi
 - **Metadata call before every Graph download.** Rejected: the download response carries its length, which is
   checked against the cap before the body is read.
 
+## ADR-0167: Website runtime: static pages, tiered effects, view transitions
+
+- Status: accepted
+- Date: 2026-11-15
+- Milestone: website launch (`feat/web`, plan `docs/superpowers/plans/2026-11-15-website-launch.md`)
+
+### Context
+The marketing site `apps/web` takes on the approved prototype's look (tower-city field, veil wipe, data layer,
+panel glyph rings, holo buttons, interface demos) and must stay a static, prerendered, CSP-strict site that paints
+from HTML and CSS alone, never takes input, sends nothing to third parties and fits hard size and runtime budgets.
+The prototype loaded GSAP from a CDN and ran everything at once.
+
+### Decision
+- **Static pages, lazy effects.** React renders every route and language at build time (`scripts/prerender.ts`);
+  the browser gets HTML, one stylesheet, an entry module under 8 kB gzip and on-demand chunks. The field, veil,
+  data layer and rings are one lazy chunk (`src/field/bootField.ts`) that boots after `load` plus idle. The
+  prototype's GSAP code became a small in-house timeline (`src/anim`); GSAP does not ship.
+- **Capability tiers.** `fxTier` picks `none` (reduced motion, the footer motion toggle, Save-Data, 2G, no WebGL2
+  without a major performance caveat, 2 cores or less, under 2 GB), `lite` (coarse pointer, 4 cores or less,
+  4 GB or less, 3G, narrow viewport) or `full`. A frame-time governor drops `full` to `lite` and `lite` to the CSS
+  still; a lost WebGL context drops to the still.
+- **1. No Lighthouse CI.** `@lhci/cli` pulls a large dependency tree for numbers Playwright already measures. Byte
+  budgets run in the build (`scripts/budget.ts`), LCP, CLS and TBT in Playwright with CDP throttling
+  (`e2e/perf.spec.ts`). Lighthouse may be run by hand once per milestone.
+- **2. Cross-document View Transitions in CSS.** The old page fades (200 ms), the new one wipes in diagonally
+  (460 ms). The veil wipe (320 ms) plays before navigation only for pointer clicks on `data-nav` links on tier
+  `full`; modified clicks, keyboard Enter, `target` and `download` links navigate plainly. Browsers without the
+  API navigate plainly; reduced motion skips the transition. An aborted transition's promises are caught
+  (`src/nav/wireNav.ts`), so no uncaught `InvalidStateError` reaches the console.
+- **3. Prefetch, never prerender.** Same-origin `Speculation-Rules` (`prefetch`, `moderate`) through a header;
+  prerender would boot WebGL for a page nobody sees.
+- **4. DM Sans subset at build time** to the characters of the web catalogs (keeps the `wght` and `opsz` axes) and
+  preloaded as the only preload. IBM Plex Mono is used unmodified (fontsource latin files) and never preloaded:
+  its OFL carries the Reserved Font Name "Plex", so a subset could not keep the name.
+- **5. Trusted Types enforced** (`require-trusted-types-for 'script'; trusted-types 'none'`): no runtime code path
+  needs an HTML sink; runtime code builds DOM with `createElement`/`textContent` and writes styles with
+  `el.style.setProperty`. No inline script runs, so the CSP needs no hashes.
+- **6. Two routes for the launch extras**, `/report/` and `/security/challenge/` (DE `/de/melden/`,
+  `/de/sicherheit/challenge/`), which link to GitHub; the site itself still takes no input.
+- **7. Claims gate instead of "not built yet" badges.** Every sentence about a feature that ships after the site is
+  registered in `src/pages/claims.ts` (G1 to G10); a production build (`MOSAIC_DEPLOY=production`) stops while a
+  gate is open, as it does while `site.legalReady` is false. Platforms that are not launch targets (iPhone, Linux)
+  are not promised at all.
+- **Offscreen sections skip rendering.** Every `main > .section` after the first and the footer carry
+  `content-visibility: auto` with a remembered intrinsic size: laying out the whole long page before the first paint
+  cost about a second of main-thread time on the throttled phone profile. Script must not measure inside a
+  skipped section before it nears the viewport (that forces the rest of the page to render at once), so the demos
+  are built when they come within one viewport height.
+
+### Alternatives considered
+- **Lighthouse CI:** a heavy dependency for metrics the Playwright suite already enforces.
+- **GSAP, self-hosted:** tens of kilobytes of runtime for the tweens and the one timeline the site needs, which the
+  in-house `src/anim` covers in a few kilobytes.
+- **Prerender speculation:** instant navigations, but WebGL, demos and holo would boot in hidden pages.
+- **Subsetting Plex:** a smaller file, but a modified Plex may not keep the name (Reserved Font Name).
+- **Inline scripts with CSP hashes:** every content change would change a hash; external modules keep the CSP static.
+- **JS-driven page transitions (SPA router):** a runtime framework in the browser and broken back/forward
+  semantics; cross-document transitions keep plain pages.
+
+### Consequences
+- A production build fails until the owner verifies the claims G1 to G10 and sets `site.legalReady`.
+- The `web` CI job (build, budgets, unit tests, Playwright) must be made a required check on `main`.
+- The runtime budgets run against software WebGL in CI; once per milestone the owner runs them with
+  `WEB_PERF_GPU=1` on a machine with a GPU, which asserts the field's TBT budget at full strength.
+- LCP as Chromium reports it skips text that fades in from opacity 0 (the hero intro), so the measured LCP element
+  on the home page is the header button or the eyebrow, not the headline; the headline starts fading in about
+  100 ms after the first paint.
+
 ## ADR-0168: App languages beyond German and English
 
 - Status: accepted

@@ -1,0 +1,94 @@
+/* ---------- The encrypted field (WebGL) and the transition veil ---------- */
+
+.field,
+.field-data,
+.veil {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.field,
+.field-data {
+  z-index: 0;
+}
+
+/* The canvas fades in over the still once it has drawn its first frame. */
+.field {
+  opacity: 0;
+  transition: opacity 600ms var(--ease-enter);
+}
+
+.field.is-on {
+  opacity: 1;
+}
+
+/* Panel glyph rings: above the content, below the sticky header. */
+.panel-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.field-still {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 60% 50% at 70% 20%, var(--tint-18), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 20% 10%, var(--sky-12), transparent 70%);
+  pointer-events: none;
+  transition: opacity 600ms var(--ease-enter);
+}
+
+.field-still::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, var(--mask-solid) 30%, transparent 75%);
+}
+
+/* The running field replaces the still; dropping back (context loss, toggle) shows it again. */
+.field.is-on ~ .field-still {
+  opacity: 0;
+}
+
+.veil {
+  z-index: var(--layer-veil);
+  display: none;
+}
+
+.veil.is-on {
+  display: block;
+}
+
+.transit-hint {
+  position: fixed;
+  left: 50%;
+  bottom: clamp(24px, 5vh, 48px);
+  z-index: calc(var(--layer-veil) + 1);
+  transform: translateX(-50%);
+  color: var(--paper-2);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Content sits above the fixed field. */
+main,
+.site-footer {
+  position: relative;
+  z-index: 1;
+}

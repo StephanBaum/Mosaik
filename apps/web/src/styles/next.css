@@ -1,0 +1,64 @@
+/* Next: five steps under a line that draws itself (prototype 3000-3116). The finished list is the
+   default; src/demos/nextSteps.ts replays the build-up once. */
+
+.hero--next .hero__top {
+  margin-bottom: clamp(40px, 5vw, 64px);
+}
+
+.steps {
+  position: relative;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.steps__line {
+  display: none;
+}
+
+.steps__line path {
+  fill: none;
+  stroke: var(--tint);
+  stroke-width: 2;
+  stroke-dasharray: 1000;
+}
+
+@media (min-width: 640px) and (max-width: 999.98px) {
+  .steps {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 1000px) {
+  .steps {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding-top: 28px;
+  }
+
+  .steps__line {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: block;
+    height: 28px;
+    overflow: visible;
+  }
+}
+
+.step-card__tick {
+  position: absolute;
+  top: var(--space-5);
+  right: var(--space-5);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: var(--border-hairline) solid var(--rule-strong);
+  color: var(--c-mint-soft);
+}
+
+.step-card__tick .icon {
+  width: 14px;
+  height: 14px;
+}

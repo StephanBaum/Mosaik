@@ -1,0 +1,40 @@
+/* Cross-document view transitions: the old page fades up and out, the new page wipes in
+   diagonally from the top left to the bottom right, like the veil. Browsers without the API
+   navigate plainly; reduced motion gets no transition at all. */
+
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+
+  .site-header {
+    view-transition-name: site-header;
+  }
+
+  ::view-transition-old(root) {
+    animation: vt-out 200ms var(--ease-standard) both;
+  }
+
+  ::view-transition-new(root) {
+    animation: vt-wipe 460ms var(--ease-enter) both;
+    mask-image: linear-gradient(135deg, var(--mask-solid) 45%, transparent 55%);
+    mask-size: 300% 300%;
+  }
+
+  @keyframes vt-out {
+    to {
+      opacity: 0;
+      transform: translateY(-18px);
+    }
+  }
+
+  @keyframes vt-wipe {
+    from {
+      mask-position: 100% 100%;
+    }
+
+    to {
+      mask-position: 0 0;
+    }
+  }
+}

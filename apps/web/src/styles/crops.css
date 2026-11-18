@@ -1,0 +1,28 @@
+/* Crop windows for close-up visuals, one per detail (the only place that knows where a detail
+   sits in a screenshot). All app shots are 1280 x 800 at 1x; a window is x, y, width, height in
+   those pixels, expressed as the image width and offset relative to the window. */
+
+.crop img {
+  transform: translate(calc(-1 * var(--cx, 0%)), calc(-1 * var(--cy, 0%)));
+}
+
+/* x 560, y 330, 700 x 230: the one-time code with its ring, and the website row. */
+[data-crop="vault-totp"] { --crop-ratio: 700 / 230; --crop-w: 182.9%; --cx: 43.75%; --cy: 41.25%; }
+
+/* x 250, y 70, 1030 x 560: the item list and the open login. */
+[data-crop="vault-list"] { --crop-ratio: 1030 / 560; --crop-w: 124.3%; --cx: 19.53%; --cy: 8.75%; }
+
+/* x 280, y 110, 920 x 300: sync server, account, device and status. */
+[data-crop="sync-backend"] { --crop-ratio: 920 / 300; --crop-w: 139.1%; --cx: 21.88%; --cy: 13.75%; }
+
+/* x 380, y 180, 520 x 300: the unlock title and master password field. */
+[data-crop="unlock-field"] { --crop-ratio: 520 / 300; --crop-w: 246.2%; --cx: 29.69%; --cy: 22.5%; }
+
+/* x 560, y 70, 700 x 360: a passkey item with its site and account. */
+[data-crop="passkeys-row"] { --crop-ratio: 700 / 360; --crop-w: 182.9%; --cx: 43.75%; --cy: 8.75%; }
+
+/* x 290, y 80, 950 x 480: the security overview tiles. */
+[data-crop="insights-cards"] { --crop-ratio: 950 / 480; --crop-w: 134.7%; --cx: 22.66%; --cy: 10%; }
+
+/* x 280, y 80, 660 x 500: the import preview with its hints. */
+[data-crop="import-preview"] { --crop-ratio: 660 / 500; --crop-w: 193.9%; --cx: 21.88%; --cy: 10%; }

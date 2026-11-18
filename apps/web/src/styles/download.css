@@ -1,0 +1,154 @@
+/* Download: platform groups and the signed and next cards (prototype 2864-2999; the steps list
+   from 3000 on lives in next.css). */
+
+.dl-visual {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.dl-cta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: var(--space-4);
+}
+
+.dl-cta .button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+.platform-section {
+  padding-top: clamp(64px, 8vw, 120px);
+}
+
+.platform-groups {
+  display: grid;
+  gap: var(--space-8) var(--gutter);
+}
+
+@media (min-width: 1000px) {
+  .platform-groups {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .platform-group--computer { grid-column: 1 / span 7; }
+  .platform-group--phone { grid-column: 8 / span 5; }
+  .platform-group--browser { grid-column: 1 / span 7; }
+  .platform-group--cli { grid-column: 8 / span 5; }
+}
+
+.platform-group__title {
+  margin-bottom: var(--space-4);
+  color: var(--tint-text);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.platforms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.platform__link,
+.platform--soon {
+  display: grid;
+  gap: var(--space-2);
+  min-height: 132px;
+  padding: var(--space-5);
+  border: var(--border-hairline) solid var(--rule-strong);
+  border-radius: var(--r-card);
+  background: var(--ink-raised);
+  text-decoration: none;
+  transition: border-color var(--motion-hover) var(--ease-standard), transform var(--motion-panel) var(--ease-enter);
+}
+
+.platform__link:hover {
+  border-color: var(--tint);
+  transform: translateY(-2px);
+}
+
+.platform__icon {
+  color: var(--tint-text);
+}
+
+.platform__name {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.platform__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: end;
+  color: var(--paper-3);
+  font-size: 0.875rem;
+}
+
+.platform__state .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.platform__detected {
+  display: none;
+}
+
+.platform--detected .platform__link {
+  border-color: var(--tint);
+  background: radial-gradient(ellipse 90% 90% at 0% 0%, var(--tint-26), transparent 70%), var(--ink-raised);
+}
+
+.platform--detected .platform__detected {
+  display: inline;
+  margin-right: auto;
+  color: var(--tint-text);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Dashed, not faded: opacity would pull the "coming soon" text under the AA contrast ratio. */
+.platform--soon {
+  border-style: dashed;
+}
+
+.signed__grid {
+  display: grid;
+  gap: var(--gutter);
+}
+
+@media (min-width: 800px) {
+  .signed__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.signed__card {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  color: var(--paper-2);
+}
+
+.signed__card .h3 {
+  color: var(--paper);
+}
+
+/* Verify: the static command blocks. */
+.terminal--static .terminal__body {
+  padding: var(--space-5);
+}
+
+.terminal--static code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
