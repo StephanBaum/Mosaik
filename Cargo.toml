@@ -174,7 +174,7 @@ rustls = { version = "=0.23.46", default-features = false, features = ["ring", "
 # The OS trust store for the sync client (ADR-0046).
 rustls-platform-verifier = "=0.7.1"
 # Server config file (TOML), strict (`deny_unknown_fields`).
-toml = { version = "=1.2.0", default-features = false, features = ["parse", "serde"] }
+toml = { version = "=1.2.1", default-features = false, features = ["parse", "serde"] }
 # Structured logs of the server (method, route, status, duration; never bodies).
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "std"] }
