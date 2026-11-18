@@ -3,7 +3,22 @@
 export const themes = ["system", "light", "dark"] as const;
 export type Theme = (typeof themes)[number];
 
-export const languages = ["system", "en", "de"] as const;
+/** `system`, then every app language of `@mosaic/i18n` `locales` (ADR-0168). */
+export const languages = [
+  "system",
+  "en",
+  "de",
+  "es",
+  "fr",
+  "it",
+  "pt",
+  "nl",
+  "pl",
+  "tr",
+  "ja",
+  "ko",
+  "zh",
+] as const;
 export type Language = (typeof languages)[number];
 
 /** The choices of the quick-unlock max-age setting. */

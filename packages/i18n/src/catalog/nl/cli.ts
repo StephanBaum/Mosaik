@@ -1,0 +1,149 @@
+/**
+ * Dutch CLI messages. Placeholders are plain `{name}` only (ADR-0075).
+ * `pnpm --filter @mosaic/i18n export:cli` writes them to `crates/cli/i18n/nl.json`.
+ */
+import type { cli as en } from "../en/cli.ts";
+
+export const cli = {
+  "cli.err.storeInUse":
+    "De Mosaic-app heeft deze kluis open. Sluit de app af, of geef de CLI een eigen apparaat met `mosaic setup own-store`.",
+  "cli.err.noStore":
+    "Geen kluis gevonden op {path}. Stel Mosaic eerst in de app in, of geef --store mee.",
+  "cli.err.noAccount": "Deze opslag heeft nog geen account.",
+  "cli.err.wrongCredentials": "Verkeerd hoofdwachtwoord of verkeerde Geheime Sleutel.",
+  "cli.err.secretKeyInvalid":
+    "Die Geheime Sleutel is ongeldig. Vergelijk hem met je Noodkit.",
+  "cli.err.inputRequired": "Invoer is nodig, maar --no-input is ingesteld.",
+  "cli.err.promptTimeout": "Geen invoer binnen {seconds} seconden.",
+  "cli.err.notFound": "Niets gevonden voor {ref}.",
+  "cli.err.ambiguousRef":
+    "Meer dan één item komt overeen met {ref}. Gebruik een preciezere verwijzing of de item-ID.",
+  "cli.err.invalidRef": "{ref} is geen geldige verwijzing.",
+  "cli.err.noSuchField": "Dit item heeft geen veld {field}.",
+  "cli.err.noOtp": "Dit item heeft geen eenmalig wachtwoord.",
+  "cli.err.revealRequired":
+    "{field} is geheim. Voeg --reveal toe om het af te drukken, of --copy om het op het klembord te zetten.",
+  "cli.err.vaultUnavailable": "Die kluis is met hardware beveiligd of hier niet beschikbaar.",
+  "cli.err.rotationInProgress": "Rond eerst de sleutelwijziging af in de Mosaic-app.",
+  "cli.err.secretInArgv":
+    "{flag} zou een geheim op de opdrachtregel zetten. Gebruik in plaats daarvan de prompt, --password-stdin of --password-fd.",
+  "cli.err.unknownCommand": "Onbekende opdracht {name}. Voer `mosaic help` uit.",
+  "cli.err.unknownOption": "Onbekende optie {name}.",
+  "cli.err.missingValue": "Optie {name} heeft een waarde nodig.",
+  "cli.err.missingArgument": "Argument {name} ontbreekt.",
+  "cli.err.unexpectedArgument": "Onverwacht argument {value}.",
+  "cli.err.invalidValue": "Ongeldige waarde voor {name}.",
+  "cli.err.nonUtf8": "Argumenten moeten geldige UTF-8 zijn.",
+  "cli.err.fdUnsupported": "--password-fd is op dit systeem niet beschikbaar.",
+  "cli.err.sessionExpired": "De ontgrendelsessie is beëindigd. Voer je hoofdwachtwoord in.",
+  "cli.err.sessionNotCached":
+    "Er kon geen ontgrendelsessie worden bewaard (de sleutelopslag van het systeem of de runtime-map is niet beschikbaar). Elke opdracht vraagt om je hoofdwachtwoord.",
+  "cli.err.twoFactorMethodUnsupported":
+    "Dit account logt in met een beveiligingssleutel, die de opdrachtregel niet kan gebruiken. Voeg in de desktop-app een code van een authenticator-app toe en probeer het opnieuw.",
+  "cli.err.envSecretIgnored":
+    "{name} is ingesteld maar wordt genegeerd. Mosaic leest nooit geheimen uit de omgeving.",
+  "cli.err.exportUnreadable":
+    "Het bestand kan niet worden gelezen: verkeerde wachtzin of beschadigd bestand.",
+  "cli.err.importFailed": "Het bestand kon niet worden geïmporteerd.",
+  "cli.err.importTooLarge": "Het bestand is te groot om te importeren.",
+  "cli.err.syncNotConfigured": "Synchronisatie is voor deze opslag niet ingesteld.",
+  "cli.err.syncHalted": "Synchronisatie is gestopt. Voer `mosaic sync --status` uit.",
+  "cli.err.syncFailed": "Synchroniseren mislukt: {reason}.",
+  "cli.err.syncSessionRevoked":
+    "De sleutels van dit account zijn op een ander apparaat vernieuwd, dus deze sessie is beëindigd. Log opnieuw in met de nieuwe Geheime Sleutel uit je nieuwste Noodkit.",
+  "cli.err.syncSessionPasswordChanged":
+    "Je hoofdwachtwoord is op een ander apparaat gewijzigd, dus deze sessie is beëindigd. Log opnieuw in met het nieuwe wachtwoord.",
+  "cli.err.syncSessionDeviceRemoved":
+    "Dit apparaat is op een ander apparaat uit je account verwijderd, dus deze sessie is beëindigd. Log opnieuw in om het weer toe te voegen.",
+  "cli.err.syncSessionOperator":
+    "De beheerder van de server heeft deze sessie beëindigd. Log opnieuw in om te blijven synchroniseren.",
+  "cli.err.fileExists": "{path} bestaat al. Mosaic overschrijft geen bestanden.",
+  "cli.err.fileRead": "Kan {path} niet lezen.",
+  "cli.err.fileWrite": "Kan {path} niet schrijven.",
+  "cli.err.passphraseMismatch": "De twee wachtzinnen verschillen.",
+  "cli.err.passphraseWeak": "Gebruik een wachtzin van minstens {min} tekens.",
+  "cli.err.badEnvName": "{name} is geen geldige naam voor een omgevingsvariabele.",
+  "cli.err.spawnFailed": "Kan {command} niet starten.",
+  "cli.err.noVaultChosen": "Er bestaan meerdere kluizen. Kies er een met --vault.",
+  "cli.err.notSupported": "{what} is niet beschikbaar in deze versie van de CLI.",
+  "cli.err.storeExists": "{path} bestaat al.",
+  "cli.err.internal": "Er is iets misgegaan.",
+  "cli.prompt.password": "Hoofdwachtwoord: ",
+  "cli.prompt.secretKey": "Geheime Sleutel (uit je Noodkit): ",
+  "cli.prompt.filePassword": "Bestandswachtwoord: ",
+  "cli.prompt.exportPassphrase": "Wachtzin voor het exportbestand: ",
+  "cli.prompt.exportPassphraseAgain": "Wachtzin nogmaals: ",
+  "cli.prompt.importPassphrase": "Wachtzin van het exportbestand: ",
+  "cli.prompt.confirmImport": "{count} items importeren in {vault}? [j/N] ",
+  "cli.prompt.newPassword": "Nieuw hoofdwachtwoord (het wachtwoord dat je elders hebt ingesteld): ",
+  "cli.prompt.twoFactor": "Code voor tweestapsverificatie: ",
+  "cli.out.recovered": "Hersteld. Dit apparaat gebruikt nu je nieuwe hoofdwachtwoord.",
+  "cli.prompt.acknowledge": "Typ het woord {word} om door te gaan: ",
+  "cli.warn.revealToTerminal":
+    "Geheime waarden worden naar de terminal afgedrukt en blijven in de scrollback staan.",
+  "cli.out.unlocked": "Ontgrendeld voor {minutes} minuten. Voer `mosaic lock` uit als je klaar bent.",
+  "cli.out.locked": "Vergrendeld. Sessie verwijderd.",
+  "cli.out.concealed": "••••••••",
+  "cli.out.copied": "Gekopieerd. Wordt gewist over {seconds} seconden.",
+  "cli.out.noItems": "Geen items.",
+  "cli.out.ambiguousCandidate": "{vault} / {title} ({id})",
+  "cli.out.attachment": "{name} ({size} bytes, {mime})",
+  "cli.label.id": "ID",
+  "cli.label.vault": "Kluis",
+  "cli.label.type": "Type",
+  "cli.label.title": "Titel",
+  "cli.label.otp": "Eenmalige code",
+  "cli.label.attachments": "Bijlagen",
+  "cli.status.store": "Opslag",
+  "cli.status.profile": "Profiel",
+  "cli.status.account": "Account",
+  "cli.status.session": "Sessie",
+  "cli.status.sessionNone": "vergrendeld (geen sessie)",
+  "cli.status.sessionUntil": "ontgrendeld tot {time} (Unix ms)",
+  "cli.status.sync": "Synchronisatie",
+  "cli.status.syncOff": "niet ingesteld",
+  "cli.status.syncOn": "{backend}, gestopt: {halted}, bevindingen: {findings}",
+  "cli.import.preview": "{count} items om te importeren in {vault}: {summary}",
+  "cli.import.duplicates": "{count} lijken dubbel en worden overgeslagen.",
+  "cli.import.warnings": "{count} vermeldingen konden niet worden gelezen en zijn weggelaten.",
+  "cli.import.done":
+    "{imported} items geïmporteerd ({skipped} overgeslagen, {failed} mislukt).",
+  "cli.import.dryRun": "Proefrun: er is niets geïmporteerd.",
+  "cli.import.cancelled": "Geannuleerd. Er is niets geïmporteerd.",
+  "cli.export.done": "{items} items uit {vaults} kluizen geëxporteerd naar {path}.",
+  "cli.export.attachmentWarn": "{count} items hebben bijlagen. Die zijn inbegrepen.",
+  "cli.export.attachmentsLeftOut":
+    "{count} bijlagebestanden staan niet in de export. Gebruik --include-attachments.",
+  "cli.export.unavailableVaults": "{count} met hardware beveiligde kluizen zijn weggelaten.",
+  "cli.sync.done": "Synchronisatie klaar: {pulled} ontvangen, {pushed} verstuurd.",
+  "cli.sync.finding": "Bevinding: {kind}.",
+  "cli.sync.clean": "Synchronisatie is in orde. Geen bevindingen.",
+  "cli.sync.acknowledged": "Bevindingen gewist.",
+  "cli.sync.acknowledgeWord": "acknowledge",
+  "cli.setup.done": "Dit apparaat is ingesteld als eigen opslag. Voer `mosaic sync` uit.",
+  "cli.ssh.agentStatus": "De SSH-agent draait in de Mosaic-app. De CLI draait er geen.",
+  "cli.ssh.noKeys": "Geen SSH-sleutels.",
+  "cli.err.agentContext":
+    "Dit lijkt een sessie van een AI-agent. Een geheim hier afdrukken zou het in de context van de agent zetten. Gebruik in plaats daarvan `mosaic agent mcp`, of voeg --i-know toe als je dit zelf uitvoert.",
+  "cli.err.agentAlreadyPaired":
+    "Er bestaat al een koppeling met de naam {name}. Voeg --replace toe om opnieuw te koppelen.",
+  "cli.err.desktopNotRunning": "De Mosaic-app is niet actief.",
+  "cli.err.agentAccessOff":
+    "Agenttoegang staat uit. Zet hem aan in de Mosaic-app onder Instellingen.",
+  "cli.err.agentLocked": "De kluis is vergrendeld. Ontgrendel eerst de Mosaic-app.",
+  "cli.err.pairingDenied": "De koppeling is in de Mosaic-app geweigerd.",
+  "cli.err.pairingExpired": "Het koppelverzoek is verlopen.",
+  "cli.err.pairingLimit":
+    "De Mosaic-app heeft het maximale aantal koppelingen dat hij toestaat. Verwijder er eerst een.",
+  "cli.err.pairingNameTaken":
+    "Er bestaat een koppeling met deze naam; verwijder die eerst of kies een andere naam.",
+  "cli.err.pairingBlocked":
+    "Koppelen is een paar minuten geblokkeerd na herhaaldelijk weigeren.",
+  "cli.err.notPaired": "Deze client is niet gekoppeld. Voer `mosaic agent pair --name {name}` uit.",
+  "cli.err.agentRefused": "De Mosaic-app heeft het verzoek geweigerd ({reason}).",
+  "cli.err.agentIo": "De verbinding met de Mosaic-app is mislukt.",
+  "cli.agent.pairCode": "Vergelijk deze code met de code die Mosaic toont: {code}",
+  "cli.agent.paired": "Gekoppeld als {name}.",
+  "cli.agent.status":
+    "Desktop: {desktop}. Kluis: {vault}. Agenttoegang: {access}. Gekoppeld: {paired}.",
+} satisfies Record<keyof typeof en, string>;

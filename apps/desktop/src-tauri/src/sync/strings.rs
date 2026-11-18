@@ -1,7 +1,8 @@
 //! The texts of the native acknowledgement dialog (C-I1). Rust owns them so
 //! the webview cannot reword the question; they equal the `sync.acknowledge.*`
 //! entries of `packages/i18n` (a test compares them with the catalog files).
-//! The language is the setting; `System` follows the OS locale.
+//! The language is the setting; `System` follows the OS locale. They exist in English and
+//! German only: every other app language shows them in English (ADR-0168).
 
 use crate::contract::settings::Language;
 
@@ -31,14 +32,29 @@ const DE: AcknowledgeTexts = AcknowledgeTexts {
     each_device: "Mach das auf jedem deiner Geräte.",
 };
 
+/// Whether Rust's own texts are German for `language`: German, or `System` on a German OS.
+/// Every other language gets the English texts (ADR-0168: no Rust tables beyond EN and DE).
+fn german(language: Language) -> bool {
+    match language {
+        Language::De => true,
+        Language::System => os_locale_is_german(),
+        Language::En
+        | Language::Es
+        | Language::Fr
+        | Language::It
+        | Language::Pt
+        | Language::Nl
+        | Language::Pl
+        | Language::Tr
+        | Language::Ja
+        | Language::Ko
+        | Language::Zh => false,
+    }
+}
+
 /// The texts for `language`; `System` reads the OS locale.
 pub(crate) fn acknowledge(language: Language) -> &'static AcknowledgeTexts {
-    let german = match language {
-        Language::De => true,
-        Language::En => false,
-        Language::System => os_locale_is_german(),
-    };
-    if german { &DE } else { &EN }
+    if german(language) { &DE } else { &EN }
 }
 
 /// The texts of the native confirmations of sharing: removing a member and
@@ -103,12 +119,11 @@ const SHARE_DE: ShareTexts = ShareTexts {
 
 /// The sharing texts for `language`.
 pub(crate) fn share(language: Language) -> &'static ShareTexts {
-    let german = match language {
-        Language::De => true,
-        Language::En => false,
-        Language::System => os_locale_is_german(),
-    };
-    if german { &SHARE_DE } else { &SHARE_EN }
+    if german(language) {
+        &SHARE_DE
+    } else {
+        &SHARE_EN
+    }
 }
 
 /// Whether a locale name (`de-DE`, `de_AT.UTF-8`) is German.
@@ -238,6 +253,22 @@ mod tests {
     fn the_language_setting_picks_the_texts() {
         assert_eq!(acknowledge(Language::De).title, DE.title);
         assert_eq!(acknowledge(Language::En).title, EN.title);
+        assert_eq!(share(Language::De).leave_title, SHARE_DE.leave_title);
+    }
+
+    #[test]
+    fn every_other_language_gets_the_english_texts() {
+        for &language in Language::ALL {
+            if matches!(language, Language::De | Language::System) {
+                continue;
+            }
+            assert_eq!(acknowledge(language).title, EN.title, "{language:?}");
+            assert_eq!(
+                share(language).leave_title,
+                SHARE_EN.leave_title,
+                "{language:?}"
+            );
+        }
     }
 
     #[test]

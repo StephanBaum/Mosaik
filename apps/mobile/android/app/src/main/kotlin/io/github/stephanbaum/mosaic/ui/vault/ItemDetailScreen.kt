@@ -351,7 +351,13 @@ fun ItemDetailContent(
                     HintText(passkey.userName)
                 }
                 if (detail.attachments.isNotEmpty()) HintText(L10n.detailAttachments(resources, detail.attachments.size))
-                if (detail.summary.kind == ItemKind.LOGIN) SecondaryButton(L10n.detailLinkApp(resources), onClick = onLink)
+                if (detail.summary.kind == ItemKind.LOGIN) {
+                    if (detail.shared) {
+                        HintText(L10n.detailLinkSharedHint(resources))
+                    } else {
+                        SecondaryButton(L10n.detailLinkApp(resources), onClick = onLink)
+                    }
+                }
                 QuietButton(L10n.detailDelete(resources), onClick = { confirmDelete = true })
             }
         }

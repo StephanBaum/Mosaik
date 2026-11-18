@@ -649,8 +649,6 @@ body {
   position: absolute;
   right: 0;
   z-index: var(--layer-menu);
-  display: flex;
-  flex-direction: column;
   /* As wide as the longest label and shortcut, but never wider than the popup. */
   width: max-content;
   min-width: calc(var(--space-9) * 3);
@@ -660,6 +658,21 @@ body {
   border-radius: var(--radius-panel);
   background: var(--color-surface);
   box-shadow: var(--shadow-popover);
+}
+
+.menu__items {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A line under the items, e.g. that the language was translated with AI help (ADR-0168). */
+.menu__note {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  border-top: var(--border-width-hairline) solid var(--color-border);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+  color: var(--color-text-secondary);
 }
 
 .menu--below .menu__list {

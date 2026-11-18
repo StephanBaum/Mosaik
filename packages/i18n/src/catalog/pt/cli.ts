@@ -1,0 +1,151 @@
+/**
+ * Brazilian Portuguese CLI messages. Placeholders are plain `{name}` only (ADR-0075).
+ * `pnpm --filter @mosaic/i18n export:cli` writes them to `crates/cli/i18n/pt.json`.
+ */
+import type { cli as en } from "../en/cli.ts";
+
+export const cli = {
+  "cli.err.storeInUse":
+    "O app Mosaic está com este cofre aberto. Feche-o ou dê à CLI um dispositivo próprio com `mosaic setup own-store`.",
+  "cli.err.noStore":
+    "Nenhum cofre encontrado em {path}. Configure o Mosaic no app primeiro ou use --store.",
+  "cli.err.noAccount": "Este armazenamento ainda não tem uma conta.",
+  "cli.err.wrongCredentials": "Senha mestra ou Chave Secreta incorreta.",
+  "cli.err.secretKeyInvalid":
+    "Essa Chave Secreta não é válida. Compare-a com o seu Kit de Emergência.",
+  "cli.err.inputRequired": "É preciso digitar algo, mas --no-input está ativado.",
+  "cli.err.promptTimeout": "Nenhuma entrada em {seconds} segundos.",
+  "cli.err.notFound": "Nada encontrado para {ref}.",
+  "cli.err.ambiguousRef":
+    "Mais de um item corresponde a {ref}. Use uma referência mais exata ou o ID do item.",
+  "cli.err.invalidRef": "{ref} não é uma referência válida.",
+  "cli.err.noSuchField": "Este item não tem o campo {field}.",
+  "cli.err.noOtp": "Este item não tem senha de uso único.",
+  "cli.err.revealRequired":
+    "{field} é secreto. Adicione --reveal para exibi-lo ou --copy para colocá-lo na área de transferência.",
+  "cli.err.vaultUnavailable": "Esse cofre é protegido por hardware ou não está disponível aqui.",
+  "cli.err.rotationInProgress": "Conclua antes a troca de chave no app Mosaic.",
+  "cli.err.secretInArgv":
+    "{flag} colocaria um segredo na linha de comando. Use o prompt, --password-stdin ou --password-fd.",
+  "cli.err.unknownCommand": "Comando desconhecido {name}. Execute `mosaic help`.",
+  "cli.err.unknownOption": "Opção desconhecida {name}.",
+  "cli.err.missingValue": "A opção {name} precisa de um valor.",
+  "cli.err.missingArgument": "Falta o argumento {name}.",
+  "cli.err.unexpectedArgument": "Argumento inesperado {value}.",
+  "cli.err.invalidValue": "Valor inválido para {name}.",
+  "cli.err.nonUtf8": "Os argumentos precisam ser UTF-8 válido.",
+  "cli.err.fdUnsupported": "--password-fd não está disponível neste sistema.",
+  "cli.err.sessionExpired": "A sessão de desbloqueio terminou. Digite sua senha mestra.",
+  "cli.err.sessionNotCached":
+    "Não foi possível salvar uma sessão de desbloqueio (o repositório de chaves do sistema ou a pasta de execução não está disponível). Todo comando pedirá a sua senha mestra.",
+  "cli.err.twoFactorMethodUnsupported":
+    "Esta conta entra com uma chave de segurança, que a linha de comando não consegue usar. Adicione um código de app autenticador no app para computador e tente de novo.",
+  "cli.err.envSecretIgnored":
+    "{name} está definida, mas foi ignorada. O Mosaic nunca lê segredos do ambiente.",
+  "cli.err.exportUnreadable":
+    "Não foi possível ler o arquivo: frase secreta incorreta ou arquivo danificado.",
+  "cli.err.importFailed": "Não foi possível importar o arquivo.",
+  "cli.err.importTooLarge": "O arquivo é grande demais para importar.",
+  "cli.err.syncNotConfigured": "A sincronização não está configurada para este armazenamento.",
+  "cli.err.syncHalted": "A sincronização está parada. Execute `mosaic sync --status`.",
+  "cli.err.syncFailed": "Falha na sincronização: {reason}.",
+  "cli.err.syncSessionRevoked":
+    "As chaves desta conta foram renovadas em outro dispositivo, então esta sessão terminou. Entre de novo com a nova Chave Secreta do seu Kit de Emergência mais recente.",
+  "cli.err.syncSessionPasswordChanged":
+    "Sua senha mestra foi alterada em outro dispositivo, então esta sessão terminou. Entre de novo com a nova senha.",
+  "cli.err.syncSessionDeviceRemoved":
+    "Este dispositivo foi removido da sua conta em outro dispositivo, então esta sessão terminou. Entre de novo para adicioná-lo outra vez.",
+  "cli.err.syncSessionOperator":
+    "O operador do servidor encerrou esta sessão. Entre de novo para continuar sincronizando.",
+  "cli.err.fileExists": "{path} já existe. O Mosaic não sobrescreve arquivos.",
+  "cli.err.fileRead": "Não é possível ler {path}.",
+  "cli.err.fileWrite": "Não é possível gravar {path}.",
+  "cli.err.passphraseMismatch": "As duas frases secretas são diferentes.",
+  "cli.err.passphraseWeak": "Use uma frase secreta com pelo menos {min} caracteres.",
+  "cli.err.badEnvName": "{name} não é um nome válido de variável de ambiente.",
+  "cli.err.spawnFailed": "Não é possível iniciar {command}.",
+  "cli.err.noVaultChosen": "Existem vários cofres. Escolha um com --vault.",
+  "cli.err.notSupported": "{what} não está disponível nesta versão da CLI.",
+  "cli.err.storeExists": "{path} já existe.",
+  "cli.err.internal": "Algo deu errado.",
+  "cli.prompt.password": "Senha mestra: ",
+  "cli.prompt.secretKey": "Chave Secreta (do seu Kit de Emergência): ",
+  "cli.prompt.filePassword": "Senha do arquivo: ",
+  "cli.prompt.exportPassphrase": "Frase secreta do arquivo de exportação: ",
+  "cli.prompt.exportPassphraseAgain": "Frase secreta de novo: ",
+  "cli.prompt.importPassphrase": "Frase secreta do arquivo de exportação: ",
+  "cli.prompt.confirmImport": "Importar {count} itens para {vault}? [y/N] ",
+  "cli.prompt.newPassword": "Nova senha mestra (a que você definiu em outro lugar): ",
+  "cli.prompt.twoFactor": "Código de verificação em duas etapas: ",
+  "cli.out.recovered": "Recuperado. Este dispositivo agora usa a sua nova senha mestra.",
+  "cli.prompt.acknowledge": "Digite a palavra {word} para continuar: ",
+  "cli.warn.revealToTerminal":
+    "Os valores secretos são exibidos no terminal e permanecem no seu histórico de rolagem.",
+  "cli.out.unlocked":
+    "Desbloqueado por {minutes} minutos. Execute `mosaic lock` quando terminar.",
+  "cli.out.locked": "Bloqueado. Sessão removida.",
+  "cli.out.concealed": "••••••••",
+  "cli.out.copied": "Copiado. Será limpo em {seconds} segundos.",
+  "cli.out.noItems": "Nenhum item.",
+  "cli.out.ambiguousCandidate": "{vault} / {title} ({id})",
+  "cli.out.attachment": "{name} ({size} bytes, {mime})",
+  "cli.label.id": "ID",
+  "cli.label.vault": "Cofre",
+  "cli.label.type": "Tipo",
+  "cli.label.title": "Título",
+  "cli.label.otp": "Código de uso único",
+  "cli.label.attachments": "Anexos",
+  "cli.status.store": "Armazenamento",
+  "cli.status.profile": "Perfil",
+  "cli.status.account": "Conta",
+  "cli.status.session": "Sessão",
+  "cli.status.sessionNone": "bloqueado (sem sessão)",
+  "cli.status.sessionUntil": "desbloqueado até {time} (Unix ms)",
+  "cli.status.sync": "Sincronização",
+  "cli.status.syncOff": "não configurada",
+  "cli.status.syncOn": "{backend}, parada: {halted}, alertas: {findings}",
+  "cli.import.preview": "{count} itens para importar em {vault}: {summary}",
+  "cli.import.duplicates": "{count} parecem duplicados e serão ignorados.",
+  "cli.import.warnings": "{count} entradas não puderam ser lidas e foram omitidas.",
+  "cli.import.done": "{imported} itens importados ({skipped} ignorados, {failed} com falha).",
+  "cli.import.dryRun": "Simulação: nada foi importado.",
+  "cli.import.cancelled": "Cancelado. Nada foi importado.",
+  "cli.export.done": "{items} itens de {vaults} cofres exportados para {path}.",
+  "cli.export.attachmentWarn": "{count} itens têm anexos. Eles estão incluídos.",
+  "cli.export.attachmentsLeftOut":
+    "{count} arquivos anexos não estão na exportação. Use --include-attachments.",
+  "cli.export.unavailableVaults": "{count} cofres protegidos por hardware foram omitidos.",
+  "cli.sync.done": "Sincronização concluída: {pulled} recebidos, {pushed} enviados.",
+  "cli.sync.finding": "Alerta: {kind}.",
+  "cli.sync.clean": "A sincronização está bem. Nenhum alerta.",
+  "cli.sync.acknowledged": "Alertas limpos.",
+  "cli.sync.acknowledgeWord": "acknowledge",
+  "cli.setup.done":
+    "Este dispositivo está configurado como armazenamento próprio. Execute `mosaic sync`.",
+  "cli.ssh.agentStatus": "O agente SSH é executado no app Mosaic. A CLI não executa um.",
+  "cli.ssh.noKeys": "Nenhuma chave SSH.",
+  "cli.err.agentContext":
+    "Isto parece uma sessão de agente de IA. Exibir um segredo aqui o colocaria no contexto do agente. Use `mosaic agent mcp`, ou adicione --i-know se você mesmo estiver executando isto.",
+  "cli.err.agentAlreadyPaired":
+    "Já existe uma conexão chamada {name}. Adicione --replace para conectar de novo.",
+  "cli.err.desktopNotRunning": "O app Mosaic não está em execução.",
+  "cli.err.agentAccessOff":
+    "O acesso de agentes está desativado. Ative-o no app Mosaic, em Configurações.",
+  "cli.err.agentLocked": "O cofre está bloqueado. Desbloqueie o app Mosaic primeiro.",
+  "cli.err.pairingDenied": "A conexão foi recusada no app Mosaic.",
+  "cli.err.pairingExpired": "O pedido de conexão expirou.",
+  "cli.err.pairingLimit":
+    "O app Mosaic atingiu o número máximo de conexões permitido. Remova uma primeiro.",
+  "cli.err.pairingNameTaken":
+    "Já existe uma conexão com este nome; remova-a primeiro ou escolha outro nome.",
+  "cli.err.pairingBlocked":
+    "A conexão está bloqueada por alguns minutos após recusas repetidas.",
+  "cli.err.notPaired":
+    "Este cliente não está conectado. Execute `mosaic agent pair --name {name}`.",
+  "cli.err.agentRefused": "O app Mosaic recusou a solicitação ({reason}).",
+  "cli.err.agentIo": "A conexão com o app Mosaic falhou.",
+  "cli.agent.pairCode": "Compare este código com o que o Mosaic mostra: {code}",
+  "cli.agent.paired": "Conectado como {name}.",
+  "cli.agent.status":
+    "Desktop: {desktop}. Cofre: {vault}. Acesso de agentes: {access}. Conectados: {paired}.",
+} satisfies Record<keyof typeof en, string>;

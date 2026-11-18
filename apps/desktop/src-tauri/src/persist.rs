@@ -90,6 +90,9 @@ struct PersistedSettings {
     lock_on_screen_lock: bool,
     clipboard_clear_seconds: Option<u32>,
     theme: Theme,
+    /// A language this build does not know (a newer Mosaic wrote it) reads as `system`, so the
+    /// rest of the file still counts (ADR-0168). The MAC then fails, which keeps the strict values.
+    #[serde(deserialize_with = "lenient_language")]
     language: Language,
     #[serde(default = "default_quick_unlock_days")]
     quick_unlock_max_age_days: u32,
@@ -116,6 +119,14 @@ struct PersistedSettings {
 
 const fn default_true() -> bool {
     true
+}
+
+/// The file's language word; one this build does not know is `system` (see `PersistedSettings`).
+fn lenient_language<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Language, D::Error> {
+    let word = String::deserialize(deserializer)?;
+    Ok(serde_json::from_value(serde_json::Value::String(word)).unwrap_or(Language::System))
 }
 
 fn default_quick_unlock_days() -> u32 {
@@ -997,6 +1008,39 @@ mod tests {
         assert!(!strict.program_fill);
         assert_eq!(strict.program_fill_hotkey.as_deref(), Some("Ctrl+Alt+L"));
         assert!(strict.program_fill_card_dismissed);
+    }
+
+    /// Every language of ADR-0168 is stored as its code and read back, and its MAC bytes are the
+    /// code, so the files of English and German installs keep their exact bytes.
+    #[test]
+    fn every_language_round_trips_and_is_its_code_in_the_mac() {
+        for &language in Language::ALL {
+            let state = with_settings(Settings {
+                language,
+                ..Settings::default()
+            });
+            let parsed = parse_checked(&render(&state, None).unwrap()).unwrap().1;
+            assert_eq!(parsed.state.settings.language, language);
+            let word = serde_json::to_string(&language).unwrap();
+            let bytes = String::from_utf8(canonical_settings(&state)).unwrap();
+            assert!(bytes.contains(&format!("\"language\":{word},")), "{bytes}");
+        }
+        assert_eq!(serde_json::to_string(&Language::Zh).unwrap(), "\"zh\"");
+        assert_eq!(serde_json::to_string(&Language::De).unwrap(), "\"de\"");
+    }
+
+    /// A language a newer Mosaic wrote does not make the file unreadable: it reads as `system`
+    /// and everything else stays (the MAC check then keeps the strict values).
+    #[test]
+    fn an_unknown_language_reads_as_system_and_keeps_the_rest() {
+        let mut file: serde_json::Value =
+            serde_json::from_slice(&render(&sample(), None).unwrap()).unwrap();
+        file["settings"]["language"] = serde_json::Value::String("sv".into());
+        let parsed = parse(&serde_json::to_vec(&file).unwrap()).unwrap();
+        assert_eq!(parsed.settings.language, Language::System);
+        assert_eq!(parsed.account, sample().account);
+        file["settings"]["language"] = serde_json::json!(3);
+        assert!(parse(&serde_json::to_vec(&file).unwrap()).is_none());
     }
 
     #[test]

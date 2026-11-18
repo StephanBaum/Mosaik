@@ -433,6 +433,8 @@ fun SettingsContent(
         Panel {
             SectionTitle(L10n.settingsAbout(resources))
             Line(L10n.settingsVersion(resources, version))
+            // The app follows the system language; one translated with AI help says so (ADR-0168).
+            if (L10n.isMachineTranslated(resources)) HintText(L10n.settingsLanguageMachineNote(resources))
             BodyText(L10n.aboutPreAudit(resources))
             BodyText(L10n.aboutPrivacy(resources))
             SecondaryButton(L10n.aboutLicences(resources), onClick = onLicences)

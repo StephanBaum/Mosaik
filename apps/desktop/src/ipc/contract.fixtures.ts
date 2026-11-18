@@ -654,7 +654,17 @@ export const fixtures = {
     "language": [
       "system",
       "en",
-      "de"
+      "de",
+      "es",
+      "fr",
+      "it",
+      "pt",
+      "nl",
+      "pl",
+      "tr",
+      "ja",
+      "ko",
+      "zh"
     ],
     "linkAgainReason": [
       "signerChanged",

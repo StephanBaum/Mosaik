@@ -20,7 +20,9 @@ wire_enum!(
 );
 
 wire_enum!(
-    /// UI language.
+    /// UI language (ADR-0168): the locales of `packages/i18n`. Rust's own texts (the native
+    /// dialogs in `sync::strings`) exist in English and German only; every other language
+    /// shows them in English.
     pub enum Language {
         /// Follow the OS (the default).
         System,
@@ -28,6 +30,26 @@ wire_enum!(
         En,
         /// German.
         De,
+        /// Spanish.
+        Es,
+        /// French.
+        Fr,
+        /// Italian.
+        It,
+        /// Portuguese (Brazilian).
+        Pt,
+        /// Dutch.
+        Nl,
+        /// Polish.
+        Pl,
+        /// Turkish.
+        Tr,
+        /// Japanese.
+        Ja,
+        /// Korean.
+        Ko,
+        /// Chinese, Simplified.
+        Zh,
     }
 );
 

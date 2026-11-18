@@ -1,0 +1,53 @@
+/**
+ * Japanese UI strings: app. Same keys as English (checked by the type).
+ * ICU plural categories of Japanese: other (CLDR; `other` is required).
+ */
+import type { app as en } from "../en/app.ts";
+
+export const app = {
+  "app.name": "Mosaic",
+  "app.preAudit": "監査前のソフトウェアです。外部のセキュリティ監査機関によるレビューはまだ受けていません。",
+  "app.previewTag": "プレビュー",
+  "app.previewBuild": "プレビュー版であり、正式リリースではありません。署名なし・監査前で、お試し専用です。",
+  "action.cancel": "キャンセル",
+  "action.continue": "続ける",
+  "action.retry": "再試行",
+  "action.copy": "コピー",
+  "action.reveal": "表示",
+  "action.hide": "非表示",
+  "action.lock": "ロック",
+  "action.details": "詳細",
+  "sync.offline":
+    "同期サーバーに接続できませんでした。変更はこのデバイスに保存されており、オンラインに戻ると同期されます。",
+  "app.loading": "Mosaic を開いています…",
+  "app.skipToContent": "コンテンツへスキップ",
+  "action.save": "保存",
+  "action.close": "閉じる",
+  "action.showPassword": "パスワードを表示",
+  "action.hidePassword": "パスワードを非表示",
+  "action.back": "戻る",
+  "action.confirm": "確認",
+  "action.edit": "編集",
+  "action.delete": "ゴミ箱に移動",
+  "action.restore": "復元",
+  "action.purge": "完全に削除",
+  "action.generate": "生成",
+  "action.useThis": "これを使う",
+  "action.done": "完了",
+  "nav.main": "メインナビゲーション",
+  "nav.vault": "保管庫",
+  "nav.security": "セキュリティ",
+  "nav.generator": "ジェネレーター",
+  "nav.settings": "設定",
+  "nav.trash": "ゴミ箱",
+  "nav.breadcrumb": "パンくずリスト",
+  "nav.securityCount": "{count, plural, other {確認が必要な項目が#件あります}}",
+  "sync.status.local": "このデバイスに保存済み",
+  "sync.status.upToDate": "同期済み",
+  "sync.status.attention": "確認が必要です",
+  "sync.status.syncing": "同期中…",
+  "sync.status.offline": "オフライン",
+  "sync.status.error": "同期に失敗しました",
+  "action.moreActions": "その他の操作",
+  "action.regenerate": "再生成",
+} satisfies Record<keyof typeof en, string>;

@@ -66,6 +66,17 @@ export const fontFamily = {
   mono: '"IBM Plex Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace',
 } as const;
 
+/**
+ * The UI font for languages whose script DM Sans does not cover (ADR-0168). DM Sans still sets
+ * Latin letters and digits; the platform's own CJK UI font sets the rest (macOS, Windows, Linux),
+ * so nothing is bundled or loaded. Applied to `--font-ui` with `:lang()` (`languageFontRules`).
+ */
+export const languageFontFamily = {
+  ja: '"DM Sans", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", system-ui, sans-serif',
+  ko: '"DM Sans", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "Noto Sans KR", system-ui, sans-serif',
+  zh: '"DM Sans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif',
+} as const;
+
 export const motion = {
   micro: "120ms",
   panel: "200ms",

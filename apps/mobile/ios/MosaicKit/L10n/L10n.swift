@@ -80,6 +80,11 @@ public enum L10n {
         }
     }
 
+    /// Whether the strings on screen were translated with AI help (ADR-0168): the settings say so.
+    public static var isMachineTranslated: Bool {
+        !["en", "de"].contains(Bundle.main.preferredLocalizations.first ?? "en")
+    }
+
     public static func errorAccountExists() -> String {
         NSLocalizedString("error.accountExists", bundle: .main, comment: "")
     }
@@ -790,6 +795,10 @@ public enum L10n {
 
     public static func detailLinkApp() -> String {
         NSLocalizedString("mobile.detail.linkApp", bundle: .main, comment: "")
+    }
+
+    public static func detailLinkSharedHint() -> String {
+        NSLocalizedString("mobile.detail.linkSharedHint", bundle: .main, comment: "")
     }
 
     public static func detailLinkedApp(name: String) -> String {
@@ -1982,5 +1991,9 @@ public enum L10n {
 
     public static func vaultUntitled() -> String {
         NSLocalizedString("mobile.vault.untitled", bundle: .main, comment: "")
+    }
+
+    public static func settingsLanguageMachineNote() -> String {
+        NSLocalizedString("settings.language.machineNote", bundle: .main, comment: "")
     }
 }
