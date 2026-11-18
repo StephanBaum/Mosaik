@@ -2,11 +2,11 @@
  * The editor's save flow, including a one-time code kept in a hardware-protected vault
  * (ADR-0031).
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useToast } from "../../components/ToastProvider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
-import type { IpcError, ItemDetail, ItemRequest, VaultSummary } from "../../ipc/contract/index.ts";
+import type { IpcError, ItemDetail, ItemRequest, ItemSummary, VaultSummary } from "../../ipc/contract/index.ts";
 import { buildDraft, type Form } from "./editorForm.ts";
 import { OTP_UNCHANGED } from "./otp/OtpSection.tsx";
 
@@ -49,13 +49,19 @@ export function useSave({
   vaults: readonly VaultSummary[];
   /** The form the editor started with: the draft holds what differs from it. */
   initial: Form;
-  onSaved: (item: ItemRequest) => void;
+  /**
+   * The saved item and its list row (the list updates in place from it). `codeStored`: a code
+   * went into a hardware vault as an item of its own, which the in-place update does not show.
+   */
+  onSaved: (item: ItemRequest, summary: ItemSummary, codeStored: boolean) => void;
   onCodeStored: () => void;
 }) {
   const { t } = useI18n();
   const ipc = useIpc();
   const toast = useToast();
   const [error, setError] = useState<IpcError | null>(null);
+  // Set once a code went into a hardware vault, also across a retry of the login.
+  const codeInVault = useRef(false);
 
   async function save(submitted: Form) {
     setError(null);
@@ -69,6 +75,7 @@ export function useSave({
       // Stored: a retry of the login must not add the code twice.
       const { vaultId } = submitted.otp.result.target;
       form = { ...submitted, otp: OTP_UNCHANGED };
+      codeInVault.current = true;
       onCodeStored();
       const vault = vaults.find((each) => each.vaultId === vaultId);
       toast(
@@ -86,7 +93,8 @@ export function useSave({
           });
     if (result.ok) {
       toast(t("toast.saved"));
-      onSaved({ vaultId: result.value.summary.vaultId, itemId: result.value.summary.itemId });
+      const { summary } = result.value;
+      onSaved({ vaultId: summary.vaultId, itemId: summary.itemId }, summary, codeInVault.current);
     } else {
       setError(result.error);
     }

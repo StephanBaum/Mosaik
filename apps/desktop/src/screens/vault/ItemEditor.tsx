@@ -18,6 +18,7 @@ import {
   type ItemDetail,
   type ItemKind,
   type ItemRequest,
+  type ItemSummary,
   type SecretFieldKey,
   type VaultSummary,
 } from "../../ipc/contract/index.ts";
@@ -192,7 +193,7 @@ function useEditorState(
   editing: ItemDetail | null,
   vaults: readonly VaultSummary[],
   vaultId: string | null,
-  onSaved: (item: ItemRequest) => void,
+  onSaved: (item: ItemRequest, summary: ItemSummary, codeStored: boolean) => void,
 ) {
   const [initial] = useState(() => initialForm(editing, vaults, vaultId));
   const [form, setForm] = useState(initial);
@@ -246,7 +247,7 @@ export function ItemEditor({
   /** The vault a new item goes to by default. */
   vaultId: string | null;
   editing: ItemDetail | null;
-  onSaved: (item: ItemRequest) => void;
+  onSaved: (item: ItemRequest, summary: ItemSummary, codeStored: boolean) => void;
   onCancel: () => void;
 }) {
   const { t } = useI18n();

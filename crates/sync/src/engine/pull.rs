@@ -320,7 +320,22 @@ struct PageEnv<'a> {
     kind: TransportKind,
 }
 
+/// Applies one pulled page in ONE store transaction (ADR-0170): every
+/// served-view note, key, record and the cursor commit together, one fsync
+/// per page instead of one per record. Each write inside is still atomic,
+/// and the transaction commits even when a record fails, so what applied
+/// before the error is on disk exactly as it is in memory.
 fn apply_page(
+    s: &mut UnlockedSession,
+    vault: VaultId,
+    page: &PullPage,
+    vp: &mut VaultPull,
+    env: &mut PageEnv<'_>,
+) -> Result<(), Error> {
+    s.batch(|s| apply_page_writes(s, vault, page, vp, env))
+}
+
+fn apply_page_writes(
     s: &mut UnlockedSession,
     vault: VaultId,
     page: &PullPage,

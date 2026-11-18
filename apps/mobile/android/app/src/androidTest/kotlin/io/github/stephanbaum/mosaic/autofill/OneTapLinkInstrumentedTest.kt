@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import io.github.stephanbaum.mosaic.AppForeground
 import io.github.stephanbaum.mosaic.DeviceLock
 import io.github.stephanbaum.mosaic.MosaicApp
+import io.github.stephanbaum.mosaic.ffi.AndroidCaller
 import io.github.stephanbaum.mosaic.ffi.MosaicTestHooks
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 import kotlinx.coroutines.runBlocking
@@ -172,10 +173,13 @@ class OneTapLinkInstrumentedTest {
         kit.showClientAndFocusUsername()
         val entry = checkNotNull(kit.waitFor(30_000) { kit.findText(L10n.autofillLinkEntry(res, "GitHub")) })
         // Between the list and the tap the app gets a login of its own (cert-bound), so it is no longer unlinked.
+        // The binding goes through the link step: saving a cert-bound URL directly is refused (red team F1, #108).
+        val signers = checkNotNull(CallerReader.signersOf(context, clientPackage))
         runBlocking {
             app.holder.call { core ->
                 AppForeground.explainLock(app) {
-                    core.saveLogin(kit.draft(vaultId, "Other", "someone", "hunter3", boundUrl()))
+                    val other = core.saveLogin(kit.draft(vaultId, "Other", "someone", "hunter3", null))
+                    core.linkAndroidApp(other.vaultId, other.itemId, AndroidCaller(clientPackage, signers, null, null))
                 }
             }
         }

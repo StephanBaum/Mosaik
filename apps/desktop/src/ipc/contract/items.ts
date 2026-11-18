@@ -82,6 +82,8 @@ export interface ListItemsRequest {
   favoritesOnly: boolean;
   /** Search over title, user name, email, URLs and tags; `null` or empty: no search. */
   query: string | null;
+  /** At most this many items; `null`: all. Applied before the items are summarized. */
+  limit: number | null;
 }
 
 export interface ItemSummary {

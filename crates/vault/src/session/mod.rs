@@ -69,6 +69,8 @@ mod error;
 mod export;
 mod hardware_vaults;
 mod items;
+mod origin_index;
+mod records_load;
 mod rotation;
 mod search;
 mod sharing;
@@ -101,6 +103,7 @@ pub use error::{Error, Result};
 pub use export::{ExportPreview, ExportReport, ExportSelection};
 pub use items::{ItemFilter, ItemRef, OtpCode, TrashFilter};
 pub use mosaic_core::sync_auth::FolderMacPurpose;
+pub use origin_index::OriginKey;
 pub use rotation::{
     FolderRekeyPlan, MemberVaultReview, PreparedRekey, RekeyAdopted, RekeyAdoption, RekeyCommitted,
     RekeyPlan, RekeyRequest, RekeyReview, ResealStep, SharedOwnedReview, SharedRekeyOut,
@@ -245,6 +248,57 @@ pub struct PasswordChanged {
     pub removed_quick_unlock: Option<QuickUnlockEnrollment>,
 }
 
+/// The open vaults, with a counter that rises on every access that can change them
+/// (`get_mut`, `insert`, `replace`, [`VaultMap::touch`]). Reads go through `Deref`; there is
+/// no `DerefMut`, so a new way to mutate the map cannot skip the counter. The counter
+/// over-counts (a `get_mut` that changes nothing still rises), never under-counts.
+struct VaultMap {
+    map: BTreeMap<VaultId, OpenVault>,
+    revision: u64,
+}
+
+impl VaultMap {
+    fn new(map: BTreeMap<VaultId, OpenVault>) -> Self {
+        Self { map, revision: 0 }
+    }
+
+    fn touch(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    fn get_mut(&mut self, id: &VaultId) -> Option<&mut OpenVault> {
+        self.touch();
+        self.map.get_mut(id)
+    }
+
+    fn insert(&mut self, id: VaultId, vault: OpenVault) -> Option<OpenVault> {
+        self.touch();
+        self.map.insert(id, vault)
+    }
+
+    fn replace(&mut self, map: BTreeMap<VaultId, OpenVault>) {
+        self.touch();
+        self.map = map;
+    }
+}
+
+impl std::ops::Deref for VaultMap {
+    type Target = BTreeMap<VaultId, OpenVault>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+
+impl<'a> IntoIterator for &'a VaultMap {
+    type Item = (&'a VaultId, &'a OpenVault);
+    type IntoIter = std::collections::btree_map::Iter<'a, VaultId, OpenVault>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.iter()
+    }
+}
+
 /// A vault as the session holds it.
 struct OpenVault {
     /// The highest accepted key generation; new objects are sealed under it.
@@ -319,6 +373,10 @@ pub struct UnlockedSession {
     /// original error and keeps this one for
     /// [`UnlockedSession::take_attachment_cleanup_error`].
     attachment_cleanup_error: Option<crate::storage::Error>,
+    /// A failed batch commit could not be recovered from: the reload from the
+    /// store failed, so memory may disagree with disk. The owner must lock
+    /// the session ([`UnlockedSession::needs_relock`]).
+    inconsistent: bool,
     account_key: AccountKey,
     /// A random ID of this unlocked session (not the writer ID, which can
     /// rotate): binds a [`Reauthenticated`] proof to the session that made
@@ -330,8 +388,11 @@ pub struct UnlockedSession {
     /// by quick unlock, a security key or a CLI session): only then may it
     /// seal a CLI session ([`UnlockedSession::create_cli_session`]).
     password_fresh: bool,
-    vaults: BTreeMap<VaultId, OpenVault>,
-    index: search::SearchIndex,
+    vaults: VaultMap,
+    index: search::LazyIndex,
+    /// The in-memory origin index of the fill lookups, rebuilt when the vaults change
+    /// (see [`origin_index`]); dropped at lock.
+    origin_index: origin_index::OriginIndexCache,
     /// This install's stable ID (CRYPTO_SPEC §10), read from the store at
     /// unlock.
     install: InstallId,
@@ -643,20 +704,57 @@ fn load_vault_with(
             .and_then(|vk| VaultMeta::open(&ct, vk, &vault_id).ok());
         ov.meta_unreadable = ov.meta.is_none();
     }
-    for entry in store.records(&vault_id)? {
+    let records = store.records(&vault_id)?;
+    if records_load::workers_for(records.len()) == 1 {
+        // A small vault: one record at a time, so no plaintext of the
+        // others is held while one is decoded.
+        for entry in records {
+            match entry {
+                Ok(rec) => match open_record(&rec.body, &ov.keys, &vault_id, &rec.record_id) {
+                    Ok(item) => {
+                        ov.items.insert(rec.record_id, item);
+                    }
+                    Err(_) => {
+                        ov.corrupt.insert(rec.record_id);
+                    }
+                },
+                Err(corrupt) => {
+                    if let Some(id) = corrupt.record_id {
+                        ov.corrupt.insert(id);
+                    }
+                }
+            }
+        }
+        return Ok(ov);
+    }
+    // A big vault: decryption stays on this thread; the JSON decoding runs on
+    // workers.
+    let mut opened = Vec::new();
+    for entry in records {
         match entry {
-            Ok(rec) => match open_record(&rec.body, &ov.keys, &vault_id, &rec.record_id) {
-                Ok(item) => {
-                    ov.items.insert(rec.record_id, item);
+            Ok(rec) => {
+                match records_load::open_plaintext(&rec.body, &ov.keys, &vault_id, &rec.record_id) {
+                    Ok(plain) => opened.push((rec.record_id, plain)),
+                    Err(_) => {
+                        ov.corrupt.insert(rec.record_id);
+                    }
                 }
-                Err(_) => {
-                    ov.corrupt.insert(rec.record_id);
-                }
-            },
+            }
             Err(corrupt) => {
                 if let Some(id) = corrupt.record_id {
                     ov.corrupt.insert(id);
                 }
+            }
+        }
+    }
+    let workers = records_load::workers_for(opened.len());
+    for (record_id, parsed) in records_load::parse_records(opened, workers) {
+        match parsed {
+            Ok(item) => {
+                ov.items.insert(record_id, item);
+            }
+            Err(_) => {
+                ov.corrupt.insert(record_id);
             }
         }
     }
@@ -770,22 +868,20 @@ impl UnlockedSession {
         match load_state(&mut store, &account_key, &account_id) {
             Ok((device, vaults)) => {
                 let identity_key = sharing::load_identity(&store, &account_key, &account_id);
-                let mut index = search::SearchIndex::default();
-                for (vault_id, ov) in &vaults {
-                    index.update_vault(*vault_id, ov);
-                }
                 Ok(Self {
                     store,
                     account_id,
                     device,
                     retired: Vec::new(),
                     attachment_cleanup_error: None,
+                    inconsistent: false,
                     account_key,
                     proof_id,
                     password_unlocked: quick.password_unlocked,
                     password_fresh: quick.fresh_password,
-                    vaults,
-                    index,
+                    vaults: VaultMap::new(vaults),
+                    index: search::LazyIndex::default(),
+                    origin_index: origin_index::OriginIndexCache::default(),
                     install,
                     session_tag,
                     created_handed: BTreeMap::new(),
@@ -990,6 +1086,8 @@ mod cli_export_tests;
 mod credential_rotation_tests;
 #[cfg(test)]
 mod hardware_vaults_tests;
+#[cfg(test)]
+mod origin_index_tests;
 #[cfg(test)]
 mod rotation_tests;
 #[cfg(test)]

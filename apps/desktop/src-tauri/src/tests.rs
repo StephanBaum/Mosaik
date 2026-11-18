@@ -128,6 +128,7 @@ fn account_lifecycle() {
             trash: TrashFilter::Exclude,
             favorites_only: false,
             query: Some("anything".into()),
+            limit: None,
         })
         .unwrap();
     assert_eq!(items, Vec::new());

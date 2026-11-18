@@ -15,7 +15,7 @@ use mosaic_core::{
     AttachmentId, ContactsCiphertext, IdentityPublicKey, ItemId, KeyGeneration, PasswordParams,
     VaultId, VaultMetaCiphertext, VaultRosterCiphertext, WrappedKey,
 };
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::account::{
     UnlockRow, check_params, decode_unlock, read_account, update_account, upsert_unlock,
@@ -430,7 +430,7 @@ fn reseal_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<ResealSql> {
 
 /// The first steps of a re-key and of an adoption, in the caller's
 /// transaction. Returns the unlock wrappings it deleted.
-fn switch_epoch(tx: &Transaction<'_>, sw: &EpochSwitch<'_>) -> Result<Vec<StoredUnlockMethod>> {
+fn switch_epoch(tx: &Connection, sw: &EpochSwitch<'_>) -> Result<Vec<StoredUnlockMethod>> {
     let stored = read_account(tx)?.ok_or(Error::NoAccount)?;
     check_params(sw.params, &stored)?;
     let stored_epoch = read_epoch(tx)?;
@@ -503,7 +503,7 @@ fn switch_epoch(tx: &Transaction<'_>, sw: &EpochSwitch<'_>) -> Result<Vec<Stored
 }
 
 fn delete_other_unlocks(
-    tx: &Transaction<'_>,
+    tx: &Connection,
     account: &mosaic_core::AccountId,
 ) -> Result<Vec<StoredUnlockMethod>> {
     let rows: Vec<UnlockRow> = {
@@ -526,7 +526,7 @@ fn delete_other_unlocks(
         .collect())
 }
 
-fn rewrap_all(tx: &Transaction<'_>, keys: &[(VaultId, KeyGeneration, WrappedKey)]) -> Result<()> {
+fn rewrap_all(tx: &Connection, keys: &[(VaultId, KeyGeneration, WrappedKey)]) -> Result<()> {
     let mut covered = HashSet::new();
     for (vault_id, generation, wrapped) in keys {
         if require_vault(tx, vault_id)?.key_wrap != VaultKeyWrap::AccountKey {
@@ -548,7 +548,7 @@ fn rewrap_all(tx: &Transaction<'_>, keys: &[(VaultId, KeyGeneration, WrappedKey)
     Ok(())
 }
 
-fn write_identity(tx: &Transaction<'_>, id: &IdentityWrite<'_>) -> Result<()> {
+fn write_identity(tx: &Connection, id: &IdentityWrite<'_>) -> Result<()> {
     let exists: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM identity_key)", [], |r| {
         r.get(0)
     })?;
@@ -582,11 +582,7 @@ fn write_identity(tx: &Transaction<'_>, id: &IdentityWrite<'_>) -> Result<()> {
     Ok(())
 }
 
-fn write_rotated_vault(
-    tx: &Transaction<'_>,
-    w: &RotatedVaultWrite<'_>,
-    accepted: bool,
-) -> Result<()> {
+fn write_rotated_vault(tx: &Connection, w: &RotatedVaultWrite<'_>, accepted: bool) -> Result<()> {
     let vault_id = &w.vault_id;
     let state = require_vault(tx, vault_id)?;
     if w.generation <= state.highest_accepted_generation {
@@ -1326,10 +1322,7 @@ impl Store {
     }
 }
 
-fn insert_reseal_rows(
-    tx: &Transaction<'_>,
-    rows: &[(AttachmentId, VaultId, ItemId)],
-) -> Result<()> {
+fn insert_reseal_rows(tx: &Connection, rows: &[(AttachmentId, VaultId, ItemId)]) -> Result<()> {
     for (old, vault, item) in rows {
         tx.execute(
             "INSERT OR REPLACE INTO reseal_attachments (old_id, vault_id, item_id, new_id, state)

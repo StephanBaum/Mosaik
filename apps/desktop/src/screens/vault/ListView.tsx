@@ -5,6 +5,7 @@ import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type {
   InsightFinding,
   ItemRequest,
+  ItemSummary,
   VaultId,
   VaultSummary,
 } from "../../ipc/contract/index.ts";
@@ -14,7 +15,7 @@ import { ItemEditor } from "./ItemEditor.tsx";
 import { HardwareVaultBar, HardwareVaultPanel, type VaultTransition } from "./HardwareVaultPanel.tsx";
 import { ItemList } from "./ItemList.tsx";
 import { useEditorFocusReturn } from "./useEditorFocusReturn.ts";
-import type { Category } from "./useVaultData.ts";
+import type { Category, SavedItem } from "./useVaultData.ts";
 import type { Editor } from "./VaultLayout.tsx";
 
 export interface ListViewProps {
@@ -27,18 +28,24 @@ export interface ListViewProps {
   selected: ItemRequest | null;
   editor: Editor;
   reloadKey: number;
+  /** The item saved last: the list updates in place from it, without a reload. */
+  saved: SavedItem | null;
+  /** The list of items whose category counts the sidebar shows, unfiltered, after each load. */
+  onUnfiltered: (items: readonly ItemSummary[]) => void;
   /** The empty state replaces the whole split. */
   empty: boolean;
   onSelect: (item: ItemRequest | null) => void;
   onEditor: (editor: Editor) => void;
   onChanged: () => void;
+  /** An item was saved: its list row, for an in-place update (no full reload). */
+  onItemSaved: (summary: ItemSummary) => void;
   onImport: () => void;
   onLoaded: (count: number) => void;
 }
 
 function Detail(props: ListViewProps) {
   const { t } = useI18n();
-  const { editor, selected, trash, vaults, vaultId, reloadKey, onSelect, onEditor, onChanged } = props;
+  const { editor, selected, trash, vaults, vaultId, reloadKey, query, onSelect, onEditor, onChanged, onItemSaved } = props;
   // The item saved last as new: its detail puts the cursor on "Add file" (documents).
   const [created, setCreated] = useState<string | null>(null);
   useEditorFocusReturn(editor.mode !== "closed");
@@ -49,11 +56,17 @@ function Detail(props: ListViewProps) {
         vaults={editor.mode === "new" ? vaults.filter((vault) => vault.protection === "accountKey") : vaults}
         vaultId={vaultId}
         editing={editor.mode === "edit" ? editor.detail : null}
-        onSaved={(item) => {
+        onSaved={(item, summary, codeStored) => {
           setCreated(editor.mode === "new" ? item.itemId : null);
           onEditor({ mode: "closed" });
           onSelect(item);
-          onChanged();
+          // The list and the counts change in place; no list is fetched again for a save.
+          onItemSaved(summary);
+          // A code kept in a hardware vault is an item the in-place update does not show, and
+          // a search result list is not updated in place, so the sidebar counts reload.
+          if (codeStored || query.trim() !== "") {
+            onChanged();
+          }
         }}
         onCancel={() => {
           onEditor({ mode: "closed" });
@@ -141,7 +154,7 @@ export function ListView(props: ListViewProps) {
 
 function Split(props: ListViewProps) {
   const { t } = useI18n();
-  const { vaultId, trash, query, category, findings, selected, reloadKey, onSelect, onEditor } = props;
+  const { vaultId, trash, query, category, findings, selected, reloadKey, saved, onSelect, onEditor } = props;
   return (
     <>
       {props.empty && (
@@ -163,11 +176,13 @@ function Split(props: ListViewProps) {
             findings={findings}
             selected={props.editor.mode === "new" ? null : selected}
             reloadKey={reloadKey}
+            saved={saved}
             onSelect={(item) => {
               onEditor({ mode: "closed" });
               onSelect(item);
             }}
             onLoaded={props.onLoaded}
+            onUnfiltered={props.onUnfiltered}
           />
         </section>
         <section className="split__detail">

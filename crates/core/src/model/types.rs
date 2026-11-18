@@ -664,6 +664,58 @@ impl OtpConfig {
         Value::Object(o)
     }
 
+    /// Whether [`OtpConfig::from_value`] would accept `v`, answered by
+    /// borrowing: no member is copied and no secret is decoded into a heap
+    /// buffer. It mirrors `from_value` and [`OtpConfig::validate`] step by
+    /// step; the equivalence test in `item` keeps the two in line.
+    pub(crate) fn is_valid_value(v: &Value) -> bool {
+        let Some(o) = v.as_object() else {
+            return false;
+        };
+        if !o
+            .get("secret")
+            .is_some_and(Value::is_secret_bytes_up_to::<MAX_OTP_SECRET_LEN>)
+        {
+            return false;
+        }
+        let Some(Value::String(algorithm)) = o.get("algorithm") else {
+            return false;
+        };
+        if !matches!(algorithm.as_str(), "sha1" | "sha256" | "sha512") {
+            return false;
+        }
+        let Some(digits) = o.get("digits").and_then(Value::as_u64) else {
+            return false;
+        };
+        let Ok(digits) = u8::try_from(digits) else {
+            return false;
+        };
+        let Some(period) = o.get("period").and_then(Value::as_u64) else {
+            return false;
+        };
+        let Ok(period) = u32::try_from(period) else {
+            return false;
+        };
+        let Some(Value::String(kind)) = o.get("kind") else {
+            return false;
+        };
+        let digits_ok = match kind.as_str() {
+            "totp" | "hotp" => (6..=8).contains(&digits),
+            "steam" => digits == 5,
+            _ => return false,
+        };
+        let optional_text_ok = |k: &str| matches!(o.get(k), None | Some(Value::String(_)));
+        if !optional_text_ok("issuer") || !optional_text_ok("label") {
+            return false;
+        }
+        if o.get("hardware_protected")
+            .is_some_and(|h| h.as_bool().is_none())
+        {
+            return false;
+        }
+        digits_ok && (1..=300).contains(&period)
+    }
+
     pub(crate) fn from_value(v: &Value) -> Result<Self> {
         let mut r = Reader::new(v)?;
         let secret = r.secret_bytes("secret")?;
@@ -757,6 +809,17 @@ impl CustomField {
         o.insert("kind", Value::text(kind));
         o.insert("value", value);
         Value::Object(o)
+    }
+
+    /// Whether [`CustomField::from_value`] would accept `v` as a field of
+    /// kind `otp`, answered by borrowing (no secret is copied).
+    pub(crate) fn is_otp_value(v: &Value) -> bool {
+        let Some(o) = v.as_object() else {
+            return false;
+        };
+        matches!(o.get("label"), Some(Value::String(_)))
+            && matches!(o.get("kind"), Some(Value::String(k)) if k.as_str() == "otp")
+            && o.get("value").is_some_and(OtpConfig::is_valid_value)
     }
 
     pub(crate) fn from_value(v: &Value) -> Result<Self> {

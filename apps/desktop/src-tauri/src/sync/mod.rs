@@ -66,6 +66,13 @@ use crate::state::{Backend, Slot, guard};
 pub const CHOICE_TTL: Duration = Duration::from_mins(5);
 /// The most folder choices held at once.
 const MAX_CHOICES: usize = 8;
+/// The first sync run after an unlock waits this long, so the first paint of the vault is not
+/// competing with the network and the session lock (tests do not wait).
+const FIRST_SYNC_DELAY: Duration = if cfg!(test) {
+    Duration::ZERO
+} else {
+    Duration::from_secs(1)
+};
 /// How long "Sync now" waits for the run to end before it answers.
 const SYNC_NOW_WAIT: Duration = Duration::from_secs(120);
 /// How long the mark of a fresh login lasts (the server allows five minutes).
@@ -490,8 +497,9 @@ impl SyncService {
         }
     }
 
-    /// Starts the sync thread for `run` (ending the previous one).
-    pub(crate) fn start(&self, run: RunConfig) {
+    /// Starts the sync thread for `run` (ending the previous one); its first run waits
+    /// `delay`.
+    pub(crate) fn start(&self, run: RunConfig, delay: Duration) {
         let Some(weak) = self.weak.lock().ok().and_then(|w| w.clone()) else {
             return;
         };
@@ -515,7 +523,17 @@ impl SyncService {
         // the next unlock tries again.
         let _ = std::thread::Builder::new()
             .name("mosaic-sync".into())
-            .spawn(move || thread_main(&ctx, &run, &rx));
+            .spawn(move || {
+                if !delay.is_zero() {
+                    std::thread::sleep(delay);
+                    // The app may have locked or another run replaced this
+                    // one while it waited.
+                    if ctx.session().current().is_none() {
+                        return;
+                    }
+                }
+                thread_main(&ctx, &run, &rx);
+            });
     }
 
     // ---- folder choices (ADR-0034) ----------------------------------------------
@@ -825,7 +843,7 @@ impl Backend {
         match session.sync_config() {
             Ok(Some(config)) => {
                 match RunConfig::of(&config, session.account_id(), session.install_id()) {
-                    Some(run) => self.sync.start(run),
+                    Some(run) => self.sync.start(run, FIRST_SYNC_DELAY),
                     None => {
                         self.sync.reset();
                     }

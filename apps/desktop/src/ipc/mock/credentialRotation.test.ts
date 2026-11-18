@@ -117,7 +117,7 @@ describe("mock guided change", () => {
 
   it("refuses what Rust refuses", async () => {
     const ipc = mock();
-    const note = (await value(ipc, "list_items", { vaultId: null, trash: "exclude", favoritesOnly: false, query: null })).find(
+    const note = (await value(ipc, "list_items", { vaultId: null, trash: "exclude", favoritesOnly: false, query: null, limit: null })).find(
       (item) => item.kind === "secureNote" || item.kind === "creditCard",
     );
     expect(await code(ipc, "rotation_begin", { vaultId: VAULT, itemId: note?.itemId ?? "x", newPassword: "a", rulesSource: null })).toBe(

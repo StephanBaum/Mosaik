@@ -340,6 +340,23 @@ impl Value {
         Ok(out)
     }
 
+    /// Whether this is a base64url string that decodes to 1 to `N` bytes,
+    /// answering exactly as [`Value::to_secret_bytes`] followed by a length
+    /// check would, but decoding into a zeroizing stack buffer instead of
+    /// allocating a secret.
+    pub(crate) fn is_secret_bytes_up_to<const N: usize>(&self) -> bool {
+        let Some(s) = self.as_str() else {
+            return false;
+        };
+        let len = decoded_len(s.len());
+        if len == 0 || len > N {
+            return false;
+        }
+        let mut buf = Zeroizing::new([0_u8; N]);
+        buf.get_mut(..len)
+            .is_some_and(|dst| Base64UrlUnpadded::decode(s, dst).is_ok())
+    }
+
     /// A second zeroizing copy.
     pub(crate) fn dup(&self) -> Self {
         match self {

@@ -439,6 +439,8 @@ impl UnlockedSession {
             error: scan.error.map(ScanError::code),
         };
         self.store.put_breach_results(&rows, &scan_row)?;
+        // The security report reads these rows: its cache must not outlive them.
+        self.vaults.touch();
         Ok(())
     }
 

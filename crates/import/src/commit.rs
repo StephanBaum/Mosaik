@@ -7,7 +7,7 @@ use mosaic_core::model::ItemType;
 use mosaic_vault::session::{Error as SessionError, ItemFilter, UnlockedSession};
 
 use crate::draft::{EntryWarning, ItemDraft, PasskeyDraft};
-use crate::entries::Import;
+use crate::entries::{Import, ImportEntry};
 
 /// What [`commit`] did.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -44,12 +44,19 @@ impl CommitReport {
     }
 }
 
+/// Entries written per store transaction. One transaction costs one fsync,
+/// so this bounds the writes lost to a crash (the chunk in flight) while
+/// keeping a 10,000-entry import at tens of commits instead of tens of
+/// thousands (ADR-0170).
+const CHUNK: usize = 500;
+
 fn bump(n: &mut u32) {
     *n = n.saturating_add(1);
 }
 
 /// Adds every entry of `import` whose index is not in `skip` to
-/// `vault_id`, each as one item (one sync event), then its attachments, then
+/// `vault_id`, each as one item (one sync event), written in batched
+/// transactions of 500 entries, then its attachments, then
 /// each of its passkeys as its own `passkey` item (an entry of passkeys only
 /// makes no item of its own). A passkey whose relying party and credential
 /// ID are already in the account, or were written earlier in this commit,
@@ -85,7 +92,32 @@ pub fn commit(
         .filter_map(|r| r.item.passkey_public())
         .map(|p| (p.rp_id.as_str().to_owned(), p.credential_id))
         .collect();
-    for entry in import.entries {
+    // Each chunk is one `session.batch`. The session lock is NOT released
+    // between chunks: the caller (the desktop import command, the CLI) holds
+    // the `&mut UnlockedSession` for the whole call, so letting other work in
+    // between would need an API that takes a lock handle instead (a redesign
+    // left for later). The batching alone removes the per-entry fsync.
+    let mut entries = import.entries.into_iter();
+    loop {
+        let chunk: Vec<ImportEntry> = entries.by_ref().take(CHUNK).collect();
+        if chunk.is_empty() {
+            break;
+        }
+        session.batch(|s| commit_chunk(chunk, s, vault_id, &skip, &mut known, &mut report))?;
+    }
+    Ok(report)
+}
+
+/// Adds one chunk of entries (inside the caller's batch).
+fn commit_chunk(
+    chunk: Vec<ImportEntry>,
+    session: &mut UnlockedSession,
+    vault_id: VaultId,
+    skip: &HashSet<u32>,
+    known: &mut HashSet<(String, Vec<u8>)>,
+    report: &mut CommitReport,
+) -> Result<(), SessionError> {
+    for entry in chunk {
         if skip.contains(&entry.index) {
             bump(&mut report.skipped);
             continue;
@@ -95,7 +127,7 @@ pub fn commit(
         }
         let draft = entry.draft;
         if draft.has_item() {
-            add_item(session, vault_id, &draft, &mut report)?;
+            add_item(session, vault_id, &draft, report)?;
         }
         for passkey in &draft.passkeys {
             let id = (
@@ -104,12 +136,12 @@ pub fn commit(
             );
             if known.contains(&id) {
                 bump(&mut report.skipped);
-            } else if add_passkey(session, vault_id, &draft, passkey, &mut report)? {
+            } else if add_passkey(session, vault_id, &draft, passkey, report)? {
                 known.insert(id);
             }
         }
     }
-    Ok(report)
+    Ok(())
 }
 
 /// Adds the entry's own item and its attachments.

@@ -223,11 +223,7 @@ fn passkey_line(passkey: &PasskeyPublic) -> Option<String> {
 }
 
 fn has_otp(item: &Item) -> bool {
-    item.otp().is_some()
-        || item
-            .custom_fields()
-            .iter()
-            .any(|(_, field)| matches!(field.value, CustomFieldValue::Otp(_)))
+    item.has_otp()
 }
 
 fn summarize(vault_id: VaultId, item_id: ItemId, item: &Item) -> ItemSummary {
@@ -451,9 +447,13 @@ impl Backend {
         } else {
             session.search(query)
         };
+        let limit = request
+            .limit
+            .map_or(usize::MAX, |n| usize::try_from(n).unwrap_or(usize::MAX));
         Ok(entries
             .iter()
             .filter(|entry| accepts(request, entry))
+            .take(limit)
             .map(|entry| summarize(entry.vault_id, entry.item_id, entry.item))
             .collect())
     }
