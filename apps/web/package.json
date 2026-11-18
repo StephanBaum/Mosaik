@@ -17,7 +17,7 @@
     "@fontsource/ibm-plex-mono": "5.3.0",
     "@mosaic/design-tokens": "workspace:*",
     "@mosaic/i18n": "workspace:*",
-    "@playwright/test": "1.65.0",
+    "@playwright/test": "1.65.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "jsdom": "29.1.1",
