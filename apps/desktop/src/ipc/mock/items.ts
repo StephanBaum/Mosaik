@@ -329,7 +329,8 @@ export const itemHandlers: MockHandlers = {
     requireUnlocked(state);
     return state.items
       .filter((item) => vaultReadable(state, item.detail.summary.vaultId) && matches(item, request))
-      .map((item) => item.detail.summary);
+      .map((item) => item.detail.summary)
+      .slice(0, request.limit ?? undefined);
   },
 
   get_item: (state, request) => {

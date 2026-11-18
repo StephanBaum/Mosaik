@@ -56,12 +56,14 @@ fn print_rows(out: &Output, rows: &[ItemOut]) {
 }
 
 fn sorted(mut rows: Vec<ItemOut>) -> Vec<ItemOut> {
-    rows.sort_by(|a, b| {
-        (a.vault.name.to_lowercase(), a.title.to_lowercase(), &a.id).cmp(&(
-            b.vault.name.to_lowercase(),
-            b.title.to_lowercase(),
-            &b.id,
-        ))
+    // The same total order as comparing the three parts pairwise (the ID breaks ties), with the
+    // lowercase forms built once per row instead of twice per comparison.
+    rows.sort_by_cached_key(|r| {
+        (
+            r.vault.name.to_lowercase(),
+            r.title.to_lowercase(),
+            r.id.clone(),
+        )
     });
     rows
 }

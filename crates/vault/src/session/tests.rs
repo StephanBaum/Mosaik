@@ -1648,3 +1648,303 @@ fn applying_a_remote_record_prunes_marks_of_bindings_that_are_gone() {
     b.apply_remote_record(&tombstone).unwrap();
     assert_eq!(b.store.agent_marks_of(&vault, &item).unwrap().len(), 0);
 }
+
+// Batched writes (ADR-0170).
+
+/// `n` fresh remote notes of `vault`, sealed under the session's key.
+fn remote_notes(s: &UnlockedSession, vault: VaultId, n: u64) -> Vec<RemoteRecord> {
+    (1..=n)
+        .map(|i| {
+            let mut rec = remote_note(s, vault, ItemId::new_v7().unwrap(), &format!("note {i}"));
+            rec.server_seq = i;
+            rec
+        })
+        .collect()
+}
+
+fn memory_ids(s: &UnlockedSession, vault: VaultId) -> std::collections::BTreeSet<ItemId> {
+    s.vaults
+        .get(&vault)
+        .unwrap()
+        .items
+        .keys()
+        .copied()
+        .collect()
+}
+
+fn disk_ids(s: &UnlockedSession, vault: VaultId) -> std::collections::BTreeSet<ItemId> {
+    s.store
+        .records(&vault)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.unwrap().record_id)
+        .collect()
+}
+
+fn in_transaction(s: &UnlockedSession) -> bool {
+    !s.store.conn_for_tests().is_autocommit()
+}
+
+#[test]
+fn a_batch_commits_all_its_writes_in_one_transaction() {
+    let (mut s, _) = account();
+    let vault = s.create_vault("Personal").unwrap();
+    let recs = remote_notes(&s, vault, 5);
+    s.batch(|s| {
+        assert!(in_transaction(s));
+        for (i, r) in (1u8..).zip(&recs) {
+            assert_eq!(s.apply_remote_record(r)?, ApplyOutcome::New);
+            s.set_sync_cursor(vault, &[i])?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert!(!in_transaction(&s));
+    assert_eq!(disk_ids(&s, vault).len(), 5);
+    assert_eq!(memory_ids(&s, vault), disk_ids(&s, vault));
+    assert_eq!(s.sync_cursor(vault).unwrap(), Some(vec![5]));
+    // The same state after a fresh load from disk.
+    let before = memory_ids(&s, vault);
+    let s = s.reload();
+    assert_eq!(memory_ids(&s, vault), before);
+}
+
+#[test]
+fn batches_nest_and_only_the_outer_one_commits() {
+    let (mut s, _) = account();
+    let vault = s.create_vault("Personal").unwrap();
+    let recs = remote_notes(&s, vault, 3);
+    s.batch(|s| {
+        s.batch(|s| s.apply_remote_record(&recs[0]).map(|_| ()))?;
+        // The inner batch ended; the outer transaction is still open.
+        assert!(in_transaction(s));
+        s.apply_remote_record(&recs[1])?;
+        s.batch(|s| s.apply_remote_record(&recs[2]).map(|_| ()))
+    })
+    .unwrap();
+    assert!(!in_transaction(&s));
+    assert_eq!(disk_ids(&s, vault).len(), 3);
+    assert_eq!(memory_ids(&s, vault), disk_ids(&s, vault));
+}
+
+#[test]
+fn a_failed_write_in_a_batch_keeps_memory_and_disk_equal() {
+    let (mut s, _) = account();
+    let vault = s.create_vault("Personal").unwrap();
+    let recs = remote_notes(&s, vault, 5);
+    // The third insert into `records` fails.
+    s.store
+        .exec_raw(
+            "CREATE TEMP TRIGGER boom BEFORE INSERT ON records
+             WHEN (SELECT count(*) FROM records) >= 2
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+    let err = s
+        .batch(|s| {
+            for (i, r) in (1u8..).zip(&recs) {
+                s.apply_remote_record(r)?;
+                s.set_sync_cursor(vault, &[i])?;
+            }
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, Error::Store(StorageError::Database(_))),
+        "{err:?}"
+    );
+    // The batch committed what applied before the failure.
+    assert!(!in_transaction(&s));
+    assert_eq!(disk_ids(&s, vault).len(), 2);
+    assert_eq!(memory_ids(&s, vault), disk_ids(&s, vault));
+    // The cursor matches the applied records, not the failed ones.
+    assert_eq!(s.sync_cursor(vault).unwrap(), Some(vec![2]));
+    let (mem, cursor) = (memory_ids(&s, vault), s.sync_cursor(vault).unwrap());
+    let s = s.reload();
+    assert_eq!(memory_ids(&s, vault), mem);
+    assert_eq!(s.sync_cursor(vault).unwrap(), cursor);
+}
+
+#[test]
+fn a_failed_commit_reloads_the_session_from_disk() {
+    let (mut s, _) = account();
+    let vault = s.create_vault("Personal").unwrap();
+    let recs = remote_notes(&s, vault, 2);
+    let err = s
+        .batch(|s| {
+            s.apply_remote_record(&recs[0])?;
+            // Ends the outer transaction behind the batch's back, so the
+            // final COMMIT fails and nothing of the batch is on disk.
+            s.store.exec_raw("ROLLBACK;")?;
+            s.apply_remote_record(&recs[1])?;
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(matches!(err, Error::Store(_)), "{err:?}");
+    assert!(!in_transaction(&s));
+    assert_eq!(memory_ids(&s, vault), disk_ids(&s, vault));
+}
+
+#[test]
+fn a_peer_key_rotation_inside_a_batch_is_accepted_and_the_wal_scrub_waits_for_the_commit() {
+    // Review C1: the WAL checkpoint cannot run inside the batch's open
+    // transaction; it must be deferred to the commit, not fail the accept.
+    let (mut s, _) = account();
+    let vault = s.create_vault("Named").unwrap();
+    let g2 = KeyGeneration::FIRST.next().unwrap();
+    let wrapped2 = VaultKey::generate(g2)
+        .unwrap()
+        .wrap(&s.account_key, &s.account_id, &vault)
+        .unwrap();
+    s.batch(|s| {
+        s.apply_remote_vault_key(vault, g2, &wrapped2)?;
+        assert!(in_transaction(s));
+        Ok(())
+    })
+    .unwrap();
+    assert!(!in_transaction(&s));
+    assert_eq!(summary(&s, vault).key_generation, g2);
+    // Memory and disk agree on the accepted generation after a reload.
+    let s = s.reload();
+    assert_eq!(summary(&s, vault).key_generation, g2);
+    // A local edit still works (the generation floor is not ahead of memory).
+    let mut s = s;
+    s.add_item(vault, &ItemType::Login, |e| e.set_title("after"))
+        .unwrap();
+}
+
+#[test]
+fn a_failed_commit_drops_the_reserved_local_sequence_block() {
+    // Review M1: the block reserved inside the failed batch was rolled back,
+    // so the in-memory reservation must not be handed out afterwards.
+    let (mut s, _) = account();
+    let vault = s.create_vault("Personal").unwrap();
+    let err = s
+        .batch(|s| {
+            assert_eq!(s.allocate_local_seqs(vault, 1)?, 1);
+            // Ends the outer transaction: the final COMMIT fails.
+            s.store.exec_raw("ROLLBACK;")?;
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(matches!(err, Error::Store(_)), "{err:?}");
+    // Nothing of the batch is on disk, so the reservation starts over.
+    assert_eq!(s.allocate_local_seqs(vault, 1).unwrap(), 1);
+}
+
+/// 2,000 records on a file-backed store, batched against not batched. Run
+/// with `cargo test -p mosaic-vault --release -- --ignored --nocapture`.
+#[test]
+#[ignore = "timing test: fsync cost depends on the disk"]
+fn batched_writes_are_faster_on_a_file_store() {
+    use std::time::Instant;
+    let run = |batched: bool| {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("vault.db")).unwrap();
+        let (mut s, _) = LockedSession::open(store)
+            .create_account(&pw(), Argon2Profile::Baseline)
+            .unwrap();
+        let vault = s.create_vault("Personal").unwrap();
+        let recs = remote_notes(&s, vault, 2000);
+        let start = Instant::now();
+        let apply = |s: &mut UnlockedSession| -> super::Result<()> {
+            for r in &recs {
+                s.apply_remote_record(r)?;
+            }
+            Ok(())
+        };
+        if batched {
+            s.batch(apply).unwrap();
+        } else {
+            apply(&mut s).unwrap();
+        }
+        assert_eq!(disk_ids(&s, vault).len(), 2000);
+        start.elapsed()
+    };
+    let plain = run(false);
+    let batched = run(true);
+    eprintln!("2000 records: one by one {plain:?}, batched {batched:?}");
+    assert!(batched < plain);
+}
+
+/// The search index is built by the first search from the then-current items; changes made
+/// before it (and after it) give the same results as an index kept up to date all along.
+#[test]
+fn the_search_index_is_built_lazily_and_gives_the_same_results() {
+    let (mut s, _) = account();
+    let vault = s.create_vault("Lazy").unwrap();
+    let add = |s: &mut UnlockedSession, title: &str, user: &str| {
+        s.add_item(vault, &ItemType::Login, |e| {
+            e.set_title(title)?;
+            e.set_text(TextField::Username, user)
+        })
+        .unwrap()
+    };
+    // What an index updated by every change would answer: built fresh from the open vaults.
+    let fresh = |s: &UnlockedSession, q: &str| {
+        let mut index = SearchIndex::default();
+        for (v, ov) in &s.vaults {
+            index.update_vault(*v, ov);
+        }
+        index.search(q)
+    };
+    let found = |s: &UnlockedSession, q: &str| -> Vec<(VaultId, ItemId)> {
+        s.search(q)
+            .into_iter()
+            .map(|r| (r.vault_id, r.item_id))
+            .collect()
+    };
+
+    let a = add(&mut s, "GitHub", "x");
+    let b = add(&mut s, "Mail", "github-user");
+    // A change before the first search leaves the index unbuilt and is seen by that search.
+    s.update_item(vault, a, |e| e.set_title("GitLab")).unwrap();
+    assert!(!s.index.is_built());
+    assert_eq!(found(&s, "git"), [a, b].map(|i| (vault, i)));
+    assert!(s.index.is_built());
+    for q in ["git", "lab", "github", "mail", "x", "nothing"] {
+        assert_eq!(found(&s, q), fresh(&s, q), "{q}");
+    }
+
+    // Changes after the build update it.
+    let c = add(&mut s, "Gitea", "y");
+    s.update_item(vault, b, |e| e.set_title("Gitmail")).unwrap();
+    s.purge_item(vault, a).unwrap();
+    for q in ["git", "lab", "gitea", "mail", "y"] {
+        assert_eq!(found(&s, q), fresh(&s, q), "{q}");
+    }
+    assert_eq!(found(&s, "gitea"), [(vault, c)]);
+    assert!(!found(&s, "git").contains(&(vault, a)));
+}
+
+#[test]
+fn revision_changes_with_every_kind_of_mutation_and_not_with_reads() {
+    let (mut s, _key) = account();
+    let mut last = s.revision();
+    let mut moved = |s: &UnlockedSession, what: &str| {
+        let now = s.revision();
+        assert_ne!(now, last, "{what}");
+        last = now;
+    };
+    let vault = s.create_vault("Work").unwrap();
+    moved(&s, "create_vault");
+    let item = s
+        .add_item(vault, &ItemType::Login, |e| e.set_title("A"))
+        .unwrap();
+    moved(&s, "add_item");
+    s.update_item(vault, item, |e| e.set_title("B")).unwrap();
+    moved(&s, "update_item");
+    s.trash_item(vault, item).unwrap();
+    moved(&s, "trash_item");
+    s.rename_vault(vault, "Home").unwrap();
+    moved(&s, "rename_vault (metadata)");
+    s.rotate_vault_key(vault).unwrap();
+    moved(&s, "rotate_vault_key");
+
+    // Reads leave it alone.
+    let before = s.revision();
+    let _ = s.items(&super::ItemFilter::default());
+    let _ = s.search("B");
+    let _ = s.vaults();
+    assert_eq!(s.revision(), before);
+}

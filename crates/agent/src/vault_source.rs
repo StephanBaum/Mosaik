@@ -8,8 +8,6 @@
 //! A binding is *confirmed* when this device holds its mark (B1). The source only reads: it never
 //! writes a mark, touches an item or counts as activity.
 
-use std::collections::HashSet;
-
 use mosaic_core::model::{AgentBindingRecord, CustomFieldValue, ElementId, Item, SecretField};
 use mosaic_core::{ItemId, SecretString, VaultId};
 use mosaic_vault::refs::{RefCandidate, RefError, resolve_agent};
@@ -106,15 +104,29 @@ impl<'a> VaultSource<'a> {
         )
     }
 
+    /// The item when it is live (neither deleted nor trashed): the items `all` walks.
+    fn live_item(&self, vault: VaultId, item: ItemId) -> Option<&Item> {
+        self.session
+            .item(vault, item)
+            .ok()
+            .filter(|i| !i.is_deleted() && i.trashed_at().is_none())
+    }
+
     fn all(&self) -> Vec<SourceBinding> {
         let mut out = Vec::new();
         for (vault_id, vault_name) in self.eligible_vaults() {
             let mut filter = ItemFilter::default();
             filter.vault = Some(vault_id);
             filter.trash = TrashFilter::Exclude;
-            let mut items = self.session.items(&filter);
-            items.sort_by_key(|r| r.item_id.to_string());
-            for r in items {
+            // `items` walks a `BTreeMap<ItemId, Item>`, so the items come out in ascending ID
+            // order. `ItemId` orders by its 16 bytes and its string form is fixed-width
+            // lowercase hex with hyphens at fixed places, so that equals the order of the
+            // strings: sorting by `to_string()` changed nothing.
+            for r in self.session.items(&filter) {
+                // Most items hold no binding: skip them before any field is decoded.
+                if !r.item.has_agent_bindings() {
+                    continue;
+                }
                 out.extend(self.bindings_of(vault_id, &vault_name, r.item_id, r.item));
             }
         }
@@ -195,22 +207,36 @@ impl SecretSource for VaultSource<'_> {
     }
 
     fn resolve(&self, reference: &str) -> Result<SourceBinding, ResolveError> {
-        let all = self.all();
-        let usable_items: HashSet<(VaultId, ItemId)> =
-            all.iter().map(|b| (b.vault_id, b.item_id)).collect();
-        let target = resolve_agent(self.session, reference, &|v, i| {
-            usable_items.contains(&(v, i))
-        })
-        .map_err(|e| match e {
+        let eligible = self.eligible_vaults();
+        // An item is visible to the reference when it is a live item of an eligible vault with
+        // at least one usable binding (the same set `all` lists), worked out per item.
+        let visible = |vault: VaultId, item_id: ItemId| -> bool {
+            let Some((_, vault_name)) = eligible.iter().find(|(v, _)| *v == vault) else {
+                return false;
+            };
+            self.live_item(vault, item_id).is_some_and(|item| {
+                item.has_agent_bindings()
+                    && !self
+                        .bindings_of(vault, vault_name, item_id, item)
+                        .is_empty()
+            })
+        };
+        let target = resolve_agent(self.session, reference, &visible).map_err(|e| match e {
             RefError::Invalid => ResolveError::Invalid,
             RefError::NotFound | RefError::VaultUnavailable => ResolveError::NotUsable,
             RefError::Ambiguous(candidates) => ResolveError::Ambiguous(candidates),
         })?;
         let field = target.field.as_deref().ok_or(ResolveError::Invalid)?;
-        let cands: Vec<&SourceBinding> = all
+        // Only the target's bindings are computed.
+        let (_, vault_name) = eligible
             .iter()
-            .filter(|b| b.vault_id == target.vault && b.item_id == target.item)
-            .collect();
+            .find(|(v, _)| *v == target.vault)
+            .ok_or(ResolveError::NotUsable)?;
+        let item = self
+            .live_item(target.vault, target.item)
+            .ok_or(ResolveError::NotUsable)?;
+        let found = self.bindings_of(target.vault, vault_name, target.item, item);
+        let cands: Vec<&SourceBinding> = found.iter().collect();
         match_field(&cands, field)
     }
 

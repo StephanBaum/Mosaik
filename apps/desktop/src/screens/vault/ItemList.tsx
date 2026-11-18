@@ -16,7 +16,7 @@ import type {
   VaultId,
 } from "../../ipc/contract/index.ts";
 import { daysLeft, TRASH_URGENT_DAYS } from "../../time/trash.ts";
-import { matchesCategory, type Category } from "./useVaultData.ts";
+import { applySaved, matchesCategory, type Category, type FetchedList, type SavedItem } from "./useVaultData.ts";
 import { UserText } from "../../components/UserText.tsx";
 import { titleOrUntitled } from "./title.ts";
 
@@ -30,42 +30,94 @@ interface Query {
   query: string;
   category: Category;
   reloadKey: number;
+  saved: SavedItem | null;
 }
 
-function useItems({ vaultId, trash, query, category, reloadKey }: Query, onLoaded?: (count: number) => void) {
+function useItems(
+  { vaultId, trash, query, category, reloadKey, saved }: Query,
+  onLoaded?: (count: number) => void,
+  onUnfiltered?: (items: readonly ItemSummary[]) => void,
+) {
   const ipc = useIpc();
-  const [items, setItems] = useState<ItemSummary[] | null>(null);
+  // The list as the backend returned it; the category only filters it for display.
+  const [fetched, setFetched] = useState<FetchedList | null>(null);
   const [error, setError] = useState<IpcError | null>(null);
+  const [refetch, setRefetch] = useState(0);
+  const unfiltered = query.trim() === "" && !trash;
+  // The last save applied to the list: a response that was requested before it is stale.
+  const [handledSeq, setHandledSeq] = useState(saved?.seq ?? 0);
+  const latestSeq = useLatest(handledSeq);
+  const loadedRef = useLatest(onLoaded);
   useEffect(() => {
     let current = true;
-    const timer = setTimeout(
-      () => {
-        void ipc
-          .call("list_items", {
-            vaultId,
-            trash: trash ? "only" : "exclude",
-            favoritesOnly: false,
-            query: query.trim() === "" ? null : query,
-          })
-          .then((result) => {
-            if (!current) {
-              return;
-            }
-            setError(result.ok ? null : result.error);
-            if (result.ok) {
-              const shown = result.value.filter((item) => matchesCategory(item, category));
-              setItems(shown);
-              onLoaded?.(shown.length);
-            }
-          });
-      },
-      query === "" ? 0 : SEARCH_DEBOUNCE_MS,
-    );
+    const load = () => {
+      const sentAt = latestSeq.current;
+      void ipc
+        .call("list_items", {
+          vaultId,
+          trash: trash ? "only" : "exclude",
+          favoritesOnly: false,
+          query: query.trim() === "" ? null : query,
+          limit: null,
+        })
+        .then((result) => {
+          if (!current) {
+            return;
+          }
+          if (latestSeq.current !== sentAt) {
+            // A save updated the list in place while this was in flight: ask again.
+            setRefetch((n) => n + 1);
+            return;
+          }
+          setError(result.ok ? null : result.error);
+          if (result.ok) {
+            setFetched({ items: result.value, vaultId, unfiltered });
+          } else {
+            // A list that cannot load is still a settled list: what waits for it (the report)
+            // must not wait for ever.
+            loadedRef.current?.(0);
+          }
+        });
+    };
+    // No query: the first request goes out at once, not after a timer.
+    if (query === "") {
+      load();
+      return () => {
+        current = false;
+      };
+    }
+    const timer = setTimeout(load, SEARCH_DEBOUNCE_MS);
     return () => {
       current = false;
       clearTimeout(timer);
     };
-  }, [ipc, vaultId, trash, query, category, reloadKey, onLoaded]);
+  }, [ipc, latestSeq, loadedRef, vaultId, trash, query, unfiltered, reloadKey, refetch]);
+
+  // A save arrived: update the list in place; load again only when that cannot be exact.
+  if (saved !== null && saved.seq !== handledSeq) {
+    setHandledSeq(saved.seq);
+    const next = applySaved(fetched, saved.summary, { vaultId, trash, query });
+    if (next === null) {
+      setRefetch((n) => n + 1);
+    } else {
+      setFetched(next);
+    }
+  }
+
+  const items = useMemo(
+    () => fetched?.items.filter((item) => matchesCategory(item, category)) ?? null,
+    [fetched, category],
+  );
+  useEffect(() => {
+    if (items !== null) {
+      onLoaded?.(items.length);
+    }
+  }, [items, onLoaded]);
+  useEffect(() => {
+    if (fetched?.unfiltered === true && fetched.vaultId === vaultId) {
+      onUnfiltered?.(fetched.items);
+    }
+  }, [fetched, vaultId, onUnfiltered]);
   return { items, error };
 }
 
@@ -257,8 +309,10 @@ export function ItemList({
   findings,
   selected,
   reloadKey,
+  saved = null,
   onSelect,
   onLoaded,
+  onUnfiltered,
 }: {
   vaultId: VaultId | null;
   trash: boolean;
@@ -268,11 +322,19 @@ export function ItemList({
   selected: ItemRequest | null;
   /** Changes when something was added, edited or removed. */
   reloadKey: number;
+  /** The item saved last: its row is taken in place, without loading the list again. */
+  saved?: SavedItem | null;
   onSelect: (item: ItemRequest) => void;
   onLoaded?: (count: number) => void;
+  /** Called with the whole unfiltered list of the vault (the sidebar counts come from it). */
+  onUnfiltered?: (items: readonly ItemSummary[]) => void;
 }) {
   const { t } = useI18n();
-  const { items, error } = useItems({ vaultId, trash, query, category, reloadKey }, onLoaded);
+  const { items, error } = useItems(
+    { vaultId, trash, query, category, reloadKey, saved },
+    onLoaded,
+    onUnfiltered,
+  );
   const flags = useMemo(() => flagsOf(findings), [findings]);
   const list = useRef<HTMLUListElement>(null);
   useFocusAfterRemoval(items, selected, list);

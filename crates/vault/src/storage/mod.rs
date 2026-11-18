@@ -58,7 +58,9 @@
 //! `secure_delete` on (deleted rows are overwritten), `trusted_schema` off.
 //! Every call that removes or replaces a wrapped key checkpoints and
 //! truncates the WAL before it returns, so the old wrapping does not stay
-//! behind in WAL frames. Attachment files are written to a temporary file,
+//! behind in WAL frames. Every write is one transaction, except inside a
+//! batch ([`Store::begin_batch`]), where the writes are savepoints of one
+//! outer transaction that commits once (ADR-0170). Attachment files are written to a temporary file,
 //! synced, and renamed into place.
 //!
 //! ```
@@ -107,7 +109,7 @@ use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, Savepoint, Transaction, TransactionBehavior};
 
 pub use account::{AccountRekey, NewUnlockMethod, StoredUnlockMethod};
 pub use agent::{AgentLogCaps, AgentLogRow};
@@ -119,7 +121,7 @@ pub use engine_state::{
 };
 pub use error::{Error, Result};
 pub use records::{
-    CorruptRecord, Origin, OutboxSeq, RecordBody, RecordEntry, RecordKind, StoredRecord,
+    CorruptRecord, Origin, OutboxSeq, RecordBody, RecordEntry, RecordKind, RecordSync, StoredRecord,
 };
 pub use rotation::{
     AttachmentSwap, EpochSwitch, FOLDER_MARKER_LEN, FolderRekeyFloor, IdentityWrite,
@@ -173,6 +175,13 @@ pub struct Store {
     /// Block reserved in `sync_local_seq` and not yet handed out, per vault:
     /// `(next, end)` (see [`Store::allocate_local_seqs`]).
     local_seq: HashMap<VaultId, (u64, u64)>,
+    /// How many [`Store::begin_batch`] calls are open. While it is above
+    /// zero one outer `IMMEDIATE` transaction is open and every write
+    /// transaction is a savepoint inside it (ADR-0170).
+    batch_depth: u32,
+    /// A [`Store::scrub_wal`] was requested inside a batch (a checkpoint
+    /// cannot run in an open transaction); it runs after the commit.
+    scrub_pending: std::cell::Cell<bool>,
 }
 
 impl fmt::Debug for Store {
@@ -269,6 +278,8 @@ impl Store {
             attachment_dir,
             _lock: lock,
             local_seq: HashMap::new(),
+            batch_depth: 0,
+            scrub_pending: std::cell::Cell::new(false),
         })
     }
 
@@ -373,11 +384,66 @@ impl Store {
         Ok(self.conn.execute_batch(sql)?)
     }
 
-    /// Begins an `IMMEDIATE` write transaction.
-    fn write(&mut self) -> Result<Transaction<'_>> {
-        Ok(self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?)
+    /// Begins a write transaction: an `IMMEDIATE` transaction normally, a
+    /// savepoint inside the outer transaction of an open batch
+    /// ([`Store::begin_batch`]). Both commit with [`WriteTx::commit`] and a
+    /// drop without commit rolls back just this write.
+    fn write(&mut self) -> Result<WriteTx<'_>> {
+        if self.batch_depth > 0 {
+            Ok(WriteTx::Save(self.conn.savepoint()?))
+        } else {
+            Ok(WriteTx::Tx(self.conn.transaction_with_behavior(
+                TransactionBehavior::Immediate,
+            )?))
+        }
+    }
+
+    /// Opens a batch: from here until the matching [`Store::end_batch`]
+    /// every write joins one outer transaction, so the whole batch costs one
+    /// commit (one fsync) instead of one per write. Batches nest; only the
+    /// outermost one starts and commits the transaction. Each write inside
+    /// is still atomic (a savepoint), so a failed write undoes only itself.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn begin_batch(&mut self) -> Result<()> {
+        if self.batch_depth == 0 {
+            self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        }
+        self.batch_depth += 1;
+        Ok(())
+    }
+
+    /// Closes a batch opened with [`Store::begin_batch`]. The outermost call
+    /// commits. If the commit fails the transaction is rolled back and the
+    /// error returned: nothing of the batch is on disk, so the caller must
+    /// drop whatever it cached from the writes of the batch.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn end_batch(&mut self) -> Result<()> {
+        match self.batch_depth {
+            0 => Ok(()),
+            1 => {
+                self.batch_depth = 0;
+                let scrub = self.scrub_pending.replace(false);
+                if let Err(e) = self.conn.execute_batch("COMMIT") {
+                    // Ends the transaction if the failed COMMIT left it open.
+                    let _ = self.conn.execute_batch("ROLLBACK");
+                    // The reserved sequence block was never persisted.
+                    self.local_seq.clear();
+                    return Err(e.into());
+                }
+                if scrub {
+                    self.scrub_wal()?;
+                }
+                Ok(())
+            }
+            n => {
+                self.batch_depth = n - 1;
+                Ok(())
+            }
+        }
     }
 
     /// Moves every committed page from the WAL into the database file
@@ -390,10 +456,46 @@ impl Store {
     /// older snapshot; the frames are then removed by a later checkpoint
     /// (at the latest on [`Store::close`]). A store is meant to be opened
     /// by one process, so this is the exception.
+    ///
+    /// Inside a batch the checkpoint would fail (`SQLITE_LOCKED`), so it is
+    /// deferred to the commit of the outermost batch.
     fn scrub_wal(&self) -> Result<()> {
+        if self.batch_depth > 0 {
+            self.scrub_pending.set(true);
+            return Ok(());
+        }
         self.conn
             .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
         Ok(())
+    }
+}
+
+/// A write transaction of [`Store::write`]: a real transaction outside a
+/// batch, a savepoint inside one. Both read and write through
+/// [`Connection`].
+enum WriteTx<'a> {
+    Tx(Transaction<'a>),
+    Save(Savepoint<'a>),
+}
+
+impl WriteTx<'_> {
+    /// Commits the transaction, or releases the savepoint into the batch.
+    fn commit(self) -> rusqlite::Result<()> {
+        match self {
+            Self::Tx(t) => t.commit(),
+            Self::Save(s) => s.commit(),
+        }
+    }
+}
+
+impl core::ops::Deref for WriteTx<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        match self {
+            Self::Tx(t) => t,
+            Self::Save(s) => s,
+        }
     }
 }
 

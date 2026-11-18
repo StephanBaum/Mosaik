@@ -47,10 +47,11 @@ function useFoundItems(query: string): ItemSummary[] {
           trash: "exclude",
           favoritesOnly: false,
           query: query.trim() === "" ? null : query,
+          limit: 8,
         })
         .then((result) => {
           if (current && result.ok) {
-            setItems(result.value.slice(0, 8));
+            setItems(result.value);
           }
         });
     }, SEARCH_DEBOUNCE_MS);

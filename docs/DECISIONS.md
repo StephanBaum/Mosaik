@@ -6889,3 +6889,39 @@ separate agents, one language folder each; this decision covers the infrastructu
 - **Per-language Rust tables for the native dialogs.** Rejected for now: two dialogs, and an English fallback is
   correct there; more tables are more texts to keep in sync with the catalog tests.
 - **Translated language names.** Rejected: a reader who opened the wrong language must find their own by its name.
+
+## ADR-0170: Sync and import write in batched transactions
+
+- Status: accepted
+- Date: 2026-11-17
+- Milestone: launch performance pass
+
+### Context
+Every store write was its own `IMMEDIATE` transaction with `synchronous = FULL`, so one fsync per record. A pulled
+page of 500 records cost 1,000 or more fsyncs (3 to 8 s on Windows) while the session lock was held, and an import
+of 10,000 entries cost 30 to 50 s.
+
+### Decision
+- `Store::begin_batch` / `end_batch` open and close one outer `BEGIN IMMEDIATE` transaction (nesting counted).
+  Inside a batch `write()` returns a savepoint instead of a transaction, so each write stays atomic on its own and a
+  failed write undoes only itself. Durability settings do not change.
+- `UnlockedSession::batch(f)` runs `f` in a batch. The outer transaction commits even when `f` fails, so what
+  applied before the error is kept exactly as without a batch and memory equals disk. If the final COMMIT fails,
+  nothing of the batch is on disk: the session reloads every vault and the search index from the store (a vault that
+  cannot be reloaded is dropped from memory, so no write goes against a stale view).
+- Used for: `apply_page` of the pull (served-view notes, keys, records and the cursor of one page), the
+  acknowledgement loop of a push page, and the import commit in chunks of 500 entries.
+- `local_anchor` reads only the sync columns (`Store::record_sync`); the ciphertext is read only where it is
+  compared.
+
+### Consequences
+- A crash mid-batch rolls the whole batch back (SQLite WAL): at most one page or one import chunk is redone. The
+  cursor is written in the same batch as the records it covers, so it never runs ahead of them.
+- The import still holds the session lock for the whole call: the callers pass `&mut UnlockedSession` for the
+  entire commit, so releasing it between chunks needs an API that takes a lock handle (follow-up).
+- Attachment files written inside a batch whose COMMIT fails stay on disk unreferenced (the same as a crash between
+  the file and the row today); the orphan cleanup handles them.
+
+### Alternatives considered
+- **`synchronous = NORMAL`.** Rejected: weakens durability of every write, for all paths.
+- **Bigger pages.** Rejected: does not remove the per-record fsync.

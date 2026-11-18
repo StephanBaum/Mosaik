@@ -71,7 +71,7 @@ fn align_otp(e: &mut ItemEdit<'_>, in_hardware_vault: bool) -> mosaic_core::Resu
 }
 
 impl ItemFilter {
-    fn accepts(&self, vault_id: VaultId, item: &Item) -> bool {
+    pub(super) fn accepts(&self, vault_id: VaultId, item: &Item) -> bool {
         if item.is_deleted() || self.vault.is_some_and(|v| v != vault_id) {
             return false;
         }
@@ -99,6 +99,17 @@ impl UnlockedSession {
             .ok_or(Error::UnknownItem)
     }
 
+    /// A counter that changes whenever the items, the vault keys or the vault
+    /// metadata may have changed (every edit, sync merge, key rotation, vault
+    /// creation or reload, and a stored breach scan). It can change without a
+    /// visible change, never the other way round, so a result computed at one
+    /// revision is current while the revision is the same. It starts at 0 in
+    /// every unlocked session, so keep a cache of it only for one session.
+    #[must_use]
+    pub fn revision(&self) -> u64 {
+        self.vaults.revision
+    }
+
     /// The live items that pass `filter`, by vault and item ID.
     #[must_use]
     pub fn items(&self, filter: &ItemFilter) -> Vec<ItemRef<'_>> {
@@ -123,7 +134,7 @@ impl UnlockedSession {
     #[must_use]
     pub fn search(&self, query: &str) -> Vec<ItemRef<'_>> {
         self.index
-            .search(query)
+            .search(&self.vaults, query)
             .into_iter()
             .filter_map(|(v, i)| {
                 let item = self.vaults.get(&v)?.items.get(&i)?;

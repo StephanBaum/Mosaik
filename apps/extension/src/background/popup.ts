@@ -14,7 +14,7 @@ import type {
   TabInfo,
 } from "../shared/messages.ts";
 import { hostOf, isSecureOrigin, originOf, unicodeHostOf } from "../shared/origin.ts";
-import type { GenerateRequest, LoginMatch } from "../shared/protocol.ts";
+import type { GenerateRequest, LoginMatch, ResultMap } from "../shared/protocol.ts";
 import { classifyFrame, chooseTarget } from "./frames.ts";
 import {
   LAST_FILLED_TTL_MS,
@@ -88,6 +88,25 @@ async function takeLastError(deps: PopupDeps, tabId: number): Promise<PopupState
 type Operations = {
   readonly [K in PopupRequest["op"]]: (request: Extract<PopupRequest, { op: K }>, tab: TabRef | null) => Promise<unknown>;
 };
+
+interface OriginListing {
+  readonly origin: string;
+  readonly listing: ResultMap["listForOrigin"] | null;
+}
+
+type Rotations = Pick<PopupState, "rotations" | "rotationTabOffer">;
+
+/** The lookups started before the frames are known. */
+interface EarlyLookups {
+  readonly speculative: Promise<OriginListing>;
+  readonly rotation: Promise<Rotations>;
+}
+
+/** The lookups of an unlocked front tab, once they are known to be for the chosen frame. */
+interface FoundLookups {
+  readonly listed: OriginListing;
+  readonly rotations: Rotations;
+}
 
 type Learnable = Pick<LoginMatch, "vaultId" | "itemId" | "title" | "username" | "hasOtp">;
 
@@ -228,36 +247,83 @@ export class PopupService {
       rotations: [],
       rotationTabOffer: null,
     };
-    state.saveOffers = await this.#deps.save.offersEnabled().catch(() => false);
-    state.passkeys = await this.#deps.passkeys.enabled().catch(() => false);
-    if (tab !== null && info !== null) {
-      await this.#fillTab(state, tab, info);
-      state.pendingSave = await this.#deps.save.info(tab.id, info.origin).catch(() => null);
-    }
+    // The optional lookups each fall back on their own; only the front tab's frame and code
+    // lookups (`#fillTab`) can abort the state, as before.
+    const [saveOffers, passkeys, pendingSave] = await Promise.all([
+      this.#deps.save.offersEnabled().catch(() => false),
+      this.#deps.passkeys.enabled().catch(() => false),
+      tab !== null && info !== null ? this.#deps.save.info(tab.id, info.origin).catch(() => null) : null,
+      tab !== null && info !== null ? this.#fillTab(state, tab, info) : undefined,
+    ]);
+    state.saveOffers = saveOffers;
+    state.passkeys = passkeys;
+    state.pendingSave = pendingSave;
     return state;
   }
 
   /** What the popup shows about the front tab: its frame, matches, warnings and a pending code. */
   async #fillTab(state: PopupState, tab: TabRef, info: TabInfo): Promise<void> {
-    const { native } = this.#deps;
-    state.lastError = await takeLastError(this.#deps, tab.id);
-    const probes = await probeFrames(this.#deps, tab);
+    // Started before the frames are known, so they overlap the probe. Neither can reject (each
+    // falls back on its own); the list is kept only when it turns out to be for the chosen frame.
+    const early = state.connection === "unlocked" ? this.#startLookups(tab, info) : null;
+    const [lastError, probes] = await Promise.all([takeLastError(this.#deps, tab.id), probeFrames(this.#deps, tab)]);
+    state.lastError = lastError;
     const target = chooseTarget(probes, null);
     const origin = target?.origin ?? info.origin;
     state.frame = classifyFrame(target, info.origin);
     state.frameTarget = target === null ? null : { frameId: target.frameId, documentId: target.documentId };
     state.generatorFill = (target?.counts.newPassword ?? 0) > 0;
-    state.nextOtp = await nextOtpOf(this.#deps, tab, origin);
-    if (state.connection === "unlocked") {
-      const listing = await native.request("listForOrigin", { origin, topOrigin: info.origin }).catch(() => null);
-      state.matches = listing?.items ?? [];
-      state.warnings = listing?.warnings ?? [];
-      this.#learn(state.matches);
-      Object.assign(state, await this.#deps.rotation.forTab(tab).catch(() => ({ rotations: [], rotationTabOffer: null })));
-      if (state.rotations.length > 0) {
-        state.changeFrame = changeFrameOf(probes, info.origin);
-      }
+    const [nextOtp, found] = await Promise.all([
+      nextOtpOf(this.#deps, tab, origin),
+      early === null ? null : this.#finishLookups(early, origin, info.origin),
+    ]);
+    state.nextOtp = nextOtp;
+    if (found !== null) {
+      this.#applyFound(state, found, probes, info.origin);
     }
+  }
+
+  /** The lookups that do not need the frames: the list for the tab's own origin and the rotations. */
+  #startLookups(tab: TabRef, info: TabInfo): EarlyLookups {
+    return {
+      speculative: this.#listFor(info.origin, info.origin),
+      rotation: this.#deps.rotation.forTab(tab).catch(() => ({ rotations: [], rotationTabOffer: null })),
+    };
+  }
+
+  /** The early lookups, with the list checked against the chosen frame's origin. */
+  async #finishLookups(early: EarlyLookups, origin: string, topOrigin: string): Promise<FoundLookups> {
+    const [listed, rotations] = await Promise.all([
+      this.#listForFrame(early.speculative, origin, topOrigin),
+      early.rotation,
+    ]);
+    // The list shown belongs to the chosen frame's origin, never to another one.
+    if (listed.origin !== origin) {
+      throw new ExtensionError("internal");
+    }
+    return { listed, rotations };
+  }
+
+  #applyFound(state: PopupState, found: FoundLookups, probes: readonly FrameProbe[], topOrigin: string): void {
+    state.matches = found.listed.listing?.items ?? [];
+    state.warnings = found.listed.listing?.warnings ?? [];
+    this.#learn(state.matches);
+    Object.assign(state, found.rotations);
+    if (state.rotations.length > 0) {
+      state.changeFrame = changeFrameOf(probes, topOrigin);
+    }
+  }
+
+  /** The matches for one origin, tagged with the origin that was asked for. A failure is no list. */
+  async #listFor(origin: string, topOrigin: string): Promise<OriginListing> {
+    const listing = await this.#deps.native.request("listForOrigin", { origin, topOrigin }).catch(() => null);
+    return { origin, listing };
+  }
+
+  /** The speculative list when it was for the chosen frame's origin, otherwise a new query for that origin. */
+  async #listForFrame(speculative: Promise<OriginListing>, origin: string, topOrigin: string): Promise<OriginListing> {
+    const early = await speculative;
+    return early.origin === origin ? early : this.#listFor(origin, topOrigin);
   }
 }
 

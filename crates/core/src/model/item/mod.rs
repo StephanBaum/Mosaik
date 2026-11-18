@@ -634,6 +634,39 @@ impl Item {
             .and_then(|v| OtpConfig::from_value(v).ok())
     }
 
+    /// Whether [`Item::otp`] would return a configuration. Nothing is
+    /// decoded or copied.
+    #[must_use]
+    pub fn has_primary_otp(&self) -> bool {
+        self.doc.value(OTP).is_some_and(OtpConfig::is_valid_value)
+    }
+
+    /// Whether the item has an OTP generator: a valid primary configuration
+    /// ([`Item::otp`]) or a valid custom field of kind `otp`
+    /// ([`Item::custom_fields`]). The answer is the same as decoding both,
+    /// but no secret is decoded or copied, so it is cheap enough for every
+    /// row of a list.
+    #[must_use]
+    pub fn has_otp(&self) -> bool {
+        self.has_primary_otp()
+            || self.doc.registers().any(|(k, r)| {
+                k.starts_with(FIELD_PREFIX)
+                    && r.winner()
+                        .is_some_and(|w| CustomField::is_otp_value(w.value()))
+            })
+    }
+
+    /// Whether the item has at least one agent binding register (ADR-0159).
+    /// A key prefix check: no binding is decoded, so it can be true for a
+    /// conflicted or unreadable binding that [`Item::agent_bindings`] does
+    /// not list. Use it only to skip items before the full decode.
+    #[must_use]
+    pub fn has_agent_bindings(&self) -> bool {
+        self.doc
+            .registers()
+            .any(|(k, r)| k.starts_with(AGENT_PREFIX) && r.winner().is_some())
+    }
+
     /// The HOTP counter (the largest value any device wrote).
     #[must_use]
     pub fn otp_counter(&self) -> u64 {
@@ -813,14 +846,31 @@ impl Item {
         vault_id: &VaultId,
         item_id: &ItemId,
     ) -> Result<Self> {
+        let pt = Self::open_plaintext(ct, vk, vault_id, item_id)?;
+        Self::from_json(pt.expose_secret())
+    }
+
+    /// The decryption half of [`Item::open`]: the plaintext, to be decoded
+    /// with [`Item::from_json`] (so a caller can decrypt on one thread and
+    /// decode on several).
+    ///
+    /// # Errors
+    /// [`Error::UnsupportedVersion`] for a header `schema_version` other
+    /// than 1 (checked before decryption), [`Error::KeyGenerationMismatch`],
+    /// [`Error::ItemCorrupted`] for every authentication or padding failure.
+    pub fn open_plaintext(
+        ct: &ItemCiphertext,
+        vk: &VaultKey,
+        vault_id: &VaultId,
+        item_id: &ItemId,
+    ) -> Result<SecretVec> {
         if ct.schema_version() != SCHEMA_VERSION {
             return Err(Error::UnsupportedVersion);
         }
-        let pt = ct.open(vk, vault_id, item_id).map_err(|e| match e {
+        ct.open(vk, vault_id, item_id).map_err(|e| match e {
             Error::Decryption => Error::ItemCorrupted { item_id: *item_id },
             other => other,
-        })?;
-        Self::from_json(pt.expose_secret())
+        })
     }
 
     fn int(&self, key: &str) -> Option<i64> {
@@ -927,6 +977,8 @@ fn history_stamp(key: &str) -> Option<Stamp> {
 
 #[cfg(test)]
 mod agent_tests;
+#[cfg(test)]
+mod otp_tests;
 #[cfg(test)]
 mod rotation_tests;
 

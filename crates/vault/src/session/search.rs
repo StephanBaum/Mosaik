@@ -7,6 +7,7 @@
 //! them.
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use mosaic_core::model::{Item, TextField};
 use mosaic_core::{ItemId, VaultId};
@@ -41,6 +42,64 @@ fn lower(s: &str) -> Zeroizing<String> {
     let mut out = Zeroizing::new(String::with_capacity(len));
     out.extend(s.chars().flat_map(char::to_lowercase));
     out
+}
+
+/// The search index of a session, built on the first search. Unlocking
+/// (and a sync that changes items) does not pay for an index nobody asks
+/// for; once built, every change updates it as before. Until then the
+/// changes are not tracked: the first search indexes the then-current items
+/// of every open vault, which is what keeping the index up to date would
+/// have produced. Dropping it (lock) drops the built index.
+#[derive(Default)]
+pub(super) struct LazyIndex {
+    built: OnceLock<SearchIndex>,
+}
+
+impl LazyIndex {
+    /// The items of `vaults` matching `query` (see [`SearchIndex::search`]),
+    /// building the index on the first call.
+    pub(super) fn search(
+        &self,
+        vaults: &BTreeMap<VaultId, OpenVault>,
+        query: &str,
+    ) -> Vec<(VaultId, ItemId)> {
+        self.built
+            .get_or_init(|| {
+                let mut index = SearchIndex::default();
+                for (vault_id, vault) in vaults {
+                    index.update_vault(*vault_id, vault);
+                }
+                index
+            })
+            .search(query)
+    }
+
+    /// See [`SearchIndex::update_vault`]; nothing happens before the first search.
+    pub(super) fn update_vault(&mut self, vault_id: VaultId, vault: &OpenVault) {
+        if let Some(index) = self.built.get_mut() {
+            index.update_vault(vault_id, vault);
+        }
+    }
+
+    /// See [`SearchIndex::update`]; nothing happens before the first search.
+    pub(super) fn update(&mut self, vault_id: VaultId, item_id: ItemId, item: &Item) {
+        if let Some(index) = self.built.get_mut() {
+            index.update(vault_id, item_id, item);
+        }
+    }
+
+    /// See [`SearchIndex::remove`]; nothing happens before the first search.
+    pub(super) fn remove(&mut self, vault_id: VaultId, item_id: ItemId) {
+        if let Some(index) = self.built.get_mut() {
+            index.remove(vault_id, item_id);
+        }
+    }
+
+    /// Whether the index has been built.
+    #[cfg(test)]
+    pub(super) fn is_built(&self) -> bool {
+        self.built.get().is_some()
+    }
 }
 
 /// See the [module documentation](self).

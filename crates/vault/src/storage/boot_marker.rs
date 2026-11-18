@@ -6,7 +6,7 @@
 //! do. It is deleted in the same transaction as every deletion of the
 //! quick-unlock wrapping (the callers below call [`delete_in`]).
 
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::Store;
 use super::error::Result;
@@ -25,7 +25,7 @@ pub struct StoredBootMarker {
 
 /// Deletes the marker inside a transaction that deletes a quick-unlock
 /// wrapping (or the whole unlock set).
-pub(super) fn delete_in(tx: &Transaction<'_>) -> Result<()> {
+pub(super) fn delete_in(tx: &Connection) -> Result<()> {
     tx.execute("DELETE FROM boot_marker", [])?;
     Ok(())
 }
