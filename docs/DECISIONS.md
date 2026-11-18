@@ -6890,6 +6890,62 @@ separate agents, one language folder each; this decision covers the infrastructu
   correct there; more tables are more texts to keep in sync with the catalog tests.
 - **Translated language names.** Rejected: a reader who opened the wrong language must find their own by its name.
 
+## ADR-0169: Change-aware CI for pull requests
+
+- Status: accepted
+- Date: 2026-11-16
+- Scope: `.github/workflows/ci.yml`, `.github/workflows/mobile.yml`, `scripts/ci/`; details in `docs/CI.md`
+
+### Context
+Every pull request started about 55 jobs: Rust, CLI, desktop Rust and TypeScript on three operating
+systems, 14 coverage jobs, 16 fuzz jobs, the mobile builds and CodeQL. The free plan runs 20 jobs at a
+time, 5 of them on macOS, and a Windows Rust build takes up to two hours. With a few pull requests open,
+the queue took hours, also for a change to one file. On `main`, each merge cancelled the previous run, so
+`main` rarely finished a run.
+
+### Decision
+- **Detection.** A `changes` job runs `scripts/ci/changes.mjs` (Node and git only, no third-party action).
+  It diffs the pull request head against its merge base with `base.sha` and maps each file to areas
+  (`docs/CI.md`). Rust dependents come from the path dependencies in the manifests, which match `cargo
+  metadata`. Dev-dependencies count for tests, but not transitively. Pushes to `main`, a nightly schedule
+  (03:00 UTC), `workflow_dispatch` and the `ci:full` label run everything.
+- **Run everything when in doubt.** Workflows, `scripts/ci`, toolchain, lockfiles, workspace manifests and
+  shared lint and test configs run everything, and so does any file outside the map. `crates/core` and
+  `crates/vault` count as all Rust. macOS runs only for areas with macOS-only code (`crates/platform`,
+  `crates/native-messaging`, `crates/cli/src`, `apps/desktop/src-tauri`) and on full runs.
+- **Required checks keep reporting.** The 17 required jobs never skip at job level. They depend on
+  `changes` with `if: !cancelled()` and guard each heavy step. An unaffected one ends green in seconds
+  with a step that prints the plan. An unaffected Windows or macOS matrix entry runs on `ubuntu-latest`
+  under its unchanged check name.
+- **Fail closed.** The first step of every required job fails unless `needs.changes.result` is `success`
+  and the plan's `ok` output is `true`. The detection's self-test (`scripts/ci/changes.test.mjs`) runs
+  inside `changes`. It also fails when a source file starts reading a file of another area that the
+  map does not route to its job.
+- **Coverage and fuzz** take their matrix from the plan (only the affected crates; all of them on full
+  runs). They are not required checks, so an empty list skips them.
+- **Concurrency.** Only pull request runs cancel in progress. A run on `main`, the schedule or a manual
+  run is never cancelled; the newest waiting run replaces older waiting ones. `mobile.yml` does the
+  same, and its iOS job (macOS) runs on pull requests only for iOS inputs, or when the detection failed.
+
+### Consequences
+- A docs-only pull request runs `Detect changes` plus 17 short no-op checks, about 18 short Linux jobs
+  and no Windows or macOS runner. A one-crate change runs Rust on Linux and Windows for that crate and
+  its dependents only.
+- Gaps a pull request no longer covers (an OS that is not in its plan, a dependent the map misses,
+  advisories published after the lockfile last changed) are caught on `main` and nightly. The
+  merge gate is the pull request run, so such a failure shows up after the merge. The trade is
+  accepted for the queue time it saves; `ci:full` and `workflow_dispatch` force a full run before
+  a risky merge.
+
+### Alternatives considered
+- **`paths` filters on the triggers.** Rejected: a skipped workflow leaves required checks pending.
+- **A third-party paths-filter action.** Rejected: one more supply chain dependency with read access
+  to the repository, for a few hundred lines of script.
+- **Skipping unaffected required jobs at job level.** Rejected: a skipped job counts as passing, which
+  would also hide a failed detection.
+- **`cargo metadata` in the detection job.** Rejected: it needs the pinned toolchain installed (about a
+  minute); the manifest parser gives the same graph and refuses manifests it cannot read.
+
 ## ADR-0170: Sync and import write in batched transactions
 
 - Status: accepted

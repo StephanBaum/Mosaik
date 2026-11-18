@@ -25,6 +25,7 @@ milestone close appends its section there).
 | App languages | infrastructure for es, fr, it, pt, nl, pl, tr, ja, ko and zh on `feat/app-languages` (ADR-0168, 2026-11-16); the catalogs are English copies until the translators land; the translation gate (`TRANSLATIONS_PENDING`) must be empty before merge |
 | Red-team campaign | round 1 landed in `main` (PRs #73 to #78, 2026-11-13 to 2026-11-14); round 2 (chained attacks) is in PR #80, not yet merged; see "Red-team campaign" under M10 |
 | Website launch | branch `feat/web` (plan `docs/superpowers/plans/2026-11-15-website-launch.md`, ADR-0167): Tasks 1 to 18 done, PR open; the production build stays blocked until the claims G1 to G10 are verified and the legal texts exist; see "Website launch" below |
+| CI | change-aware pull requests (2026-11-16, branch `ci/change-aware`, ADR-0169, `docs/CI.md`): a PR runs only the jobs its changes affect, the 17 required checks stay and end green in seconds when unaffected, a failed detection fails them; `main`, the nightly 03:00 UTC run and `workflow_dispatch` or label `ci:full` run everything; `main` runs are no longer cancelled by the next merge |
 
 **Next steps (2026-11-14):** (1) the v0.1.0 release (a prerelease, pre-audit): it waits for the owner items in
 "Needs owner" (release keys, platform signing, a LICENSE) and for merging PR #80; (2) then the autofill-everywhere
