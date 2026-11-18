@@ -1,0 +1,24 @@
+/* Points (prototype 1397-1481). */
+
+.point {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.point__title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.point__text {
+  color: var(--paper-2);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.point__text code {
+  font-size: 0.8em;
+}

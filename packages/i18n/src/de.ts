@@ -28,6 +28,7 @@ import { breach } from "./catalog/de/breach.ts";
 import { mobile } from "./catalog/de/mobile.ts";
 import { mobileUx } from "./catalog/de/mobileUx.ts";
 import { mobileFolder } from "./catalog/de/mobileFolder.ts";
+import { web } from "./catalog/de/web/index.ts";
 import type { MessageKey } from "./en.ts";
 
 export const de: Readonly<Record<MessageKey, string>> = {
@@ -60,4 +61,5 @@ export const de: Readonly<Record<MessageKey, string>> = {
   ...mobile,
   ...mobileUx,
   ...mobileFolder,
+  ...web,
 };

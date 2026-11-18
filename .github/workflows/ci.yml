@@ -452,3 +452,27 @@ jobs:
       # runs headless with the extension loaded, so no display server is needed.
       - run: pnpm --filter @mosaic/extension build:e2e
       - run: pnpm --filter @mosaic/extension exec playwright test
+
+  web:
+    name: Website (budgets, shaders, CSP, axe, perf)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @mosaic/web lint
+      - run: pnpm --filter @mosaic/web typecheck
+      - run: pnpm --filter @mosaic/web test
+      # MOSAIC_DEPLOY must stay unset here: with `production` the claims gate (G1-G10, not yet
+      # verified) fails the build by design.
+      - run: pnpm --filter @mosaic/web build
+      - name: Install Chromium for Playwright
+        run: pnpm --filter @mosaic/web exec playwright install --with-deps chromium
+      # Chromium draws WebGL in software (SwiftShader, set in playwright.config.ts); the specs name
+      # which budgets that distorts. The server is `vite preview` of dist/, started by the config.
+      - run: pnpm --filter @mosaic/web exec playwright test

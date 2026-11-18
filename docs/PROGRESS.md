@@ -24,6 +24,7 @@ milestone close appends its section there).
 | Windows program fill | phase 1 merged (PR #90, ADR-0157/0158); phase 2 on `feat/program-fill-phase2` (ADR-0163/0164, R171 to R176, R206): the chip, the picker list, the hotkey, typing, submit and the two-step continuation, WebView2 hosts (owner decision 2026-11-15); a real fill ran end to end on Windows 10; open: the owner run of `docs/PROGRAM_FILL.md` "Phase 2: the app", the `GetMappedFileNameW` image check, the red-team review |
 | App languages | infrastructure for es, fr, it, pt, nl, pl, tr, ja, ko and zh on `feat/app-languages` (ADR-0168, 2026-11-16); the catalogs are English copies until the translators land; the translation gate (`TRANSLATIONS_PENDING`) must be empty before merge |
 | Red-team campaign | round 1 landed in `main` (PRs #73 to #78, 2026-11-13 to 2026-11-14); round 2 (chained attacks) is in PR #80, not yet merged; see "Red-team campaign" under M10 |
+| Website launch | branch `feat/web` (plan `docs/superpowers/plans/2026-11-15-website-launch.md`, ADR-0167): Tasks 1 to 18 done, PR open; the production build stays blocked until the claims G1 to G10 are verified and the legal texts exist; see "Website launch" below |
 
 **Next steps (2026-11-14):** (1) the v0.1.0 release (a prerelease, pre-audit): it waits for the owner items in
 "Needs owner" (release keys, platform signing, a LICENSE) and for merging PR #80; (2) then the autofill-everywhere
@@ -2800,6 +2801,74 @@ comment is removed.
 - [ ] Overwrite-and-delete checked on Windows, macOS and Linux with a real symlink and a read-only file (the symlink unit test returns early where symlinks cannot be created).
 - [ ] Red-team pass on the importers (spec §7): zip bombs, homoglyph URLs, huge notes, malformed UTF-8, duplicate JSON keys; fuzz targets run in CI without findings.
 - [ ] Remove each `// unverified against a current export (launch gate)` comment only after its item above is checked.
+
+## Website launch
+
+Branch `feat/web`, plan `docs/superpowers/plans/2026-11-15-website-launch.md`, ADR-0167. Shipped: the prototype's
+visual system on the static, prerendered, CSP-strict site (`apps/web`): tower-city field with still fallback,
+governor and veil (`src/field`), in-house animation core (`src/anim`, GSAP does not ship), capability tiers and the
+footer motion toggle (`src/runtime`), cross-document View Transitions with the veil wipe (`src/nav`), the data
+layer and panel glyph rings, interface demos (`src/demos`), the home, features, security, download and next pages
+per the prototype, every other page restyled, the report and security challenge pages, the web palette as tokens
+(`packages/design-tokens/src/web.ts`), the DM Sans build-time subset, byte budgets in the build, Playwright
+(shaders, pages, fallbacks, transitions, demos, runtime budgets) and the `web` CI job.
+
+Final review (Task 18): the copy promises only the launch platforms (Windows, Android, the Chrome, Edge and Firefox
+extensions, a macOS preview); no iPhone or Linux app is named, and the download page has no Linux or iPhone tile.
+Aborted view transitions are caught (no uncaught `InvalidStateError`). Offscreen sections use
+`content-visibility: auto` and the demos build only near the viewport (mobile home LCP from about 2.5 s to about
+1.3 s). The `--layer-veil` token moved to the web tokens, so the server's security-key page token block is
+unchanged. The header hairline of the prototype screenshot is its scrolled state (`is-scrolled`), not a missing
+rule: a fresh prototype load at the top has none either.
+
+**Budgets** (last build; gzip 9 unless raw)
+
+| Budget | Limit | Measured |
+|---|---|---|
+| HTML per page (largest: `/de/`) | 40 000 B | 9 737 B |
+| Stylesheet | 30 000 B | 14 975 B |
+| Entry JS | 8 000 B | 6 519 B |
+| `bootField` / `holo` / `bootDemos` / `micro` | 16 000 / 12 000 / 12 000 / 3 000 B | 11 287 / 5 729 / 3 911 / 820 B |
+| Other islands (largest: `decode`) | 4 000 B | 1 274 B |
+| All JS a page can load (largest: `/de/`) | 50 000 B | 28 880 B |
+| Preloaded font (DM Sans subset, raw) | 40 000 B | 25 912 B |
+| Other fonts (Plex Mono 400/500, raw) | 16 000 B | 14 708 / 14 888 B |
+| Eager image (largest, raw) | 80 000 B | 45 218 B |
+| Initial transfer per page (largest: `/de/umzug/`) | 200 000 B | 97 492 B |
+
+**Runtime** (Playwright medians of 3 cold loads, software WebGL stub, final code; two full local runs, 2026-11-15/16)
+
+| Route | Budget | Run A | Run B |
+|---|---|---|---|
+| mobile `/` LCP / TBT | 2 500 ms / 150 ms | 1 380 / 0 ms | 1 360 / 0 ms |
+| mobile `/features/` LCP / TBT | 2 500 ms / 150 ms | 1 224 / 0 ms | 2 292 / 35 ms |
+| mobile `/download/` LCP / TBT | 2 500 ms / 150 ms | 1 724 / 21 ms | 1 920 / 65 ms |
+| desktop `/`, `/features/`, `/download/` LCP | 1 200 ms | 700, 680, **1 932** ms | 436, 204, 176 ms |
+| CLS, every measured route | 0.02 | ≤ 0.0009 | 0 |
+
+Run A failed only desktop `/download/` LCP and run B only the `/security/` cipher demo's start within 8 s; both
+passed in isolation (the cipher test 8 of 8) and the machine was shared with another session's jobs at the time. A
+third pair of runs was stopped for time. Before the fixes, mobile `/` measured LCP 2.0 to 2.5 s.
+
+LCP note: Chromium does not count text that fades in from opacity 0, so on the home page the LCP element is the
+header button or the eyebrow; the headline starts fading in about 100 ms after the first paint.
+
+**Claims gate** (`apps/web/src/pages/claims.ts`, all open; a production build stops while one is): G1 agent MCP
+(PRs #92, #97 merged), G2 importers (#94 merged), G3 Windows program fill phase 2 (#96 merged), G4 browser
+extensions published, G5 Android app in the Play Store with app autofill, passkeys and fingerprint unlock, G6
+Android one-tap linking (#87 merged), G7 cloud folders per platform (Android folder sync, PR #95, still open), G8 CLI
+literals, G9 passkey sync and the SSH agent prompt, G10 security challenge and reporting. `site.legalReady` is false,
+which also stops a production build.
+
+**Owner items**
+- [ ] Run the runtime budgets once on a machine with a GPU: `WEB_PERF_GPU=1 pnpm --filter @mosaic/web exec playwright test e2e/perf.spec.ts`.
+- [ ] Make the `web` CI job a required check on `main`.
+- [ ] Write the Imprint and Privacy texts and set `site.legalReady`.
+- [ ] Verify each claim G1 to G10 against the release and flip `verified`.
+- [ ] Domain (`mosaic.example` is the placeholder), `site.challengeOpen` once the test server is public, store
+      listings (`site.stores.android`) and release files (`site.files`).
+- [ ] The repo-wide `pnpm lint` ran out of memory on this machine with the default Node heap; it passes with
+      `NODE_OPTIONS=--max-old-space-size=4096`.
 
 ## App languages (2026-11-16)
 

@@ -1,0 +1,219 @@
+/* Buttons, the holo action and the micro-interaction fallbacks (prototype 720-939). */
+
+.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: var(--size-control-lg);
+  padding: var(--space-2) var(--space-5);
+  border: var(--border-hairline) solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--paper);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-micro) var(--ease-standard),
+    border-color var(--motion-micro) var(--ease-standard),
+    color var(--motion-micro) var(--ease-standard),
+    transform var(--motion-micro) var(--ease-standard);
+}
+
+.button--sm {
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-4);
+  font-size: 0.875rem;
+}
+
+.button--lg {
+  min-height: var(--size-input-xl);
+  padding: var(--space-3) var(--space-6);
+  font-size: 1.0625rem;
+}
+
+/* Quiet secondary. The rim fills progressively from the pointer's entry side (the ::before
+   conic ring, driven by --bl-fill and --bl-start), one glint travels the rim once (::after),
+   and a soft glow follows the pointer inside. Micro (micro.js) drives the variables; without
+   it, the rim simply eases to its hover colour. */
+.button--line {
+  --bl-start: 0;
+  --bl-fill: 0;
+  --bl-glint: 0;
+  --bl-glint-o: 0;
+
+  border-color: var(--rule-strong);
+  background:
+    radial-gradient(140px circle at var(--bl-x) var(--bl-y), rgb(var(--tint-rgb) / calc(0.26 * var(--bl-glow))), transparent 70%),
+    var(--ink-glass);
+  backdrop-filter: blur(6px);
+}
+
+.button--line::before,
+.button--line::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(var(--mask-solid) 0 0) content-box, linear-gradient(var(--mask-solid) 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(var(--mask-solid) 0 0) content-box, linear-gradient(var(--mask-solid) 0 0);
+  mask-composite: exclude;
+}
+
+.button--line::before {
+  background: conic-gradient(from calc(var(--bl-start) * 1deg - var(--bl-fill) * 180deg), var(--paper) 0deg calc(var(--bl-fill) * 360deg), transparent 0deg);
+}
+
+.button--line::after {
+  background: conic-gradient(from calc(var(--bl-glint) * 360deg), transparent 0deg, var(--white) 16deg, transparent 40deg);
+  opacity: var(--bl-glint-o);
+}
+
+.button--line:hover {
+  border-color: var(--paper-3);
+}
+
+.button--line:active {
+  transform: scale(0.98);
+}
+
+/* Pointer glow and eased rims for every raised surface. */
+.button--line,
+.button--solid,
+.tile,
+.plan,
+.card,
+.platform__link,
+.step-card,
+.see__card,
+.ds,
+.di,
+.db,
+.da,
+.terminal {
+  --bl-x: 50%;
+  --bl-y: 50%;
+  --bl-glow: 0;
+
+  position: relative;
+  transition:
+    border-color 480ms var(--ease-standard),
+    background-color var(--motion-panel) var(--ease-standard),
+    color var(--motion-micro) var(--ease-standard),
+    transform var(--motion-panel) var(--ease-enter);
+}
+
+.tile::after,
+.plan::after,
+.card::after,
+.platform__link::after,
+.step-card::after,
+.see__card::after,
+.ds::after,
+.di::after,
+.db::after,
+.da::after,
+.terminal::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: radial-gradient(300px circle at var(--bl-x) var(--bl-y), var(--tint-14), transparent 70%);
+  opacity: var(--bl-glow);
+  pointer-events: none;
+}
+
+.tile:hover,
+.plan:hover,
+.card:hover,
+.step-card:hover,
+.see__card:hover,
+.ds:hover,
+.di:hover,
+.db:hover,
+.da:hover,
+.terminal:hover {
+  border-color: var(--rule-bright);
+}
+
+.button--solid {
+  background-image: radial-gradient(120px circle at var(--bl-x) var(--bl-y), var(--white), transparent 70%);
+  background-size: calc(200% * var(--bl-glow) + 1px) 100%;
+}
+
+.button--solid {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.button--solid:hover {
+  background: var(--white);
+}
+
+.icon--nudge {
+  transition: transform var(--motion-panel) var(--ease-enter);
+}
+
+.button:hover .icon--nudge,
+.arrow-link:hover .icon--nudge {
+  transform: translateX(var(--space-1));
+}
+
+.holo {
+  --holo-bleed: calc(var(--space-3) + var(--border-hairline));
+
+  isolation: isolate;
+  border-color: var(--primary-action-rim);
+  background: linear-gradient(115deg, var(--primary-action-fallback), var(--primary-action-fallback-highlight), var(--primary-action-fallback));
+  color: var(--primary-action-label);
+  text-shadow: var(--primary-action-label-shadow);
+}
+
+.holo__foil {
+  position: absolute;
+  inset: calc(-1 * var(--holo-bleed));
+  z-index: -1;
+  width: calc(100% + 2 * var(--holo-bleed));
+  height: calc(100% + 2 * var(--holo-bleed));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.holo__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.holo .icon {
+  filter: var(--primary-action-icon-filter);
+}
+
+.holo.holo--live {
+  background: var(--primary-action-fallback);
+  border-color: transparent;
+}
+
+.holo.holo--live .holo__foil {
+  opacity: 1;
+}
+
+.holo.holo--pressed {
+  transform: scale(0.975);
+}
+
+.holo:focus-visible {
+  outline-offset: calc(var(--holo-bleed) + 2px);
+}
