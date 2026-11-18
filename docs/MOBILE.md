@@ -172,7 +172,7 @@ Limits that users notice:
   node, not on each field, so the structure reader passes the nearest ancestor's `webDomain` (and `webScheme`) down
   to the fields below it; a field's own value comes first. An allowlisted browser without any `webDomain` (its
   address bar) is no target and gets no entries, and "No login for X" is never offered for a browser. The core
-  refuses to link a browser package to a login (M10-G2 H1). The core also picks the fields by target: an app (a
+  refuses to link a browser package to a login (M10-G2 H1), and refuses to link any app to a login of a shared vault (`invalidInput`; any member with write access chose that login's URLs, so a shared vault never fills an app, and its web URLs still fill by exact origin). `ItemDetail.shared` tells the UI: for such a login the detail screen hides "Link an app" and shows one hint line instead (iOS has no app-link action). The core also picks the fields by target: an app (a
   browser that is not on the allowlist is an app) gets its native fields only, never the fields of a `WebView`
   or a page inside it, and a focus in one refuses the fill; a page starts at its first node with a `webDomain`
   (M10-G2 round 2, N1). A `webDomain` without a `webScheme` is refused as well: the scheme is never assumed

@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { catalogs } from "../../../packages/i18n/src/index.ts";
+import { catalogs, locales } from "../../../packages/i18n/src/index.ts";
 import { DEV_CHROMIUM_EXTENSION_ID, FIREFOX_EXTENSION_ID } from "../src/shared/ids.ts";
 import { ICON_SIZES, renderIcon } from "./icons.ts";
-import { EXTENSION_PAGES_CSP, localeMessages, manifest, packageVersion } from "./manifest.ts";
+import { EXTENSION_PAGES_CSP, LOCALE_DIRS, localeMessages, manifest, packageVersion } from "./manifest.ts";
 
 const chromium = manifest("chromium", "chromium");
 const firefox = manifest("firefox", "firefox");
@@ -96,7 +96,7 @@ describe("dev and e2e manifests", () => {
 });
 
 describe("locale files", () => {
-  it.each(["en", "de"] as const)("%s has the five strings, from the shared catalog", (locale) => {
+  it.each(locales)("%s has the five strings, from the shared catalog", (locale) => {
     const messages = localeMessages(locale);
     expect(Object.keys(messages).sort()).toEqual(["commandFill", "extDescription", "extName", "menuGenerate", "saveBadgeTitle"]);
     expect(messages["saveBadgeTitle"]?.message).toBe(catalogs[locale]["ext.save.badgeTitle"]);
@@ -104,8 +104,17 @@ describe("locale files", () => {
     expect(messages["commandFill"]?.message).toBe(catalogs[locale]["ext.command.fill"]);
   });
 
+  it("names a folder Chrome accepts for every language, and none for Traditional Chinese", () => {
+    expect(Object.keys(LOCALE_DIRS).sort()).toEqual([...locales].sort());
+    const dirs = Object.values(LOCALE_DIRS).flat();
+    expect(dirs).toEqual(expect.arrayContaining(["en", "de", "pt_BR", "pt_PT", "zh_CN"]));
+    expect(dirs).not.toContain("zh");
+    expect(dirs).not.toContain("zh_TW");
+    expect(dirs).not.toContain("pt");
+  });
+
   it("keeps the description within the 132 characters the stores allow", () => {
-    for (const locale of ["en", "de"] as const) {
+    for (const locale of locales) {
       expect(localeMessages(locale)["extDescription"]?.message.length).toBeLessThanOrEqual(132);
     }
   });

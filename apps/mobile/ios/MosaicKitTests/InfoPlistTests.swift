@@ -5,13 +5,15 @@ import XCTest
 /// The usage descriptions of the camera and Face ID are localized through the `InfoPlist` String Catalog.
 /// This reads the table of the built app (the host of the tests), so a build that does not ship it fails here.
 final class InfoPlistTests: XCTestCase {
+    /// Every app language (ADR-0168), as the lproj folders Xcode writes from the String Catalogs.
+    private let languages = ["en", "de", "es", "fr", "it", "pt", "nl", "pl", "tr", "ja", "ko", "zh-Hans"]
     private let keys = [
         ("NSFaceIDUsageDescription", "mobile.unlock.faceIdReason"),
         ("NSCameraUsageDescription", "mobile.scan.rationale"),
     ]
 
-    func testBuiltBundleShipsTheInfoPlistTableInBothLanguages() throws {
-        for language in ["en", "de"] {
+    func testBuiltBundleShipsTheInfoPlistTableInEveryLanguage() throws {
+        for language in languages {
             let folder = try XCTUnwrap(
                 Bundle.main.path(forResource: language, ofType: "lproj"), "no \(language).lproj in the app")
             let bundle = try XCTUnwrap(Bundle(path: folder))
@@ -25,15 +27,15 @@ final class InfoPlistTests: XCTestCase {
         }
     }
 
-    /// Quick unlock runs in the AutoFill extension, so its bundle ships the Face ID text in both languages too.
-    func testExtensionBundleShipsTheFaceIdTextInBothLanguages() throws {
+    /// Quick unlock runs in the AutoFill extension, so its bundle ships the Face ID text in every language too.
+    func testExtensionBundleShipsTheFaceIdTextInEveryLanguage() throws {
         let plugIns = try XCTUnwrap(Bundle.main.builtInPlugInsURL, "the app has no PlugIns folder")
         let appex = plugIns.appendingPathComponent("MosaicAutoFill.appex")
         let bundle = try XCTUnwrap(Bundle(url: appex), "MosaicAutoFill.appex is not embedded in the app")
         XCTAssertFalse(
             (bundle.object(forInfoDictionaryKey: "NSFaceIDUsageDescription") as? String ?? "").isEmpty)
         var seen: [String] = []
-        for language in ["en", "de"] {
+        for language in languages {
             let folder = try XCTUnwrap(bundle.path(forResource: language, ofType: "lproj"), "no \(language).lproj")
             let localized = try XCTUnwrap(Bundle(path: folder))
             let value = localized.localizedString(forKey: "NSFaceIDUsageDescription", value: "<missing>", table: "InfoPlist")

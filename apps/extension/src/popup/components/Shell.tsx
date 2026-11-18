@@ -157,7 +157,7 @@ function footerStatus(connection: PopupState["connection"]) {
 }
 
 export function Footer({ state }: { state: PopupState }) {
-  const { t } = useI18n();
+  const { t, machineNote } = useI18n();
   const { openDesktop } = useActions();
   const [confirming, setConfirming] = useState(false);
   const [listing, setListing] = useState(false);
@@ -217,7 +217,7 @@ export function Footer({ state }: { state: PopupState }) {
       <span className={`dot dot--${status.tone}`} aria-hidden="true" />
       <span className="footer__status">{t(status.key)}</span>
       {items.length > 0 && (
-        <Menu icon="more" label={t("ext.footer.more")} placement="above" items={items} />
+        <Menu icon="more" label={t("ext.footer.more")} placement="above" items={items} note={machineNote} />
       )}
       {listing && (
         <NeverSaveDialog

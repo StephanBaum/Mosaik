@@ -1,0 +1,53 @@
+/**
+ * Turkish UI strings: app. Same keys as English (checked by the type).
+ * ICU plural categories of Turkish: one, other (CLDR; `other` is required).
+ */
+import type { app as en } from "../en/app.ts";
+
+export const app = {
+  "app.name": "Mosaic",
+  "app.preAudit": "Denetim öncesi yazılım: henüz bağımsız bir güvenlik denetçisi tarafından incelenmedi.",
+  "app.previewTag": "Önizleme",
+  "app.previewBuild": "Önizleme sürümü, resmi sürüm değil. İmzasız, denetim öncesi, yalnızca denemek için.",
+  "action.cancel": "İptal",
+  "action.continue": "Devam",
+  "action.retry": "Yeniden dene",
+  "action.copy": "Kopyala",
+  "action.reveal": "Göster",
+  "action.hide": "Gizle",
+  "action.lock": "Kilitle",
+  "action.details": "Ayrıntılar",
+  "sync.offline":
+    "Eşitleme sunucunuza ulaşılamadı. Değişiklikleriniz bu aygıtta kayıtlı ve çevrimiçi olduğunuzda eşitlenecek.",
+  "app.loading": "Mosaic açılıyor…",
+  "app.skipToContent": "İçeriğe geç",
+  "action.save": "Kaydet",
+  "action.close": "Kapat",
+  "action.showPassword": "Parolayı göster",
+  "action.hidePassword": "Parolayı gizle",
+  "action.back": "Geri",
+  "action.confirm": "Onayla",
+  "action.edit": "Düzenle",
+  "action.delete": "Çöp Kutusu’na taşı",
+  "action.restore": "Geri yükle",
+  "action.purge": "Kalıcı olarak sil",
+  "action.generate": "Oluştur",
+  "action.useThis": "Bunu kullan",
+  "action.done": "Bitti",
+  "nav.main": "Ana gezinme",
+  "nav.vault": "Kasa",
+  "nav.security": "Güvenlik",
+  "nav.generator": "Oluşturucu",
+  "nav.settings": "Ayarlar",
+  "nav.trash": "Çöp Kutusu",
+  "nav.breadcrumb": "Gezinti yolu",
+  "nav.securityCount": "{count, plural, one {İncelenecek # bulgu} other {İncelenecek # bulgu}}",
+  "sync.status.local": "Bu aygıtta saklanıyor",
+  "sync.status.upToDate": "Eşitlendi",
+  "sync.status.attention": "İlgilenmeniz gerekiyor",
+  "sync.status.syncing": "Eşitleniyor…",
+  "sync.status.offline": "Çevrimdışı",
+  "sync.status.error": "Eşitleme başarısız",
+  "action.moreActions": "Diğer işlemler",
+  "action.regenerate": "Yeniden oluştur",
+} satisfies Record<keyof typeof en, string>;

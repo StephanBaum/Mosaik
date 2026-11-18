@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { Plugin } from "vite";
-import { cssVariables } from "../../../packages/design-tokens/src/css.ts";
+import { cssVariables, languageFontRules } from "../../../packages/design-tokens/src/css.ts";
 import { ICON_SIZES, renderIcon } from "./icons.ts";
-import { localeMessages, manifest, targetOf, type BuildMode } from "./manifest.ts";
+import { LOCALE_DIRS, localeMessages, manifest, targetOf, type BuildMode } from "./manifest.ts";
 
 const TOKENS_ID = "virtual:mosaic-tokens.css";
 const RESOLVED_TOKENS_ID = `\0${TOKENS_ID}`;
@@ -18,7 +18,8 @@ export function tokensStylesheet(): Plugin {
       return id === TOKENS_ID ? RESOLVED_TOKENS_ID : undefined;
     },
     load(id) {
-      return id === RESOLVED_TOKENS_ID ? cssVariables() : undefined;
+      // The CJK font stacks follow the token block (ADR-0168).
+      return id === RESOLVED_TOKENS_ID ? `${cssVariables()}\n\n${languageFontRules()}\n` : undefined;
     },
   };
 }
@@ -31,12 +32,14 @@ export function extensionAssets(mode: BuildMode): Plugin {
     generateBundle() {
       const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
       this.emitFile({ type: "asset", fileName: "manifest.json", source: json(manifest(targetOf(mode), mode)) });
-      for (const locale of ["en", "de"] as const) {
-        this.emitFile({
-          type: "asset",
-          fileName: `_locales/${locale}/messages.json`,
-          source: json(localeMessages(locale)),
-        });
+      for (const [locale, dirs] of Object.entries(LOCALE_DIRS) as [keyof typeof LOCALE_DIRS, readonly string[]][]) {
+        for (const dir of dirs) {
+          this.emitFile({
+            type: "asset",
+            fileName: `_locales/${dir}/messages.json`,
+            source: json(localeMessages(locale)),
+          });
+        }
       }
       for (const size of ICON_SIZES) {
         this.emitFile({ type: "asset", fileName: `icons/icon-${String(size)}.png`, source: renderIcon(size) });

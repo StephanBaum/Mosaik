@@ -22,6 +22,7 @@ milestone close appends its section there).
 | M9 Hardening | ✅ done (2026-11-12; branch `feat/m9-hardening` with `feat/m9-docs` merged; T1 to T13, ADR-0076 to 0087, R112 to R124; the T2 crypto review, the T12 milestone review (crypto-reviewer, extension-attacker, sync-chaos, ux-reviewer, test-engineer) and the T13 fixes; open: the extended fuzz run (CI workflow `fuzz-extended`), the manual checks, the owner decisions OD-M9-1 to OD-M9-21, M9-UX5 rest and the flaky `passkey-shim-tamper.spec.ts:120`). M10 mobile followed |
 | M10 Mobile | ✅ done (2026-11-14; branch `feat/m10-mobile` with `main` merged in (`2111186`); T1 to T15 and G1 to G5, ADR-0088 to ADR-0096, R125 to R141; Android and iOS apps built and tested in CI simulators and emulators only; open: the manual device checks (`docs/MOBILE.md` §7) and the owner items below; see "M10 Mobile" below) |
 | Windows program fill | phase 1 merged (PR #90, ADR-0157/0158); phase 2 on `feat/program-fill-phase2` (ADR-0163/0164, R171 to R176, R206): the chip, the picker list, the hotkey, typing, submit and the two-step continuation, WebView2 hosts (owner decision 2026-11-15); a real fill ran end to end on Windows 10; open: the owner run of `docs/PROGRAM_FILL.md` "Phase 2: the app", the `GetMappedFileNameW` image check, the red-team review |
+| App languages | infrastructure for es, fr, it, pt, nl, pl, tr, ja, ko and zh on `feat/app-languages` (ADR-0168, 2026-11-16); the catalogs are English copies until the translators land; the translation gate (`TRANSLATIONS_PENDING`) must be empty before merge |
 | Red-team campaign | round 1 landed in `main` (PRs #73 to #78, 2026-11-13 to 2026-11-14); round 2 (chained attacks) is in PR #80, not yet merged; see "Red-team campaign" under M10 |
 
 **Next steps (2026-11-14):** (1) the v0.1.0 release (a prerelease, pre-audit): it waits for the owner items in
@@ -2799,6 +2800,17 @@ comment is removed.
 - [ ] Overwrite-and-delete checked on Windows, macOS and Linux with a real symlink and a read-only file (the symlink unit test returns early where symlinks cannot be created).
 - [ ] Red-team pass on the importers (spec §7): zip bombs, homoglyph URLs, huge notes, malformed UTF-8, duplicate JSON keys; fuzz targets run in CI without findings.
 - [ ] Remove each `// unverified against a current export (launch gate)` comment only after its item above is checked.
+
+## App languages (2026-11-16)
+
+Branch `feat/app-languages`, ADR-0168. Ten languages beside EN and DE: `es`, `fr`, `it`, `pt` (Brazil), `nl`, `pl`,
+`tr`, `ja`, `ko`, `zh` (Simplified; Traditional falls back to English). Built: the locale list, negotiation and
+language names in `packages/i18n`; scaffolded catalogs (`catalog/<lang>/`, English with the UNTRANSLATED marker);
+the desktop setting, picker and the AI-translation note; the extension `_locales` and the note in its menu; the
+CLI `Lang` and JSON; the Android resource folders, `locales_config.xml` and the iOS catalogs (InfoPlist now
+generated); the CJK font stacks; the Emergency Kit falls back to English where WinAnsi cannot print a language.
+Open: the ten translations (one agent per folder), then emptying `TRANSLATIONS_PENDING`; the second review of
+security texts per language before a release; `docs/CLI.md` still lists `--lang en|de`.
 
 ## Open risks / findings
 

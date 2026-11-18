@@ -26,6 +26,11 @@
     "onlyBuiltDependencies": [],
     "overrides": {
       "minimatch@<11.0.1": "11.0.4"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-fc5q-39xc-vjpf"
+      ]
     }
   }
 }

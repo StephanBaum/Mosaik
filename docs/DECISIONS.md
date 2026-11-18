@@ -6762,3 +6762,62 @@ them inside the chosen folder, and the provider client has a loopback `http` swi
 - **A flag on the production constructor.** Rejected: a caller could enable it.
 - **Metadata call before every Graph download.** Rejected: the download response carries its length, which is
   checked against the cap before the body is read.
+
+## ADR-0168: App languages beyond German and English
+
+- Status: accepted
+- Date: 2026-11-16
+- Milestone: app languages (branch `feat/app-languages`)
+
+### Context
+The owner wants the apps in the most common languages besides German and English ("Spanish, French, Italian,
+Chinese, Japanese etc.", 2026-11-16). The website stays English-only. Translations are written with AI help by
+separate agents, one language folder each; this decision covers the infrastructure they fill.
+
+### Decision
+- **Languages.** `en`, `de`, then `es`, `fr`, `it`, `pt` (Brazilian Portuguese; `pt-PT` and every other `pt` tag
+  get it too), `nl`, `pl`, `tr`, `ja`, `ko` and `zh` (Simplified Chinese). `packages/i18n` `locales` is the one
+  list; the desktop `Language` setting, the CLI `Lang`, the extension `_locales`, the Android resource folders and
+  the iOS String Catalogs follow it, and tests keep them equal.
+- **Traditional Chinese falls back to English, never to Simplified.** `zh`, `zh-CN`, `zh-SG` and `zh-Hans*` get
+  `zh`; `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant*` count as unsupported (negotiation goes on to the next preferred
+  language, else English). The platforms are set up the same way: Android `values-b+zh+Hans`, iOS `zh-Hans`,
+  Chrome `_locales/zh_CN` only.
+- **Language names.** Every language is listed under its own name ("Español", "日本語", "简体中文"), in every UI
+  language; the names are constants in `packages/i18n` (`localeNames`), not translated messages.
+- **Rust-side texts stay English and German.** The few texts Rust owns (the native sync acknowledgement and the
+  sharing confirmations, `sync/strings.rs`) exist in English and German only; every other language shows the
+  English ones. No per-language Rust tables. The CLI is not Rust-owned text: its catalogs come from
+  `packages/i18n` like the apps'.
+- **Settings file.** The new values are stored as their codes (`"ja"`). English, German and "system" keep their
+  exact bytes, so every existing settings MAC still verifies (CRYPTO_SPEC §11.1). A language word this build does
+  not know (written by a newer Mosaic) reads as `system` instead of making the whole file unreadable; its MAC then
+  fails, which keeps the strict values (the conservative side of ADR-0030).
+- **Emergency Kit.** The PDF is set in the base-14 fonts with WinAnsi encoding. A language whose kit labels need
+  other characters (Polish, Turkish, Japanese, Korean, Chinese) gets the English labels, never `?`. A kit with
+  embedded Unicode fonts is a follow-up.
+- **Fonts.** DM Sans has no CJK glyphs. For `ja`, `ko` and `zh` the desktop app and the extension set `--font-ui`
+  to DM Sans followed by the platform's CJK UI font (`:root:lang()`, design tokens `languageFontFamily`); nothing
+  is bundled or loaded. The mobile apps use the system fallback.
+- **AI-assisted translation, said in the UI.** Every language other than English and German is translated with AI
+  help. Under the language choice (desktop), in the extension's "more" menu, and in the mobile settings, those
+  languages show `settings.language.machineNote` ("Translated with AI help. If something reads wrong, tell us.").
+  `reviewedLocales` in `packages/i18n` is the one list of languages without the note.
+- **Second review of security texts.** Before a release ships a new language, a second reviewer (a person or a
+  separate model run against the English) checks its security-relevant texts: warnings, unlock and quick unlock,
+  recovery and the Emergency Kit, approvals (agent, SSH, browser, sharing), and error messages. A wrong word there
+  can make a user approve or skip something they should not.
+- **Translation gate.** Scaffolded catalog files start with `// UNTRANSLATED: copy of English, replace every
+  value` and hold English. `translations.test.ts` fails while a file of a locale outside `TRANSLATIONS_PENDING`
+  holds the marker; nothing merges to `main` or ships while that list is not empty. Plural messages may use only
+  the locale's CLDR categories plus `=N`, and must have `other`; the mobile export gives every plural exactly the
+  locale's categories (a missing one gets the `other` text), as Android lint requires.
+- **Right-to-left languages are deferred.** Arabic, Hebrew and Persian need mirrored layouts, bidirectional text
+  checks on every screen that shows a secret or an origin, and their own review; they are not part of this set.
+
+### Alternatives considered
+- **Machine translation at run time.** Rejected: it sends UI text to a third party and changes under the user.
+- **One Chinese catalog for both scripts.** Rejected: Simplified text for a Traditional reader is worse than English.
+- **Per-language Rust tables for the native dialogs.** Rejected for now: two dialogs, and an English fallback is
+  correct there; more tables are more texts to keep in sync with the catalog tests.
+- **Translated language names.** Rejected: a reader who opened the wrong language must find their own by its name.
