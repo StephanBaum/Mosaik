@@ -1,0 +1,187 @@
+/* Security: how it works, the stolen server, what we see (prototype 2567-2756). */
+
+.how-steps {
+  display: grid;
+  gap: clamp(40px, 6vw, 88px);
+}
+
+.how-step {
+  display: grid;
+  gap: var(--space-6);
+  align-items: center;
+}
+
+.how-step__visual,
+.how-step__copy {
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .how-step {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: clamp(32px, 5vw, 80px);
+  }
+
+  .how-step:nth-child(even) .how-step__visual {
+    order: 2;
+  }
+}
+
+.how-step__copy {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.how-step__title {
+  font-size: clamp(1.5rem, 1.2rem + 1vw, 2.25rem);
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.how-step__text {
+  color: var(--paper-2);
+}
+
+.technical {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 820px;
+  margin-top: var(--space-8);
+  color: var(--paper-2);
+  font-size: 0.9375rem;
+}
+
+.technical__label {
+  color: var(--tint-text);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.overlap {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.overlap__visual,
+.overlap__text {
+  min-width: 0;
+}
+
+.overlap__text {
+  display: grid;
+  gap: var(--space-5);
+}
+
+@media (min-width: 1000px) {
+  .overlap {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: center;
+  }
+
+  .overlap__visual {
+    grid-row: 1;
+    grid-column: 1 / span 7;
+  }
+
+  .overlap__text {
+    position: relative;
+    z-index: 2;
+    grid-row: 1;
+    grid-column: 7 / span 6;
+  }
+}
+
+.cipher {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cipher code {
+  display: flex;
+  gap: var(--space-4);
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--space-3) var(--space-4);
+  border-radius: 8px;
+  background: var(--ink-deep);
+  color: var(--paper-3);
+  font-size: clamp(0.75rem, 0.6rem + 0.5vw, 0.9375rem);
+  white-space: nowrap;
+}
+
+.cipher__id {
+  color: var(--paper-2);
+}
+
+.see__title {
+  margin-bottom: var(--space-8);
+}
+
+.see__card {
+  display: grid;
+  gap: var(--gutter);
+  padding: clamp(28px, 3vw, 48px);
+  border: var(--border-hairline) solid var(--tint-26);
+  border-radius: var(--r-stage);
+  background: var(--ink-raised);
+}
+
+@media (min-width: 800px) {
+  .see__card {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.see__col {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+}
+
+.see__label {
+  color: var(--tint-text);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.see__col--no .see__label {
+  color: var(--paper-2);
+}
+
+.see__col ul {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.see__col li {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 1.0625rem;
+}
+
+.see__col li .icon {
+  color: var(--tint-text);
+}
+
+.see__foot {
+  grid-column: 1 / -1;
+  padding-top: var(--space-5);
+  border-top: var(--border-hairline) solid var(--rule);
+  color: var(--paper-3);
+  font-size: 0.9375rem;
+}
+
+.challenge-block .card {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  max-width: 820px;
+}

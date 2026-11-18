@@ -1,0 +1,211 @@
+/* Pieces of the earlier visual system that pages still render and the prototype files do not define. */
+
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: -2;
+  height: min(100%, 980px);
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  background-position: center top;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, var(--mask-solid) 30%, transparent 75%);
+  pointer-events: none;
+}
+
+.hero__center .line {
+  display: block;
+}
+
+.frame-wrap--glow::before {
+  content: "";
+  position: absolute;
+  inset: 8% 4% -6%;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 45% 55% at 25% 50%, rgb(var(--violet-rgb) / 0.32), transparent 70%),
+    radial-gradient(ellipse 45% 55% at 75% 50%, rgb(var(--sky-rgb) / 0.26), transparent 70%),
+    radial-gradient(ellipse 40% 40% at 50% 90%, rgb(var(--mint-rgb) / 0.18), transparent 70%);
+  filter: blur(40px);
+  pointer-events: none;
+}
+
+@media (min-width: 900px) {
+  .ruled--3 .ruled__item:first-child,
+    .ruled--2 .ruled__item:first-child,
+    .ruled--grid .ruled__item:nth-child(3n + 1) {
+      padding-left: 0;
+      border-left: 0;
+    }
+  
+  .ruled--grid .ruled__item {
+      border-bottom: var(--border-width-hairline) solid var(--rule);
+    }
+}
+
+.badges--small li {
+  font-size: 0.8125rem;
+}
+
+.fill__avatar,
+.members__avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--selection), var(--c-azure));
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.fill__who,
+.members__who {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.3;
+}
+
+.fill__who span,
+.members__who span {
+  overflow: hidden;
+  color: var(--paper-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.members {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.members__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 0.9375rem;
+}
+
+.members__head .icon {
+  width: 18px;
+  height: 18px;
+  color: var(--paper-3);
+}
+
+.members__count {
+  margin-left: auto;
+  color: var(--paper-3);
+  font-size: 0.8125rem;
+}
+
+.members__list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.members__list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: var(--border-width-hairline) solid var(--rule-strong);
+  border-radius: var(--radius-pill);
+  color: var(--paper-3);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.badge .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.badge--ok {
+  border-color: rgb(var(--mint-rgb) / 0.35);
+  color: var(--c-mint-soft);
+}
+
+.tool-card {
+  position: relative;
+  display: grid;
+  gap: var(--space-8);
+  overflow: hidden;
+  padding: clamp(28px, 4vw, 56px);
+  border: var(--border-width-hairline) solid var(--rule-strong);
+  border-radius: 20px;
+  background:
+    radial-gradient(ellipse 50% 90% at 100% 50%, rgb(var(--violet-rgb) / 0.16), transparent 70%),
+    radial-gradient(ellipse 40% 70% at 85% 100%, rgb(var(--sky-rgb) / 0.12), transparent 70%),
+    var(--ink-raised);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--motion-hover) var(--ease-standard);
+}
+
+.tool-card:hover {
+  border-color: rgb(var(--rule-rgb) / 0.3);
+}
+
+.tool-card__body {
+  display: grid;
+  align-content: center;
+  gap: var(--space-5);
+}
+
+@media (min-width: 1000px) {
+  .tool-card {
+      grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+      align-items: center;
+    }
+}
+
+.tool-card__sample {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border: var(--border-width-hairline) solid var(--rule);
+  border-radius: 14px;
+  background: var(--ink-deep);
+}
+
+.tool-card__q {
+  color: var(--paper);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.tool-card__opts {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.tool-card__opt {
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-hairline) solid var(--rule-strong);
+  border-radius: 10px;
+  color: var(--paper-2);
+  font-size: 0.9375rem;
+}
+
+.tool-card__opt.is-on {
+  border-color: rgb(var(--lilac-rgb) / 0.6);
+  background: rgb(var(--violet-rgb) / 0.14);
+  color: var(--paper);
+}
+
+.plan .button {
+  justify-self: start;
+  margin-top: auto;
+}

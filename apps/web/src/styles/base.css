@@ -1,0 +1,167 @@
+/* Base: palette, document defaults and type ("Linear calm"). Dark only (`data-theme="dark"`
+   on the root): a near-black, faintly tinted ground, warm paper type, fine 1 px rules, and one
+   restrained accent taken from the holo hues. Colour comes from the product shots and the holo
+   foil, not from decoration. Spacing, radii, motion and the holo button come from
+   `virtual:mosaic-tokens.css` (packages/design-tokens). */
+
+:root {
+  color-scheme: dark;
+
+  --font-sans: "DM Sans", "DM Sans Fallback", var(--font-ui);
+
+  /* Grid: fluid margins, an 8 px cube grid, 12 columns from 1000 px. */
+  --margin: clamp(20px, 5vw, 72px);
+  --gutter: clamp(16px, 2vw, 32px);
+  --content-max: 1296px;
+  --section-space: clamp(88px, 10vw, 160px);
+  --cube: 8px;
+  --gutter-left: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-right: max(16px, env(safe-area-inset-right, 0px));
+  --border-hairline: var(--border-width-hairline);
+  --border-focus: var(--border-width-focus);
+  --r-stage: 32px;
+  --r-card: 20px;
+  --r-chip: 12px;
+
+  --motion-reveal: 600ms;
+  --motion-hover: 120ms;
+  --ease-standard: var(--motion-easing);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-reveal: 0ms;
+    --motion-hover: 0ms;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scrollbar-color: var(--color-faint) var(--ink);
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--size-header) + var(--space-6));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+  overflow-x: clip;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+}
+
+main:focus {
+  outline: none;
+}
+
+h1,
+h2,
+h3,
+p,
+figure,
+dl,
+dd {
+  margin: 0;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+picture {
+  display: block;
+}
+
+code {
+  padding: 0.05em 0.35em;
+  border-radius: var(--radius-tag);
+  background: rgb(var(--paper-rgb) / 0.08);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+::selection {
+  background: var(--selection);
+  color: var(--paper);
+}
+
+:focus-visible {
+  outline: var(--border-width-focus) solid var(--paper);
+  outline-offset: 3px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: var(--layer-toast);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(calc(-100% - var(--space-6)));
+  transition: transform var(--motion-panel) var(--ease-enter);
+}
+
+.skip-link:focus-visible {
+  transform: none;
+}

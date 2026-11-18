@@ -31,6 +31,7 @@ import { breach } from "./catalog/en/breach.ts";
 import { mobile } from "./catalog/en/mobile.ts";
 import { mobileUx } from "./catalog/en/mobileUx.ts";
 import { mobileFolder } from "./catalog/en/mobileFolder.ts";
+import { web } from "./catalog/en/web/index.ts";
 
 export const en = {
   ...app,
@@ -62,6 +63,7 @@ export const en = {
   ...mobile,
   ...mobileUx,
   ...mobileFolder,
+  ...web,
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

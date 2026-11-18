@@ -756,3 +756,56 @@ jobs:
         env:
           SUMMARY: ${{ needs.changes.outputs.summary }}
         run: echo "No-op, nothing the extension builds on or its tests read changed. Plan, $SUMMARY"
+
+  web:
+    name: Website (budgets, shaders, CSP, axe, perf)
+    needs: changes
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    env:
+      RUN: ${{ needs.changes.outputs.web == 'true' }}
+    steps:
+      - name: Change detection gate (fails closed)
+        shell: bash
+        env:
+          RESULT: ${{ needs.changes.result }}
+          OK: ${{ needs.changes.outputs.ok }}
+        run: |
+          if [ "$RESULT" != success ] || [ "$OK" != true ]; then
+            echo "::error::Change detection did not succeed (result: $RESULT). Failing closed (docs/CI.md)."
+            exit 1
+          fi
+      - if: env.RUN == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - if: env.RUN == 'true'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - if: env.RUN == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - if: env.RUN == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/web lint
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/web typecheck
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/web test
+      # MOSAIC_DEPLOY must stay unset here: with `production` the claims gate (G1-G10, not yet
+      # verified) fails the build by design.
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/web build
+      - name: Install Chromium for Playwright
+        if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/web exec playwright install --with-deps chromium
+      # Chromium draws WebGL in software (SwiftShader, set in playwright.config.ts); the specs name
+      # which budgets that distorts. The server is `vite preview` of dist/, started by the config.
+      - if: env.RUN == 'true'
+        run: pnpm --filter @mosaic/web exec playwright test
+      - name: Not affected
+        if: env.RUN != 'true'
+        env:
+          SUMMARY: ${{ needs.changes.outputs.summary }}
+        run: echo "No-op, nothing the website builds on or its tests read changed. Plan, $SUMMARY"

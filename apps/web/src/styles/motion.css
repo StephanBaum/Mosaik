@@ -1,0 +1,123 @@
+/* Motion: reveals, intro stagger, showcase scrub, global pause and the reduced-motion rules. */
+
+/* Motion: CSS reveals, the intro stagger, the showcase scrub and the global pause. JS only adds
+   `reveal-pending` (below the fold, once the observer has reported), so a page without JS shows
+   every section. */
+
+.reveal-pending {
+  opacity: 0;
+  transform: translateY(28px);
+}
+
+.reveal-in {
+  transition:
+    opacity 650ms var(--ease-enter),
+    transform 650ms var(--ease-enter);
+}
+
+@keyframes intro {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-motion="off"]) [data-intro] {
+    animation: intro 700ms var(--ease-enter) both;
+  }
+
+  html:not([data-motion="off"]) [data-intro="1"] {
+    animation-delay: 40ms;
+  }
+
+  html:not([data-motion="off"]) [data-intro="2"] {
+    animation-delay: 100ms;
+  }
+
+  html:not([data-motion="off"]) [data-intro="3"] {
+    animation-delay: 160ms;
+  }
+
+  html:not([data-motion="off"]) [data-intro="4"] {
+    animation-delay: 220ms;
+  }
+
+  html:not([data-motion="off"]) [data-intro="5"] {
+    animation-delay: 280ms;
+  }
+
+  html:not([data-motion="off"]) [data-intro="6"] {
+    animation-delay: 340ms;
+  }
+}
+
+/* The footer toggle stops CSS animations too (WCAG 2.2.2). */
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* The product window tilts in as the hero scrolls away. */
+@keyframes showcase-scrub {
+  from {
+    transform: rotateX(9deg) translateY(24px);
+  }
+
+  to {
+    transform: translateY(-24px);
+  }
+}
+
+@supports (animation-timeline: view()) {
+  @media (min-width: 1000px) and (prefers-reduced-motion: no-preference) {
+    html:not([data-motion="off"]) [data-showcase] .frame {
+      animation: showcase-scrub linear both;
+      animation-timeline: view();
+      animation-range: entry 5% cover 60%;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holo.holo--pressed,
+  .button--line:active,
+  .platform__link:hover {
+    transform: none;
+  }
+
+  .button--line::before,
+  .button--line::after,
+  .tile::after,
+  .plan::after,
+  .card::after,
+  .platform__link::after,
+  .step-card::after,
+  .see__card::after,
+  .ds::after,
+  .di::after,
+  .db::after,
+  .da::after,
+  .terminal::after {
+    display: none;
+  }
+
+  .button--line,
+  .site-nav__links a,
+  .lang a,
+  .arrow-link > span,
+  .tile,
+  .plan,
+  .card,
+  .platform__link,
+  .step-card {
+    transition-duration: 200ms;
+  }
+
+  .da__caret,
+  .terminal__caret {
+    animation: none;
+  }
+}

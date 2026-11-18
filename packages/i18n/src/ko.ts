@@ -28,9 +28,12 @@ import { breach } from "./catalog/ko/breach.ts";
 import { mobile } from "./catalog/ko/mobile.ts";
 import { mobileUx } from "./catalog/ko/mobileUx.ts";
 import { mobileFolder } from "./catalog/ko/mobileFolder.ts";
+import { web } from "./catalog/en/web/index.ts";
 import type { MessageKey } from "./en.ts";
 
 export const ko: Readonly<Record<MessageKey, string>> = {
+  // The website is not translated into the app-only languages (ADR-0168): its keys fall back to English.
+  ...web,
   ...app,
   ...errors,
   ...onboarding,
