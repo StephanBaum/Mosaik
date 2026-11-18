@@ -87,6 +87,8 @@ tables).
 | M8 CLI (T1 review, CLI security review) | 1 | 1 | 10 | 9 | none |
 | M9 Hardening (T2 review, milestone review with five reviewers) | 0 | 5 | 11 | 3 | 21 (1 red-team regression, 2 sync-chaos findings, 18 UX findings) |
 | **Overall (M0 to M9)** | **34** | **154** | **252** | **70** | **72 recorded** |
+| Red-team campaign 2026-11, rounds 1 and 2 | 3 | 5 | 9 | 4 | 18 (release 5, extension 4, desktop 2, iOS 4, Android 3) |
+| Launch features and cross-feature round (2026-11-15 to 2026-11-17) | 2 | 8 | 15 | not recorded | agent-access Low/Info 7, folder sync 6, cross-feature F3/F4, 2 lint errors |
 
 The overall Info and Ungraded figures are lower bounds: most milestones did not
 record them. M4 and M5 recorded no graded counts, so the High, Medium and Low
@@ -361,7 +363,7 @@ sends one `webDomain` per form.
 ## Red-team campaign 2026-11
 
 Status: round 1 **done and landed in `main`** (PRs #73 to #78, plus the iOS and Android fixes in the M10 branch);
-round 2 **fixed in PR #80, not yet merged**. A whole-app red team of every surface by Fable (model tier fable), each fix
+round 2 **merged in PR #80** (2026-11-15); the launch features and a cross-feature round followed (2026-11-15 to 2026-11-17). A whole-app red team of every surface by Fable (model tier fable), each fix
 re-verified adversarially. Sources: the commit messages named below, the PR descriptions and the task brief for round 2.
 Fixes were written with Opus 5.5 (commit trailers). Severity is given only where a commit message or the brief states it.
 
@@ -387,7 +389,7 @@ The headline limits (THREAT_MODEL R150 to R153): a genuine old release can be of
 password opens a two-minute window for one action only; an SSH agent connection forwarded to a remote host is treated as
 untrusted and gets no grant.
 
-### Round 2, chained attacks across components (PR #80, not yet merged)
+### Round 2, chained attacks across components (PR #80, merged 2026-11-15)
 
 | Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
 |---|---|---|---|---|---|
@@ -395,6 +397,23 @@ untrusted and gets no grant.
 | 2026-11-14 | Fix review of the round 2 fixes | fable | 0 / 0 / 1 / 2 | none | Low: FIX-1 (the release guard could be bypassed). Info: FIX-2, FIX-3. All closed in PR #80 (`95ebbf4`: FIX-1 to FIX-3 and the KEY-1 test) |
 
 Total (round 2): High 1, Medium 2, Low 6, Info 4 (the round 2 findings and the fix review together).
+
+### Launch features and cross-feature round (2026-11-15 to 2026-11-17)
+
+Each launch feature got a red-team pass by the strongest model tier before it merged; the fixes were re-checked by
+CI and, where named, by a verify pass. Severity is given as the PR descriptions and commit messages state it.
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-15 | Agent access phase 1 (PR #92) | fable | 0 / 1 / not recorded / not recorded | 7 Low/Info items (masking variants, `reason` rendering, query-injection memory, pairing-ID oracle, doc mismatch, dialog budget, duplicate names) | Medium: audit-log flooding. All fixed with tests in PR #92; THREAT_MODEL R179 to R193 |
+| 2026-11-15 | Onboarding import (PR #94) | fable | 0 / 2 / 3 / not recorded | none | Medium: delete offered after a lossy import; Windows delete refused cloud placeholders. Low: ZIP ratio trusted the declared size, delete bound only to a path, work after the field cap. All fixed with tests in PR #94; R194 to R196 |
+| 2026-11-15 | Windows program fill phase 2 (PR #96) | fable | 1 / 2 / 3 / not recorded | none | High: re-entrant host calls could stall and let an abandoned worker write a password late. Fixed in `2272be5` except F5 (the importer accepted `winapp://` URLs), closed by F1 of the cross-feature round below; R206, R207 |
+| 2026-11-16 | Android folder sync (PR #95) | fable | not recorded | 6 findings | Fixed in PR #95: a join records the account file version, a forged callback keeps the pending sign-in, a WebDAV 401 is confirmed before sign-out and the app password revoked, Graph write-once uses upload sessions, phones register as `android`/`ios`, a reset reports a failed revocation. ADR-0166, R201 to R205 |
+| 2026-11-17 | Cross-feature red team: chained attacks across import, editors, sharing, Android link, program fill and agent access (PR #108) | fable | 0 / 1 / 1 / not recorded | 2 findings (F3, F4) | Medium F1: a pre-confirmed Android app link could be planted through an import or an editor. Low F2: bindings in shared vaults were trusted on other members' devices. F3: stale agent marks. F4: file drops in the chip and picker windows. All fixed with tests; ADR-0092 and ADR-0164 amended, R208 |
+| 2026-11-17 | Performance pass, adversarial review of the batched writes and caches (PR #110) | opus | 1 / 2 / 8 / 0 | 2 lint errors (X1, X2) | C1 (graded Critical, counted as High): accepting a rotated vault key inside a pull batch failed, because the WAL scrub ran inside the open transaction. M1: a failed final COMMIT kept the sequence-reservation cache. M2: an in-flight list response could overwrite a save's in-place row. L1 to L8: panic and commit-failure paths of the batch, plaintext lifetime at unlock, test and staleness items. All fixed on the branch before merge; ADR-0170 |
+
+Total (launch round): High 2, Medium 8, Low 15 where graded; the agent-access Low/Info items, the folder-sync
+findings and the cross-feature F3/F4 are counted by ID only.
 
 ## Appending a milestone
 

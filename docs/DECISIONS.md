@@ -6925,3 +6925,37 @@ of 10,000 entries cost 30 to 50 s.
 ### Alternatives considered
 - **`synchronous = NORMAL`.** Rejected: weakens durability of every write, for all paths.
 - **Bigger pages.** Rejected: does not remove the per-record fsync.
+
+## ADR-0171: Audit exceptions for picomatch (GHSA-fc5q-39xc-vjpf) and chrono (RUSTSEC-2026-0543)
+
+- Status: accepted
+- Date: 2026-11-17
+- Milestone: launch (CI gate)
+
+### Context
+Two new advisories turned `pnpm audit` and `cargo audit --deny warnings` red on every branch on 2026-11-17.
+- **GHSA-fc5q-39xc-vjpf**: a regular-expression denial of service in picomatch up to 4.0.7. No patched release
+  exists. picomatch reaches the repository only through development tooling (ESLint, Vite and Vitest through
+  tinyglobby and fdir); `pnpm why picomatch --prod` is empty, so no shipped app, extension or website bundle
+  contains it, and the glob patterns it compiles come from our own configuration, not from input.
+- **RUSTSEC-2026-0543**: chrono is unmaintained. It is only a `Cargo.lock` entry as an optional dependency of
+  `serde_with` (through `tauri-utils`); no build activates that feature, so no binary contains chrono. `cargo deny`
+  checks the build graph and does not see it; `cargo audit` reads every lock entry and does.
+
+### Decision
+- `package.json` `pnpm.auditConfig.ignoreGhsas` lists GHSA-fc5q-39xc-vjpf; `.cargo/audit.toml` lists
+  RUSTSEC-2026-0543, each with the reason next to it. No other advisory is ignored by this decision.
+- Each entry is removed as soon as it is no longer needed: picomatch when a patched release exists (Dependabot
+  raises it), chrono when `serde_with` or `tauri-utils` drop the optional dependency or a feature starts building it
+  (then it is replaced, not ignored).
+
+### Alternatives considered
+- **Override picomatch to a fork or pin an older major.** Rejected: no older line is unaffected, and a fork is an
+  unreviewed dependency in the toolchain.
+- **Leave the gate red until upstream fixes.** Rejected: it blocks every merge, including security fixes, for a
+  finding that ships in nothing.
+- **Disable the audit steps.** Rejected: they guard every other dependency.
+
+### Consequences
+- The gate is green again. The two exceptions are visible in the files they live in and here; a new advisory in
+  either package still fails the gate.

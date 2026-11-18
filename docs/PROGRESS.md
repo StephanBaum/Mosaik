@@ -21,15 +21,19 @@ milestone close appends its section there).
 | M8 CLI | ✅ done (2026-11-10; PR #50; T1 to T5, the T1 crypto review and the CLI security review; `crates/cli` and `crates/platform`; ADR-0071 to 0075, R105 to R111; open: Windows console-mode restore after a timeout or Ctrl-C, the owner decisions OD-M8-1 to OD-M8-9, signed distribution in M9). **M9 hardening is next** |
 | M9 Hardening | ✅ done (2026-11-12; branch `feat/m9-hardening` with `feat/m9-docs` merged; T1 to T13, ADR-0076 to 0087, R112 to R124; the T2 crypto review, the T12 milestone review (crypto-reviewer, extension-attacker, sync-chaos, ux-reviewer, test-engineer) and the T13 fixes; open: the extended fuzz run (CI workflow `fuzz-extended`), the manual checks, the owner decisions OD-M9-1 to OD-M9-21, M9-UX5 rest and the flaky `passkey-shim-tamper.spec.ts:120`). M10 mobile followed |
 | M10 Mobile | ✅ done (2026-11-14; branch `feat/m10-mobile` with `main` merged in (`2111186`); T1 to T15 and G1 to G5, ADR-0088 to ADR-0096, R125 to R141; Android and iOS apps built and tested in CI simulators and emulators only; open: the manual device checks (`docs/MOBILE.md` §7) and the owner items below; see "M10 Mobile" below) |
-| Windows program fill | phase 1 merged (PR #90, ADR-0157/0158); phase 2 on `feat/program-fill-phase2` (ADR-0163/0164, R171 to R176, R206): the chip, the picker list, the hotkey, typing, submit and the two-step continuation, WebView2 hosts (owner decision 2026-11-15); a real fill ran end to end on Windows 10; open: the owner run of `docs/PROGRAM_FILL.md` "Phase 2: the app", the `GetMappedFileNameW` image check, the red-team review |
-| App languages | infrastructure for es, fr, it, pt, nl, pl, tr, ja, ko and zh on `feat/app-languages` (ADR-0168, 2026-11-16); the catalogs are English copies until the translators land; the translation gate (`TRANSLATIONS_PENDING`) must be empty before merge |
-| Red-team campaign | round 1 landed in `main` (PRs #73 to #78, 2026-11-13 to 2026-11-14); round 2 (chained attacks) is in PR #80, not yet merged; see "Red-team campaign" under M10 |
-| Website launch | branch `feat/web` (plan `docs/superpowers/plans/2026-11-15-website-launch.md`, ADR-0167): Tasks 1 to 18 done, PR open; the production build stays blocked until the claims G1 to G10 are verified and the legal texts exist; see "Website launch" below |
+| Windows program fill | ✅ merged (phase 1 PR #90, phase 2 PR #96, 2026-11-15; ADR-0157/0158, ADR-0163/0164, R171 to R178, R206, R207): the chip, the picker list, the hotkey, typing, submit and the two-step continuation, WebView2 hosts; red team fixed before merge (one High); open: the owner run of `docs/PROGRAM_FILL.md` "Phase 2: the app", the `GetMappedFileNameW` image check (accepted under R177/R178) |
+| App languages | ✅ merged (PR #103, 2026-11-18; ADR-0168): the apps speak es, fr, it, pt, nl, pl, tr, ja, ko and zh besides de and en; AI-assisted with a second pass on the security-relevant keys, a visible note under the picker; the website stays English and German; open: native-speaker review per language |
+| Red-team campaign | ✅ round 1 (PRs #73 to #78) and round 2 (PR #80, 2026-11-15) merged; each launch feature had its own red team before merge, then a cross-feature round (PR #108, 2026-11-17); see `docs/SECURITY_REVIEW_LOG.md` |
+| Launch features | ✅ merged: Android one-tap app linking (PR #87), agent access with the MCP request tool (PRs #92, #97; ADR-0159/0160), onboarding import from browsers and password managers (PR #94; ADR-0165), Android folder sync over Nextcloud/WebDAV, Dropbox and OneDrive (PR #95; ADR-0161/0162/0166), performance pass for 10k-item vaults (PR #110; ADR-0170) |
+| Website launch | ✅ merged (PR #102, 2026-11-18; ADR-0167): static, CSP-strict, budgeted site in English and German; the production build stays blocked until the claims G1 to G10 are verified and the legal texts exist; see "Website launch" below |
 
-**Next steps (2026-11-14):** (1) the v0.1.0 release (a prerelease, pre-audit): it waits for the owner items in
-"Needs owner" (release keys, platform signing, a LICENSE) and for merging PR #80; (2) then the autofill-everywhere
-design, `docs/superpowers/specs/2026-11-14-autofill-everywhere-design.md`, which lives on branch
-`docs/autofill-everywhere-spec` and awaits owner approval.
+**Next steps (2026-11-19):** every launch feature is in `main`. (1) The v0.1.0 release (a prerelease, pre-audit)
+waits only on the owner items in "Needs owner": release keys and platform signing, a LICENSE, the Dropbox app and
+Microsoft Entra registrations, the privacy policy and store accounts, the website domain, legal texts and the
+claims G1 to G10, and the manual device checks. (2) Deferred past the launch: the Android Gradle plugin 9 migration
+(with Gradle 9, Compose BOM 2026.09 and androidx.core 1.19; Dependabot ignores them until then), jsdom 31 and
+windows-core 0.100; the IMAP mail assistant, one-button renew, iPhone at launch, phone account creation and
+import, Google Drive, right-to-left languages.
 
 ## M0 Foundations — done
 
