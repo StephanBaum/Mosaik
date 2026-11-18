@@ -530,7 +530,6 @@ class SessionController(
         guarded {
             val alias = holder.call { it.quickUnlockRemove() }
             if (alias != null) keys.delete(alias)
-            Unit
         }
 
     /** Creates the key, encrypts `W` behind a biometric, and hands the public body to the core. */
