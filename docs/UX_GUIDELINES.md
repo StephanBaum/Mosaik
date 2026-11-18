@@ -119,11 +119,14 @@ shortcut. Global shortcuts can be remapped, and the app detects conflicts.
 ## 6. Internationalization
 
 - Every user-facing string comes from `packages/i18n`. German and English are
-  required, and a CI test enforces key and placeholder parity.
+  written and reviewed by people; es, fr, it, pt, nl, pl, tr, ja, ko and zh are
+  translated with AI help and say so under the language choice (ADR-0168). A new
+  key goes into every catalog; CI tests enforce key, placeholder and plural
+  category parity. Languages are listed under their own names.
 - ICU MessageFormat for plurals and variables. No string concatenation, no
   splitting sentences around variables.
 - Layouts tolerate text that is 35 % longer (German). No fixed-width buttons
-  for text.
+  for text. CJK text uses the platform's CJK font after DM Sans (`:lang()`).
 - Dates, numbers and relative times use `Intl.*` with the user's locale.
 
 ## 7. Accessibility (WCAG 2.2 AA)

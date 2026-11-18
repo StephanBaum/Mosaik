@@ -30,67 +30,84 @@ function MenuList({
   id,
   label,
   items,
+  note,
   onChoose,
   onKeyDown,
 }: {
   id: string;
   label: string;
   items: readonly MenuItem[];
+  note: string | undefined;
   onChoose: (item: MenuItem) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
 }) {
+  // The note sits under the items, outside the menu role (a menu holds menu items only), and
+  // describes the menu for screen readers.
   return (
-    <div id={id} className="menu__list" role="menu" aria-label={label} onKeyDown={onKeyDown}>
-      {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className="menu__item"
-          role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-          aria-checked={item.checked}
-          // A description explains the item; it is not part of its name.
-          aria-labelledby={item.description === undefined ? undefined : `${id}-${item.id}-label`}
-          aria-describedby={item.description === undefined ? undefined : `${id}-${item.id}-description`}
-          disabled={item.disabled}
-          tabIndex={-1}
-          onClick={() => {
-            onChoose(item);
-          }}
-        >
-          <span className="menu__text">
-            <span id={`${id}-${item.id}-label`} className="menu__label">
-              {item.label}
+    <div className="menu__list">
+      <div
+        id={id}
+        className="menu__items"
+        role="menu"
+        aria-label={label}
+        aria-describedby={note === undefined ? undefined : `${id}-note`}
+        onKeyDown={onKeyDown}
+      >
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="menu__item"
+            role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+            aria-checked={item.checked}
+            // A description explains the item; it is not part of its name.
+            aria-labelledby={item.description === undefined ? undefined : `${id}-${item.id}-label`}
+            aria-describedby={item.description === undefined ? undefined : `${id}-${item.id}-description`}
+            disabled={item.disabled}
+            tabIndex={-1}
+            onClick={() => {
+              onChoose(item);
+            }}
+          >
+            <span className="menu__text">
+              <span id={`${id}-${item.id}-label`} className="menu__label">
+                {item.label}
+              </span>
+              {item.description !== undefined && (
+                <span id={`${id}-${item.id}-description`} className="menu__description">
+                  {item.description}
+                </span>
+              )}
             </span>
-            {item.description !== undefined && (
-              <span id={`${id}-${item.id}-description`} className="menu__description">
-                {item.description}
+            {item.checked !== undefined && (
+              <span className={item.checked ? "menu__check is-on" : "menu__check"} aria-hidden="true">
+                {item.checked && <Icon name="check" size="sm" />}
               </span>
             )}
-          </span>
-          {item.checked !== undefined && (
-            <span className={item.checked ? "menu__check is-on" : "menu__check"} aria-hidden="true">
-              {item.checked && <Icon name="check" size="sm" />}
-            </span>
-          )}
-          {item.hint !== undefined && <kbd className="kbd">{item.hint}</kbd>}
-        </button>
-      ))}
+            {item.hint !== undefined && <kbd className="kbd">{item.hint}</kbd>}
+          </button>
+        ))}
+      </div>
+      {note !== undefined && (
+        <p id={`${id}-note`} className="menu__note">
+          {note}
+        </p>
+      )}
     </div>
   );
 }
 
-export function Menu({
-  icon,
-  label,
-  items,
-  placement = "below",
-}: {
+export interface MenuProps {
   /** The icon of the button that opens the menu; `label` is its name. */
   icon: IconName;
   label: string;
   items: readonly MenuItem[];
+  /** A line of text under the items (not a menu item). */
+  note?: string | undefined;
   placement?: "below" | "above";
-}) {
+}
+
+export function Menu({ icon, label, items, note, placement = "below" }: MenuProps) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement | null>(null);
   const root = useRef<HTMLDivElement | null>(null);
@@ -154,6 +171,7 @@ export function Menu({
           id={menuId}
           label={label}
           items={items}
+          note={note}
           onKeyDown={onKeyDown}
           onChoose={(item) => {
             close(true);

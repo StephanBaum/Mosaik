@@ -2,7 +2,8 @@
  * Settings (D17): auto-lock, clipboard, appearance, sync, the SSH agent and the Emergency Kit.
  * A change that weakens protection asks for the master password (`reauthRequired`).
  */
-import { useEffect, useState } from "react";
+import { isMachineTranslated, localeNames } from "@mosaic/i18n";
+import { useEffect, useId, useState } from "react";
 import { IS_PREVIEW } from "../app/preview.ts";
 import { useSettings } from "../app/SettingsProvider.tsx";
 import { Button } from "../components/Button.tsx";
@@ -162,7 +163,10 @@ function ReminderSettings({ settings, onChange }: { settings: Settings; onChange
 }
 
 function Appearance({ settings, onChange }: { settings: Settings; onChange: (next: Settings) => void }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const noteId = useId();
+  // A language translated with AI help says so under the choice (ADR-0168).
+  const machineTranslated = isMachineTranslated(locale);
   return (
     <SettingsSection title={t("settings.appearance")} body={t("settings.appearance.body")}>
       <Select
@@ -178,10 +182,12 @@ function Appearance({ settings, onChange }: { settings: Settings; onChange: (nex
         inline
         label={t("settings.language")}
         value={settings.language}
+        // Every language under its own name, so a reader finds theirs in any UI language.
         options={languages.map((language) => ({
           value: language,
-          label: t(`settings.language.${language}`),
+          label: language === "system" ? t("settings.language.system") : localeNames[language],
         }))}
+        aria-describedby={machineTranslated ? noteId : undefined}
         onChange={(event) => {
           onChange({
             ...settings,
@@ -189,6 +195,11 @@ function Appearance({ settings, onChange }: { settings: Settings; onChange: (nex
           });
         }}
       />
+      {machineTranslated && (
+        <p id={noteId} className="field__hint">
+          {t("settings.language.machineNote")}
+        </p>
+      )}
     </SettingsSection>
   );
 }

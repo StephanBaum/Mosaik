@@ -114,8 +114,8 @@ pub const GLOBAL: &[Flag] = &[
     ),
     opt(
         "lang",
-        "en|de",
-        "Message language (also MOSAIC_LANG, LANG).",
+        "CODE",
+        "Message language: en, de, es, fr, it, pt, nl, pl, tr, ja, ko or zh (also MOSAIC_LANG, LANG).",
     ),
     flag("no-input", "Never prompt; a needed prompt is exit 3."),
     flag("quiet", "Print only the requested value."),

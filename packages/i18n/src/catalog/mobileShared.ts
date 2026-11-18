@@ -137,8 +137,12 @@ export const mobileItemKeys = [
   "item.copy",
 ] as const satisfies readonly MessageKey[];
 
-/** All shared keys: `error.<code>` for every code, then the item keys. */
+/** Settings texts the apps share with the desktop (the AI-translation note, ADR-0168). */
+export const mobileSettingsKeys = ["settings.language.machineNote"] as const satisfies readonly MessageKey[];
+
+/** All shared keys: `error.<code>` for every code, then the item and settings keys. */
 export const mobileShared: readonly MessageKey[] = [
   ...mobileErrorCodes.map((code) => `error.${code}` as MessageKey),
   ...mobileItemKeys,
+  ...mobileSettingsKeys,
 ];

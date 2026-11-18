@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 // By path, not by package name: Vite's config bundler leaves packages external, and
 // Node cannot import the workspace package's TypeScript source.
-import { cssVariables } from "../../packages/design-tokens/src/css.ts";
+import { cssVariables, languageFontRules } from "../../packages/design-tokens/src/css.ts";
 import { defineConfig, type Plugin } from "vite";
 
 const TOKENS_ID = "virtual:mosaic-tokens.css";
@@ -26,7 +26,8 @@ function tokensStylesheet(): Plugin {
       return id === TOKENS_ID ? RESOLVED_TOKENS_ID : undefined;
     },
     load(id) {
-      return id === RESOLVED_TOKENS_ID ? cssVariables() : undefined;
+      // The CJK font stacks follow the token block (ADR-0168).
+      return id === RESOLVED_TOKENS_ID ? `${cssVariables()}\n\n${languageFontRules()}\n` : undefined;
     },
   };
 }

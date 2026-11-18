@@ -3,6 +3,7 @@
  * layout flow, one primary button per screen, the no-code announcement, headings, the pairing
  * code's name, the shortcut hints per platform, copy-only rows and the developer-only text.
  */
+import { formatMessage } from "@mosaic/i18n";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -192,5 +193,27 @@ describe("the copy menu (m1) and rows (n3, n8)", () => {
     renderPopup(baseState());
     const input = await screen.findByRole("searchbox");
     expect(input.closest("label")?.className).toBe("search__box");
+  });
+});
+
+describe("the AI translation note (ADR-0168)", () => {
+  const more = (locale: "en" | "de" | "ja") => formatMessage(locale, "ext.footer.more");
+
+  it("sits under the items of the more menu in a language translated with AI help", async () => {
+    const user = userEvent.setup();
+    renderPopup(baseState({ matches: [match()] }), { languages: ["ja-JP"] });
+    await user.click(await screen.findByRole("button", { name: more("ja") }));
+    const menu = screen.getByRole("menu");
+    const note = screen.getByText(formatMessage("ja", "settings.language.machineNote"));
+    expect(menu.contains(note)).toBe(false);
+    expect(menu.getAttribute("aria-describedby")).toBe(note.id);
+  });
+
+  it("is not there in English or German", async () => {
+    const user = userEvent.setup();
+    renderPopup(baseState({ matches: [match()] }), { languages: ["de-DE"] });
+    await user.click(await screen.findByRole("button", { name: more("de") }));
+    expect(screen.getByRole("menu").getAttribute("aria-describedby")).toBeNull();
+    expect(screen.queryByText(formatMessage("de", "settings.language.machineNote"))).toBeNull();
   });
 });

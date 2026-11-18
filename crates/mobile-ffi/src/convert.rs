@@ -699,6 +699,7 @@ mod tests {
             attachments: Vec::new(),
             otp: Some(otp_view),
             history_count: 4,
+            shared: false,
         });
         for otp in [
             f::OtpEdit::Keep,

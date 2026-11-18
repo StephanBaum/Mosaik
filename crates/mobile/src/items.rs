@@ -227,6 +227,9 @@ pub struct ItemDetail {
     pub otp: Option<OtpView>,
     /// How many earlier passwords the history holds.
     pub history_count: u32,
+    /// The item is in a shared vault (a vault whose state cannot be read counts as shared). An app
+    /// cannot be linked to a login there, so the UI offers no link action.
+    pub shared: bool,
 }
 
 /// What a login draft does with the generator.
@@ -492,6 +495,7 @@ fn detail_of(
             .collect(),
         otp: item.otp().as_ref().map(view_of),
         history_count: u32::try_from(item.password_history().len()).unwrap_or(u32::MAX),
+        shared,
     }
 }
 

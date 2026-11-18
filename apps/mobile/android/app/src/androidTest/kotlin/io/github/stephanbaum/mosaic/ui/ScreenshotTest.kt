@@ -91,6 +91,7 @@ class ScreenshotTest {
             attachments = emptyList(),
             otp = OtpView(OtpScheme.TOTP, 6u, 30u, "GitHub", "octocat"),
             historyCount = 0u,
+            shared = false,
         )
 
     private val settings = MobileSettings(0u, 5u, 30u, 14u, false, false)

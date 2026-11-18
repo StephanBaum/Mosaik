@@ -1,3 +1,4 @@
+import { formatMessage } from "@mosaic/i18n";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
@@ -51,6 +52,23 @@ describe("settings", () => {
     expect(await screen.findByText(/Keep at least one lock on/)).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole<HTMLInputElement>("switch", { name: "Lock when the computer sleeps" }).checked).toBe(true);
+  });
+
+  it("names every language in its own language and notes an AI translation", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
+    await screen.findByText("GitHub");
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const select = await screen.findByLabelText<HTMLSelectElement>("Language");
+    const names = [...select.options].map((option) => option.text);
+    expect(names).toEqual(expect.arrayContaining(["English", "Deutsch", "Español", "日本語", "简体中文"]));
+    expect(screen.queryByText(formatMessage("en", "settings.language.machineNote"))).toBeNull();
+
+    await user.selectOptions(select, "ja");
+    const note = await screen.findByText(formatMessage("ja", "settings.language.machineNote"));
+    const japanese = screen.getByLabelText(formatMessage("ja", "settings.language"));
+    expect(japanese.getAttribute("aria-describedby")).toBe(note.id);
+    expect(document.documentElement.lang).toBe("ja");
   });
 
   it("opens the import from settings", async () => {

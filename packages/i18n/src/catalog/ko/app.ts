@@ -1,0 +1,53 @@
+/**
+ * Korean UI strings: app. Same keys as English (checked by the type).
+ * ICU plural categories of Korean: other (CLDR; `other` is required).
+ */
+import type { app as en } from "../en/app.ts";
+
+export const app = {
+  "app.name": "Mosaic",
+  "app.preAudit": "감사 전 소프트웨어: 외부 보안 감사자의 검토를 아직 받지 않았어요.",
+  "app.previewTag": "미리 보기",
+  "app.previewBuild": "미리 보기 빌드이며 정식 출시본이 아니에요. 서명되지 않았고 감사 전 상태이며 체험용으로만 사용하세요.",
+  "action.cancel": "취소",
+  "action.continue": "계속",
+  "action.retry": "다시 시도",
+  "action.copy": "복사",
+  "action.reveal": "표시",
+  "action.hide": "숨기기",
+  "action.lock": "잠금",
+  "action.details": "자세히",
+  "sync.offline":
+    "동기화 서버에 연결할 수 없어요. 변경 사항은 이 기기에 저장되었으며 다시 온라인이 되면 동기화돼요.",
+  "app.loading": "Mosaic을 여는 중…",
+  "app.skipToContent": "본문으로 건너뛰기",
+  "action.save": "저장",
+  "action.close": "닫기",
+  "action.showPassword": "비밀번호 표시",
+  "action.hidePassword": "비밀번호 숨기기",
+  "action.back": "뒤로",
+  "action.confirm": "확인",
+  "action.edit": "편집",
+  "action.delete": "휴지통으로 이동",
+  "action.restore": "복원",
+  "action.purge": "완전히 삭제",
+  "action.generate": "생성",
+  "action.useThis": "이것 사용",
+  "action.done": "완료",
+  "nav.main": "주 탐색",
+  "nav.vault": "보관함",
+  "nav.security": "보안",
+  "nav.generator": "생성기",
+  "nav.settings": "설정",
+  "nav.trash": "휴지통",
+  "nav.breadcrumb": "탐색 경로",
+  "nav.securityCount": "{count, plural, other {검토할 항목 #개}}",
+  "sync.status.local": "이 기기에 저장됨",
+  "sync.status.upToDate": "동기화됨",
+  "sync.status.attention": "확인 필요",
+  "sync.status.syncing": "동기화 중…",
+  "sync.status.offline": "오프라인",
+  "sync.status.error": "동기화 실패",
+  "action.moreActions": "더 보기",
+  "action.regenerate": "다시 생성",
+} satisfies Record<keyof typeof en, string>;

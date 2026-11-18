@@ -6,11 +6,17 @@ import { describe, expect, it } from "vitest";
 import { mobileErrorCodes, mobileShared } from "./catalog/mobileShared.ts";
 import { de } from "./de.ts";
 import { en } from "./en.ts";
+import { catalogs, locales } from "./index.ts";
 import {
   accessorName,
+  androidLocalesConfig,
   androidStrings,
+  androidValuesDir,
+  appleLocale,
   buildEntries,
   escapeAndroidText,
+  infoPlistUsageTexts,
+  infoPlistXcstrings,
   kotlinL10n,
   mobileKeys,
   swiftL10n,
@@ -19,7 +25,7 @@ import {
 } from "./mobileExport.ts";
 
 const entriesOf = (enMsgs: Record<string, string>, deMsgs: Record<string, string>) =>
-  buildEntries(enMsgs, deMsgs, Object.keys(enMsgs));
+  buildEntries({ en: enMsgs, de: deMsgs }, Object.keys(enMsgs));
 
 describe("mobile export", () => {
   it("a plural without a visible count gets an xcstrings count substitution", () => {
@@ -143,7 +149,7 @@ describe("mobile export", () => {
   it("resource names are unique", () => {
     const names = mobileKeys(en, mobileShared).map((k) => k.replaceAll(".", "_"));
     expect(new Set(names).size).toBe(names.length);
-    const accessors = buildEntries(en, de, mobileKeys(en, mobileShared)).map((e) =>
+    const accessors = buildEntries({ en, de }, mobileKeys(en, mobileShared)).map((e) =>
       accessorName(e.key),
     );
     expect(new Set(accessors).size).toBe(accessors.length);
@@ -158,10 +164,10 @@ describe("mobile export", () => {
       Object.keys(catalog).filter((k) => k.startsWith("mobile.")).sort();
     expect(own(de)).toEqual(own(en));
     // buildEntries throws when a pair uses different arguments or plural kinds.
-    const entries = buildEntries(en, de, mobileKeys(en, mobileShared));
+    const entries = buildEntries({ en, de }, mobileKeys(en, mobileShared));
     for (const entry of entries) {
-      expect(entry.messages.de.args.slice().sort(), entry.key).toEqual(
-        entry.messages.en.args.slice().sort(),
+      expect(entry.messages.de?.args.slice().sort(), entry.key).toEqual(
+        entry.messages.en?.args.slice().sort(),
       );
     }
     expect(() => entriesOf({ "mobile.x": "{a}" }, { "mobile.x": "{b}" })).toThrow(/^mobile\.x: DE and EN/);
@@ -189,5 +195,70 @@ describe("mobile export", () => {
       (m) => m[1],
     );
     expect([...mobileErrorCodes]).toEqual(codes);
+  });
+});
+
+const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const all = Object.fromEntries(locales.map((l) => [l, withMobileErrorTexts(catalogs[l])])) as Record<
+  (typeof locales)[number],
+  Record<string, string>
+> & { en: Record<string, string> };
+
+describe("mobile export in every language", () => {
+  const plural = { "mobile.left": "{n, plural, one {# try} other {# tries}}" };
+
+  it("gives each language exactly its CLDR plural categories, missing ones from other", () => {
+    const entries = buildEntries({ en: plural, pl: plural, ja: plural }, ["mobile.left"]);
+    const quantities = (xml: string) => [...xml.matchAll(/quantity="(\w+)"/g)].map((m) => m[1]);
+    expect(quantities(androidStrings(entries, "en"))).toEqual(["one", "other"]);
+    expect(quantities(androidStrings(entries, "pl"))).toEqual(["one", "few", "many", "other"]);
+    expect(androidStrings(entries, "pl")).toContain('<item quantity="few">%1$d tries</item>');
+    expect(quantities(androidStrings(entries, "ja"))).toEqual(["other"]);
+    const xc = JSON.parse(xcstrings(entries)) as {
+      strings: Record<string, { localizations: Record<string, { variations: { plural: object } }> }>;
+    };
+    const loc = xc.strings["mobile.left"]?.localizations;
+    expect(Object.keys(loc?.["pl"]?.variations.plural ?? {})).toEqual(["few", "many", "one", "other"]);
+    expect(Object.keys(loc?.["ja"]?.variations.plural ?? {})).toEqual(["other"]);
+  });
+
+  it("names the folders so that Traditional Chinese stays on English", () => {
+    expect(androidValuesDir("en")).toBe("values");
+    expect(androidValuesDir("pt")).toBe("values-pt");
+    expect(androidValuesDir("zh")).toBe("values-b+zh+Hans");
+    expect(appleLocale("zh")).toBe("zh-Hans");
+    expect(appleLocale("pt")).toBe("pt");
+    const config = androidLocalesConfig(locales);
+    expect(config).toContain('<locale android:name="pt-BR" />');
+    expect(config).toContain('<locale android:name="zh-Hans" />');
+    expect(config).not.toMatch(/zh-Hant|zh-TW/);
+  });
+
+  it("writes the language code into every strings.xml for isMachineTranslated", () => {
+    const entries = buildEntries({ en: { "mobile.a": "a" }, ko: { "mobile.a": "b" } }, ["mobile.a"]);
+    expect(androidStrings(entries, "ko")).toContain('<string name="l10n_locale">ko</string>');
+    expect(kotlinL10n(entries)).toContain('r.getString(R.string.l10n_locale) !in listOf("en", "de")');
+    expect(swiftL10n(entries)).toContain('!["en", "de"].contains(Bundle.main.preferredLocalizations.first ?? "en")');
+  });
+
+  it("a language that uses other arguments fails, naming it", () => {
+    expect(() => buildEntries({ en: { "mobile.x": "{a}" }, ja: { "mobile.x": "{b}" } }, ["mobile.x"])).toThrow(
+      /^mobile\.x: JA and EN/,
+    );
+  });
+
+  it("the committed files equal the export of every catalog", () => {
+    const entries = buildEntries(all, mobileKeys(en, mobileShared));
+    const android = join(repo, "apps", "mobile", "android", "app", "src", "main", "res");
+    const read = (path: string) => readFileSync(path, "utf8").replaceAll("\r\n", "\n");
+    for (const locale of locales) {
+      expect(read(join(android, androidValuesDir(locale), "strings.xml")), locale).toBe(
+        androidStrings(entries, locale),
+      );
+    }
+    expect(read(join(android, "xml", "locales_config.xml"))).toBe(androidLocalesConfig(locales));
+    const ios = join(repo, "apps", "mobile", "ios", "Resources");
+    expect(read(join(ios, "Localizable.xcstrings"))).toBe(xcstrings(entries));
+    expect(read(join(ios, "InfoPlist.xcstrings"))).toBe(infoPlistXcstrings(all, infoPlistUsageTexts));
   });
 });

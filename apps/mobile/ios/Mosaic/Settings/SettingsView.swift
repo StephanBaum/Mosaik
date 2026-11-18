@@ -415,6 +415,10 @@ struct SettingsView: View {
         Panel {
             SectionTitle(text: L10n.settingsAbout())
             BodyText(text: L10n.settingsVersion(version: Self.appVersion))
+            // The app follows the system language; one translated with AI help says so (ADR-0168).
+            if L10n.isMachineTranslated {
+                HintText(text: L10n.settingsLanguageMachineNote())
+            }
             BodyText(text: L10n.aboutPreAudit())
                 .accessibilityIdentifier("about-pre-audit")
             BodyText(text: L10n.aboutPrivacy())

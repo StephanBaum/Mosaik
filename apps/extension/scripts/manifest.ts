@@ -7,8 +7,21 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+// The catalogs by path, without the package entry (Vite's config bundler cannot resolve its
+// dependencies from here).
 import { de } from "../../../packages/i18n/src/de.ts";
 import { en } from "../../../packages/i18n/src/en.ts";
+import { es } from "../../../packages/i18n/src/es.ts";
+import { fr } from "../../../packages/i18n/src/fr.ts";
+import { it } from "../../../packages/i18n/src/it.ts";
+import { ja } from "../../../packages/i18n/src/ja.ts";
+import { ko } from "../../../packages/i18n/src/ko.ts";
+import type { Locale } from "../../../packages/i18n/src/locales.ts";
+import { nl } from "../../../packages/i18n/src/nl.ts";
+import { pl } from "../../../packages/i18n/src/pl.ts";
+import { pt } from "../../../packages/i18n/src/pt.ts";
+import { tr } from "../../../packages/i18n/src/tr.ts";
+import { zh } from "../../../packages/i18n/src/zh.ts";
 import { FIREFOX_EXTENSION_ID } from "../src/shared/ids.ts";
 import { ICON_SIZES } from "./icons.ts";
 
@@ -87,9 +100,31 @@ export function manifest(target: Target, mode: BuildMode): Record<string, unknow
 
 type Message = { message: string };
 
-/** `_locales/<locale>/messages.json`, from the extension strings of the shared catalogs. */
-export function localeMessages(locale: "en" | "de"): Record<string, Message> {
-  const catalog = locale === "en" ? en : de;
+const catalogs = { en, de, es, fr, it, pt, nl, pl, tr, ja, ko, zh } as const;
+
+/**
+ * The `_locales` folders of each language (ADR-0168), in the names Chrome accepts: Brazilian
+ * Portuguese also serves pt_PT, and only zh_CN gets Simplified Chinese, so a zh_TW browser falls
+ * back to English (`default_locale`), never to Simplified.
+ */
+export const LOCALE_DIRS: Readonly<Record<Locale, readonly string[]>> = {
+  en: ["en"],
+  de: ["de"],
+  es: ["es"],
+  fr: ["fr"],
+  it: ["it"],
+  pt: ["pt_BR", "pt_PT"],
+  nl: ["nl"],
+  pl: ["pl"],
+  tr: ["tr"],
+  ja: ["ja"],
+  ko: ["ko"],
+  zh: ["zh_CN"],
+};
+
+/** `_locales/<dir>/messages.json`, from the extension strings of the shared catalogs. */
+export function localeMessages(locale: Locale): Record<string, Message> {
+  const catalog = catalogs[locale];
   return {
     extName: { message: catalog["ext.manifest.name"] },
     extDescription: { message: catalog["ext.manifest.description"] },
