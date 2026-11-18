@@ -65,7 +65,7 @@ windows = { workspace = true, features = [
 thiserror.workspace = true
 # The focus handler uses `windows::core::implement`, whose generated code names `::windows_core`
 # directly; same exact version as `windows` pulls in already (no new package in Cargo.lock).
-windows-core = { version = "=0.62.2", default-features = false, features = ["std"] }
+windows-core = { version = "=0.100.0", default-features = false, features = ["std"] }
 # The INPUT records of a typed password are wiped when dropped (ADR-0163).
 zeroize.workspace = true
 
