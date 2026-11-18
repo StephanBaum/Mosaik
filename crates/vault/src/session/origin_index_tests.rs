@@ -45,10 +45,19 @@ fn page(origin: &str) -> PageOrigin {
 }
 
 fn found(s: &UnlockedSession, origin: &str, filter: &ItemFilter) -> Vec<ItemId> {
-    s.items_for_origin(&OriginKey::web(&page(origin)), filter)
-        .into_iter()
-        .map(|r| r.item_id)
-        .collect()
+    sorted(
+        s.items_for_origin(&OriginKey::web(&page(origin)), filter)
+            .into_iter()
+            .map(|r| r.item_id)
+            .collect(),
+    )
+}
+
+/// Results sorted by item ID: two items made in the same millisecond get v7 IDs in random order,
+/// so a test never relies on creation order.
+fn sorted(mut ids: Vec<ItemId>) -> Vec<ItemId> {
+    ids.sort();
+    ids
 }
 
 #[test]
@@ -63,7 +72,7 @@ fn the_index_is_built_by_the_first_lookup_and_follows_edits() {
 
     // put_item (add and update): a new login is found, an edited URL moves the login.
     let b = add_login(&mut s, vault, &["https://www.example.com/login"]);
-    assert_eq!(found(&s, "https://example.com", &all), [a, b]);
+    assert_eq!(found(&s, "https://example.com", &all), sorted(vec![a, b]));
     let other = LoginUrl::new("https://other.org");
     let (url_id, _) = s.item(vault, a).unwrap().urls().into_iter().next().unwrap();
     s.update_item(vault, a, |e| e.set_url(&url_id, &other))
@@ -166,13 +175,18 @@ fn app_links_and_look_alike_hosts_are_indexed() {
     let web = add_login(&mut s, vault, &["https://github.com"]);
     let all = ItemFilter::default();
     let ids = |key: &OriginKey| -> Vec<ItemId> {
-        s.items_for_origin(key, &all)
-            .into_iter()
-            .map(|r| r.item_id)
-            .collect()
+        sorted(
+            s.items_for_origin(key, &all)
+                .into_iter()
+                .map(|r| r.item_id)
+                .collect(),
+        )
     };
     // Both app URLs are candidates (the cert rule is the caller's check); a web page is not.
-    assert_eq!(ids(&OriginKey::app("com.example.app")), [app, unbound]);
+    assert_eq!(
+        ids(&OriginKey::app("com.example.app")),
+        sorted(vec![app, unbound])
+    );
     assert_eq!(ids(&OriginKey::app("com.example.other")), []);
     assert_eq!(ids(&OriginKey::web(&page("https://github.com"))), [web]);
     assert_eq!(
