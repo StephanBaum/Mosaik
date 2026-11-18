@@ -66,3 +66,8 @@ updates:
       android-gradle:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # androidx.core 1.19+ needs Android Gradle plugin 9.1 and compileSdk 37; it follows the AGP 9
+      # migration, which is deferred past the launch (AGP 9 also needs Gradle 9.6, see the closed PR #86).
+      - dependency-name: "androidx.core:*"
+        versions: [">=1.19.0"]
