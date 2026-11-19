@@ -14,7 +14,9 @@ use crate::common::{LoginResult, TestApp, TestVault, User};
 /// The peer of the test requests. The port is five digits that no timestamp or
 /// duration in a log line or a database page is likely to contain, and it is
 /// looked for only with its address or after a colon.
-const PEER: &str = "203.0.113.77:51873";
+// The port lies below every ephemeral range (Linux 32768+, macOS and Windows 49152+): a real
+// loopback socket of the test, logged as `127.0.0.1:<port>`, can never carry it by chance.
+const PEER: &str = "203.0.113.77:21873";
 const MARKER: &str = "PLAINTEXT-MARKER-4e1f9b2c-item-title";
 
 pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
@@ -23,7 +25,7 @@ pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 /// Like [`contains`], but the match must not continue with another digit (a whole number), and a
 /// needle that starts with `:` (a port) must follow an address: a digit or `]`. A JSON field
-/// such as `"elapsed":51873` is not the port.
+/// such as `"elapsed":21873` is not the port.
 fn contains_number(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty()
         && haystack.windows(needle.len()).enumerate().any(|(i, w)| {
@@ -63,11 +65,11 @@ pub(crate) fn stored_bytes(dir: &Path) -> Vec<(String, Vec<u8>)> {
 /// hold it, and does not fire on digits alone.
 #[test]
 fn detector_catches_a_logged_peer_address() {
-    let needles: [&[u8]; 3] = [b"203.0.113.77", b"203.0.113.77:51873", b":51873"];
+    let needles: [&[u8]; 3] = [b"203.0.113.77", b"203.0.113.77:21873", b":21873"];
     for line in [
-        &b"INFO request peer=203.0.113.77:51873 status=200"[..],
-        b"connection from 203.0.113.77:51873",
-        b"addr: [203.0.113.77]:51873",
+        &b"INFO request peer=203.0.113.77:21873 status=200"[..],
+        b"connection from 203.0.113.77:21873",
+        b"addr: [203.0.113.77]:21873",
     ] {
         assert!(
             needles.iter().any(|n| contains(line, n)),
@@ -76,19 +78,19 @@ fn detector_catches_a_logged_peer_address() {
         );
     }
     for line in [
-        &b"ms=51873 route=/v1/login/start"[..],
-        b"1800000051873 duration=5555",
+        &b"ms=21873 route=/v1/login/start"[..],
+        b"1800000021873 duration=5555",
     ] {
         assert!(needles.iter().all(|n| !contains(line, n)));
     }
     // The whole-number port check: after an address only, never inside a longer number.
-    assert!(contains_number(b"peer=203.0.113.77:51873 ok", b":51873"));
-    assert!(contains_number(b"addr: [::1]:51873", b":51873"));
+    assert!(contains_number(b"peer=203.0.113.77:21873 ok", b":21873"));
+    assert!(contains_number(b"addr: [::1]:21873", b":21873"));
     assert!(!contains_number(
-        br#"{"elapsed":51873,"route":"/v1"}"#,
-        b":51873"
+        br#"{"elapsed":21873,"route":"/v1"}"#,
+        b":21873"
     ));
-    assert!(!contains_number(b"x 10.0.0.1:518734 y", b":51873"));
+    assert!(!contains_number(b"x 10.0.0.1:218734 y", b":21873"));
 }
 
 #[tokio::test(start_paused = true)]
@@ -142,8 +144,8 @@ async fn no_plaintext_and_no_ip_on_disk_or_in_logs() {
         ("peer IP text", b"203.0.113.77".to_vec()),
         ("peer IP prefix", b"203.0.113.".to_vec()),
         ("peer IP octets", vec![203, 0, 113, 77]),
-        ("peer address with port", b"203.0.113.77:51873".to_vec()),
-        ("peer port after a colon", b":51873".to_vec()),
+        ("peer address with port", b"203.0.113.77:21873".to_vec()),
+        ("peer port after a colon", b":21873".to_vec()),
         ("item plaintext", MARKER.as_bytes().to_vec()),
         ("OPAQUE password", u.opw.to_vec()),
         ("session token", token.to_vec()),
@@ -161,9 +163,9 @@ async fn no_plaintext_and_no_ip_on_disk_or_in_logs() {
         "{text}"
     );
     for (what, bytes) in &forbidden {
-        // A port is a whole number: ":51873" inside a longer number (a duration such as
-        // "elapsed":518734) is not the port, and matched it at random.
-        let found = if bytes.ends_with(b"51873") {
+        // A port is a whole number: ":21873" inside a longer number (a duration such as
+        // "elapsed":218734) is not the port, and matched it at random.
+        let found = if bytes.ends_with(b"21873") {
             contains_number(&log, bytes)
         } else {
             contains(&log, bytes)
