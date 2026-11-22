@@ -19,7 +19,7 @@
     "@fontsource/ibm-plex-mono": "5.3.0",
     "@mosaic/design-tokens": "workspace:*",
     "@mosaic/i18n": "workspace:*",
-    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/api": "2.12.5",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
