@@ -22,7 +22,7 @@ hkdf = { version = "=0.13.0", default-features = false }
 sha2 = { version = "=0.11.1", default-features = false, features = ["zeroize"] }
 chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc", "zeroize"] }
 aead-stream = { version = "=0.6.0", default-features = false, features = ["alloc"] }
-zeroize = { version = "=1.9.1", default-features = false, features = ["alloc", "zeroize_derive"] }
+zeroize = { version = "=1.9.2", default-features = false, features = ["alloc", "zeroize_derive"] }
 subtle = { version = "=2.6.1", default-features = false }
 getrandom = { version = "=0.4.3", default-features = false }
 # M6b sharing: HPKE (RFC 9180) mode Auth, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305
@@ -96,10 +96,10 @@ flate2 = { version = "=1.1.11", default-features = false, features = ["rust_back
 # KDBX inner XML; already in the tree (through plist).
 quick-xml = { version = "=0.42.0", default-features = false }
 # 1Password 1PUX archives: deflate only, no encryption, no other codecs.
-zip = { version = "=9.5.1", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "=9.7.3", default-features = false, features = ["deflate-flate2"] }
 # M4 browser extension (ADR-0035, ADR-0036, ADR-0037)
 # Public suffix list compiled in (MIT/Apache-2.0, no_std), for opt-in eTLD+1 matching.
-psl = { version = "=2.1.255", default-features = false, features = ["helpers"] }
+psl = { version = "=2.1.258", default-features = false, features = ["helpers"] }
 # WHATWG URL parsing, identical to the browser's origin rules; already in the tree through Tauri.
 url = { version = "=2.5.8", default-features = false, features = ["std"] }
 # An independent URI parser for the agent request tests (dev-dependency only; already in the tree through reqwest and axum).
@@ -189,7 +189,7 @@ lexopt = "=0.3.2"
 rpassword = "=7.5.5"
 
 # Ctrl-C handler of the CLI: restores the terminal mode and exits 130 (safe API, no unsafe in our code).
-ctrlc = "=3.5.2"
+ctrlc = "=3.5.3"
 # Saves and restores the terminal mode (echo) around a no-echo prompt on Unix; safe termios API, already in the tree.
 rustix = { version = "=1.1.6", default-features = false, features = ["std", "termios", "fs"] }
 
