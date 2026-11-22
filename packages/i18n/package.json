@@ -13,6 +13,6 @@
     "export:mobile": "node --experimental-strip-types --no-warnings scripts/export-mobile.mjs"
   },
   "dependencies": {
-    "intl-messageformat": "12.1.5"
+    "intl-messageformat": "12.2.0"
   }
 }
