@@ -33,7 +33,7 @@ mosaic-origin = { path = "../../../../crates/origin" }
 mosaic-program-fill = { path = "../../../../crates/program-fill" }
 serde = { version = "=1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "float_roundtrip"] }
-zeroize = { version = "=1.9.1", default-features = false, features = ["alloc", "zeroize_derive"] }
+zeroize = { version = "=1.9.2", default-features = false, features = ["alloc", "zeroize_derive"] }
 pdf-writer = { version = "=0.15.0", default-features = false }
 thiserror = { version = "=2.0.21", default-features = false }
 
